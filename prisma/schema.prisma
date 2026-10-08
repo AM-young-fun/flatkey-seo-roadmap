@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SearchRegion {
+  US
+  JP
+  ES
+}
+
+enum KeywordType {
+  MAIN
+  LONG_TAIL
+}
+
+enum RankBucket {
+  TOP_5
+  TOP_10
+  TOP_50
+  NOT_FOUND
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+model Keyword {
+  id            String            @id @default(cuid())
+  text          String            @unique
+  type          KeywordType       @default(MAIN)
+  active        Boolean           @default(true)
+  defaultVolume Int               @default(0)
+  parentId      String?
+  parent        Keyword?          @relation("KeywordTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Keyword[]         @relation("KeywordTree")
+  snapshots     RankingSnapshot[]
+  diffs         RankingDiff[]
+  volumes       KeywordVolume[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([parentId])
+  @@index([type])
+  @@index([active])
+}
+
+model SyncRun {
+  id           String            @id @default(cuid())
+  status       RunStatus         @default(RUNNING)
+  provider     String            @default("serpapi")
+  startedAt    DateTime          @default(now())
+  finishedAt   DateTime?
+  regions      SearchRegion[]
+  summary      Json?
+  errorMessage String?
+  snapshots    RankingSnapshot[]
+  diffs        RankingDiff[]
+  volumes      KeywordVolume[]
+}
+
+model RankingSnapshot {
+  id           String       @id @default(cuid())
+  keywordId    String
+  keyword      Keyword      @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  runId        String?
+  run          SyncRun?     @relation(fields: [runId], references: [id], onDelete: SetNull)
+  region       SearchRegion
+  rank         Int?
+  bucket       RankBucket
+  url          String?
+  title        String?
+  searchVolume Int?
+  checkedAt    DateTime     @default(now())
+
+  @@index([keywordId, region, checkedAt])
+  @@index([runId])
+  @@index([bucket])
+}
+
+model RankingDiff {
+  id             String       @id @default(cuid())
+  keywordId      String
+  keyword        Keyword      @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  runId          String
+  run            SyncRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  region         SearchRegion
+  previousRank   Int?
+  currentRank    Int?
+  rankDelta      Int?
+  previousBucket RankBucket?
+  currentBucket  RankBucket
+  changed        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@unique([keywordId, region, runId])
+  @@index([keywordId, region, createdAt])
+  @@index([changed])
+}
+
+model KeywordVolume {
+  id        String        @id @default(cuid())
+  keywordId String
+  keyword   Keyword       @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  runId     String?
+  run       SyncRun?      @relation(fields: [runId], references: [id], onDelete: SetNull)
+  region    SearchRegion?
+  volume    Int
+  source    String        @default("ahrefs")
+  fetchedAt DateTime      @default(now())
+
+  @@index([keywordId, region, fetchedAt])
+  @@index([runId])
+}

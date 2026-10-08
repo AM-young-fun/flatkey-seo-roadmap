@@ -1,0 +1,47 @@
+{
+  "name": "seo-rank-monitor",
+  "version": "1.0.0",
+  "description": "SEO keyword rank monitor with Next.js, PostgreSQL, Prisma, ECharts, Google SERP checks, and Ahrefs volume sync.",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "postinstall": "prisma generate"
+  },
+  "keywords": [
+    "seo",
+    "rank-tracking",
+    "nextjs",
+    "postgresql",
+    "echarts"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@prisma/client": "^6.12.0",
+    "date-fns": "^4.4.0",
+    "echarts": "^6.1.0",
+    "lucide-react": "^1.53.0",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
+    "prisma": "^6.12.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1"
+  }
+}
