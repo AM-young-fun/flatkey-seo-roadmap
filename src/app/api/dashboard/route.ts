@@ -18,6 +18,16 @@ function emptyRanks(): DashboardKeyword["latestRanks"] {
   );
 }
 
+function emptyMarketVolumes(): DashboardKeyword["marketVolumes"] {
+  return REGION_CODES.reduce(
+    (accumulator, region) => {
+      accumulator[region] = null;
+      return accumulator;
+    },
+    {} as DashboardKeyword["marketVolumes"]
+  );
+}
+
 export async function GET() {
   if (!isDatabaseConfigured()) {
     return NextResponse.json(getDemoDashboard());
@@ -42,6 +52,9 @@ export async function GET() {
           take: 18
         },
         volumes: {
+          where: {
+            source: "ahrefs"
+          },
           orderBy: {
             fetchedAt: "desc"
           },
@@ -66,6 +79,12 @@ export async function GET() {
 
   const dashboardKeywords: DashboardKeyword[] = keywords.map((keyword) => {
     const latestRanks = emptyRanks();
+    const marketVolumes = emptyMarketVolumes();
+
+    for (const region of REGION_CODES) {
+      marketVolumes[region] =
+        keyword.volumes.find((item) => item.region === region)?.volume ?? null;
+    }
 
     for (const region of REGION_CODES) {
       const snapshot = keyword.snapshots.find((item) => item.region === region);
@@ -80,7 +99,7 @@ export async function GET() {
             bucket: snapshot.bucket,
             url: snapshot.url,
             title: snapshot.title,
-            searchVolume: snapshot.searchVolume,
+            searchVolume: marketVolumes[region],
             checkedAt: snapshot.checkedAt.toISOString(),
             previousRank: diff?.previousRank ?? null,
             rankDelta: diff?.rankDelta ?? null,
@@ -89,11 +108,11 @@ export async function GET() {
         : null;
     }
 
-    const regionalVolumes = REGION_CODES.map((region: SearchRegionCode) => {
-      const fromSnapshot = latestRanks[region]?.searchVolume ?? 0;
-      const fromVolume = keyword.volumes.find((item) => item.region === region)?.volume ?? 0;
-      return Math.max(fromSnapshot, fromVolume);
-    });
+    const knownRegionalVolumes = REGION_CODES.map(
+      (region: SearchRegionCode) => marketVolumes[region]
+    ).filter(
+      (volume): volume is number => volume !== null
+    );
 
     return {
       id: keyword.id,
@@ -101,7 +120,8 @@ export async function GET() {
       type: keyword.type,
       parentId: keyword.parentId,
       active: keyword.active,
-      volume: Math.max(keyword.defaultVolume, ...regionalVolumes),
+      volume: knownRegionalVolumes.length > 0 ? Math.max(...knownRegionalVolumes) : 0,
+      marketVolumes,
       latestRanks
     };
   });

@@ -67,6 +67,10 @@ function bucketClass(bucket: string | undefined): string {
   return `rankBadge rankBadge_${bucket ?? "NOT_FOUND"}`;
 }
 
+function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
+  return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
+}
+
 export function Dashboard() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<SearchRegionCode>("US");
@@ -112,8 +116,7 @@ export function Dashboard() {
     const top5 = ranks.filter((rank) => rank?.bucket === "TOP_5").length;
     const changed = ranks.filter((rank) => rank?.changed).length;
     const totalVolume = keywords.reduce((sum, keyword) => {
-      const rank = keyword.latestRanks[selectedRegion];
-      return sum + (rank?.searchVolume ?? keyword.volume);
+      return sum + marketVolume(keyword, selectedRegion);
     }, 0);
 
     return {
@@ -452,7 +455,7 @@ export function Dashboard() {
                 <th>关键词</th>
                 <th>类型</th>
                 <th>父级</th>
-                <th>声量</th>
+                <th>声量（{REGIONS[selectedRegion].label}）</th>
                 {REGION_CODES.map((region) => (
                   <th key={region}>{REGIONS[region].label}</th>
                 ))}
@@ -466,7 +469,7 @@ export function Dashboard() {
                   </td>
                   <td>{keyword.type === "MAIN" ? "主关键词" : "长尾关键词"}</td>
                   <td>{parentName(keyword, data?.keywords ?? [])}</td>
-                  <td>{keyword.volume.toLocaleString()}</td>
+                  <td>{marketVolume(keyword, selectedRegion).toLocaleString()}</td>
                   {REGION_CODES.map((region) => {
                     const rank = keyword.latestRanks[region];
                     return (

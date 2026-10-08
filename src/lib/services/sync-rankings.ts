@@ -6,7 +6,6 @@ import {
 import { prisma } from "@/lib/prisma";
 import { envString, isDatabaseConfigured } from "@/lib/env";
 import {
-  demoVolumeFor,
   getRankBucket,
   REGION_CODES,
   type SearchRegionCode
@@ -103,6 +102,8 @@ export async function runDailyRankingSync() {
     summary.keywords = keywords.length;
 
     for (const keyword of keywords) {
+      const ahrefsVolumes: number[] = [];
+
       for (const region of REGION_CODES) {
         try {
           const previousSnapshot = await prisma.rankingSnapshot.findFirst({
@@ -116,19 +117,40 @@ export async function runDailyRankingSync() {
           });
 
           const ranking = await fetchGoogleRanking(keyword.text, region, targetDomain);
-          let volume = demoVolumeFor(keyword.text, region);
-          let volumeSource = "demo";
+          let volume: number | null = null;
 
           try {
             const ahrefs = await fetchAhrefsVolume(keyword.text, region);
-            volume = ahrefs.volume;
-            volumeSource = ahrefs.source;
+            if (ahrefs.source === "ahrefs") {
+              volume = ahrefs.volume;
+              ahrefsVolumes.push(ahrefs.volume);
+            } else {
+              summary.warnings.push({
+                keyword: keyword.text,
+                region,
+                message: "Ahrefs volume unavailable; skipped demo fallback"
+              });
+            }
           } catch (error) {
             summary.warnings.push({
               keyword: keyword.text,
               region,
               message: `Ahrefs volume fallback: ${errorMessage(error)}`
             });
+          }
+
+          if (volume !== null) {
+            await prisma.keywordVolume.create({
+              data: {
+                keywordId: keyword.id,
+                runId: run.id,
+                region: asSearchRegion(region),
+                volume,
+                source: "ahrefs"
+              }
+            });
+
+            summary.volumes += 1;
           }
 
           const bucket = getRankBucket(ranking.rank);
@@ -141,18 +163,6 @@ export async function runDailyRankingSync() {
             previousSnapshot &&
               (previousSnapshot.rank !== ranking.rank || previousSnapshot.bucket !== currentBucket)
           );
-
-          await prisma.keywordVolume.create({
-            data: {
-              keywordId: keyword.id,
-              runId: run.id,
-              region: asSearchRegion(region),
-              volume,
-              source: volumeSource
-            }
-          });
-
-          summary.volumes += 1;
 
           await prisma.rankingSnapshot.create({
             data: {
@@ -185,17 +195,6 @@ export async function runDailyRankingSync() {
 
           summary.diffs += 1;
 
-          const existingDefaultVolume = keyword.defaultVolume ?? 0;
-          if (volume > existingDefaultVolume) {
-            await prisma.keyword.update({
-              where: {
-                id: keyword.id
-              },
-              data: {
-                defaultVolume: volume
-              }
-            });
-          }
         } catch (error) {
           summary.errors.push({
             keyword: keyword.text,
@@ -203,6 +202,17 @@ export async function runDailyRankingSync() {
             message: errorMessage(error)
           });
         }
+      }
+
+      if (ahrefsVolumes.length > 0) {
+        await prisma.keyword.update({
+          where: {
+            id: keyword.id
+          },
+          data: {
+            defaultVolume: Math.max(...ahrefsVolumes)
+          }
+        });
       }
     }
 

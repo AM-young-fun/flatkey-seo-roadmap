@@ -17,36 +17,20 @@ function numericValue(value: unknown): number | null {
   return null;
 }
 
-function findVolume(value: unknown): number | null {
-  const direct = numericValue(value);
-  if (direct !== null) {
-    return direct;
-  }
+function normalizeKeyword(value: string): string {
+  return value.trim().toLowerCase();
+}
 
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findVolume(item);
-      if (found !== null) {
-        return found;
-      }
-    }
-  }
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
 
-  if (value && typeof value === "object") {
-    const record = value as JsonRecord;
-    const preferredKeys = ["volume", "search_volume", "searchVolume", "monthly_volume"];
+function volumeFromRecord(record: JsonRecord): number | null {
+  const preferredKeys = ["volume", "search_volume", "searchVolume", "monthly_volume"];
 
-    for (const key of preferredKeys) {
-      if (key in record) {
-        const found = numericValue(record[key]);
-        if (found !== null) {
-          return found;
-        }
-      }
-    }
-
-    for (const nested of Object.values(record)) {
-      const found = findVolume(nested);
+  for (const key of preferredKeys) {
+    if (key in record) {
+      const found = numericValue(record[key]);
       if (found !== null) {
         return found;
       }
@@ -54,6 +38,38 @@ function findVolume(value: unknown): number | null {
   }
 
   return null;
+}
+
+function recordsFrom(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  for (const key of ["keywords", "data", "rows", "result", "results"]) {
+    const nested = value[key];
+    if (Array.isArray(nested)) {
+      return nested.filter(isRecord);
+    }
+  }
+
+  return [value];
+}
+
+function findVolume(payload: unknown, keyword: string): number | null {
+  const records = recordsFrom(payload);
+  const normalizedKeyword = normalizeKeyword(keyword);
+  const exactRecord = records.find(
+    (record) =>
+      typeof record.keyword === "string" &&
+      normalizeKeyword(record.keyword) === normalizedKeyword
+  );
+  const targetRecord = exactRecord ?? (records.length === 1 ? records[0] : null);
+
+  return targetRecord ? volumeFromRecord(targetRecord) : null;
 }
 
 function buildAhrefsUrl(keyword: string, region: SearchRegionCode): string | null {
@@ -112,7 +128,7 @@ export async function fetchAhrefsVolume(
   }
 
   const payload = (await response.json()) as unknown;
-  const volume = findVolume(payload);
+  const volume = findVolume(payload, keyword);
 
   return {
     volume: volume ?? demoVolumeFor(keyword, region),

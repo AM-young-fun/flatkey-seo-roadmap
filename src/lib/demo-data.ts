@@ -80,14 +80,20 @@ function latestRanksFor(keyword: string) {
 export function getDemoDashboard(): DashboardResponse {
   const keywords = DEMO_KEYWORDS.map((keyword) => {
     const latestRanks = latestRanksFor(keyword.text);
-    const volumes = REGION_CODES.map(
-      (region: SearchRegionCode) => latestRanks[region]?.searchVolume ?? 0
+    const marketVolumes = REGION_CODES.reduce(
+      (accumulator, region: SearchRegionCode) => {
+        accumulator[region] = latestRanks[region]?.searchVolume ?? null;
+        return accumulator;
+      },
+      {} as DashboardKeyword["marketVolumes"]
     );
+    const volumes = REGION_CODES.map((region: SearchRegionCode) => marketVolumes[region] ?? 0);
 
     return {
       ...keyword,
       active: true,
       volume: Math.max(...volumes),
+      marketVolumes,
       latestRanks
     };
   });

@@ -49,15 +49,22 @@ function symbolSizeFor(volume: number, maxVolume: number): number {
   return Math.max(30, Math.min(82, 30 + ratio * 52));
 }
 
+function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
+  return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
+}
+
 export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
 
   const option = useMemo<echarts.EChartsOption>(() => {
-    const maxVolume = Math.max(...keywords.map((keyword) => keyword.volume), 1);
+    const maxVolume = Math.max(
+      ...keywords.map((keyword) => marketVolume(keyword, selectedRegion)),
+      1
+    );
     const nodes: GraphNodeData[] = keywords.map((keyword) => {
       const rank = keyword.latestRanks[selectedRegion];
       const bucket = rank?.bucket ?? "NOT_FOUND";
-      const volume = rank?.searchVolume ?? keyword.volume;
+      const volume = marketVolume(keyword, selectedRegion);
 
       return {
         id: keyword.id,
@@ -116,7 +123,7 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
             `<strong>${data.keyword.text}</strong>`,
             `${REGIONS[selectedRegion].label}: ${rankLabel(rank?.rank)}`,
             `类型: ${typeLabel}`,
-            `声量: ${(rank?.searchVolume ?? data.keyword.volume).toLocaleString()}`,
+            `声量: ${data.volume?.toLocaleString() ?? "0"}`,
             `Diff: ${delta}`
           ].join("<br/>");
         }
