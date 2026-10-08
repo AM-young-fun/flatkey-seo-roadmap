@@ -21,6 +21,9 @@
     "postgresql",
     "echarts"
   ],
+  "engines": {
+    "node": "22.x"
+  },
   "author": "",
   "license": "UNLICENSED",
   "dependencies": {
