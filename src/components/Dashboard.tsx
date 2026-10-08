@@ -4,6 +4,7 @@ import {
   Activity,
   BarChart3,
   Database,
+  Download,
   GitCompareArrows,
   Loader2,
   MapPin,
@@ -369,7 +370,18 @@ export function Dashboard() {
           </form>
 
           <form className="importForm" onSubmit={importKeywords}>
-            <h2>CSV 导入</h2>
+            <div className="formTitleRow">
+              <h2>CSV 导入</h2>
+              <a
+                className="downloadTemplateLink"
+                download
+                href="/api/keywords/import/template"
+                title="下载 CSV 模板"
+              >
+                <Download size={15} />
+                模板
+              </a>
+            </div>
             <label>
               <span>CSV 文件</span>
               <input

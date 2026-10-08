@@ -38,7 +38,7 @@ npm run dev
 
 ## CSV 导入
 
-页面右侧可以上传 CSV。格式：
+页面右侧可以下载模板 CSV，也可以上传 CSV。格式：
 
 ```csv
 keyword,parent keyword
@@ -70,6 +70,7 @@ npm run db:push
 - `GET /api/dashboard`：仪表盘数据
 - `GET /api/keywords`：关键词列表
 - `POST /api/keywords`：新增关键词
+- `GET /api/keywords/import/template`：下载 CSV 模板
 - `POST /api/keywords/import`：CSV 导入关键词
 - `POST /api/sync/run`：手动执行一次同步
 - `GET /api/cron/daily-rankings`：Vercel Cron 入口

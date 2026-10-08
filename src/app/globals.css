@@ -296,6 +296,35 @@ h2 {
   gap: 12px;
 }
 
+.formTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.downloadTemplateLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-strong);
+  font-size: 12px;
+  font-weight: 760;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.downloadTemplateLink:hover {
+  border-color: #b6c0cf;
+  background: #e8edf4;
+}
+
 .keywordForm label,
 .importForm label {
   display: grid;
