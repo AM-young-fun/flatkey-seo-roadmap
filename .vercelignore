@@ -1,0 +1,10 @@
+.env
+.env.local
+.env.*.local
+.env.production
+.env.preview
+.env.development
+.vercel
+.next
+node_modules
+tsconfig.tsbuildinfo
