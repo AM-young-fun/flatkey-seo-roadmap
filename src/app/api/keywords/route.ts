@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDemoDashboard } from "@/lib/demo-data";
@@ -87,37 +86,52 @@ export async function POST(request: Request) {
         }
       );
     }
-  }
 
-  try {
-    const keyword = await prisma.keyword.create({
-      data: {
-        text: payload.text,
-        type: payload.type,
-        parentId
-      }
-    });
-
-    return NextResponse.json(
-      {
-        keyword
-      },
-      {
-        status: 201
-      }
-    );
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    if (parent.text === payload.text) {
       return NextResponse.json(
         {
-          message: "Keyword already exists"
+          message: "Keyword cannot be its own parent"
         },
         {
-          status: 409
+          status: 400
         }
       );
     }
-
-    throw error;
   }
+
+  const existingKeyword = await prisma.keyword.findUnique({
+    where: {
+      text: payload.text
+    },
+    select: {
+      id: true
+    }
+  });
+
+  const keyword = await prisma.keyword.upsert({
+    where: {
+      text: payload.text
+    },
+    create: {
+      text: payload.text,
+      type: payload.type,
+      parentId,
+      active: true
+    },
+    update: {
+      type: payload.type,
+      parentId,
+      active: true
+    }
+  });
+
+  return NextResponse.json(
+    {
+      keyword,
+      created: !existingKeyword
+    },
+    {
+      status: existingKeyword ? 200 : 201
+    }
+  );
 }

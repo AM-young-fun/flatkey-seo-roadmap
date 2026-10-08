@@ -141,14 +141,17 @@ export function Dashboard() {
         })
       });
 
-      const payload = (await response.json().catch(() => ({}))) as { message?: string };
+      const payload = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        created?: boolean;
+      };
 
       if (!response.ok) {
         throw new Error(payload.message ?? "新增失败");
       }
 
       setForm(initialForm);
-      setMessage("关键词已新增");
+      setMessage(payload.created === false ? "关键词已更新" : "关键词已新增");
       await loadDashboard();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "新增失败");
