@@ -29,6 +29,8 @@ AHREFS_API_TOKEN="..."
 
 设置 `LOGIN_PWD` 后，页面和普通 API 会要求先登录；不设置时登录保护不启用。登录态通过 `httpOnly` cookie 保持 30 天。
 
+Ahrefs 的 Keywords Explorer Overview 接口要求 `select` 和 `country` 参数；默认模板会请求 `keyword,volume`。
+
 ## 本地开发
 
 ```bash

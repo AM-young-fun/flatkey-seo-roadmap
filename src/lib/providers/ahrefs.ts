@@ -63,11 +63,19 @@ function buildAhrefsUrl(keyword: string, region: SearchRegionCode): string | nul
   }
 
   const country = REGIONS[region].ahrefsCountry;
-  return template
+  const rawUrl = template
     .replaceAll("{keyword}", encodeURIComponent(keyword))
     .replaceAll("{keywords}", encodeURIComponent(keyword))
     .replaceAll("{country}", encodeURIComponent(country))
     .replaceAll("{region}", encodeURIComponent(region.toLowerCase()));
+
+  const url = new URL(rawUrl);
+
+  if (!url.searchParams.has("select")) {
+    url.searchParams.set("select", "keyword,volume");
+  }
+
+  return url.toString();
 }
 
 export async function fetchAhrefsVolume(
@@ -94,7 +102,13 @@ export async function fetchAhrefsVolume(
   });
 
   if (!response.ok) {
-    throw new Error(`Ahrefs provider failed with ${response.status}`);
+    const body = await response.text().catch(() => "");
+    const detail = body.replace(/\s+/g, " ").trim().slice(0, 180);
+    throw new Error(
+      detail
+        ? `Ahrefs provider failed with ${response.status}: ${detail}`
+        : `Ahrefs provider failed with ${response.status}`
+    );
   }
 
   const payload = (await response.json()) as unknown;
