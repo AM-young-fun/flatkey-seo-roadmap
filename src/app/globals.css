@@ -108,7 +108,8 @@ h2 {
 
 .regionButton,
 .primaryButton,
-.secondaryButton {
+.secondaryButton,
+.iconButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -142,6 +143,90 @@ h2 {
   padding: 0 14px;
   color: #ffffff;
   background: var(--text);
+}
+
+.iconButton {
+  width: 38px;
+  color: var(--muted);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.iconButton:hover {
+  color: var(--text);
+  border-color: #b6c0cf;
+  background: var(--surface-strong);
+}
+
+.loginShell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.loginPanel {
+  display: grid;
+  gap: 22px;
+  width: min(420px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.loginForm {
+  display: grid;
+  gap: 14px;
+}
+
+.loginForm label {
+  display: grid;
+  gap: 6px;
+}
+
+.loginForm span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.loginForm input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: #ffffff;
+  outline: none;
+}
+
+.loginForm input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 13%);
+}
+
+.loginError,
+.loginHint {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.loginError {
+  color: #991b1b;
+  background: #fff1f1;
+  border: 1px solid #fecaca;
+}
+
+.loginHint {
+  color: #164e8b;
+  background: #eef6ff;
+  border: 1px solid #b8d6f8;
 }
 
 .notice {

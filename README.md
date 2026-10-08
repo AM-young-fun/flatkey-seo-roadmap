@@ -19,12 +19,15 @@ Next.js + PostgreSQL + Prisma + ECharts 的关键词排名监控面板。
 ```bash
 DATABASE_URL="postgresql://..."
 CRON_SECRET="..."
+LOGIN_PWD="..."
 SEO_TARGET_DOMAIN="example.com"
 SERPAPI_API_KEY="..."
 AHREFS_API_TOKEN="..."
 ```
 
 没有 `DATABASE_URL` 时，页面会显示 demo 数据；有 `DATABASE_URL` 但没有外部 API key 时，同步会写入可复现的 demo 排名和声量。
+
+设置 `LOGIN_PWD` 后，页面和普通 API 会要求先登录；不设置时登录保护不启用。登录态通过 `httpOnly` cookie 保持 30 天。
 
 ## 本地开发
 

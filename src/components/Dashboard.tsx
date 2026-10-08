@@ -7,6 +7,7 @@ import {
   Download,
   GitCompareArrows,
   Loader2,
+  LogOut,
   MapPin,
   Plus,
   RefreshCcw,
@@ -268,6 +269,11 @@ export function Dashboard() {
             {syncing ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
             立即同步
           </button>
+          <form action="/api/auth/logout" method="post">
+            <button className="iconButton" title="退出登录" type="submit">
+              <LogOut size={16} />
+            </button>
+          </form>
         </div>
       </header>
 
