@@ -215,6 +215,7 @@ export function Dashboard() {
         status?: string;
         summary?: {
           errors?: Array<{ message?: string }>;
+          warnings?: Array<{ message?: string }>;
         };
       };
 
@@ -228,7 +229,14 @@ export function Dashboard() {
       }
 
       const errorCount = payload.summary?.errors?.length ?? 0;
-      setMessage(errorCount > 0 ? `同步完成，${errorCount} 条错误` : "同步完成");
+      const warningCount = payload.summary?.warnings?.length ?? 0;
+      setMessage(
+        errorCount > 0
+          ? `同步完成，${errorCount} 条错误`
+          : warningCount > 0
+            ? `同步完成，${warningCount} 条警告`
+            : "同步完成"
+      );
       await loadDashboard();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "同步失败");

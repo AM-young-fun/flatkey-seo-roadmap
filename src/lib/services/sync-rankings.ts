@@ -27,6 +27,7 @@ type SyncSummary = {
   diffs: number;
   volumes: number;
   errors: SyncError[];
+  warnings: SyncError[];
 };
 
 function asSearchRegion(region: SearchRegionCode): SearchRegion {
@@ -58,7 +59,8 @@ export async function runDailyRankingSync() {
             region: "US" as SearchRegionCode,
             message: "DATABASE_URL is not configured"
           }
-        ]
+        ],
+        warnings: []
       } satisfies SyncSummary
     };
   }
@@ -79,7 +81,8 @@ export async function runDailyRankingSync() {
     snapshots: 0,
     diffs: 0,
     volumes: 0,
-    errors: []
+    errors: [],
+    warnings: []
   };
 
   try {
@@ -121,10 +124,10 @@ export async function runDailyRankingSync() {
             volume = ahrefs.volume;
             volumeSource = ahrefs.source;
           } catch (error) {
-            summary.errors.push({
+            summary.warnings.push({
               keyword: keyword.text,
               region,
-              message: `Ahrefs: ${errorMessage(error)}`
+              message: `Ahrefs volume fallback: ${errorMessage(error)}`
             });
           }
 
