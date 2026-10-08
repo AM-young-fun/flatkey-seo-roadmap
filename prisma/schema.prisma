@@ -11,6 +11,7 @@ enum SearchRegion {
   US
   JP
   ES
+  BR
 }
 
 enum KeywordType {

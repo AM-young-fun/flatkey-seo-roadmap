@@ -22,6 +22,14 @@ export const REGIONS = {
     gl: "es",
     hl: "es",
     ahrefsCountry: "es"
+  },
+  BR: {
+    code: "BR",
+    label: "巴西",
+    googleLabel: "Brazil",
+    gl: "br",
+    hl: "pt-BR",
+    ahrefsCountry: "br"
   }
 } as const;
 

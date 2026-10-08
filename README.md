@@ -6,7 +6,7 @@ Next.js + PostgreSQL + Prisma + ECharts 的关键词排名监控面板。
 
 - 维护主关键词和长尾关键词
 - 用 ECharts graph 渲染关键词父子关系
-- 美国、日本、西班牙三个地区的 Google 排名监控
+- 美国、日本、西班牙、巴西四个地区的 Google 排名监控
 - 排名颜色：前 5 绿色，前 10 黄色，前 50 红色，未进入前 50 黑色
 - 通过 Ahrefs 获取关键词声量，并映射为关系图节点大小
 - 每日生成排名 snapshot，并和上次结果生成 diff
