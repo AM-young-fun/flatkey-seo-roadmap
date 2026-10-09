@@ -49,13 +49,23 @@ type TooltipParam = {
   };
 };
 
-function symbolSizeFor(volume: number, maxVolume: number): number {
-  if (maxVolume <= 0) {
-    return 34;
+function symbolSizeFor(volume: number): number {
+  const cleanVolume = Math.max(0, volume);
+  const minSize = 14;
+  const smallKeywordSize = 17;
+  const maxSize = 58;
+  const smallKeywordVolume = 100;
+  const strongKeywordVolume = 100000;
+
+  if (cleanVolume <= smallKeywordVolume) {
+    return minSize + Math.sqrt(cleanVolume / smallKeywordVolume) * (smallKeywordSize - minSize);
   }
 
-  const ratio = Math.sqrt(volume / maxVolume);
-  return Math.max(30, Math.min(82, 30 + ratio * 52));
+  const ratio =
+    Math.log10(cleanVolume / smallKeywordVolume) /
+    Math.log10(strongKeywordVolume / smallKeywordVolume);
+
+  return Math.min(maxSize, smallKeywordSize + ratio * (maxSize - smallKeywordSize));
 }
 
 function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
@@ -148,10 +158,6 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
   const option = useMemo<echarts.EChartsOption>(() => {
     const largeGraph = keywords.length > 250;
     const initialPositions = initialPositionsFor(keywords);
-    const maxVolume = Math.max(
-      ...keywords.map((keyword) => marketVolume(keyword, selectedRegion)),
-      1
-    );
     const nodes: GraphNodeData[] = keywords.map((keyword) => {
       const rank = keyword.latestRanks[selectedRegion];
       const bucket = rank?.bucket ?? "NOT_FOUND";
@@ -168,7 +174,7 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
         x: position.x,
         y: position.y,
         symbol: keyword.type === "MAIN" ? "diamond" : "circle",
-        symbolSize: symbolSizeFor(volume, maxVolume),
+        symbolSize: symbolSizeFor(volume),
         category: keyword.type === "MAIN" ? 0 : 1,
         itemStyle: {
           color: RANK_BUCKET_META[bucket].color,
