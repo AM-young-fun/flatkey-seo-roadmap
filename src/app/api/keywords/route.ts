@@ -108,21 +108,47 @@ export async function POST(request: Request) {
     }
   });
 
-  const keyword = await prisma.keyword.upsert({
-    where: {
-      text: payload.text
-    },
-    create: {
-      text: payload.text,
-      type: payload.type,
-      parentId,
-      active: true
-    },
-    update: {
-      type: payload.type,
-      parentId,
-      active: true
+  const keyword = await prisma.$transaction(async (transaction) => {
+    const savedKeyword = await transaction.keyword.upsert({
+      where: {
+        text: payload.text
+      },
+      create: {
+        text: payload.text,
+        type: payload.type,
+        parentId,
+        active: true
+      },
+      update: {
+        type: payload.type,
+        parentId,
+        active: true
+      }
+    });
+
+    if (parentId) {
+      await transaction.keywordRelation.upsert({
+        where: {
+          parentId_childId: {
+            parentId,
+            childId: savedKeyword.id
+          }
+        },
+        create: {
+          parentId,
+          childId: savedKeyword.id
+        },
+        update: {}
+      });
+    } else {
+      await transaction.keywordRelation.deleteMany({
+        where: {
+          childId: savedKeyword.id
+        }
+      });
     }
+
+    return savedKeyword;
   });
 
   return NextResponse.json(

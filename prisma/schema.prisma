@@ -42,6 +42,8 @@ model Keyword {
   parentId      String?
   parent        Keyword?          @relation("KeywordTree", fields: [parentId], references: [id], onDelete: SetNull)
   children      Keyword[]         @relation("KeywordTree")
+  parentEdges   KeywordRelation[] @relation("KeywordRelationParent")
+  childEdges    KeywordRelation[] @relation("KeywordRelationChild")
   snapshots     RankingSnapshot[]
   diffs         RankingDiff[]
   volumes       KeywordVolume[]
@@ -51,6 +53,19 @@ model Keyword {
   @@index([parentId])
   @@index([type])
   @@index([active])
+}
+
+model KeywordRelation {
+  id        String   @id @default(cuid())
+  parentId  String
+  childId   String
+  parent    Keyword  @relation("KeywordRelationParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child     Keyword  @relation("KeywordRelationChild", fields: [childId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
 }
 
 model SyncRun {

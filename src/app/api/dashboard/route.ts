@@ -59,6 +59,11 @@ export async function GET() {
             fetchedAt: "desc"
           },
           take: 18
+        },
+        childEdges: {
+          select: {
+            parentId: true
+          }
         }
       },
       orderBy: [
@@ -119,6 +124,12 @@ export async function GET() {
       text: keyword.text,
       type: keyword.type,
       parentId: keyword.parentId,
+      parentIds:
+        keyword.childEdges.length > 0
+          ? keyword.childEdges.map((edge) => edge.parentId)
+          : keyword.parentId
+            ? [keyword.parentId]
+            : [],
       active: keyword.active,
       volume: knownRegionalVolumes.length > 0 ? Math.max(...knownRegionalVolumes) : 0,
       marketVolumes,

@@ -84,17 +84,32 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
       };
     });
 
-    const links = keywords
-      .filter((keyword) => keyword.parentId)
-      .map((keyword) => ({
-        source: keyword.parentId as string,
-        target: keyword.id,
-        lineStyle: {
-          color: "#8b949e",
-          width: keyword.type === "LONG_TAIL" ? 1.4 : 2,
-          opacity: 0.72
+    const linkKeys = new Set<string>();
+    const links = keywords.flatMap((keyword) => {
+      const parentIds =
+        keyword.parentIds.length > 0 ? keyword.parentIds : keyword.parentId ? [keyword.parentId] : [];
+
+      return parentIds.flatMap((parentId) => {
+        const key = `${parentId}:${keyword.id}`;
+
+        if (linkKeys.has(key)) {
+          return [];
         }
-      }));
+
+        linkKeys.add(key);
+        return [
+          {
+            source: parentId,
+            target: keyword.id,
+            lineStyle: {
+              color: "#8b949e",
+              width: keyword.type === "LONG_TAIL" ? 1.4 : 2,
+              opacity: 0.72
+            }
+          }
+        ];
+      });
+    });
 
     return {
       backgroundColor: "transparent",

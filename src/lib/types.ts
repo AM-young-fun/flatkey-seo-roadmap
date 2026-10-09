@@ -19,6 +19,7 @@ export type DashboardKeyword = {
   text: string;
   type: KeywordType;
   parentId: string | null;
+  parentIds: string[];
   active: boolean;
   volume: number;
   marketVolumes: Record<SearchRegionCode, number | null>;

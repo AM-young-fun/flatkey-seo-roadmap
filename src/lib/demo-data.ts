@@ -91,6 +91,7 @@ export function getDemoDashboard(): DashboardResponse {
 
     return {
       ...keyword,
+      parentIds: keyword.parentId ? [keyword.parentId] : [],
       active: true,
       volume: Math.max(...volumes),
       marketVolumes,

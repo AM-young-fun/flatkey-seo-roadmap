@@ -56,11 +56,16 @@ function formatDate(value: string | null | undefined): string {
 }
 
 function parentName(keyword: DashboardKeyword, keywords: DashboardKeyword[]): string {
-  if (!keyword.parentId) {
+  const parentIds = keyword.parentIds.length > 0 ? keyword.parentIds : keyword.parentId ? [keyword.parentId] : [];
+
+  if (parentIds.length === 0) {
     return "-";
   }
 
-  return keywords.find((item) => item.id === keyword.parentId)?.text ?? "-";
+  return parentIds
+    .map((parentId) => keywords.find((item) => item.id === parentId)?.text)
+    .filter((text): text is string => Boolean(text))
+    .join(" / ") || "-";
 }
 
 function bucketClass(bucket: string | undefined): string {
