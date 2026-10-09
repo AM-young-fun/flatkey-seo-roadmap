@@ -36,6 +36,7 @@ type SyncSummary = {
 };
 
 const SYNC_STALE_AFTER_MS = 6 * 60 * 1000;
+const SYNC_MISSING_PROGRESS_STALE_AFTER_MS = 90 * 1000;
 const PROGRESS_UPDATE_INTERVAL = 5;
 
 function asSearchRegion(region: SearchRegionCode): SearchRegion {
@@ -55,19 +56,32 @@ export async function markStaleRankingSyncRuns() {
     return;
   }
 
+  const now = new Date();
+
   await prisma.syncRun.updateMany({
     where: {
       status: RunStatus.RUNNING,
       startedAt: {
-        lt: new Date(Date.now() - SYNC_STALE_AFTER_MS)
+        lt: new Date(now.getTime() - SYNC_STALE_AFTER_MS)
       }
     },
     data: {
       status: RunStatus.FAILED,
-      finishedAt: new Date(),
+      finishedAt: now,
       errorMessage: "Sync stopped before completion"
     }
   });
+
+  await prisma.$executeRaw`
+    UPDATE "SyncRun"
+    SET
+      "status" = 'FAILED'::"RunStatus",
+      "finishedAt" = ${now},
+      "errorMessage" = 'Sync stopped before progress tracking started'
+    WHERE "status" = 'RUNNING'::"RunStatus"
+      AND "summary" IS NULL
+      AND "startedAt" < ${new Date(now.getTime() - SYNC_MISSING_PROGRESS_STALE_AFTER_MS)}
+  `;
 }
 
 export async function runDailyRankingSync() {
