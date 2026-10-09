@@ -15,7 +15,12 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { KeywordGraph } from "@/components/KeywordGraph";
-import type { DashboardKeyword, DashboardResponse, KeywordType } from "@/lib/types";
+import type {
+  DashboardKeyword,
+  DashboardResponse,
+  KeywordType,
+  SyncRunSummary
+} from "@/lib/types";
 import {
   rankDeltaLabel,
   rankLabel,
@@ -76,6 +81,26 @@ function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): numb
   return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
 }
 
+function syncProgressText(summary: SyncRunSummary | null | undefined): string {
+  const processed = summary?.processed ?? 0;
+  const total = summary?.totalChecks ?? 0;
+
+  if (!total) {
+    return "-";
+  }
+
+  return `${processed.toLocaleString()} / ${total.toLocaleString()}`;
+}
+
+function currentSyncText(summary: SyncRunSummary | null | undefined): string {
+  if (!summary?.currentKeyword) {
+    return "-";
+  }
+
+  const region = summary.currentRegion ? REGIONS[summary.currentRegion].label : "-";
+  return `${summary.currentKeyword} · ${region}`;
+}
+
 export function Dashboard() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<SearchRegionCode>("US");
@@ -100,6 +125,10 @@ export function Dashboard() {
     setData((await response.json()) as DashboardResponse);
   }, []);
 
+  const latestRun = data?.latestRun ?? null;
+  const persistedSyncing = latestRun?.status === "RUNNING";
+  const syncInProgress = syncing || persistedSyncing;
+
   useEffect(() => {
     loadDashboard()
       .catch((error: unknown) => {
@@ -109,6 +138,22 @@ export function Dashboard() {
         setLoading(false);
       });
   }, [loadDashboard]);
+
+  useEffect(() => {
+    if (!syncInProgress) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadDashboard().catch((error: unknown) => {
+        setMessage(error instanceof Error ? error.message : "同步状态刷新失败");
+      });
+    }, 5000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loadDashboard, syncInProgress]);
 
   const mainKeywords = useMemo(
     () => data?.keywords.filter((keyword) => keyword.type === "MAIN") ?? [],
@@ -236,6 +281,12 @@ export function Dashboard() {
         throw new Error(firstError ? `同步失败：${firstError}` : "同步失败");
       }
 
+      if (payload.status === "RUNNING") {
+        setMessage("同步正在运行，进度已记录");
+        await loadDashboard();
+        return;
+      }
+
       const errorCount = payload.summary?.errors?.length ?? 0;
       const warningCount = payload.summary?.warnings?.length ?? 0;
       setMessage(
@@ -277,13 +328,13 @@ export function Dashboard() {
           </div>
           <button
             className="primaryButton"
-            disabled={syncing}
+            disabled={syncInProgress}
             onClick={runSync}
             title="立即同步"
             type="button"
           >
-            {syncing ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
-            立即同步
+            {syncInProgress ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
+            {syncInProgress ? "同步中" : "立即同步"}
           </button>
           <form action="/api/auth/logout" method="post">
             <button className="iconButton" title="退出登录" type="submit">
@@ -427,15 +478,29 @@ export function Dashboard() {
             <dl>
               <div>
                 <dt>状态</dt>
-                <dd>{data?.latestRun?.status ?? "-"}</dd>
+                <dd>{latestRun?.status ?? "-"}</dd>
               </div>
               <div>
                 <dt>Provider</dt>
-                <dd>{data?.latestRun?.provider ?? "-"}</dd>
+                <dd>{latestRun?.provider ?? "-"}</dd>
+              </div>
+              <div>
+                <dt>进度</dt>
+                <dd>{syncProgressText(latestRun?.summary)}</dd>
+              </div>
+              {latestRun?.status === "RUNNING" ? (
+                <div>
+                  <dt>当前</dt>
+                  <dd>{currentSyncText(latestRun.summary)}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>更新时间</dt>
+                <dd>{formatDate(latestRun?.summary?.updatedAt)}</dd>
               </div>
               <div>
                 <dt>完成时间</dt>
-                <dd>{formatDate(data?.latestRun?.finishedAt)}</dd>
+                <dd>{formatDate(latestRun?.finishedAt)}</dd>
               </div>
               <div>
                 <dt>数据</dt>
@@ -501,7 +566,7 @@ export function Dashboard() {
               ))}
               {!loading && data?.keywords.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>暂无关键词</td>
+                  <td colSpan={REGION_CODES.length + 4}>暂无关键词</td>
                 </tr>
               ) : null}
             </tbody>

@@ -341,8 +341,8 @@ h2 {
 .emptyGraph,
 .loadingState {
   width: 100%;
-  height: min(62vh, 650px);
-  min-height: 460px;
+  height: clamp(560px, 72vh, 820px);
+  min-height: 560px;
 }
 
 .emptyGraph,

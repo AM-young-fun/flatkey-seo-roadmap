@@ -22,12 +22,21 @@ type SyncError = {
 type SyncSummary = {
   keywords: number;
   regions: number;
+  totalChecks: number;
+  processed: number;
+  currentKeyword: string | null;
+  currentRegion: SearchRegionCode | null;
+  startedAt: string;
+  updatedAt: string;
   snapshots: number;
   diffs: number;
   volumes: number;
   errors: SyncError[];
   warnings: SyncError[];
 };
+
+const SYNC_STALE_AFTER_MS = 6 * 60 * 1000;
+const PROGRESS_UPDATE_INTERVAL = 5;
 
 function asSearchRegion(region: SearchRegionCode): SearchRegion {
   return region as SearchRegion;
@@ -41,14 +50,42 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export async function markStaleRankingSyncRuns() {
+  if (!isDatabaseConfigured()) {
+    return;
+  }
+
+  await prisma.syncRun.updateMany({
+    where: {
+      status: RunStatus.RUNNING,
+      startedAt: {
+        lt: new Date(Date.now() - SYNC_STALE_AFTER_MS)
+      }
+    },
+    data: {
+      status: RunStatus.FAILED,
+      finishedAt: new Date(),
+      errorMessage: "Sync stopped before completion"
+    }
+  });
+}
+
 export async function runDailyRankingSync() {
   if (!isDatabaseConfigured()) {
+    const now = new Date().toISOString();
+
     return {
       status: RunStatus.FAILED,
       runId: null,
       summary: {
         keywords: 0,
         regions: REGION_CODES.length,
+        totalChecks: 0,
+        processed: 0,
+        currentKeyword: null,
+        currentRegion: null,
+        startedAt: now,
+        updatedAt: now,
         snapshots: 0,
         diffs: 0,
         volumes: 0,
@@ -64,6 +101,25 @@ export async function runDailyRankingSync() {
     };
   }
 
+  await markStaleRankingSyncRuns();
+
+  const runningRun = await prisma.syncRun.findFirst({
+    where: {
+      status: RunStatus.RUNNING
+    },
+    orderBy: {
+      startedAt: "desc"
+    }
+  });
+
+  if (runningRun) {
+    return {
+      status: RunStatus.RUNNING,
+      runId: runningRun.id,
+      summary: runningRun.summary
+    };
+  }
+
   const targetDomain = envString("SEO_TARGET_DOMAIN");
   const provider = envString("GOOGLE_SEARCH_PROVIDER", "serpapi");
   const run = await prisma.syncRun.create({
@@ -73,16 +129,41 @@ export async function runDailyRankingSync() {
       regions: REGION_CODES.map(asSearchRegion)
     }
   });
+  const startedAt = run.startedAt.toISOString();
 
   const summary: SyncSummary = {
     keywords: 0,
     regions: REGION_CODES.length,
+    totalChecks: 0,
+    processed: 0,
+    currentKeyword: null,
+    currentRegion: null,
+    startedAt,
+    updatedAt: startedAt,
     snapshots: 0,
     diffs: 0,
     volumes: 0,
     errors: [],
     warnings: []
   };
+
+  async function persistRunningSummary(force = false) {
+    if (!force && summary.processed % PROGRESS_UPDATE_INTERVAL !== 0) {
+      return;
+    }
+
+    summary.updatedAt = new Date().toISOString();
+
+    await prisma.syncRun.update({
+      where: {
+        id: run.id
+      },
+      data: {
+        status: RunStatus.RUNNING,
+        summary
+      }
+    });
+  }
 
   try {
     const keywords = await prisma.keyword.findMany({
@@ -100,11 +181,17 @@ export async function runDailyRankingSync() {
     });
 
     summary.keywords = keywords.length;
+    summary.totalChecks = keywords.length * REGION_CODES.length;
+    await persistRunningSummary(true);
 
     for (const keyword of keywords) {
       const ahrefsVolumes: number[] = [];
 
       for (const region of REGION_CODES) {
+        summary.currentKeyword = keyword.text;
+        summary.currentRegion = region;
+        const errorsBefore = summary.errors.length;
+
         try {
           const previousSnapshot = await prisma.rankingSnapshot.findFirst({
             where: {
@@ -201,6 +288,11 @@ export async function runDailyRankingSync() {
             region,
             message: errorMessage(error)
           });
+        } finally {
+          summary.processed += 1;
+          await persistRunningSummary(
+            summary.processed === summary.totalChecks || summary.errors.length > errorsBefore
+          );
         }
       }
 
@@ -222,6 +314,9 @@ export async function runDailyRankingSync() {
         : summary.snapshots > 0
           ? RunStatus.PARTIAL
           : RunStatus.FAILED;
+    summary.currentKeyword = null;
+    summary.currentRegion = null;
+    summary.updatedAt = new Date().toISOString();
 
     await prisma.syncRun.update({
       where: {
@@ -248,6 +343,7 @@ export async function runDailyRankingSync() {
     };
   } catch (error) {
     const message = errorMessage(error);
+    summary.updatedAt = new Date().toISOString();
 
     await prisma.syncRun.update({
       where: {

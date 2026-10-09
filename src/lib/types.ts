@@ -26,13 +26,37 @@ export type DashboardKeyword = {
   latestRanks: Record<SearchRegionCode, RankSummary | null>;
 };
 
+export type SyncRunSummary = {
+  keywords?: number;
+  regions?: number;
+  totalChecks?: number;
+  processed?: number;
+  currentKeyword?: string | null;
+  currentRegion?: SearchRegionCode | null;
+  startedAt?: string;
+  updatedAt?: string;
+  snapshots?: number;
+  diffs?: number;
+  volumes?: number;
+  errors?: Array<{
+    keyword?: string;
+    region?: SearchRegionCode;
+    message?: string;
+  }>;
+  warnings?: Array<{
+    keyword?: string;
+    region?: SearchRegionCode;
+    message?: string;
+  }>;
+};
+
 export type DashboardRun = {
   id: string;
   status: "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED";
   startedAt: string;
   finishedAt: string | null;
   provider: string;
-  summary: unknown;
+  summary: SyncRunSummary | null;
   errorMessage: string | null;
 };
 

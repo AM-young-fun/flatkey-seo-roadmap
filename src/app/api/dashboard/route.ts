@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import type { DashboardKeyword, DashboardResponse } from "@/lib/types";
+import type { DashboardKeyword, DashboardResponse, SyncRunSummary } from "@/lib/types";
 import { isDatabaseConfigured } from "@/lib/env";
 import { getDemoDashboard } from "@/lib/demo-data";
 import { prisma } from "@/lib/prisma";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
+import { markStaleRankingSyncRuns } from "@/lib/services/sync-rankings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,8 @@ export async function GET() {
   if (!isDatabaseConfigured()) {
     return NextResponse.json(getDemoDashboard());
   }
+
+  await markStaleRankingSyncRuns();
 
   const [keywords, latestRun] = await Promise.all([
     prisma.keyword.findMany({
@@ -149,7 +152,7 @@ export async function GET() {
           startedAt: latestRun.startedAt.toISOString(),
           finishedAt: latestRun.finishedAt?.toISOString() ?? null,
           provider: latestRun.provider,
-          summary: latestRun.summary,
+          summary: latestRun.summary as SyncRunSummary | null,
           errorMessage: latestRun.errorMessage
         }
       : null
