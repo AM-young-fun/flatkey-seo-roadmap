@@ -277,7 +277,10 @@ export async function runDailyRankingSync() {
   try {
     const keywords = await prisma.keyword.findMany({
       where: {
-        active: true
+        active: true,
+        topicId: {
+          not: null
+        }
       },
       orderBy: [
         {

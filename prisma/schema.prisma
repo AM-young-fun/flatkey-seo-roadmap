@@ -19,6 +19,11 @@ enum KeywordType {
   LONG_TAIL
 }
 
+enum TopicType {
+  MAIN
+  SUB_TOPIC
+}
+
 enum RankBucket {
   TOP_5
   TOP_10
@@ -39,6 +44,8 @@ model Keyword {
   type          KeywordType       @default(MAIN)
   active        Boolean           @default(true)
   defaultVolume Int               @default(0)
+  topicId       String?
+  topic         Topic?            @relation(fields: [topicId], references: [id], onDelete: SetNull)
   parentId      String?
   parent        Keyword?          @relation("KeywordTree", fields: [parentId], references: [id], onDelete: SetNull)
   children      Keyword[]         @relation("KeywordTree")
@@ -52,8 +59,41 @@ model Keyword {
   updatedAt     DateTime          @updatedAt
 
   @@index([parentId])
+  @@index([topicId])
   @@index([type])
   @@index([active])
+}
+
+model Topic {
+  id          String          @id @default(cuid())
+  text        String          @unique
+  type        TopicType       @default(MAIN)
+  active      Boolean         @default(true)
+  parentId    String?
+  parent      Topic?          @relation("TopicTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Topic[]         @relation("TopicTree")
+  parentEdges TopicRelation[] @relation("TopicRelationParent")
+  childEdges  TopicRelation[] @relation("TopicRelationChild")
+  keywords    Keyword[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([parentId])
+  @@index([type])
+  @@index([active])
+}
+
+model TopicRelation {
+  id        String   @id @default(cuid())
+  parentId  String
+  childId   String
+  parent    Topic    @relation("TopicRelationParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child     Topic    @relation("TopicRelationChild", fields: [childId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
 }
 
 model KeywordRelation {

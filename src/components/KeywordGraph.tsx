@@ -2,26 +2,22 @@
 
 import * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
-import type { DashboardKeyword, RankSummary } from "@/lib/types";
+import type { DashboardTopic } from "@/lib/types";
 import {
   hashString,
-  rankDeltaLabel,
-  rankLabel,
-  RANK_BUCKET_META,
   REGIONS,
   type SearchRegionCode
 } from "@/lib/seo";
 
 type KeywordGraphProps = {
-  keywords: DashboardKeyword[];
+  topics: DashboardTopic[];
   selectedRegion: SearchRegionCode;
 };
 
 type GraphNodeData = {
   id: string;
   name: string;
-  keyword: DashboardKeyword;
-  rankText: string;
+  topic: DashboardTopic;
   volume: number;
   value: number;
   x: number;
@@ -68,24 +64,20 @@ function symbolSizeFor(volume: number): number {
   return Math.min(maxSize, smallKeywordSize + ratio * (maxSize - smallKeywordSize));
 }
 
-function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
-  return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
+function marketVolume(topic: DashboardTopic, region: SearchRegionCode): number {
+  return topic.marketVolumes[region] ?? 0;
 }
 
-function rankStatusLabel(rank: RankSummary | null | undefined): string {
-  return rank ? rankLabel(rank.rank) : "未同步";
-}
-
-function parentIdsFor(keyword: DashboardKeyword): string[] {
-  return keyword.parentIds.length > 0 ? keyword.parentIds : keyword.parentId ? [keyword.parentId] : [];
+function parentIdsFor(topic: DashboardTopic): string[] {
+  return topic.parentIds.length > 0 ? topic.parentIds : topic.parentId ? [topic.parentId] : [];
 }
 
 function hashRatio(value: string): number {
   return hashString(value) / 0xffffffff;
 }
 
-function fallbackPoint(keyword: DashboardKeyword, index: number, total: number): Point {
-  const angle = hashRatio(keyword.id) * Math.PI * 2;
+function fallbackPoint(topic: DashboardTopic, index: number, total: number): Point {
+  const angle = hashRatio(topic.id) * Math.PI * 2;
   const radius = Math.sqrt((index + 1) / Math.max(total, 1)) * Math.max(360, Math.sqrt(total) * 78);
 
   return {
@@ -94,37 +86,37 @@ function fallbackPoint(keyword: DashboardKeyword, index: number, total: number):
   };
 }
 
-function initialPositionsFor(keywords: DashboardKeyword[]): Map<string, Point> {
+function initialPositionsFor(topics: DashboardTopic[]): Map<string, Point> {
   const positions = new Map<string, Point>();
-  const mainKeywords = keywords.filter((keyword) => keyword.type === "MAIN");
-  const primaryKeywords = mainKeywords.length > 0 ? mainKeywords : keywords.slice(0, 1);
-  const mainRadius = Math.max(300, Math.min(1100, primaryKeywords.length * 15));
+  const mainTopics = topics.filter((topic) => topic.type === "MAIN");
+  const primaryTopics = mainTopics.length > 0 ? mainTopics : topics.slice(0, 1);
+  const mainRadius = Math.max(300, Math.min(1100, primaryTopics.length * 15));
 
-  primaryKeywords.forEach((keyword, index) => {
-    const angle = (index / Math.max(primaryKeywords.length, 1)) * Math.PI * 2;
+  primaryTopics.forEach((topic, index) => {
+    const angle = (index / Math.max(primaryTopics.length, 1)) * Math.PI * 2;
 
-    positions.set(keyword.id, {
+    positions.set(topic.id, {
       x: Math.cos(angle) * mainRadius,
       y: Math.sin(angle) * mainRadius
     });
   });
 
-  const childrenByParent = new Map<string, DashboardKeyword[]>();
+  const childrenByParent = new Map<string, DashboardTopic[]>();
 
-  keywords.forEach((keyword) => {
-    const parentId = parentIdsFor(keyword)[0];
+  topics.forEach((topic) => {
+    const parentId = parentIdsFor(topic)[0];
 
     if (!parentId) {
       return;
     }
 
     const children = childrenByParent.get(parentId) ?? [];
-    children.push(keyword);
+    children.push(topic);
     childrenByParent.set(parentId, children);
   });
 
   childrenByParent.forEach((children, parentId) => {
-    const parentPoint = positions.get(parentId) ?? fallbackPoint(children[0], 0, keywords.length);
+    const parentPoint = positions.get(parentId) ?? fallbackPoint(children[0], 0, topics.length);
     const childRadius = Math.max(115, Math.min(460, Math.sqrt(children.length) * 58));
 
     children.forEach((child, index) => {
@@ -142,55 +134,53 @@ function initialPositionsFor(keywords: DashboardKeyword[]): Map<string, Point> {
     });
   });
 
-  keywords.forEach((keyword, index) => {
-    if (!positions.has(keyword.id)) {
-      positions.set(keyword.id, fallbackPoint(keyword, index, keywords.length));
+  topics.forEach((topic, index) => {
+    if (!positions.has(topic.id)) {
+      positions.set(topic.id, fallbackPoint(topic, index, topics.length));
     }
   });
 
   return positions;
 }
 
-export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
+export function KeywordGraph({ topics, selectedRegion }: KeywordGraphProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
   const chartInstanceRef = useRef<echarts.ECharts | null>(null);
 
   const option = useMemo<echarts.EChartsOption>(() => {
-    const largeGraph = keywords.length > 250;
-    const initialPositions = initialPositionsFor(keywords);
-    const nodes: GraphNodeData[] = keywords.map((keyword) => {
-      const rank = keyword.latestRanks[selectedRegion];
-      const bucket = rank?.bucket ?? "NOT_FOUND";
-      const volume = marketVolume(keyword, selectedRegion);
-      const position = initialPositions.get(keyword.id) ?? { x: 0, y: 0 };
+    const largeGraph = topics.length > 250;
+    const initialPositions = initialPositionsFor(topics);
+    const nodes: GraphNodeData[] = topics.map((topic) => {
+      const volume = marketVolume(topic, selectedRegion);
+      const position = initialPositions.get(topic.id) ?? { x: 0, y: 0 };
+      const mainTopic = topic.type === "MAIN";
 
       return {
-        id: keyword.id,
-        name: keyword.text,
-        keyword,
-        rankText: rankLabel(rank?.rank),
+        id: topic.id,
+        name: topic.text,
+        topic,
         volume,
         value: volume,
         x: position.x,
         y: position.y,
-        symbol: keyword.type === "MAIN" ? "diamond" : "circle",
+        symbol: mainTopic ? "diamond" : "circle",
         symbolSize: symbolSizeFor(volume),
-        category: keyword.type === "MAIN" ? 0 : 1,
+        category: mainTopic ? 0 : 1,
         itemStyle: {
-          color: RANK_BUCKET_META[bucket].color,
+          color: mainTopic ? "#2563eb" : "#0891b2",
           borderColor: "#ffffff",
           borderWidth: 3,
-          opacity: rank ? 1 : 0.5
+          opacity: volume > 0 ? 1 : 0.55
         }
       };
     });
 
     const linkKeys = new Set<string>();
-    const links = keywords.flatMap((keyword) => {
-      const parentIds = parentIdsFor(keyword);
+    const links = topics.flatMap((topic) => {
+      const parentIds = parentIdsFor(topic);
 
       return parentIds.flatMap((parentId) => {
-        const key = `${parentId}:${keyword.id}`;
+        const key = `${parentId}:${topic.id}`;
 
         if (linkKeys.has(key)) {
           return [];
@@ -200,10 +190,10 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
         return [
           {
             source: parentId,
-            target: keyword.id,
+            target: topic.id,
             lineStyle: {
               color: "#8b949e",
-              width: keyword.type === "LONG_TAIL" ? 1.4 : 2,
+              width: topic.type === "SUB_TOPIC" ? 1.4 : 2,
               opacity: 0.72
             }
           }
@@ -226,20 +216,16 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
           const param = rawParam as TooltipParam;
           const data = param.data;
 
-          if (!data?.keyword) {
+          if (!data?.topic) {
             return "";
           }
 
-          const rank = data.keyword.latestRanks[selectedRegion];
-          const typeLabel = data.keyword.type === "MAIN" ? "主关键词" : "长尾关键词";
-          const delta = rankDeltaLabel(rank?.rankDelta);
+          const typeLabel = data.topic.type === "MAIN" ? "主话题" : "子话题";
 
           return [
-            `<strong>${data.keyword.text}</strong>`,
-            `${REGIONS[selectedRegion].label}: ${rankStatusLabel(rank)}`,
+            `<strong>${data.topic.text}</strong>`,
             `类型: ${typeLabel}`,
-            `声量: ${data.volume?.toLocaleString() ?? "0"}`,
-            `Diff: ${delta}`
+            `${REGIONS[selectedRegion].label}声量: ${data.volume?.toLocaleString() ?? "0"}`
           ].join("<br/>");
         }
       },
@@ -252,7 +238,7 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
           color: "#4b5563",
           fontFamily: "inherit"
         },
-        data: ["主关键词", "长尾关键词"]
+        data: ["主话题", "子话题"]
       },
       series: [
         {
@@ -278,10 +264,10 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
           links,
           categories: [
             {
-              name: "主关键词"
+              name: "主话题"
             },
             {
-              name: "长尾关键词"
+              name: "子话题"
             }
           ],
           edgeSymbol: ["none", "arrow"],
@@ -316,7 +302,7 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
         }
       ]
     };
-  }, [keywords, selectedRegion]);
+  }, [topics, selectedRegion]);
 
   useEffect(() => {
     if (!chartRef.current) {
@@ -352,9 +338,9 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
     chart.resize();
   }, [option]);
 
-  if (keywords.length === 0) {
-    return <div className="emptyGraph">暂无关键词</div>;
+  if (topics.length === 0) {
+    return <div className="emptyGraph">暂无话题</div>;
   }
 
-  return <div ref={chartRef} className="keywordGraph" aria-label="关键词关系图" />;
+  return <div ref={chartRef} className="keywordGraph" aria-label="话题关系图" />;
 }

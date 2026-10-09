@@ -1,6 +1,7 @@
 import type { RankBucket, SearchRegionCode } from "@/lib/seo";
 
 export type KeywordType = "MAIN" | "LONG_TAIL";
+export type TopicType = "MAIN" | "SUB_TOPIC";
 
 export type RankSummary = {
   rank: number | null;
@@ -18,6 +19,8 @@ export type DashboardKeyword = {
   id: string;
   text: string;
   type: KeywordType;
+  topicId: string | null;
+  topicText: string | null;
   parentId: string | null;
   parentIds: string[];
   active: boolean;
@@ -25,6 +28,17 @@ export type DashboardKeyword = {
   volume: number;
   marketVolumes: Record<SearchRegionCode, number | null>;
   latestRanks: Record<SearchRegionCode, RankSummary | null>;
+};
+
+export type DashboardTopic = {
+  id: string;
+  text: string;
+  type: TopicType;
+  parentId: string | null;
+  parentIds: string[];
+  active: boolean;
+  volume: number;
+  marketVolumes: Record<SearchRegionCode, number | null>;
 };
 
 export type SyncRunSummary = {
@@ -69,6 +83,7 @@ export type DashboardResponse = {
   usingDemoData: boolean;
   targetDomain: string | null;
   regions: SearchRegionCode[];
+  topics: DashboardTopic[];
   keywords: DashboardKeyword[];
   latestRun: DashboardRun | null;
 };

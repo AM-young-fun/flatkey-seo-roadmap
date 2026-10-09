@@ -1,8 +1,8 @@
 const TEMPLATE_ROWS = [
-  ["keyword", "topic", "us_volume", "jp_volume", "es_volume", "br_volume"],
-  ["ai form builder", "AI Form Builder", "1200", "180", "90", "70"],
-  ["best ai form builder", "AI Form Builder", "450", "60", "30", "20"],
-  ["typeform ai alternative", "AI Form Builder", "250", "", "", ""]
+  ["topic", "parent topic"],
+  ["LLM API Routing", ""],
+  ["Fallback Routing for LLM APIs", "LLM API Routing"],
+  ["Speech-to-Text API Routing", "LLM API Routing"]
 ];
 
 function csvEscape(value: string): string {
@@ -21,7 +21,7 @@ export async function GET() {
 
   return new Response(`\uFEFF${csv}\r\n`, {
     headers: {
-      "Content-Disposition": 'attachment; filename="keyword-volume-import-template.csv"',
+      "Content-Disposition": 'attachment; filename="topic-import-template.csv"',
       "Content-Type": "text/csv; charset=utf-8",
       "Cache-Control": "no-store"
     }

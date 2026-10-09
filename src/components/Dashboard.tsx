@@ -1,5 +1,7 @@
 "use client";
 
+import { Table } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import {
   Activity,
   BarChart3,
@@ -18,22 +20,21 @@ import { KeywordGraph } from "@/components/KeywordGraph";
 import type {
   DashboardKeyword,
   DashboardResponse,
-  KeywordType,
   RankSummary,
-  SyncRunSummary
+  SyncRunSummary,
+  TopicType
 } from "@/lib/types";
 import {
   rankDeltaLabel,
   rankLabel,
-  RANK_BUCKET_META,
   REGION_CODES,
   REGIONS,
   type SearchRegionCode
 } from "@/lib/seo";
 
-const initialForm = {
+const initialTopicForm = {
   text: "",
-  type: "MAIN" as KeywordType,
+  type: "MAIN" as TopicType,
   parentId: ""
 };
 
@@ -61,25 +62,16 @@ function formatDate(value: string | null | undefined): string {
   }).format(new Date(value));
 }
 
-function parentName(keyword: DashboardKeyword, keywords: DashboardKeyword[]): string {
-  const parentIds = keyword.parentIds.length > 0 ? keyword.parentIds : keyword.parentId ? [keyword.parentId] : [];
-
-  if (parentIds.length === 0) {
-    return "-";
-  }
-
-  return parentIds
-    .map((parentId) => keywords.find((item) => item.id === parentId)?.text)
-    .filter((text): text is string => Boolean(text))
-    .join(" / ") || "-";
-}
-
 function bucketClass(bucket: string | undefined, pending = false): string {
   return `rankBadge rankBadge_${bucket ?? "NOT_FOUND"}${pending ? " rankBadge_pending" : ""}`;
 }
 
 function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
   return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
+}
+
+function usVolume(keyword: DashboardKeyword): number {
+  return marketVolume(keyword, "US");
 }
 
 function rankStatusLabel(rank: RankSummary | null | undefined): string {
@@ -114,9 +106,11 @@ export function Dashboard() {
   const [importing, setImporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [form, setForm] = useState(initialForm);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [fileInputKey, setFileInputKey] = useState(0);
+  const [topicForm, setTopicForm] = useState(initialTopicForm);
+  const [topicImportFile, setTopicImportFile] = useState<File | null>(null);
+  const [keywordImportFile, setKeywordImportFile] = useState<File | null>(null);
+  const [topicFileInputKey, setTopicFileInputKey] = useState(0);
+  const [keywordFileInputKey, setKeywordFileInputKey] = useState(0);
 
   const loadDashboard = useCallback(async () => {
     const response = await fetch("/api/dashboard", {
@@ -160,43 +154,43 @@ export function Dashboard() {
     };
   }, [loadDashboard, syncInProgress]);
 
-  const mainKeywords = useMemo(
-    () => data?.keywords.filter((keyword) => keyword.type === "MAIN") ?? [],
+  const mainTopics = useMemo(
+    () => data?.topics.filter((topic) => topic.type === "MAIN") ?? [],
     [data]
   );
 
   const stats = useMemo(() => {
+    const topics = data?.topics ?? [];
     const keywords = data?.keywords ?? [];
     const ranks = keywords.map((keyword) => keyword.latestRanks[selectedRegion]).filter(Boolean);
     const top5 = ranks.filter((rank) => rank?.bucket === "TOP_5").length;
-    const changed = ranks.filter((rank) => rank?.changed).length;
     const totalVolume = keywords.reduce((sum, keyword) => {
       return sum + marketVolume(keyword, selectedRegion);
     }, 0);
 
     return {
+      topics: topics.length,
       keywords: keywords.length,
       top5,
-      changed,
       totalVolume
     };
   }, [data, selectedRegion]);
 
-  async function submitKeyword(event: FormEvent<HTMLFormElement>) {
+  async function submitTopic(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setMessage(null);
 
     try {
-      const response = await fetch("/api/keywords", {
+      const response = await fetch("/api/topics", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          text: form.text,
-          type: form.type,
-          parentId: form.type === "LONG_TAIL" ? form.parentId || null : null
+          text: topicForm.text,
+          type: topicForm.type,
+          parentId: topicForm.type === "SUB_TOPIC" ? topicForm.parentId || null : null
         })
       });
 
@@ -209,8 +203,8 @@ export function Dashboard() {
         throw new Error(payload.message ?? "新增失败");
       }
 
-      setForm(initialForm);
-      setMessage(payload.created === false ? "关键词已更新" : "关键词已新增");
+      setTopicForm(initialTopicForm);
+      setMessage(payload.created === false ? "话题已更新" : "话题已新增");
       await loadDashboard();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "新增失败");
@@ -219,10 +213,18 @@ export function Dashboard() {
     }
   }
 
-  async function importKeywords(event: FormEvent<HTMLFormElement>) {
+  async function importCsv(
+    event: FormEvent<HTMLFormElement>,
+    options: {
+      file: File | null;
+      endpoint: string;
+      label: string;
+      reset: () => void;
+    }
+  ) {
     event.preventDefault();
 
-    if (!importFile) {
+    if (!options.file) {
       setMessage("请选择 CSV 文件");
       return;
     }
@@ -232,9 +234,9 @@ export function Dashboard() {
 
     try {
       const formData = new FormData();
-      formData.append("file", importFile);
+      formData.append("file", options.file);
 
-      const response = await fetch("/api/keywords/import", {
+      const response = await fetch(options.endpoint, {
         method: "POST",
         body: formData
       });
@@ -250,9 +252,8 @@ export function Dashboard() {
       const firstError = payload.errors?.[0];
       const errorNote = firstError ? `；第 ${firstError.row} 行：${firstError.message}` : "";
 
-      setImportFile(null);
-      setFileInputKey((current) => current + 1);
-      setMessage(`导入完成：新增 ${created}，更新 ${updated}，跳过 ${skipped}${errorNote}`);
+      options.reset();
+      setMessage(`${options.label}导入完成：新增 ${created}，更新 ${updated}，跳过 ${skipped}${errorNote}`);
       await loadDashboard();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "导入失败");
@@ -309,6 +310,80 @@ export function Dashboard() {
     }
   }
 
+  const keywordColumns = useMemo<ColumnsType<DashboardKeyword>>(() => {
+    const volumeColumns: ColumnsType<DashboardKeyword> = [
+      {
+        title: "美国声量",
+        key: "usVolume",
+        sorter: (a, b) => usVolume(a) - usVolume(b),
+        defaultSortOrder: "descend",
+        render: (_, keyword) => usVolume(keyword).toLocaleString()
+      }
+    ];
+
+    if (selectedRegion !== "US") {
+      volumeColumns.push({
+        title: `${REGIONS[selectedRegion].label}声量`,
+        key: "selectedMarketVolume",
+        sorter: (a, b) => marketVolume(a, selectedRegion) - marketVolume(b, selectedRegion),
+        render: (_, keyword) => marketVolume(keyword, selectedRegion).toLocaleString()
+      });
+    }
+
+    return [
+      {
+        title: "关键词",
+        dataIndex: "text",
+        key: "text",
+        sorter: (a, b) => a.text.localeCompare(b.text),
+        render: (text: string) => <strong>{text}</strong>
+      },
+      {
+        title: "所属话题",
+        dataIndex: "topicText",
+        key: "topicText",
+        sorter: (a, b) => (a.topicText ?? "").localeCompare(b.topicText ?? ""),
+        render: (text: string | null) => text ?? "-"
+      },
+      ...volumeColumns,
+      {
+        title: "同步时间",
+        dataIndex: "lastSyncedAt",
+        key: "lastSyncedAt",
+        sorter: (a, b) =>
+          new Date(a.lastSyncedAt ?? 0).getTime() - new Date(b.lastSyncedAt ?? 0).getTime(),
+        render: (value: string | null) => formatDate(value)
+      },
+      ...REGION_CODES.map((region) => ({
+        title: REGIONS[region].label,
+        key: `rank-${region}`,
+        render: (_: unknown, keyword: DashboardKeyword) => {
+          const rank = keyword.latestRanks[region];
+
+          return (
+            <>
+              <span className={bucketClass(rank?.bucket, !rank)}>
+                <i />
+                {rankStatusLabel(rank)}
+              </span>
+              <span
+                className={
+                  rank?.rankDelta && rank.rankDelta > 0
+                    ? "delta up"
+                    : rank?.rankDelta && rank.rankDelta < 0
+                      ? "delta down"
+                      : "delta"
+                }
+              >
+                {rankDeltaLabel(rank?.rankDelta)}
+              </span>
+            </>
+          );
+        }
+      }))
+    ];
+  }, [selectedRegion]);
+
   return (
     <main className="appShell">
       <header className="topBar">
@@ -354,22 +429,22 @@ export function Dashboard() {
       <section className="metricGrid">
         <div className="metricPanel">
           <Database size={18} />
+          <span>话题</span>
+          <strong>{loading ? "-" : stats.topics}</strong>
+        </div>
+        <div className="metricPanel">
+          <BarChart3 size={18} />
           <span>关键词</span>
           <strong>{loading ? "-" : stats.keywords}</strong>
         </div>
         <div className="metricPanel">
-          <BarChart3 size={18} />
+          <GitCompareArrows size={18} />
           <span>前 5</span>
           <strong>{loading ? "-" : stats.top5}</strong>
         </div>
         <div className="metricPanel">
-          <GitCompareArrows size={18} />
-          <span>今日 Diff</span>
-          <strong>{loading ? "-" : stats.changed}</strong>
-        </div>
-        <div className="metricPanel">
           <Activity size={18} />
-          <span>声量</span>
+          <span>{REGIONS[selectedRegion].label}声量</span>
           <strong>{loading ? "-" : stats.totalVolume.toLocaleString()}</strong>
         </div>
       </section>
@@ -378,16 +453,18 @@ export function Dashboard() {
         <div className="graphPanel">
           <div className="panelHeader">
             <div>
-              <h2>关键词关系图</h2>
+              <h2>话题关系图</h2>
               <p>{REGIONS[selectedRegion].label}</p>
             </div>
             <div className="legend">
-              {Object.entries(RANK_BUCKET_META).map(([bucket, meta]) => (
-                <span key={bucket}>
-                  <i style={{ background: meta.color }} />
-                  {meta.label}
-                </span>
-              ))}
+              <span>
+                <i style={{ background: "#2563eb" }} />
+                主话题
+              </span>
+              <span>
+                <i style={{ background: "#0891b2" }} />
+                子话题
+              </span>
             </div>
           </div>
           {loading || !data ? (
@@ -396,50 +473,52 @@ export function Dashboard() {
               加载中
             </div>
           ) : (
-            <KeywordGraph keywords={data.keywords} selectedRegion={selectedRegion} />
+            <KeywordGraph topics={data.topics} selectedRegion={selectedRegion} />
           )}
         </div>
 
         <aside className="sidePanel">
-          <form className="keywordForm" onSubmit={submitKeyword}>
-            <h2>新增关键词</h2>
+          <form className="keywordForm" onSubmit={submitTopic}>
+            <h2>新增话题</h2>
             <label>
-              <span>关键词</span>
+              <span>话题</span>
               <input
-                onChange={(event) => setForm((current) => ({ ...current, text: event.target.value }))}
-                placeholder="输入关键词"
+                onChange={(event) =>
+                  setTopicForm((current) => ({ ...current, text: event.target.value }))
+                }
+                placeholder="输入话题"
                 required
-                value={form.text}
+                value={topicForm.text}
               />
             </label>
             <label>
               <span>类型</span>
               <select
                 onChange={(event) =>
-                  setForm((current) => ({
+                  setTopicForm((current) => ({
                     ...current,
-                    type: event.target.value as KeywordType
+                    type: event.target.value as TopicType
                   }))
                 }
-                value={form.type}
+                value={topicForm.type}
               >
-                <option value="MAIN">主关键词</option>
-                <option value="LONG_TAIL">长尾关键词</option>
+                <option value="MAIN">主话题</option>
+                <option value="SUB_TOPIC">子话题</option>
               </select>
             </label>
             <label>
               <span>父级</span>
               <select
-                disabled={form.type === "MAIN" || mainKeywords.length === 0}
+                disabled={topicForm.type === "MAIN" || mainTopics.length === 0}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, parentId: event.target.value }))
+                  setTopicForm((current) => ({ ...current, parentId: event.target.value }))
                 }
-                value={form.parentId}
+                value={topicForm.parentId}
               >
                 <option value="">无</option>
-                {mainKeywords.map((keyword) => (
-                  <option key={keyword.id} value={keyword.id}>
-                    {keyword.text}
+                {mainTopics.map((topic) => (
+                  <option key={topic.id} value={topic.id}>
+                    {topic.text}
                   </option>
                 ))}
               </select>
@@ -450,14 +529,27 @@ export function Dashboard() {
             </button>
           </form>
 
-          <form className="importForm" onSubmit={importKeywords}>
+          <form
+            className="importForm"
+            onSubmit={(event) =>
+              importCsv(event, {
+                file: topicImportFile,
+                endpoint: "/api/topics/import",
+                label: "话题",
+                reset: () => {
+                  setTopicImportFile(null);
+                  setTopicFileInputKey((current) => current + 1);
+                }
+              })
+            }
+          >
             <div className="formTitleRow">
-              <h2>CSV 导入</h2>
+              <h2>话题 CSV</h2>
               <a
                 className="downloadTemplateLink"
                 download
-                href="/api/keywords/import/template"
-                title="下载 CSV 模板"
+                href="/api/topics/import/template"
+                title="下载话题 CSV 模板"
               >
                 <Download size={15} />
                 模板
@@ -467,14 +559,55 @@ export function Dashboard() {
               <span>CSV 文件</span>
               <input
                 accept=".csv,text/csv"
-                key={fileInputKey}
-                onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                key={topicFileInputKey}
+                onChange={(event) => setTopicImportFile(event.target.files?.[0] ?? null)}
                 type="file"
               />
             </label>
-            <button className="secondaryButton" disabled={importing || !importFile} type="submit">
+            <button className="secondaryButton" disabled={importing || !topicImportFile} type="submit">
               {importing ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}
-              导入 CSV
+              导入话题
+            </button>
+          </form>
+
+          <form
+            className="importForm"
+            onSubmit={(event) =>
+              importCsv(event, {
+                file: keywordImportFile,
+                endpoint: "/api/keywords/import",
+                label: "关键词",
+                reset: () => {
+                  setKeywordImportFile(null);
+                  setKeywordFileInputKey((current) => current + 1);
+                }
+              })
+            }
+          >
+            <div className="formTitleRow">
+              <h2>关键词 CSV</h2>
+              <a
+                className="downloadTemplateLink"
+                download
+                href="/api/keywords/import/template"
+                title="下载关键词 CSV 模板"
+              >
+                <Download size={15} />
+                模板
+              </a>
+            </div>
+            <label>
+              <span>CSV 文件</span>
+              <input
+                accept=".csv,text/csv"
+                key={keywordFileInputKey}
+                onChange={(event) => setKeywordImportFile(event.target.files?.[0] ?? null)}
+                type="file"
+              />
+            </label>
+            <button className="secondaryButton" disabled={importing || !keywordImportFile} type="submit">
+              {importing ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}
+              导入关键词
             </button>
           </form>
 
@@ -519,66 +652,23 @@ export function Dashboard() {
       <section className="tablePanel">
         <div className="panelHeader">
           <div>
-            <h2>排名明细</h2>
+            <h2>关键词明细</h2>
             <p>{data?.targetDomain ?? "未设置目标域名"}</p>
           </div>
         </div>
-        <div className="tableScroll">
-          <table>
-            <thead>
-              <tr>
-                <th>关键词</th>
-                <th>类型</th>
-                <th>父级</th>
-                <th>声量（{REGIONS[selectedRegion].label}）</th>
-                <th>同步时间</th>
-                {REGION_CODES.map((region) => (
-                  <th key={region}>{REGIONS[region].label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.keywords ?? []).map((keyword) => (
-                <tr key={keyword.id}>
-                  <td>
-                    <strong>{keyword.text}</strong>
-                  </td>
-                  <td>{keyword.type === "MAIN" ? "主关键词" : "长尾关键词"}</td>
-                  <td>{parentName(keyword, data?.keywords ?? [])}</td>
-                  <td>{marketVolume(keyword, selectedRegion).toLocaleString()}</td>
-                  <td>{formatDate(keyword.lastSyncedAt)}</td>
-                  {REGION_CODES.map((region) => {
-                    const rank = keyword.latestRanks[region];
-                    return (
-                      <td key={region}>
-                        <span className={bucketClass(rank?.bucket, !rank)}>
-                          <i />
-                          {rankStatusLabel(rank)}
-                        </span>
-                        <span
-                          className={
-                            rank?.rankDelta && rank.rankDelta > 0
-                              ? "delta up"
-                              : rank?.rankDelta && rank.rankDelta < 0
-                                ? "delta down"
-                                : "delta"
-                          }
-                        >
-                          {rankDeltaLabel(rank?.rankDelta)}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {!loading && data?.keywords.length === 0 ? (
-                <tr>
-                  <td colSpan={REGION_CODES.length + 5}>暂无关键词</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          className="keywordTable"
+          columns={keywordColumns}
+          dataSource={data?.keywords ?? []}
+          loading={loading}
+          pagination={{
+            defaultPageSize: 50,
+            showSizeChanger: true
+          }}
+          rowKey="id"
+          scroll={{ x: 1180 }}
+          size="middle"
+        />
       </section>
     </main>
   );

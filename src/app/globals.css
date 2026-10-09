@@ -475,33 +475,28 @@ h2 {
   padding: 16px;
 }
 
-.tableScroll {
-  width: 100%;
-  overflow-x: auto;
+.keywordTable :where(.ant-table) {
+  color: var(--text);
+  font-family: inherit;
 }
 
-table {
-  width: 100%;
-  min-width: 940px;
-  border-collapse: collapse;
+.keywordTable :where(.ant-table-container table) {
+  min-width: 1180px;
 }
 
-th,
-td {
-  padding: 12px 10px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: middle;
-  font-size: 13px;
-}
-
-th {
+.keywordTable :where(.ant-table-thead > tr > th) {
   color: var(--muted);
   font-size: 12px;
   font-weight: 760;
+  background: var(--surface-strong);
 }
 
-td strong {
+.keywordTable :where(.ant-table-tbody > tr > td) {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.keywordTable strong {
   display: inline-block;
   max-width: 300px;
   overflow-wrap: anywhere;

@@ -1,3 +1,4 @@
+import { TopicType } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDemoDashboard } from "@/lib/demo-data";
@@ -7,10 +8,9 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const createKeywordSchema = z.object({
-  text: z.string().trim().min(1).max(160),
-  type: z.enum(["MAIN", "LONG_TAIL"]).default("MAIN"),
-  topicId: z.string().trim().min(1),
+const createTopicSchema = z.object({
+  text: z.string().trim().min(1).max(220),
+  type: z.enum(["MAIN", "SUB_TOPIC"]).default("MAIN"),
   parentId: z.string().trim().min(1).nullable().optional()
 });
 
@@ -18,19 +18,13 @@ export async function GET() {
   if (!isDatabaseConfigured()) {
     return NextResponse.json({
       usingDemoData: true,
-      keywords: getDemoDashboard().keywords
+      topics: getDemoDashboard().topics
     });
   }
 
-  const keywords = await prisma.keyword.findMany({
+  const topics = await prisma.topic.findMany({
     where: {
-      active: true,
-      topicId: {
-        not: null
-      }
-    },
-    include: {
-      topic: true
+      active: true
     },
     orderBy: [
       {
@@ -44,7 +38,7 @@ export async function GET() {
 
   return NextResponse.json({
     usingDemoData: false,
-    keywords
+    topics
   });
 }
 
@@ -60,12 +54,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsed = createKeywordSchema.safeParse(await request.json());
+  const parsed = createTopicSchema.safeParse(await request.json());
 
   if (!parsed.success) {
     return NextResponse.json(
       {
-        message: "Invalid keyword payload"
+        message: "Invalid topic payload"
       },
       {
         status: 400
@@ -74,27 +68,10 @@ export async function POST(request: Request) {
   }
 
   const payload = parsed.data;
-  const topic = await prisma.topic.findUnique({
-    where: {
-      id: payload.topicId
-    }
-  });
-
-  if (!topic) {
-    return NextResponse.json(
-      {
-        message: "Topic was not found"
-      },
-      {
-        status: 400
-      }
-    );
-  }
-
-  const parentId = payload.type === "LONG_TAIL" ? payload.parentId ?? null : null;
+  const parentId = payload.type === "SUB_TOPIC" ? payload.parentId ?? null : null;
 
   if (parentId) {
-    const parent = await prisma.keyword.findUnique({
+    const parent = await prisma.topic.findUnique({
       where: {
         id: parentId
       }
@@ -103,7 +80,7 @@ export async function POST(request: Request) {
     if (!parent) {
       return NextResponse.json(
         {
-          message: "Parent keyword was not found"
+          message: "Parent topic was not found"
         },
         {
           status: 400
@@ -114,7 +91,7 @@ export async function POST(request: Request) {
     if (parent.text === payload.text) {
       return NextResponse.json(
         {
-          message: "Keyword cannot be its own parent"
+          message: "Topic cannot be its own parent"
         },
         {
           status: 400
@@ -123,7 +100,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const existingKeyword = await prisma.keyword.findUnique({
+  const existingTopic = await prisma.topic.findUnique({
     where: {
       text: payload.text
     },
@@ -132,58 +109,56 @@ export async function POST(request: Request) {
     }
   });
 
-  const keyword = await prisma.$transaction(async (transaction) => {
-    const savedKeyword = await transaction.keyword.upsert({
+  const topic = await prisma.$transaction(async (transaction) => {
+    const savedTopic = await transaction.topic.upsert({
       where: {
         text: payload.text
       },
       create: {
         text: payload.text,
-        type: payload.type,
-        topicId: payload.topicId,
+        type: payload.type as TopicType,
         parentId,
         active: true
       },
       update: {
-        type: payload.type,
-        topicId: payload.topicId,
+        type: payload.type as TopicType,
         parentId,
         active: true
       }
     });
 
     if (parentId) {
-      await transaction.keywordRelation.upsert({
+      await transaction.topicRelation.upsert({
         where: {
           parentId_childId: {
             parentId,
-            childId: savedKeyword.id
+            childId: savedTopic.id
           }
         },
         create: {
           parentId,
-          childId: savedKeyword.id
+          childId: savedTopic.id
         },
         update: {}
       });
     } else {
-      await transaction.keywordRelation.deleteMany({
+      await transaction.topicRelation.deleteMany({
         where: {
-          childId: savedKeyword.id
+          childId: savedTopic.id
         }
       });
     }
 
-    return savedKeyword;
+    return savedTopic;
   });
 
   return NextResponse.json(
     {
-      keyword,
-      created: !existingKeyword
+      topic,
+      created: !existingTopic
     },
     {
-      status: existingKeyword ? 200 : 201
+      status: existingTopic ? 200 : 201
     }
   );
 }

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import type { DashboardKeyword, DashboardResponse, SyncRunSummary } from "@/lib/types";
+import type {
+  DashboardKeyword,
+  DashboardResponse,
+  DashboardTopic,
+  SyncRunSummary
+} from "@/lib/types";
 import { isDatabaseConfigured } from "@/lib/env";
 import { getDemoDashboard } from "@/lib/demo-data";
 import { prisma } from "@/lib/prisma";
@@ -36,12 +41,41 @@ export async function GET() {
 
   await markStaleRankingSyncRuns();
 
-  const [keywords, latestRun] = await Promise.all([
-    prisma.keyword.findMany({
+  const [topics, keywords, latestRun] = await Promise.all([
+    prisma.topic.findMany({
       where: {
         active: true
       },
       include: {
+        childEdges: {
+          select: {
+            parentId: true
+          }
+        }
+      },
+      orderBy: [
+        {
+          type: "asc"
+        },
+        {
+          text: "asc"
+        }
+      ]
+    }),
+    prisma.keyword.findMany({
+      where: {
+        active: true,
+        topicId: {
+          not: null
+        }
+      },
+      include: {
+        topic: {
+          select: {
+            id: true,
+            text: true
+          }
+        },
         snapshots: {
           orderBy: {
             checkedAt: "desc"
@@ -56,12 +90,14 @@ export async function GET() {
         },
         volumes: {
           where: {
-            source: "ahrefs"
+            source: {
+              in: ["ahrefs", "csv"]
+            }
           },
           orderBy: {
             fetchedAt: "desc"
           },
-          take: 18
+          take: 40
         },
         childEdges: {
           select: {
@@ -85,13 +121,65 @@ export async function GET() {
     })
   ]);
 
+  const topicParentIdsById = new Map<string, string[]>();
+  const topicVolumesById = new Map<string, DashboardTopic["marketVolumes"]>();
+
+  topics.forEach((topic) => {
+    topicParentIdsById.set(
+      topic.id,
+      topic.childEdges.length > 0
+        ? topic.childEdges.map((edge) => edge.parentId)
+        : topic.parentId
+          ? [topic.parentId]
+          : []
+    );
+    topicVolumesById.set(topic.id, emptyMarketVolumes());
+  });
+
+  function volumeForRegion(
+    keyword: (typeof keywords)[number],
+    region: SearchRegionCode
+  ): number | null {
+    return (
+      keyword.volumes.find((item) => item.region === region && item.source === "ahrefs")?.volume ??
+      keyword.volumes.find((item) => item.region === region && item.source === "csv")?.volume ??
+      keyword.volumes.find((item) => item.region === region)?.volume ??
+      (region === "US" && keyword.defaultVolume > 0 ? keyword.defaultVolume : null)
+    );
+  }
+
+  function addVolumeToTopic(
+    topicId: string | null,
+    region: SearchRegionCode,
+    volume: number,
+    seen = new Set<string>()
+  ) {
+    if (!topicId || seen.has(topicId)) {
+      return;
+    }
+
+    seen.add(topicId);
+    const topicVolumes = topicVolumesById.get(topicId);
+
+    if (topicVolumes) {
+      topicVolumes[region] = (topicVolumes[region] ?? 0) + volume;
+    }
+
+    (topicParentIdsById.get(topicId) ?? []).forEach((parentId) => {
+      addVolumeToTopic(parentId, region, volume, seen);
+    });
+  }
+
   const dashboardKeywords: DashboardKeyword[] = keywords.map((keyword) => {
     const latestRanks = emptyRanks();
     const marketVolumes = emptyMarketVolumes();
 
     for (const region of REGION_CODES) {
-      marketVolumes[region] =
-        keyword.volumes.find((item) => item.region === region)?.volume ?? null;
+      marketVolumes[region] = volumeForRegion(keyword, region);
+
+      if (marketVolumes[region]) {
+        addVolumeToTopic(keyword.topicId, region, marketVolumes[region]);
+      }
     }
 
     for (const region of REGION_CODES) {
@@ -126,6 +214,8 @@ export async function GET() {
       id: keyword.id,
       text: keyword.text,
       type: keyword.type,
+      topicId: keyword.topicId,
+      topicText: keyword.topic?.text ?? null,
       parentId: keyword.parentId,
       parentIds:
         keyword.childEdges.length > 0
@@ -141,10 +231,29 @@ export async function GET() {
     };
   });
 
+  const dashboardTopics: DashboardTopic[] = topics.map((topic) => {
+    const marketVolumes = topicVolumesById.get(topic.id) ?? emptyMarketVolumes();
+    const knownRegionalVolumes = REGION_CODES.map(
+      (region: SearchRegionCode) => marketVolumes[region]
+    ).filter((volume): volume is number => volume !== null);
+
+    return {
+      id: topic.id,
+      text: topic.text,
+      type: topic.type,
+      parentId: topic.parentId,
+      parentIds: topicParentIdsById.get(topic.id) ?? [],
+      active: topic.active,
+      volume: knownRegionalVolumes.length > 0 ? Math.max(...knownRegionalVolumes) : 0,
+      marketVolumes
+    };
+  });
+
   const response: DashboardResponse = {
     usingDemoData: false,
     targetDomain: process.env.SEO_TARGET_DOMAIN || null,
     regions: REGION_CODES,
+    topics: dashboardTopics,
     keywords: dashboardKeywords,
     latestRun: latestRun
       ? {
