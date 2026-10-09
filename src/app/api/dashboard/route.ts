@@ -134,6 +134,7 @@ export async function GET() {
             ? [keyword.parentId]
             : [],
       active: keyword.active,
+      lastSyncedAt: keyword.lastSyncedAt?.toISOString() ?? null,
       volume: knownRegionalVolumes.length > 0 ? Math.max(...knownRegionalVolumes) : 0,
       marketVolumes,
       latestRanks

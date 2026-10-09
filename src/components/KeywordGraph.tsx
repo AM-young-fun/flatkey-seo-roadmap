@@ -2,7 +2,7 @@
 
 import * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
-import type { DashboardKeyword } from "@/lib/types";
+import type { DashboardKeyword, RankSummary } from "@/lib/types";
 import {
   hashString,
   rankDeltaLabel,
@@ -33,6 +33,7 @@ type GraphNodeData = {
     color: string;
     borderColor: string;
     borderWidth: number;
+    opacity: number;
   };
 };
 
@@ -59,6 +60,10 @@ function symbolSizeFor(volume: number, maxVolume: number): number {
 
 function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
   return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
+}
+
+function rankStatusLabel(rank: RankSummary | null | undefined): string {
+  return rank ? rankLabel(rank.rank) : "未同步";
 }
 
 function parentIdsFor(keyword: DashboardKeyword): string[] {
@@ -168,7 +173,8 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
         itemStyle: {
           color: RANK_BUCKET_META[bucket].color,
           borderColor: "#ffffff",
-          borderWidth: 3
+          borderWidth: 3,
+          opacity: rank ? 1 : 0.5
         }
       };
     });
@@ -224,7 +230,7 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
 
           return [
             `<strong>${data.keyword.text}</strong>`,
-            `${REGIONS[selectedRegion].label}: ${rankLabel(rank?.rank)}`,
+            `${REGIONS[selectedRegion].label}: ${rankStatusLabel(rank)}`,
             `类型: ${typeLabel}`,
             `声量: ${data.volume?.toLocaleString() ?? "0"}`,
             `Diff: ${delta}`
@@ -249,7 +255,10 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
           left: "center",
           top: "center",
           width: "94%",
-          height: "88%",
+          height: "94%",
+          preserveAspect: "contain",
+          preserveAspectAlign: "center",
+          preserveAspectVerticalAlign: "middle",
           center: ["50%", "50%"],
           zoom: largeGraph ? 0.82 : 1,
           scaleLimit: {
@@ -290,7 +299,7 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
             edgeLength: largeGraph ? [42, 120] : [72, 170],
             gravity: largeGraph ? 0.22 : 0.1,
             friction: largeGraph ? 0.48 : 0.36,
-            layoutAnimation: true
+            layoutAnimation: false
           },
           emphasis: {
             focus: "adjacency",
@@ -335,16 +344,6 @@ export function KeywordGraph({ keywords, selectedRegion }: KeywordGraphProps) {
 
     chart.setOption(option, true);
     chart.resize();
-
-    const resizeTimer = window.setTimeout(() => {
-      if (!chart.isDisposed()) {
-        chart.resize();
-      }
-    }, 250);
-
-    return () => {
-      window.clearTimeout(resizeTimer);
-    };
   }, [option]);
 
   if (keywords.length === 0) {

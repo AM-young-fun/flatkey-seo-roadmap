@@ -93,6 +93,7 @@ export function getDemoDashboard(): DashboardResponse {
       ...keyword,
       parentIds: keyword.parentId ? [keyword.parentId] : [],
       active: true,
+      lastSyncedAt: new Date().toISOString(),
       volume: Math.max(...volumes),
       marketVolumes,
       latestRanks

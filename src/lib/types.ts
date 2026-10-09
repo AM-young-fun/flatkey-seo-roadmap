@@ -21,6 +21,7 @@ export type DashboardKeyword = {
   parentId: string | null;
   parentIds: string[];
   active: boolean;
+  lastSyncedAt: string | null;
   volume: number;
   marketVolumes: Record<SearchRegionCode, number | null>;
   latestRanks: Record<SearchRegionCode, RankSummary | null>;
@@ -33,6 +34,10 @@ export type SyncRunSummary = {
   processed?: number;
   currentKeyword?: string | null;
   currentRegion?: SearchRegionCode | null;
+  resumed?: boolean;
+  resumedRunId?: string | null;
+  skippedDaily?: number;
+  skippedCompleted?: number;
   startedAt?: string;
   updatedAt?: string;
   snapshots?: number;

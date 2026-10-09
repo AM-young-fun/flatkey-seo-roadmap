@@ -19,6 +19,7 @@ import type {
   DashboardKeyword,
   DashboardResponse,
   KeywordType,
+  RankSummary,
   SyncRunSummary
 } from "@/lib/types";
 import {
@@ -73,12 +74,16 @@ function parentName(keyword: DashboardKeyword, keywords: DashboardKeyword[]): st
     .join(" / ") || "-";
 }
 
-function bucketClass(bucket: string | undefined): string {
-  return `rankBadge rankBadge_${bucket ?? "NOT_FOUND"}`;
+function bucketClass(bucket: string | undefined, pending = false): string {
+  return `rankBadge rankBadge_${bucket ?? "NOT_FOUND"}${pending ? " rankBadge_pending" : ""}`;
 }
 
 function marketVolume(keyword: DashboardKeyword, region: SearchRegionCode): number {
   return keyword.marketVolumes[region] ?? keyword.latestRanks[region]?.searchVolume ?? 0;
+}
+
+function rankStatusLabel(rank: RankSummary | null | undefined): string {
+  return rank ? rankLabel(rank.rank) : "未同步";
 }
 
 function syncProgressText(summary: SyncRunSummary | null | undefined): string {
@@ -526,6 +531,7 @@ export function Dashboard() {
                 <th>类型</th>
                 <th>父级</th>
                 <th>声量（{REGIONS[selectedRegion].label}）</th>
+                <th>同步时间</th>
                 {REGION_CODES.map((region) => (
                   <th key={region}>{REGIONS[region].label}</th>
                 ))}
@@ -540,13 +546,14 @@ export function Dashboard() {
                   <td>{keyword.type === "MAIN" ? "主关键词" : "长尾关键词"}</td>
                   <td>{parentName(keyword, data?.keywords ?? [])}</td>
                   <td>{marketVolume(keyword, selectedRegion).toLocaleString()}</td>
+                  <td>{formatDate(keyword.lastSyncedAt)}</td>
                   {REGION_CODES.map((region) => {
                     const rank = keyword.latestRanks[region];
                     return (
                       <td key={region}>
-                        <span className={bucketClass(rank?.bucket)}>
+                        <span className={bucketClass(rank?.bucket, !rank)}>
                           <i />
-                          {rankLabel(rank?.rank)}
+                          {rankStatusLabel(rank)}
                         </span>
                         <span
                           className={
@@ -566,7 +573,7 @@ export function Dashboard() {
               ))}
               {!loading && data?.keywords.length === 0 ? (
                 <tr>
-                  <td colSpan={REGION_CODES.length + 4}>暂无关键词</td>
+                  <td colSpan={REGION_CODES.length + 5}>暂无关键词</td>
                 </tr>
               ) : null}
             </tbody>

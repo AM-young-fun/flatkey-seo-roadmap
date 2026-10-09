@@ -532,6 +532,10 @@ td strong {
   background: var(--black);
 }
 
+.rankBadge_pending {
+  opacity: 0.5;
+}
+
 .delta {
   display: inline-block;
   min-width: 34px;
