@@ -10,7 +10,7 @@ import { DISPLAY_BUCKETS, rankingStats } from "@/lib/rank-display";
 import { type SearchRegionCode } from "@/lib/seo";
 
 export function Dashboard() {
-  const { data, loading, error } = useDashboard();
+  const { data, loading, error, refresh } = useDashboard();
   const [region, setRegion] = useState<SearchRegionCode>("US");
   const keywords = data?.keywords ?? [];
   const stats = rankingStats(keywords, region);
@@ -30,8 +30,11 @@ export function Dashboard() {
     <main className="appShell">
       <PageHeader active="overview" />
       {error ? (
-        <div className="notice" role="alert">
-          {error}
+        <div className="loadError" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void refresh()}>
+            重新加载
+          </button>
         </div>
       ) : null}
       <div className="overviewToolbar">

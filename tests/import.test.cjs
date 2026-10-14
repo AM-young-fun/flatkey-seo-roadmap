@@ -381,7 +381,9 @@ test("display tiers handle all boundaries and cumulative statistics", () => {
   assert.equal(rankingStats([], "US").percent(0), 0);
 });
 
-test("dashboard shows imported GSC fractions, independent zero volume, and ignores older backfills", async () => {
+test("dashboard shows imported GSC fractions, independent zero volume, and ignores older backfills", async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
   await route.POST(
     request(
       batch([
@@ -416,6 +418,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
       requestId: "backfill-001",
     }),
   );
+  now += 6000;
   data = await (await dashboard.GET()).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(
@@ -435,6 +438,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
       requestId: "daily-2026-10-11",
     }),
   );
+  now += 6000;
   data = await (await dashboard.GET()).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, null);
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");

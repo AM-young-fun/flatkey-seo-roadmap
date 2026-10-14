@@ -15,7 +15,7 @@ import {
 } from "@/lib/rank-display";
 
 export function KeywordDetails() {
-  const { data, error, loading } = useDashboard();
+  const { data, error, loading, refresh } = useDashboard();
   const [region, setRegion] = useState<SearchRegionCode>("US");
   const [search, setSearch] = useState("");
   const rows = (data?.keywords ?? []).filter((keyword) =>
@@ -111,8 +111,11 @@ export function KeywordDetails() {
         </p>
       </div>
       {error ? (
-        <div className="notice" role="alert">
-          {error}
+        <div className="loadError" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void refresh()}>
+            重新加载
+          </button>
         </div>
       ) : null}
       <div className="detailToolbar">

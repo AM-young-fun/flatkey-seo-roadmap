@@ -10,10 +10,10 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { getDemoDashboard } from "@/lib/demo-data";
 import { prisma } from "@/lib/prisma";
 import { getRankBucket, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { markStaleRankingSyncRuns } from "@/lib/services/sync-rankings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function emptyRanks(): DashboardKeyword["latestRanks"] {
   return REGION_CODES.reduce(
@@ -35,12 +35,10 @@ function emptyMarketVolumes(): DashboardKeyword["marketVolumes"] {
   );
 }
 
-export async function GET() {
+async function loadDashboard() {
   if (!isDatabaseConfigured()) {
-    return NextResponse.json(getDemoDashboard());
+    return getDemoDashboard();
   }
-
-  await markStaleRankingSyncRuns();
 
   const [
     topics,
@@ -350,5 +348,51 @@ export async function GET() {
       : null,
   };
 
-  return NextResponse.json(response);
+  return response;
+}
+
+let cached: { value: DashboardResponse; expiresAt: number } | null = null;
+let inFlight: Promise<DashboardResponse> | null = null;
+
+export async function GET() {
+  try {
+    if (cached && cached.expiresAt > Date.now()) {
+      return NextResponse.json(cached.value, {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+    if (!inFlight) {
+      inFlight = loadDashboard()
+        .then((value) => {
+          cached = { value, expiresAt: Date.now() + 5_000 };
+          return value;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    }
+    const value = await inFlight;
+    return NextResponse.json(value, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "UNKNOWN";
+    const meta =
+      error && typeof error === "object" && "meta" in error ? error.meta : null;
+    const sqlState =
+      meta && typeof meta === "object" && "code" in meta
+        ? String(meta.code)
+        : null;
+    console.error("Dashboard read failed", { code, sqlState });
+    return NextResponse.json(
+      { message: "数据暂时无法读取", code, sqlState },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store", "Retry-After": "2" },
+      },
+    );
+  }
 }

@@ -9,3 +9,5 @@ dist
 coverage
 prisma/dev.db
 tsconfig.tsbuildinfo
+
+.local/

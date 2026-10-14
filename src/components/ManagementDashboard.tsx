@@ -1,6 +1,16 @@
 "use client";
 import { FormEvent, useState } from "react";
-import { Download, Loader2, Plus, Upload } from "lucide-react";
+import {
+  Check,
+  Clock3,
+  Copy,
+  Download,
+  FileSpreadsheet,
+  Layers3,
+  Loader2,
+  Plus,
+  Upload,
+} from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
@@ -14,6 +24,9 @@ type ImportKeywordsResponse = {
 };
 export function ManagementDashboard() {
   const { data, refresh: loadDashboard, error } = useDashboard();
+  const [credential, setCredential] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [credentialStatus, setCredentialStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -118,78 +131,117 @@ export function ManagementDashboard() {
   }
 
   async function copyImportCredential() {
+    setCopying(true);
+    setCredentialStatus(null);
     try {
       const response = await fetch("/api/rankings/credential", {
         cache: "no-store",
       });
       if (!response.ok) throw new Error("需要登录后才能获取导入密钥");
       const payload = (await response.json()) as { secret: string };
+      setCredential(payload.secret);
       await navigator.clipboard.writeText(payload.secret);
-      setMessage("导入密钥已复制，请保存到每日采集任务的本地配置中");
+      setCredentialStatus("已复制");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "复制失败");
+      setCredentialStatus(error instanceof Error ? error.message : "复制失败");
+    } finally {
+      setCopying(false);
     }
   }
 
   return (
     <main className="appShell">
       <PageHeader active="manage" />
-      <div className="pageIntro">
-        <p className="eyebrow">WORKSPACE</p>
-        <h1>数据管理</h1>
-        <p>维护话题与关键词，接收每日采集结果。</p>
+      <div className="managementIntro">
+        <div>
+          <p className="eyebrow">WORKSPACE</p>
+          <h1>数据管理</h1>
+          <p>组织话题，导入关键词，连接每日采集。</p>
+        </div>
+        <div className="workspaceCounts">
+          <span>
+            <Layers3 size={15} />
+            {data?.topics.length ?? "—"} 个话题
+          </span>
+          <span>
+            <FileSpreadsheet size={15} />
+            {data?.keywords.length ?? "—"} 个关键词
+          </span>
+        </div>
       </div>
-      {message || error ? (
+      {message ? (
         <div className="notice" role="status">
-          {message || error}
+          {message}
         </div>
       ) : null}
-      <section className="managementGrid">
-        {" "}
-        <form className="keywordForm" onSubmit={submitTopic}>
-          <h2>新增话题</h2>
-          <label>
-            <span>话题</span>
+      {error ? (
+        <div className="loadError" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void loadDashboard()}>
+            重新加载
+          </button>
+        </div>
+      ) : null}
+      <section className="manageWorkspace">
+        <form className="topicEditor" onSubmit={submitTopic}>
+          <div className="manageCardHeading">
+            <span className="manageCardIcon">
+              <Layers3 size={19} />
+            </span>
+            <div>
+              <h2>新增话题</h2>
+              <p>用话题归类关键词与内容方向</p>
+            </div>
+          </div>
+          <label className="manageField">
+            <span>话题名称</span>
             <input
+              required
+              placeholder="例如：GPU 租赁价格"
+              value={topicForm.text}
               onChange={(event) =>
                 setTopicForm((current) => ({
                   ...current,
                   text: event.target.value,
                 }))
               }
-              placeholder="输入话题"
-              required
-              value={topicForm.text}
             />
           </label>
-          <label>
-            <span>类型</span>
-            <select
-              onChange={(event) =>
-                setTopicForm((current) => ({
-                  ...current,
-                  type: event.target.value as TopicType,
-                }))
-              }
-              value={topicForm.type}
-            >
-              <option value="MAIN">主话题</option>
-              <option value="SUB_TOPIC">子话题</option>
-            </select>
-          </label>
-          <label>
-            <span>父级</span>
+          <fieldset className="topicTypeField">
+            <legend>话题类型</legend>
+            <div>
+              {(["MAIN", "SUB_TOPIC"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  aria-pressed={topicForm.type === type}
+                  className={topicForm.type === type ? "selected" : ""}
+                  onClick={() =>
+                    setTopicForm((current) => ({ ...current, type }))
+                  }
+                >
+                  {type === "MAIN" ? "主话题" : "子话题"}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <label className="manageField">
+            <span>父话题</span>
             <select
               disabled={topicForm.type === "MAIN" || mainTopics.length === 0}
+              value={topicForm.parentId}
               onChange={(event) =>
                 setTopicForm((current) => ({
                   ...current,
                   parentId: event.target.value,
                 }))
               }
-              value={topicForm.parentId}
             >
-              <option value="">无</option>
+              <option value="">
+                {topicForm.type === "MAIN"
+                  ? "主话题无需设置父级"
+                  : "选择父话题"}
+              </option>
               {mainTopics.map((topic) => (
                 <option key={topic.id} value={topic.id}>
                   {topic.text}
@@ -198,8 +250,8 @@ export function ManagementDashboard() {
             </select>
           </label>
           <button
-            className="secondaryButton"
-            disabled={submitting}
+            className="managePrimary"
+            disabled={submitting || !topicForm.text.trim()}
             type="submit"
           >
             {submitting ? (
@@ -207,134 +259,194 @@ export function ManagementDashboard() {
             ) : (
               <Plus size={16} />
             )}
-            新增
+            新增话题
           </button>
         </form>
-        <form
-          className="importForm"
-          onSubmit={(event) =>
-            importCsv(event, {
-              file: topicImportFile,
-              endpoint: "/api/topics/import",
-              label: "话题",
-              reset: () => {
-                setTopicImportFile(null);
-                setTopicFileInputKey((current) => current + 1);
-              },
-            })
-          }
-        >
-          <div className="formTitleRow">
-            <h2>话题 CSV</h2>
-            <a
-              className="downloadTemplateLink"
-              download
-              href="/api/topics/import/template"
-              title="下载话题 CSV 模板"
-            >
-              <Download size={15} />
-              模板
-            </a>
+        <div className="batchImportPanel">
+          <div className="batchImportHeading">
+            <div>
+              <h2>批量导入</h2>
+              <p>先导入话题，再导入关键词。已有记录会按名称匹配。</p>
+            </div>
+            <span className="fileTypeTag">CSV</span>
           </div>
-          <label>
-            <span>CSV 文件</span>
-            <input
-              accept=".csv,text/csv"
-              key={topicFileInputKey}
-              onChange={(event) =>
-                setTopicImportFile(event.target.files?.[0] ?? null)
-              }
-              type="file"
-            />
-          </label>
-          <button
-            className="secondaryButton"
-            disabled={importing || !topicImportFile}
-            type="submit"
-          >
-            {importing ? (
-              <Loader2 className="spin" size={16} />
-            ) : (
-              <Upload size={16} />
-            )}
-            导入话题
-          </button>
-        </form>
-        <form
-          className="importForm"
-          onSubmit={(event) =>
-            importCsv(event, {
-              file: keywordImportFile,
-              endpoint: "/api/keywords/import",
-              label: "关键词",
-              reset: () => {
-                setKeywordImportFile(null);
-                setKeywordFileInputKey((current) => current + 1);
-              },
-            })
-          }
-        >
-          <div className="formTitleRow">
-            <h2>关键词 CSV</h2>
-            <a
-              className="downloadTemplateLink"
-              download
-              href="/api/keywords/import/template"
-              title="下载关键词 CSV 模板"
-            >
-              <Download size={15} />
-              模板
-            </a>
-          </div>
-          <label>
-            <span>CSV 文件</span>
-            <input
-              accept=".csv,text/csv"
-              key={keywordFileInputKey}
-              onChange={(event) =>
-                setKeywordImportFile(event.target.files?.[0] ?? null)
-              }
-              type="file"
-            />
-          </label>
-          <button
-            className="secondaryButton"
-            disabled={importing || !keywordImportFile}
-            type="submit"
-          >
-            {importing ? (
-              <Loader2 className="spin" size={16} />
-            ) : (
-              <Upload size={16} />
-            )}
-            导入关键词
-          </button>
-        </form>
-        <div className="importForm">
-          <h2>定时任务导入</h2>
-          <p className="muted">
-            每日
-            10:30（北京时间）采集完成后，任务通过受密钥保护的接口上传结果。支持
-            GSC 平均排名和 Ahrefs 排名、声量。
-          </p>
-          <code>POST /api/rankings/import</code>
-          <button
-            type="button"
-            className="secondaryButton"
-            onClick={copyImportCredential}
-          >
-            复制导入密钥
-          </button>
-          <p className="muted">
-            最后导入：
-            {data?.latestImportAt
-              ? new Date(data.latestImportAt).toLocaleString("zh-CN", {
-                  timeZone: "Asia/Shanghai",
+          <div className="uploadCards">
+            <CsvUpload
+              kind="话题"
+              file={topicImportFile}
+              inputKey={topicFileInputKey}
+              onChange={setTopicImportFile}
+              onError={setMessage}
+              busy={importing}
+              template="/api/topics/import/template"
+              description="主话题、子话题和父级关系"
+              onSubmit={(event) =>
+                importCsv(event, {
+                  file: topicImportFile,
+                  endpoint: "/api/topics/import",
+                  label: "话题",
+                  reset: () => {
+                    setTopicImportFile(null);
+                    setTopicFileInputKey((current) => current + 1);
+                  },
                 })
-              : "暂无导入记录"}
-          </p>
+              }
+            />
+            <CsvUpload
+              kind="关键词"
+              file={keywordImportFile}
+              inputKey={keywordFileInputKey}
+              onChange={setKeywordImportFile}
+              onError={setMessage}
+              busy={importing}
+              template="/api/keywords/import/template"
+              description="关键词、所属话题与地区声量"
+              onSubmit={(event) =>
+                importCsv(event, {
+                  file: keywordImportFile,
+                  endpoint: "/api/keywords/import",
+                  label: "关键词",
+                  reset: () => {
+                    setKeywordImportFile(null);
+                    setKeywordFileInputKey((current) => current + 1);
+                  },
+                })
+              }
+            />
+          </div>
+        </div>
+      </section>
+      <section className="collectorConnection">
+        <div className="collectorInfo">
+          <span className="manageCardIcon">
+            <Clock3 size={19} />
+          </span>
+          <div>
+            <h2>每日采集连接</h2>
+            <p>每天 10:30 · 北京时间 · GSC / Ahrefs</p>
+            <span className="lastImport">
+              最后导入：
+              {data?.latestImportAt
+                ? new Date(data.latestImportAt).toLocaleString("zh-CN", {
+                    timeZone: "Asia/Shanghai",
+                  })
+                : "等待首次采集"}
+            </span>
+          </div>
+        </div>
+        <div className="collectorCredentials">
+          <label htmlFor="import-credential">导入密钥</label>
+          <div>
+            <input
+              id="import-credential"
+              aria-label="导入密钥"
+              type="password"
+              readOnly
+              value={credential ?? ""}
+              placeholder="点击复制获取密钥"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              disabled={copying}
+              onClick={copyImportCredential}
+            >
+              {copying ? (
+                <Loader2 className="spin" size={15} />
+              ) : credentialStatus === "已复制" ? (
+                <Check size={15} />
+              ) : (
+                <Copy size={15} />
+              )}
+              {credentialStatus === "已复制" ? "已复制" : "复制密钥"}
+            </button>
+          </div>
+          <span className="credentialFeedback" role="status">
+            {credentialStatus && credentialStatus !== "已复制"
+              ? credentialStatus
+              : "POST /api/rankings/import"}
+          </span>
         </div>
       </section>
     </main>
+  );
+}
+
+function CsvUpload({
+  kind,
+  file,
+  inputKey,
+  onChange,
+  onError,
+  busy,
+  template,
+  description,
+  onSubmit,
+}: {
+  kind: string;
+  file: File | null;
+  inputKey: number;
+  onChange: (file: File | null) => void;
+  onError: (message: string) => void;
+  busy: boolean;
+  template: string;
+  description: string;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const selectFile = (selected: File | null) => {
+    if (selected && !selected.name.toLowerCase().endsWith(".csv")) {
+      onError("请选择 CSV 文件");
+      return;
+    }
+    if (selected && selected.size > 1_000_000) {
+      onError("CSV 文件不能超过 1 MB");
+      return;
+    }
+    onChange(selected);
+  };
+  return (
+    <form className="csvUploadCard" onSubmit={onSubmit}>
+      <div className="formTitleRow">
+        <h3>{kind}导入</h3>
+        <a
+          className="templateTextLink"
+          download
+          href={template}
+          title={`下载${kind} CSV 模板`}
+        >
+          <Download size={14} />
+          下载模板
+        </a>
+      </div>
+      <p>{description}</p>
+      <label
+        className={file ? "uploadDropzone hasFile" : "uploadDropzone"}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          selectFile(event.dataTransfer.files[0] ?? null);
+        }}
+      >
+        <input
+          key={inputKey}
+          aria-label={`选择${kind} CSV`}
+          type="file"
+          accept=".csv,text/csv"
+          disabled={busy}
+          onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+        />
+        <FileSpreadsheet size={24} />
+        <strong>{file ? file.name : "点击选择或拖入文件"}</strong>
+        <span>
+          {file
+            ? `${(file.size / 1024).toFixed(1)} KB · 点击替换`
+            : "仅支持 CSV，最大 1 MB"}
+        </span>
+      </label>
+      <button className="uploadSubmit" type="submit" disabled={busy || !file}>
+        {busy ? <Loader2 className="spin" size={15} /> : <Upload size={15} />}
+        导入{kind}
+      </button>
+    </form>
   );
 }
