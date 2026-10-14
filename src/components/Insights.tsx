@@ -79,7 +79,7 @@ export function TrafficReport() {
     { label: "注册率", key: "registrationRate" as const, format: pct },
   ];
   return <main className="appShell"><PageHeader active="traffic" selection={selection} />
-    <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词变化 · 每期自动对比上一周</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || weeklyPeriods().current.start} onChange={setWeek} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === weeklyPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
+    <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词变化 · 每期自动对比上一周</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || weeklyPeriods().current.start} onChange={(start) => setWeek(start === weeklyPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === weeklyPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <div className="periodComparison"><span><i className="currentDot" />本周 {periods.current.start} — {periods.current.end}</span><span><i />上周 {periods.previous.start} — {periods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
     <p className="chartNote">流量与注册为全站所有地区的数据；顶部国家只影响关键词排名。周二至周一，共 7 天。{!data ? "正在读取周报…" : traffic?.currentSites.length ? `已采集：${traffic.currentSites.join("、")}（${traffic.currentSites.length}/3 个网站）。` : "等待 GA4 数据导入。"}</p>
