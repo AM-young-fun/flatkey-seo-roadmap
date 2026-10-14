@@ -144,7 +144,7 @@ export function KeywordDetails() {
       ) : null}
       <div className="detailToolbar">
         <div className="detailFilters">
-          <label className="originSelectField"><span>词库来源</span><Select aria-label="词库来源" className="originSelect" value={origin} onChange={setOrigin} popupMatchSelectWidth={350} options={ORIGINS} optionRender={(option) => <div className="originOption"><strong>{option.data.label}</strong><small>{option.data.description}</small></div>} /></label>
+          <label className="originSelectField"><span>词库来源</span><Select aria-label="词库来源" className="originSelect" value={origin} onChange={setOrigin} popupMatchSelectWidth={350} virtual={false} options={ORIGINS} optionRender={(option) => <div className="originOption"><strong>{option.data.label}</strong><small>{option.data.description}</small></div>} /></label>
           <label className="originSelectField"><span>排名 · {REGIONS[region].label}</span><Select aria-label="关键词排名筛选" className="originSelect" value={rankScope} onChange={setRankScope} options={[{value:"ALL",label:"全部排名"},{value:"TOP100",label:"已有前 100 排名"},{value:"TOP10",label:"前 10 名"},{value:"11_30",label:"11–30 名"},{value:"31_50",label:"31–50 名"},{value:"51_100",label:"51–100 名"},{value:"OUTSIDE",label:"确认前 100 外"},{value:"UNKNOWN",label:"未采集 / 暂无数据"}]} /></label>
         </div>
         <label className="searchField">

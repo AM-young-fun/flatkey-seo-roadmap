@@ -28,6 +28,6 @@ export const prisma =
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Next route bundles can load this module separately in the same warm process.
+// Reuse one pool in production as well as development.
+globalForPrisma.prisma = prisma;
