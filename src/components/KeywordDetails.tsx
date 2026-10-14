@@ -7,12 +7,21 @@ import { PageHeader } from "@/components/PageHeader";
 import { useSeoSelection } from "@/components/useSeoSelection";
 import { useDashboard } from "@/components/useDashboard";
 import type { DashboardKeyword } from "@/lib/types";
-import { REGION_CODES, REGIONS } from "@/lib/seo";
+import { REGIONS } from "@/lib/seo";
 import {
   displayBucket,
   displayRank,
   rankDescription,
+  matchesRanking,
 } from "@/lib/rank-display";
+
+const ORIGINS = [
+  { value: "ALL", label: "全部关键词", description: "展示各类关键词；词库来源与是否有排名分别记录。" },
+  { value: "PLANNED", label: "页面目标词", description: "已选定用于页面或内容的主词、辅助词；页面可能已发布，也可能待发布。" },
+  { value: "CLUSTER", label: "集群页面词", description: "来自模型、GPU、地区、服务商等集群页面的关键词。" },
+  { value: "DISCOVERED", label: "实际搜索词", description: "从 GSC 或 Ahrefs 搜索报告中发现，可能尚未纳入内容选题。" },
+  { value: "RESEARCH", label: "待评估词", description: "来自原始关键词研究词库；导入时尚未确认页面是否覆盖，供选题评估。" },
+];
 
 export function KeywordDetails() {
   const selection = useSeoSelection();
@@ -20,7 +29,8 @@ export function KeywordDetails() {
   const { data, error, loading, refresh } = useDashboard(selection.site, selection.source);
   const [search, setSearch] = useState("");
   const [origin, setOrigin] = useState("ALL");
-  const rows = (data?.keywords ?? []).filter((keyword) => origin === "ALL" || keyword.origin === origin).filter((keyword) =>
+  const [rankScope, setRankScope] = useState("ALL");
+  const rows = (data?.keywords ?? []).filter((keyword) => origin === "ALL" || keyword.origin === origin).filter((keyword) => matchesRanking(keyword.latestRanks[region], rankScope)).filter((keyword) =>
     `${keyword.text} ${keyword.topicText ?? ""}`
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
@@ -35,7 +45,10 @@ export function KeywordDetails() {
       render: (text: string) => <strong>{text}</strong>,
     },
     { title: "所属网站", key: "site", width: 115, render: (_, keyword) => <span className="muted">{keyword.siteName ?? "Flatkey"}</span> },
-    { title: "词库来源", key: "origin", width: 100, render: (_, keyword) => <span className="muted">{({ PLANNED: "规划词", CLUSTER: "集群词", DISCOVERED: "发现词", RESEARCH: "研究候选" } as Record<string, string>)[keyword.origin ?? "PLANNED"]}</span> },
+    { title: "词库来源", key: "origin", width: 115, render: (_, keyword) => {
+      const source = ORIGINS.find((entry) => entry.value === (keyword.origin ?? "PLANNED"));
+      return <Tooltip title={source?.description}><span className="muted">{source?.label ?? "—"}</span></Tooltip>;
+    } },
     {
       title: "所属话题",
       dataIndex: "topicText",
@@ -59,15 +72,16 @@ export function KeywordDetails() {
       const url = keyword.latestRanks[region]?.url;
       return url ? <a className="observedUrl" href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, "")}</a> : <span className="muted">尚未采集页面</span>;
     } },
-    { title: "计划页面", key: "targets", width: 220, render: (_, keyword) => <span className="muted">{keyword.targetUrls?.map((url) => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>)}</span> },
+    { title: "目标页面", key: "targets", width: 220, render: (_, keyword) => <span className="muted">{keyword.targetUrls?.length ? keyword.targetUrls.map((url) => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>) : "尚未关联页面"}</span> },
     {
       title: "更新时间",
-      dataIndex: "lastSyncedAt",
       key: "updated",
       width: 155,
       sorter: (a, b) =>
-        Date.parse(a.lastSyncedAt ?? "") - Date.parse(b.lastSyncedAt ?? ""),
-      render: (value: string | null) =>
+        Date.parse(a.latestRanks[region]?.checkedAt ?? "") - Date.parse(b.latestRanks[region]?.checkedAt ?? ""),
+      render: (_, keyword) => {
+        const value = keyword.latestRanks[region]?.checkedAt;
+        return (
         value
           ? new Date(value).toLocaleString("zh-CN", {
               timeZone: "Asia/Shanghai",
@@ -76,17 +90,18 @@ export function KeywordDetails() {
               hour: "2-digit",
               minute: "2-digit",
             })
-          : "—",
+          : "—");
+      },
     },
-    ...REGION_CODES.map((market) => ({
-      title: REGIONS[market].label,
-      key: market,
+    {
+      title: `排名 · ${REGIONS[region].label}`,
+      key: "rank",
       width: 135,
       sorter: (a: DashboardKeyword, b: DashboardKeyword) =>
-        (a.latestRanks[market]?.rank ?? Infinity) -
-        (b.latestRanks[market]?.rank ?? Infinity),
+        (a.latestRanks[region]?.rank ?? Infinity) -
+        (b.latestRanks[region]?.rank ?? Infinity),
       render: (_: unknown, keyword: DashboardKeyword) => {
-        const rank = keyword.latestRanks[market];
+        const rank = keyword.latestRanks[region];
         return (
           <Tooltip
             title={`${rankDescription(rank)}${rank?.checkedAt ? ` · 采集于 ${new Date(rank.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}` : ""}`}
@@ -106,7 +121,7 @@ export function KeywordDetails() {
           </Tooltip>
         );
       },
-    })),
+    },
   ];
   return (
     <main className="appShell">
@@ -128,7 +143,10 @@ export function KeywordDetails() {
         </div>
       ) : null}
       <div className="detailToolbar">
-        <label className="originSelectField"><span>词库来源</span><Select aria-label="词库来源" className="originSelect" value={origin} onChange={setOrigin} popupMatchSelectWidth={240} options={[{value:"ALL",label:"全部关键词"},{value:"PLANNED",label:"规划词"},{value:"CLUSTER",label:"集群词"},{value:"DISCOVERED",label:"自然搜索发现词"},{value:"RESEARCH",label:"研究候选"}]} /></label>
+        <div className="detailFilters">
+          <label className="originSelectField"><span>词库来源</span><Select aria-label="词库来源" className="originSelect" value={origin} onChange={setOrigin} popupMatchSelectWidth={350} options={ORIGINS} optionRender={(option) => <div className="originOption"><strong>{option.data.label}</strong><small>{option.data.description}</small></div>} /></label>
+          <label className="originSelectField"><span>排名 · {REGIONS[region].label}</span><Select aria-label="关键词排名筛选" className="originSelect" value={rankScope} onChange={setRankScope} options={[{value:"ALL",label:"全部排名"},{value:"TOP100",label:"已有前 100 排名"},{value:"TOP10",label:"前 10 名"},{value:"11_30",label:"11–30 名"},{value:"31_50",label:"31–50 名"},{value:"51_100",label:"51–100 名"},{value:"OUTSIDE",label:"确认前 100 外"},{value:"UNKNOWN",label:"未采集 / 暂无数据"}]} /></label>
+        </div>
         <label className="searchField">
           <Search size={17} />
           <input
@@ -139,6 +157,7 @@ export function KeywordDetails() {
           />
         </label>
       </div>
+      <p className="chartNote sourceExplanation">{ORIGINS.find((entry) => entry.value === origin)?.description} · 当前筛选 {rows.length} 条记录；排名筛选以{REGIONS[region].label}为准。</p>
       <section className="tablePanel">
         <Table
           className="keywordTable"

@@ -1,5 +1,6 @@
 /* global process, console */
 import { spawnSync } from "node:child_process";
+import { URL } from "node:url";
 
 if (process.env.VERCEL_ENV !== "production") {
   console.log(
@@ -14,7 +15,10 @@ if (process.env.VERCEL_ENV !== "production") {
     );
   // The SQL is additive, transactional, and repeatable. Never use db push here:
   // an unrelated schema change must not drop production columns during a build.
-  const result = spawnSync(
+  const databaseUrl = new URL(process.env.DATABASE_URL);
+  if (!databaseUrl.searchParams.has("connect_timeout")) databaseUrl.searchParams.set("connect_timeout", "20");
+  const environment = { ...process.env, DATABASE_URL: databaseUrl.toString() };
+  const execute = () => spawnSync(
     process.execPath,
     [
       "node_modules/prisma/build/index.js",
@@ -25,8 +29,10 @@ if (process.env.VERCEL_ENV !== "production") {
       "--schema",
       "prisma/schema.prisma",
     ],
-    { encoding: "utf8", env: process.env },
+    { encoding: "utf8", env: environment },
   );
+  let result = execute();
+  if (result.status !== 0 && /P1001|P1002|P1017|connection|timed out|timeout/i.test(`${result.stderr ?? ""}${result.stdout ?? ""}`)) result = execute();
   if (result.status !== 0) {
     // Prisma failures can contain connection information. Keep credentials out
     // of deployment logs and fail before the new application replaces the old.

@@ -30,7 +30,7 @@ const {
   importSecretMatches,
   readImportJson,
 } = require("../src/lib/ranking-import.ts");
-const { displayBucket, rankingStats } = require("../src/lib/rank-display.ts");
+const { displayBucket, rankingStats, matchesRanking } = require("../src/lib/rank-display.ts");
 const { Prisma } = require("@prisma/client");
 let batches, observations, failWrite, captures, trafficRows;
 const keywords = [
@@ -535,7 +535,7 @@ test("credential endpoint is private and never works with page login disabled", 
   assert.equal((await response.json()).secret, "test-import-key");
 });
 
-const { weeklyPeriods, registrationRate, relativeChange } = require("../src/lib/weekly-traffic.ts");
+const { weeklyPeriods, reportPeriods, registrationRate, relativeChange } = require("../src/lib/weekly-traffic.ts");
 const { compareCaptures } = require("../src/lib/daily-changes.ts");
 test("weekly reporting uses adjacent completed Tuesday-Monday periods in Shanghai", () => {
   assert.deepEqual(weeklyPeriods(new Date("2026-10-14T02:30:00Z")), { current: { start: "2026-10-06", end: "2026-10-12" }, previous: { start: "2026-09-29", end: "2026-10-05" } });
@@ -545,6 +545,10 @@ test("weekly reporting uses adjacent completed Tuesday-Monday periods in Shangha
   assert.equal(registrationRate(100, 20), 0.2);
   assert.equal(relativeChange(20, 0), null);
   assert.equal(relativeChange(0, 20), -1);
+  assert.equal(weeklyPeriods(new Date("2026-10-13T02:30:00Z"), "America/Los_Angeles").current.end, "2026-10-05");
+  assert.deepEqual(reportPeriods("2026-09-29"), {current:{start:"2026-09-29",end:"2026-10-05"},previous:{start:"2026-09-22",end:"2026-09-28"}});
+  assert.throws(()=>reportPeriods("2026-09-30"));
+  assert.throws(()=>reportPeriods("2026-02-30"));
 });
 test("traffic imports enforce 7 days, same property, distinct signup users and closed weeks", () => {
   const row = { periodStart: "2026-10-06", periodEnd: "2026-10-12", timezone: "Asia/Shanghai", newUsers: 100, newRegistrations: 20, ga4PropertyId: "123456", scope: "all_users", registrationMetric: "sign_up_distinct_users", collectedAt: "2026-10-14T02:30:00Z" };
@@ -658,4 +662,25 @@ test("failed read groups finish outstanding reads before surfacing the failure",
   let completed=false;
   await assert.rejects(settleReads([Promise.reject(new Error("failed")),new Promise(resolve=>setTimeout(()=>{completed=true;resolve(1);},10))]));
   assert.equal(completed,true);
+});
+
+test("ranking filters preserve fractional boundaries and separate unknown from confirmed outside top100", () => {
+  assert.equal(matchesRanking({rank:10}, "TOP10"),true);
+  assert.equal(matchesRanking({rank:10.5}, "TOP10"),false);
+  assert.equal(matchesRanking({rank:10.5}, "11_30"),true);
+  assert.equal(matchesRanking({rank:30.5}, "31_50"),true);
+  assert.equal(matchesRanking({rank:100}, "TOP100"),true);
+  assert.equal(matchesRanking({rank:100.1}, "TOP100"),false);
+  assert.equal(matchesRanking({rank:100.1}, "OUTSIDE"),true);
+  assert.equal(matchesRanking(null, "OUTSIDE"),false);
+  assert.equal(matchesRanking(null, "UNKNOWN"),true);
+  assert.equal(matchesRanking({rank:null,rankStatus:"outside_top100"}, "UNKNOWN"),false);
+  assert.equal(matchesRanking({rank:null,rankStatus:"outside_top100"}, "OUTSIDE"),true);
+});
+
+test("GA4 imports preserve original report timezone and the actual success event's distinct-user metric", () => {
+  const row = {periodStart:"2026-10-06",periodEnd:"2026-10-12",timezone:"America/Los_Angeles",newUsers:2572,newRegistrations:417,scope:"all_users",registrationMetric:"sign_up_success_distinct_users",ga4PropertyId:"541304395",collectedAt:"2026-10-14T02:30:00Z"};
+  assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[row]}).success,true);
+  assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[{...row,collectedAt:"2026-10-13T02:30:00Z"}]}).success,false);
+  assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[{...row,timezone:"invalid/timezone"}]}).success,false);
 });

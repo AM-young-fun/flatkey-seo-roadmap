@@ -246,4 +246,5 @@ UPDATE "KeywordObservation" SET "siteDomain" = 'flatkey.ai', "rankStatus" = CASE
 UPDATE "RankingImport" SET "siteDomain" = 'flatkey.ai' WHERE "siteDomain" IS NULL;
 UPDATE "SeoSite" SET "initializedAt" = NOW() WHERE "domain" = 'flatkey.ai' AND "initializedAt" IS NULL;
 
+ALTER TABLE "WeeklyTraffic" ADD COLUMN IF NOT EXISTS "registrationMetric" TEXT NOT NULL DEFAULT 'sign_up_distinct_users';
 COMMIT;

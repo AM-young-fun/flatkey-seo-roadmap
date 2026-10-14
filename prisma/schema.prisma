@@ -213,6 +213,7 @@ model WeeklyTraffic {
   timezone String @default("Asia/Shanghai")
   newUsers Int
   newRegistrations Int
+  registrationMetric String @default("sign_up_distinct_users")
   ga4PropertyId String?
   collectedAt DateTime
   importedAt DateTime @default(now())

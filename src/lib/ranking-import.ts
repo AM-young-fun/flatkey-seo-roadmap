@@ -111,15 +111,17 @@ export const rankingImportSchema = z
     }).strict().optional(),
     traffic: z.array(z.object({
       periodStart: dateOnly, periodEnd: dateOnly,
-      timezone: z.literal("Asia/Shanghai"),
+      timezone: z.string().max(80).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }, "报告时区无效"),
       newUsers: count, newRegistrations: count,
       scope: z.literal("all_users"),
-      registrationMetric: z.literal("sign_up_distinct_users"),
+      registrationMetric: z.enum(["sign_up_distinct_users", "sign_up_success_distinct_users"]),
       ga4PropertyId: z.string().regex(/^\d+$/),
       collectedAt: z.iso.datetime({ offset: true }),
     }).strict().superRefine((row, ctx) => {
       if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周二至周一的连续 7 天" });
-      if (row.periodEnd > weeklyPeriods(new Date(row.collectedAt)).current.end || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报，采集时间不能在未来" });
+      let closedEnd: string;
+      try { closedEnd = weeklyPeriods(new Date(row.collectedAt), row.timezone).current.end; } catch { ctx.addIssue({ code: "custom", message: "报告时区或采集时间无效" }); return; }
+      if (row.periodEnd > closedEnd || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报，采集时间不能在未来" });
     })).max(52).default([]),
   })
   .strict()

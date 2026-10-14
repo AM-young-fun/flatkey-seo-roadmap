@@ -37,6 +37,20 @@ export function displayRank(summary: RankSummary | null | undefined) {
   return `#${Number(summary.rank.toFixed(1))}`;
 }
 
+export function matchesRanking(summary: RankSummary | null | undefined, scope: string) {
+  const rank = summary?.rank;
+  if (scope === "ALL") return true;
+  if (scope === "OUTSIDE") return summary?.rankStatus === "outside_top100" || (rank != null && rank > 100);
+  if (scope === "UNKNOWN") return rank == null && summary?.rankStatus !== "outside_top100";
+  if (rank == null || rank < 1) return false;
+  if (scope === "TOP100") return rank <= 100;
+  if (scope === "TOP10") return rank <= 10;
+  if (scope === "11_30") return rank > 10 && rank <= 30;
+  if (scope === "31_50") return rank > 30 && rank <= 50;
+  if (scope === "51_100") return rank > 50 && rank <= 100;
+  return false;
+}
+
 export function rankDescription(summary: RankSummary | null | undefined) {
   if (!summary) return "尚未采集该地区数据";
   const source =

@@ -2,7 +2,7 @@
 import * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { DashboardKeyword } from "@/lib/types";
-import { hashString, REGIONS, type SearchRegionCode } from "@/lib/seo";
+import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import {
   displayBucket,
   displayRank,
@@ -27,16 +27,13 @@ export function KeywordGraph({
       members.push(keyword); groups.set(groupId, members);
     });
     const groupList = [...groups.entries()].sort((a,b) => a[0].localeCompare(b[0]));
-    const columns = Math.ceil(Math.sqrt(groupList.length * 1.6));
     const positions = new Map<string, {x:number;y:number}>();
-    groupList.forEach(([, members], groupIndex) => {
-      const centerX = (groupIndex % columns) * 180;
-      const centerY = Math.floor(groupIndex / columns) * 180;
-      members.forEach((keyword, index) => {
-        const angle = index * Math.PI * (3 - Math.sqrt(5));
-        const radius = Math.min(75, 12 * Math.sqrt(index));
-        positions.set(keyword.id, { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius });
-      });
+    // A golden-angle disk keeps every keyword visible in one circular footprint
+    // without running a force simulation on the full inventory.
+    groupList.flatMap(([, members]) => members).forEach((keyword, index) => {
+      const angle = index * Math.PI * (3 - Math.sqrt(5));
+      const radius = 500 * Math.sqrt((index + 0.5) / keywords.length);
+      positions.set(keyword.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
     });
     const large = keywords.length > 300;
     const edges = new Map<string, { source: string; target: string }>();
@@ -61,17 +58,15 @@ export function KeywordGraph({
     const nodes = keywords.map((keyword) => {
       const knownVolume = keyword.marketVolumes[selectedRegion];
       const volume = knownVolume ?? 0;
-      const angle =
-        ((hashString(keyword.topicId ?? keyword.id) % 360) / 180) * Math.PI;
-      const offset = hashString(keyword.id) % 120;
+      const dotSize = Math.max(3, Math.min(18, 560 / Math.sqrt(keywords.length)));
       return {
         id: keyword.id,
         name: keyword.text,
         keyword,
         volume: knownVolume,
-        x: large ? positions.get(keyword.id)!.x : Math.cos(angle) * (200 + offset),
-        y: large ? positions.get(keyword.id)!.y : Math.sin(angle) * (200 + offset),
-        symbolSize: large ? 4 + Math.min(15, Math.log10(volume + 1) * 3) : 16 + Math.min(34, Math.log10(volume + 1) * 7),
+        x: positions.get(keyword.id)!.x,
+        y: positions.get(keyword.id)!.y,
+        symbolSize: dotSize * (0.75 + Math.min(0.6, Math.log10(volume + 1) * 0.1)),
         itemStyle: {
           color: displayBucket(keyword.latestRanks[selectedRegion]?.rank).color,
           borderColor: "#fff",
@@ -99,7 +94,8 @@ export function KeywordGraph({
       series: [
         {
           type: "graph",
-          layout: large ? "none" : "force",
+          layout: "none",
+          left: "6%", top: "6%", width: "88%", height: "88%",
           roam: true,
           draggable: true,
           data: nodes,
@@ -113,14 +109,7 @@ export function KeywordGraph({
             overflow: "truncate",
           },
           labelLayout: { hideOverlap: true },
-          lineStyle: { color: "#cbd5e1", opacity: 0.6, curveness: 0.08 },
-          force: {
-            initLayout: "none",
-            repulsion: [160, 420],
-            edgeLength: [70, 140],
-            gravity: 0.12,
-            layoutAnimation: false,
-          },
+          lineStyle: { color: "#cbd5e1", opacity: large ? 0.04 : 0.3, curveness: 0.08 },
           scaleLimit: { min: 0.2, max: large ? 20 : 4 },
           emphasis: { focus: "adjacency", label: { show: true }, lineStyle: { width: 2 } },
         },

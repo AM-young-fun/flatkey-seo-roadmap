@@ -9,9 +9,9 @@ function shift(day: string, offset: number): string {
 }
 
 // Reports use completed days in the GA4 property's reporting timezone.
-export function weeklyPeriods(now = new Date()) {
+export function weeklyPeriods(now = new Date(), timezone = "Asia/Shanghai") {
   const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+    timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
   }).format(now);
   const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
   // Monday is still in progress: only include it starting on Tuesday.
@@ -20,6 +20,11 @@ export function weeklyPeriods(now = new Date()) {
     current: { start: shift(end, -6), end },
     previous: { start: shift(end, -13), end: shift(end, -7) },
   };
+}
+
+export function reportPeriods(start: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || Number.isNaN(Date.parse(start)) || dateString(new Date(start)) !== start || !isWeeklyPeriod(start, shift(start, 6))) throw new Error("周报日期无效");
+  return { current: { start, end: shift(start, 6) }, previous: { start: shift(start, -7), end: shift(start, -1) } };
 }
 
 export function isWeeklyPeriod(start: string, end: string): boolean {

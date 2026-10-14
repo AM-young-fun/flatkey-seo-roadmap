@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSeoSelection } from "@/components/useSeoSelection";
-import { DailyChanges } from "@/components/Insights";
+import { RankingTrend } from "@/components/RankingTrend";
 import { ArrowUpRight } from "lucide-react";
 import { KeywordGraph } from "@/components/KeywordGraph";
 import { PageHeader } from "@/components/PageHeader";
@@ -15,16 +15,10 @@ export function Dashboard() {
   const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
   const keywords = useMemo(() => data?.keywords ?? [], [data?.keywords]);
   const [graphSearch, setGraphSearch] = useState("");
-  const [graphScope, setGraphScope] = useState<"ranked" | "all">("ranked");
-  const rankedKeywords = useMemo(() => keywords.filter((keyword) => {
-    const rank = keyword.latestRanks[region]?.rank;
-    return rank != null && rank >= 1 && rank <= 100;
-  }), [keywords, region]);
   const graphKeywords = useMemo(() => {
-    const visible = graphScope === "ranked" ? rankedKeywords : keywords;
     const query = graphSearch.trim().toLowerCase();
-    return query ? visible.filter((keyword) => `${keyword.text} ${keyword.topicText ?? ""} ${keyword.siteName ?? ""}`.toLowerCase().includes(query)) : visible;
-  }, [keywords, rankedKeywords, graphScope, graphSearch]);
+    return query ? keywords.filter((keyword) => `${keyword.text} ${keyword.topicText ?? ""} ${keyword.siteName ?? ""}`.toLowerCase().includes(query)) : keywords;
+  }, [keywords, graphSearch]);
   const stats = rankingStats(keywords, region);
   const formatPercent = (count: number) =>
     `${stats.percent(count).toFixed(1)}%`;
@@ -34,7 +28,7 @@ export function Dashboard() {
   return (
     <main className="appShell">
       <PageHeader active="overview" selection={selection} />
-      <DailyChanges selection={selection} />
+      <RankingTrend region={region} />
       {error ? (
         <div className="loadError" role="alert">
           <span>{error}</span>
@@ -56,11 +50,7 @@ export function Dashboard() {
               <ArrowUpRight size={15} />
             </Link></div>
           </div>
-          <div className="graphScope" role="group" aria-label="关系图范围">
-            <button type="button" aria-pressed={graphScope === "ranked"} onClick={() => setGraphScope("ranked")}>已有前 100 排名 <span>{rankedKeywords.length}</span></button>
-            <button type="button" aria-pressed={graphScope === "all"} onClick={() => setGraphScope("all")}>完整词库 <span>{keywords.length}</span></button>
-          </div>
-          <p className="chartNote">图中显示 {graphKeywords.length} 条{graphSearch ? "匹配" : "关键词与网站"}记录。右侧覆盖率与分布统计完整词库，包含规划词、研究候选、集群词和搜索发现词。</p>
+          <p className="chartNote">完整圆形词库 · 图中显示 {graphKeywords.length} 条{graphSearch ? "匹配" : "关键词与网站"}记录。包含页面目标词、研究候选、集群词和搜索发现词。</p>
           <div className="rankLegend">
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>

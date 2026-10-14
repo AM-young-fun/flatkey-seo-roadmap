@@ -1705,9 +1705,20 @@ a:focus-visible {
 
 .graphTools { display:flex; align-items:center; gap:16px; flex-shrink:0; }
 .graphSearch { width:190px; padding:8px 11px; }
-.graphScope { display:inline-flex; flex-wrap:wrap; gap:4px; padding:4px; margin:0 0 8px; background:#eef2f7; border-radius:10px; }
-.graphScope button { border:0; background:transparent; border-radius:7px; padding:8px 12px; color:#718097; cursor:pointer; font-size:12px; }
-.graphScope button[aria-pressed="true"] { background:white; color:#18273f; box-shadow:0 1px 4px rgb(23 36 59 / 8%); }
-.graphScope button span { margin-left:6px; font-variant-numeric:tabular-nums; }
-.graphScope button:focus-visible { outline:2px solid #3b82f6; outline-offset:2px; }
+.keywordGraph { width:100%; max-width:740px; height:auto; min-height:0; aspect-ratio:1; margin:0 auto; }
+.detailFilters { display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
+.originOption { padding:5px 0; }
+.originOption strong { display:block; font-size:13px; font-weight:550; }
+.originOption small { display:block; margin-top:5px; color:#8290a5; font-size:11px; line-height:1.6; white-space:normal; }
+.sourceExplanation { margin:-8px 0 16px; }
+.rankingTrend { height:250px; width:100%; }
+.trendPanel h2 { margin:0; }
+.weeklyKeywordCards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:20px 0; }
+.weeklyKeywordCards span { display:block; color:#8290a5; font-size:12px; }
+.weeklyKeywordCards strong { display:block; margin-top:10px; font-size:26px; color:#223654; }
+.weeklyKeywords { margin-top:24px; }
+.reportIntro { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.reportWeekSelect { width:320px; }
+.reportNote summary { cursor:pointer; color:#637c9d; font-size:13px; }
+@media(max-width:760px) { .reportIntro { align-items:flex-start; flex-direction:column; } .weeklyKeywordCards { grid-template-columns:repeat(2,1fr); } .reportWeekSelect { width:290px; } }
 @media(max-width:760px) { .graphPanel .panelHeader { flex-direction:column; align-items:flex-start; } .graphTools { width:100%; justify-content:space-between; } .graphSearch { width:220px; } }

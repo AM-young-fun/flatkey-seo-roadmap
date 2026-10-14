@@ -143,7 +143,7 @@ export async function importSeo(payload: RankingImportPayload) {
       })) });
       if (payload.traffic.length) await tx.weeklyTraffic.createMany({ data: payload.traffic.map((row) => ({
         siteDomain, importId: batch.id, periodStart: day(row.periodStart)!, periodEnd: day(row.periodEnd)!, timezone: row.timezone,
-        newUsers: row.newUsers, newRegistrations: row.newRegistrations, ga4PropertyId: row.ga4PropertyId, collectedAt: new Date(row.collectedAt),
+        newUsers: row.newUsers, newRegistrations: row.newRegistrations, registrationMetric: row.registrationMetric, ga4PropertyId: row.ga4PropertyId, collectedAt: new Date(row.collectedAt),
       })) });
       if (payload.capture?.complete) await tx.rankingCapture.update({ where: { id: payload.capture.id }, data: { status: "COMPLETE" } });
       return { importId: batch.id, imported: batch.count, duplicate: false, importedAt: batch.importedAt.toISOString() };
