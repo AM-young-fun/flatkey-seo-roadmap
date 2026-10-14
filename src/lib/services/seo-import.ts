@@ -62,14 +62,19 @@ export async function importSeo(payload: RankingImportPayload) {
       if (relations.length) await tx.topicRelation.createMany({ data: relations, skipDuplicates: true });
       const requestedTexts = [...new Set([...payload.inventory, ...payload.observations, ...payload.pages].map((row) => row.keyword.toLowerCase()))];
       const keywords = requestedTexts.length ? await tx.$queryRaw<Keyword[]>(Prisma.sql`SELECT * FROM "Keyword" WHERE lower("text") IN (${Prisma.join(requestedTexts)})`) : [];
-      const keywordByText = new Map<string, Keyword>();
-      for (const keyword of keywords) {
-        const key = keyword.text.toLowerCase();
-        if (keywordByText.has(key)) throw new ImportRequestError(`关键词大小写匹配不唯一：${keyword.text}`, 422);
-        keywordByText.set(key, keyword);
-      }
       const priorLinks = requestedTexts.length ? await tx.siteKeyword.findMany({ where: { siteDomain, keywordId: { in: keywords.map((row) => row.id) } } }) : [];
       const linksById = new Map(priorLinks.map((row) => [row.keywordId, row]));
+      const groups = new Map<string, Keyword[]>();
+      for (const keyword of keywords) groups.set(keyword.text.toLowerCase(), [...(groups.get(keyword.text.toLowerCase()) ?? []), keyword]);
+      const keywordByText = new Map<string, Keyword>();
+      for (const [key, group] of groups) {
+        const tracked = group.filter((keyword) => linksById.get(keyword.id)?.active && linksById.get(keyword.id)?.topicId);
+        const candidates = tracked.length ? tracked : group;
+        const requested = [...payload.inventory, ...payload.observations, ...payload.pages].find((row) => row.keyword.toLowerCase() === key)!.keyword;
+        const selected = candidates.find((keyword) => keyword.text === requested) ?? candidates.find((keyword) => keyword.text === key) ?? (candidates.length === 1 ? candidates[0] : null);
+        if (!selected) throw new ImportRequestError(`关键词大小写匹配不唯一：${requested}`, 422);
+        keywordByText.set(key, selected);
+      }
       const plannedTexts = new Set(payload.inventory.map((row) => row.keyword.toLowerCase()));
       for (const row of [...payload.observations, ...payload.pages]) {
         const known = keywordByText.get(row.keyword.toLowerCase());

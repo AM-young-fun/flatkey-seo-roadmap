@@ -621,3 +621,14 @@ test("bulk inventory preserves multiple topic assignments and unions planned URL
   assert.equal(volumes[0].volume,0);
   assert.equal(volumes[0].region,"US");
 });
+
+test("case variants prefer the website's tracked keyword rather than an unassigned legacy label", async (t) => {
+  const transaction = db.$transaction;
+  t.mock.method(db, "$transaction", callback => transaction(async tx => {
+    tx.$queryRaw = async () => [keywords[0], { ...keywords[0], id:"legacy-label", text:"CLAUDE API", topicId:null }];
+    tx.siteKeyword = { findMany: async () => [{ keywordId:"keyword-1", active:true, topicId:"topic-1", origin:"PLANNED", targetUrls:[], sourceUrl:null }] };
+    return callback(tx);
+  }));
+  assert.equal((await route.POST(request(batch([{...gsc,keyword:"CLAUDE API"}])))).status,201);
+  assert.equal(observations[0].keywordId,"keyword-1");
+});
