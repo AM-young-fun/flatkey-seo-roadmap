@@ -92,7 +92,7 @@ async function summary(request: Request, region: SearchRegionCode, source: strin
   const currentSites = domains.filter((_,index)=>parts[index].traffic.current);
   const previousSites = domains.filter((_,index)=>parts[index].traffic.previous);
   const comparable = Boolean(current && previous && currentSites.join() === previousSites.join() && parts.every(part=>!part.traffic.current || (part.traffic.current.timezone === part.traffic.previous?.timezone && part.traffic.current.registrationMetric === part.traffic.previous?.registrationMetric && part.traffic.current.ga4PropertyId === part.traffic.previous?.ga4PropertyId)));
-  const weeks = await prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { lte: new Date(weeklyPeriods().current.start) } }, distinct: ["periodStart"], select: { periodStart: true }, orderBy: { periodStart: "desc" }, take: 104 });
+  const weeks = await prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { lte: new Date(weeklyPeriods().current.start) } }, distinct: ["periodStart"], select: { periodStart: true }, orderBy: { periodStart: "desc" } });
   const history = [...new Set([weeklyPeriods().current.start, ...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse();
   const days = parts.flatMap((part, index) => part.daily ? [{ ...part.daily, site: domains[index], source: part.rankingSource }] : []);
   const ids = (key: "entered" | "lost" | "missing") => parts.flatMap((part, index) => part.daily?.[key].map((id) => `${domains[index]}:${id}`) ?? []);

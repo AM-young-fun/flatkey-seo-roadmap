@@ -50,7 +50,7 @@ export function Dashboard() {
               <ArrowUpRight size={15} />
             </Link></div>
           </div>
-          <p className="chartNote">完整圆形词库 · 图中显示 {graphKeywords.length} 条{graphSearch ? "匹配" : "关键词与网站"}记录。包含页面目标词、研究候选、集群词和搜索发现词。</p>
+          <p className="chartNote">完整圆形词库 · 图中显示 {data ? graphKeywords.length : "—"} 条{graphSearch ? "匹配" : "关键词与网站"}记录。包含页面目标词、集群页面词、实际搜索词和待评估词。</p>
           <div className="rankLegend">
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>

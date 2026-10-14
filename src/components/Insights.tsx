@@ -53,7 +53,7 @@ function WeeklyKeywordChanges({ data, region }: { data: InsightData | null; regi
   const comparable = weekly && !weekly.baseline;
   const name = (id: string) => data?.keywords.find(word=>word.id===id)?.text ?? id;
   const cards = [
-    { label: "前 100 关键词", value: weekly ? weekly.count : "待采集" },
+    { label: "前 100 关键词", value: weekly && !weekly.pendingSites?.length ? weekly.count : "待采集" },
     { label: "本周新增", value: comparable ? weekly.entered.length : "待比较" },
     { label: "本周减少", value: comparable ? weekly.detectedReduction : "待比较" },
     { label: "净变化", value: comparable && weekly.net != null ? `${weekly.net > 0 ? "+" : ""}${weekly.net}` : "待比较" },
@@ -82,7 +82,7 @@ export function TrafficReport() {
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词变化 · 每期自动对比上一周</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || weeklyPeriods().current.start} onChange={setWeek} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === weeklyPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <div className="periodComparison"><span><i className="currentDot" />本周 {periods.current.start} — {periods.current.end}</span><span><i />上周 {periods.previous.start} — {periods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
-    <p className="chartNote">周二至周一，共 7 天；最新周报展示已结束的一周。{traffic?.currentSites.length ? `已采集：${traffic.currentSites.join("、")}（${traffic.currentSites.length}/3 个网站）。` : "等待 GA4 数据导入。"}</p>
+    <p className="chartNote">流量与注册为全站所有地区的数据；顶部国家只影响关键词排名。周二至周一，共 7 天。{!data ? "正在读取周报…" : traffic?.currentSites.length ? `已采集：${traffic.currentSites.join("、")}（${traffic.currentSites.length}/3 个网站）。` : "等待 GA4 数据导入。"}</p>
     <section className="trafficGrid">{metrics.map((metric) => {
       const current = traffic?.current?.[metric.key]; const previous = traffic?.previous?.[metric.key];
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);
