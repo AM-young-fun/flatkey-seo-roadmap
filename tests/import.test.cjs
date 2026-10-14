@@ -638,3 +638,18 @@ test("overview uses full site keyword inventory without a fixed 500 cap", async 
   assert.equal(data.keywords.length, 1);
   assert.equal(data.keywords[0].siteName, "Flatkey");
 });
+
+const { retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");
+test("database reads retry transient connection errors but never schema or validation errors", async () => {
+  let attempts=0;
+  assert.equal(await retryDatabaseRead(async()=>{if(++attempts===1)throw Object.assign(new Error("cold connection"),{code:"P1001"});return 42;}),42);
+  assert.equal(attempts,2);
+  attempts=0;
+  await assert.rejects(retryDatabaseRead(async()=>{attempts++;throw Object.assign(new Error("missing table"),{code:"P2021"});}));
+  assert.equal(attempts,1);
+});
+test("failed read groups finish outstanding reads before surfacing the failure", async () => {
+  let completed=false;
+  await assert.rejects(settleReads([Promise.reject(new Error("failed")),new Promise(resolve=>setTimeout(()=>{completed=true;resolve(1);},10))]));
+  assert.equal(completed,true);
+});

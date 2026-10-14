@@ -1,3 +1,4 @@
+import { retryDatabaseRead, settleReads } from "@/lib/database-read";
 import { NextResponse } from "next/server";
 import type { KeywordObservation } from "@prisma/client";
 import type {
@@ -13,7 +14,7 @@ import { getRankBucket, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 function emptyRanks(): DashboardKeyword["latestRanks"] {
   return REGION_CODES.reduce(
@@ -47,7 +48,7 @@ async function loadDashboard(siteDomain: string, source: string) {
     importedRanks,
     importedVolumes,
     latestImport,
-  ] = await Promise.all([
+  ] = await settleReads([
     prisma.topic.findMany({
       where: {
         active: true, sites: { some: { siteDomain } },
@@ -313,7 +314,8 @@ async function loadSummary(source: string): Promise<DashboardResponse> {
   if (!isDatabaseConfigured()) return getDemoDashboard();
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
   const names = ["Flatkey", "RackRate", "ModelFit"];
-  const parts = await Promise.all(domains.map((domain) => loadDashboard(domain, source)));
+  const parts: DashboardResponse[] = [];
+  for (const domain of domains) parts.push(await loadDashboard(domain, source));
   return {
     usingDemoData: false, targetDomain: "全部网站", regions: REGION_CODES, latestRun: null,
     latestImportAt: parts.map((part) => part.latestImportAt).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null,
@@ -335,7 +337,7 @@ export async function GET(request?: Request) {
   try {
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return NextResponse.json(cached.value, { headers: { "Cache-Control": "private, no-store" } });
-    if (!pending.has(key)) pending.set(key, (siteDomain === "all" ? loadSummary(source) : loadDashboard(siteDomain, source)).then((value) => {
+    if (!pending.has(key)) pending.set(key, retryDatabaseRead(() => siteDomain === "all" ? loadSummary(source) : loadDashboard(siteDomain, source)).then((value) => {
       cache.set(key, { value, expiresAt: Date.now() + 5000 });
       return value;
     }).finally(() => pending.delete(key)));

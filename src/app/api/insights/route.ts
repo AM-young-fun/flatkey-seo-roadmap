@@ -1,3 +1,4 @@
+import { settleReads, retryDatabaseRead } from "@/lib/database-read";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { weeklyPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
@@ -7,15 +8,14 @@ import type { KeywordObservation, KeywordPageObservation } from "@prisma/client"
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
-export async function GET(request: Request): Promise<NextResponse> {
+async function readInsights(request: Request): Promise<NextResponse> {
   const params = new URL(request.url).searchParams;
   const siteDomain = normalizeDomain(params.get("site") ?? "all");
   const region = (params.get("region") ?? "US") as SearchRegionCode;
   let source = params.get("source") ?? "combined";
   if (!REGION_CODES.includes(region) || !["gsc", "ahrefs", "combined"].includes(source)) return NextResponse.json({ message: "参数无效" }, { status: 400 });
-  try {
     if (siteDomain === "all") return await summary(request, region, source);
     const site = await prisma.seoSite.findUnique({ where: { domain: siteDomain } });
     if (!site?.active) return NextResponse.json({ message: "网站未启用" }, { status: 400 });
@@ -25,7 +25,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       source = ahrefs ? "ahrefs" : "gsc";
     }
     const periods = weeklyPeriods();
-    const [weekly, captures, pageRows, volumeRows, links] = await Promise.all([
+    const [weekly, captures, pageRows, volumeRows, links] = await settleReads([
       prisma.weeklyTraffic.findMany({ where: { siteDomain, periodStart: { in: [new Date(periods.current.start), new Date(periods.previous.start)] } }, orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }] }),
       prisma.rankingCapture.findMany({ where: { siteDomain, region, source, status: "COMPLETE", coverage: "site_top100" }, orderBy: [{ captureDate: "desc" }, { updatedAt: "desc" }], take: 30 }),
       prisma.$queryRaw<KeywordPageObservation[]>`SELECT DISTINCT ON ("keywordId", "url") * FROM "KeywordPageObservation" WHERE "siteDomain" = ${siteDomain} AND "region" = ${region}::"SearchRegion" AND ("source" = ${source} OR (${combined} AND "source" IN ('gsc','ahrefs'))) ORDER BY "keywordId", "url", CASE WHEN "source" = 'ahrefs' THEN 0 ELSE 1 END, "collectedAt" DESC, "importedAt" DESC`,
@@ -40,8 +40,6 @@ export async function GET(request: Request): Promise<NextResponse> {
     const observations = latest ? await prisma.$queryRaw<KeywordObservation[]>`SELECT DISTINCT ON ("captureId", "keywordId") * FROM "KeywordObservation" WHERE "captureId" IN (${latest.id}, ${prior?.id ?? ""}) AND "rankReported" = true ORDER BY "captureId", "keywordId", "importedAt" DESC` : [];
     const volumes = new Map(volumeRows.map((row) => [row.keywordId, row.volume]));
     const eligible = new Set(links.filter((link) => (volumes.get(link.keywordId) ?? 0) > 0).map((link) => link.keywordId));
-    const selected = params.get("keywordIds")?.split(",");
-    if (selected) for (const id of eligible) if (!selected.includes(id)) eligible.delete(id);
     const changes = latest ? compareCaptures(observations.filter((row) => row.captureId === latest.id), prior ? observations.filter((row) => row.captureId === prior.id) : null, eligible) : null;
     const currentRate = current ? registrationRate(current.newUsers, current.newRegistrations) : null;
     const previousRate = previous ? registrationRate(previous.newUsers, previous.newRegistrations) : null;
@@ -50,15 +48,12 @@ export async function GET(request: Request): Promise<NextResponse> {
       newRegistrations: relativeChange(current?.newRegistrations ?? null, previous?.newRegistrations ?? null),
       registrationRate: relativeChange(currentRate, previousRate),
       ratePoints: currentRate !== null && previousRate !== null ? (currentRate - previousRate) * 100 : null,
-    } }, daily: changes ? { ...changes, date: latest!.captureDate.toISOString().slice(0,10), previousDate: prior?.captureDate.toISOString().slice(0,10) ?? null, unknownVolume: links.filter((link) => (!selected || selected.includes(link.keywordId)) && !volumes.has(link.keywordId)).length } : null,
+    } }, daily: changes ? { ...changes, date: latest!.captureDate.toISOString().slice(0,10), previousDate: prior?.captureDate.toISOString().slice(0,10) ?? null, unknownVolume: links.filter((link) => !volumes.has(link.keywordId)).length } : null,
     pages: pageRows.filter((row) => links.some((link) => link.keywordId === row.keywordId)).map((row) => ({ ...row, keyword: links.find((link) => link.keywordId === row.keywordId)?.keyword.text })),
     keywords: links.map((link) => ({ id: link.keywordId, text: link.keyword.text })),
     }, { headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) {
-    console.error("Insights read failed", error instanceof Error ? error.name : "Unknown");
-    return NextResponse.json({ message: "分析数据读取失败，请重试" }, { status: 503 });
-  }
 }
+
 
 async function summary(request: Request, region: SearchRegionCode, source: string): Promise<NextResponse> {
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
@@ -98,4 +93,27 @@ async function summary(request: Request, region: SearchRegionCode, source: strin
     keywords: parts.flatMap((part,index) => part.keywords.map((keyword) => ({ id: `${domains[index]}:${keyword.id}`, text: `${keyword.text} · ${domains[index]}` }))),
     pages: parts.flatMap((part,index) => part.pages.map((page) => ({ ...page, id: `${domains[index]}:${page.id}`, siteDomain: domains[index] }))),
   }, { headers: { "Cache-Control": "private, no-store" } });
+}
+
+type InsightResult = { body: string; headers: Record<string,string>; status: number };
+const insightCache = new Map<string, InsightResult & {expiresAt:number}>();
+const insightPending = new Map<string, Promise<InsightResult>>();
+export async function GET(request: Request): Promise<NextResponse> {
+  const url = new URL(request.url);
+  const key = [url.searchParams.get("site") ?? "all",url.searchParams.get("source") ?? "combined",url.searchParams.get("region") ?? "US"].join(":");
+  try {
+    const saved = insightCache.get(key);
+    if (saved && saved.expiresAt > Date.now()) return new NextResponse(saved.body,{status:saved.status,headers:saved.headers});
+    if (!insightPending.has(key)) insightPending.set(key,retryDatabaseRead(()=>readInsights(request)).then(async response=>{
+      const result = {body:await response.text(),headers:Object.fromEntries(response.headers),status:response.status};
+      if (result.status === 200) insightCache.set(key,{...result,expiresAt:Date.now()+10000});
+      return result;
+    }).finally(()=>insightPending.delete(key)));
+    const result = await insightPending.get(key)!;
+    return new NextResponse(result.body,{status:result.status,headers:result.headers});
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "UNKNOWN";
+    console.error("Insights read failed",code);
+    return NextResponse.json({message:"分析数据读取失败，请重试",code},{status:503,headers:{"Cache-Control":"private, no-store"}});
+  }
 }
