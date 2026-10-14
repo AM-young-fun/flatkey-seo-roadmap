@@ -107,12 +107,13 @@ export async function importSeo(payload: RankingImportPayload) {
       }
       const newLinks = [...membershipData.values()].filter((row) => !linksById.has(row.keywordId));
       if (newLinks.length) await tx.siteKeyword.createMany({ data: newLinks });
-      for (const row of membershipData.values()) {
+      const updates = [...membershipData.values()].filter((row) => {
         const prior = linksById.get(row.keywordId);
-        if (!prior) continue;
-        if (prior.topicId !== row.topicId || prior.origin !== row.origin || !prior.active || JSON.stringify(prior.targetUrls) !== JSON.stringify(row.targetUrls) || prior.sourceUrl !== (row.sourceUrl ?? null)) {
-          await tx.siteKeyword.update({ where: { siteDomain_keywordId: { siteDomain, keywordId: row.keywordId } }, data: row });
-        }
+        return prior && (prior.topicId !== row.topicId || prior.origin !== row.origin || !prior.active || JSON.stringify(prior.targetUrls) !== JSON.stringify(row.targetUrls) || prior.sourceUrl !== (row.sourceUrl ?? null));
+      });
+      if (updates.length) {
+        const values = updates.map((row) => Prisma.sql`(${row.keywordId}::text, ${row.topicId}::text, ${row.origin}::text, ${JSON.stringify(row.targetUrls)}::jsonb, ${row.sourceUrl ?? null}::text)`);
+        await tx.$executeRaw(Prisma.sql`UPDATE "SiteKeyword" AS k SET "topicId" = data.topic, "origin" = data.origin, "targetUrls" = ARRAY(SELECT jsonb_array_elements_text(data.urls)), "sourceUrl" = data.source, "active" = true FROM (VALUES ${Prisma.join(values)}) AS data(id, topic, origin, urls, source) WHERE k."siteDomain" = ${siteDomain} AND k."keywordId" = data.id`);
       }
       if (assignments.length) await tx.siteKeywordTopic.createMany({ data: assignments, skipDuplicates: true });
       if (volumeData.length) await tx.keywordVolume.createMany({ data: volumeData });

@@ -595,3 +595,29 @@ test("weekly traffic can be imported without rankings and retransmission is idem
   assert.equal((await route.POST(request(body))).status,200);
   assert.equal(trafficRows.length,1);
 });
+
+test("bulk inventory preserves multiple topic assignments and unions planned URLs without invented volume", async (t) => {
+  const topics = [], savedKeywords = [], memberships = [], assignments = [], volumes = [];
+  t.mock.method(db, "$transaction", async callback => callback({
+    $executeRaw: async () => 0, $queryRaw: async () => [],
+    rankingImport: { findUnique: async () => null, create: async ({data}) => ({ ...data, id:"inventory-batch", importedAt:new Date() }) },
+    topic: { findMany: async () => [], createMany: async ({data}) => topics.push(...data) },
+    siteTopic: { createMany: async () => ({count:0}) }, topicRelation: { createMany: async () => ({count:0}) },
+    keyword: { createMany: async ({data}) => savedKeywords.push(...data) },
+    siteKeyword: { findMany: async () => [], createMany: async ({data}) => memberships.push(...data) },
+    siteKeywordTopic: { createMany: async ({data}) => assignments.push(...data) },
+    keywordVolume: { createMany: async ({data}) => volumes.push(...data) },
+  }));
+  const body = { requestId:"library-bulk", targetDomain:"flatkey.ai", inventory:[
+    { keyword:"new gpu keyword", topic:"GPU Cost", targetUrls:["https://flatkey.ai/blog/cost"], marketVolumes:{US:0} },
+    { keyword:"new gpu keyword", topic:"GPU Sizing", targetUrls:["https://flatkey.ai/blog/sizing"] },
+  ] };
+  assert.equal((await route.POST(request(body))).status,201);
+  assert.equal(savedKeywords.length,1);
+  assert.equal(memberships.length,1);
+  assert.equal(assignments.length,2);
+  assert.deepEqual(memberships[0].targetUrls,["https://flatkey.ai/blog/cost","https://flatkey.ai/blog/sizing"]);
+  assert.equal(volumes.length,1);
+  assert.equal(volumes[0].volume,0);
+  assert.equal(volumes[0].region,"US");
+});

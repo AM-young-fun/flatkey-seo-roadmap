@@ -348,7 +348,7 @@ export function ManagementDashboard() {
         </div>
       </section>
       <form className="jsonImportPanel" onSubmit={importJson}>
-        <div><h2>采集结果与周报导入</h2><p>导入带网站标识的 JSON：支持关键词清单、排名页面、每日完整采集批次和 GA4 周报。</p><p>周报：周二至周一 · sign_up 区间去重用户数 · 北京时间</p></div>
+        <div><h2>采集结果与周报导入</h2><a className="textLink" href="/api/seo/worklist">下载每日采集清单</a><p>导入带网站标识的 JSON：支持关键词清单、排名页面、每日完整采集批次和 GA4 周报。</p><p>周报：周二至周一 · sign_up 区间去重用户数 · 北京时间</p></div>
         <label className="jsonFile"><span>选择 JSON 文件</span><input type="file" aria-label="选择采集或周报 JSON 文件" accept=".json,application/json" disabled={importing} onChange={(e) => setJsonFile(e.target.files?.[0] ?? null)} />{jsonFile?.name}</label>
         <button className="managePrimary" disabled={!jsonFile || importing}>{importProgress || "导入数据"}</button>
       </form>

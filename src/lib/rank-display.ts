@@ -33,7 +33,7 @@ export function displayBucket(rank: number | null | undefined) {
 export function displayRank(summary: RankSummary | null | undefined) {
   if (!summary) return "未采集";
   if (summary.rank == null)
-    return summary.source === "gsc" ? "暂无数据" : "无排名";
+    return summary.rankStatus === "outside_top100" ? "前 100 外" : "暂无数据";
   return `#${Number(summary.rank.toFixed(1))}`;
 }
 
@@ -45,7 +45,7 @@ export function rankDescription(summary: RankSummary | null | undefined) {
       : summary.source === "ahrefs"
         ? "Ahrefs 排名"
         : "Google 排名";
-  return `${source}${summary.periodStart ? ` · ${summary.periodStart} 至 ${summary.periodEnd}` : ""}`;
+  return `${source}${summary.dataUpdatedAt ? ` · 来源更新于 ${summary.dataUpdatedAt.slice(0,10)}` : ""}${summary.periodStart ? ` · ${summary.periodStart} 至 ${summary.periodEnd}` : ""}`;
 }
 
 export function rankingStats(

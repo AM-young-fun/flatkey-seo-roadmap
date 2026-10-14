@@ -18,7 +18,8 @@ export async function POST(request: Request) {
     return NextResponse.json(result, { status: result.duplicate ? 200 : 201 });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status });
-    console.error("SEO import failed", error instanceof Error ? error.name : "Unknown");
-    return NextResponse.json({ message: "导入失败，整批未写入，请以相同 requestId 重试" }, { status: 500 });
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "UNKNOWN";
+    console.error("SEO import failed", { code, name: error instanceof Error ? error.name : "Unknown" });
+    return NextResponse.json({ message: `导入失败（${code}），整批未写入，请以相同 requestId 重试` }, { status: 500 });
   }
 }
