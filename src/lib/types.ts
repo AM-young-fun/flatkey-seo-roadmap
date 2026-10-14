@@ -4,6 +4,9 @@ export type KeywordType = "MAIN" | "LONG_TAIL";
 export type TopicType = "MAIN" | "SUB_TOPIC";
 
 export type RankSummary = {
+  source?: "gsc" | "ahrefs" | "serpapi";
+  periodStart?: string | null;
+  periodEnd?: string | null;
   rank: number | null;
   bucket: RankBucket;
   url: string | null;
@@ -80,6 +83,7 @@ export type DashboardRun = {
 };
 
 export type DashboardResponse = {
+  latestImportAt?: string | null;
   usingDemoData: boolean;
   targetDomain: string | null;
   regions: SearchRegionCode[];

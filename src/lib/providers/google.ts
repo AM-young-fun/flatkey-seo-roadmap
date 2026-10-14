@@ -53,7 +53,7 @@ export async function fetchGoogleRanking(
 
   const regionConfig = REGIONS[region];
   const endpoint = envString("SERPAPI_ENDPOINT", "https://serpapi.com/search.json");
-  const depth = envInt("GOOGLE_RESULTS_DEPTH", 50);
+  const depth = envInt("GOOGLE_RESULTS_DEPTH", 100);
   const url = new URL(endpoint);
 
   url.searchParams.set("engine", "google");

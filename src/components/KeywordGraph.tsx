@@ -1,346 +1,142 @@
 "use client";
-
 import * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
-import type { DashboardTopic } from "@/lib/types";
+import type { DashboardKeyword } from "@/lib/types";
+import { hashString, REGIONS, type SearchRegionCode } from "@/lib/seo";
 import {
-  hashString,
-  REGIONS,
-  type SearchRegionCode
-} from "@/lib/seo";
+  displayBucket,
+  displayRank,
+  rankDescription,
+} from "@/lib/rank-display";
 
-type KeywordGraphProps = {
-  topics: DashboardTopic[];
+export function KeywordGraph({
+  keywords,
+  selectedRegion,
+}: {
+  keywords: DashboardKeyword[];
   selectedRegion: SearchRegionCode;
-};
-
-type GraphNodeData = {
-  id: string;
-  name: string;
-  topic: DashboardTopic;
-  volume: number;
-  value: number;
-  x: number;
-  y: number;
-  symbol: "diamond" | "circle";
-  symbolSize: number;
-  category: number;
-  itemStyle: {
-    color: string;
-    borderColor: string;
-    borderWidth: number;
-    opacity: number;
-  };
-};
-
-type Point = {
-  x: number;
-  y: number;
-};
-
-type TooltipParam = {
-  data?: Partial<GraphNodeData> & {
-    source?: string;
-    target?: string;
-  };
-};
-
-function symbolSizeFor(volume: number): number {
-  const cleanVolume = Math.max(0, volume);
-  const minSize = 14;
-  const smallKeywordSize = 17;
-  const maxSize = 58;
-  const smallKeywordVolume = 100;
-  const strongKeywordVolume = 100000;
-
-  if (cleanVolume <= smallKeywordVolume) {
-    return minSize + Math.sqrt(cleanVolume / smallKeywordVolume) * (smallKeywordSize - minSize);
-  }
-
-  const ratio =
-    Math.log10(cleanVolume / smallKeywordVolume) /
-    Math.log10(strongKeywordVolume / smallKeywordVolume);
-
-  return Math.min(maxSize, smallKeywordSize + ratio * (maxSize - smallKeywordSize));
-}
-
-function marketVolume(topic: DashboardTopic, region: SearchRegionCode): number {
-  return topic.marketVolumes[region] ?? 0;
-}
-
-function parentIdsFor(topic: DashboardTopic): string[] {
-  return topic.parentIds.length > 0 ? topic.parentIds : topic.parentId ? [topic.parentId] : [];
-}
-
-function hashRatio(value: string): number {
-  return hashString(value) / 0xffffffff;
-}
-
-function fallbackPoint(topic: DashboardTopic, index: number, total: number): Point {
-  const angle = hashRatio(topic.id) * Math.PI * 2;
-  const radius = Math.sqrt((index + 1) / Math.max(total, 1)) * Math.max(360, Math.sqrt(total) * 78);
-
-  return {
-    x: Math.cos(angle) * radius,
-    y: Math.sin(angle) * radius
-  };
-}
-
-function initialPositionsFor(topics: DashboardTopic[]): Map<string, Point> {
-  const positions = new Map<string, Point>();
-  const mainTopics = topics.filter((topic) => topic.type === "MAIN");
-  const primaryTopics = mainTopics.length > 0 ? mainTopics : topics.slice(0, 1);
-  const mainRadius = Math.max(300, Math.min(1100, primaryTopics.length * 15));
-
-  primaryTopics.forEach((topic, index) => {
-    const angle = (index / Math.max(primaryTopics.length, 1)) * Math.PI * 2;
-
-    positions.set(topic.id, {
-      x: Math.cos(angle) * mainRadius,
-      y: Math.sin(angle) * mainRadius
-    });
-  });
-
-  const childrenByParent = new Map<string, DashboardTopic[]>();
-
-  topics.forEach((topic) => {
-    const parentId = parentIdsFor(topic)[0];
-
-    if (!parentId) {
-      return;
-    }
-
-    const children = childrenByParent.get(parentId) ?? [];
-    children.push(topic);
-    childrenByParent.set(parentId, children);
-  });
-
-  childrenByParent.forEach((children, parentId) => {
-    const parentPoint = positions.get(parentId) ?? fallbackPoint(children[0], 0, topics.length);
-    const childRadius = Math.max(115, Math.min(460, Math.sqrt(children.length) * 58));
-
-    children.forEach((child, index) => {
-      if (positions.has(child.id)) {
-        return;
-      }
-
-      const angle = ((index + hashRatio(child.id)) / Math.max(children.length, 1)) * Math.PI * 2;
-      const ringOffset = 0.72 + (index % 4) * 0.14;
-
-      positions.set(child.id, {
-        x: parentPoint.x + Math.cos(angle) * childRadius * ringOffset,
-        y: parentPoint.y + Math.sin(angle) * childRadius * ringOffset
-      });
-    });
-  });
-
-  topics.forEach((topic, index) => {
-    if (!positions.has(topic.id)) {
-      positions.set(topic.id, fallbackPoint(topic, index, topics.length));
-    }
-  });
-
-  return positions;
-}
-
-export function KeywordGraph({ topics, selectedRegion }: KeywordGraphProps) {
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
-
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const instance = useRef<echarts.ECharts | null>(null);
   const option = useMemo<echarts.EChartsOption>(() => {
-    const largeGraph = topics.length > 250;
-    const initialPositions = initialPositionsFor(topics);
-    const nodes: GraphNodeData[] = topics.map((topic) => {
-      const volume = marketVolume(topic, selectedRegion);
-      const position = initialPositions.get(topic.id) ?? { x: 0, y: 0 };
-      const mainTopic = topic.type === "MAIN";
-
+    const ids = new Set(keywords.map((keyword) => keyword.id));
+    const groups = new Map<string, DashboardKeyword[]>();
+    keywords.forEach((keyword) => {
+      if (keyword.topicId)
+        groups.set(keyword.topicId, [
+          ...(groups.get(keyword.topicId) ?? []),
+          keyword,
+        ]);
+    });
+    const edges = new Map<string, { source: string; target: string }>();
+    const addEdge = (source: string, target: string) => {
+      if (source !== target && ids.has(source) && ids.has(target))
+        edges.set([source, target].sort().join(":"), { source, target });
+    };
+    keywords.forEach((keyword) =>
+      (keyword.parentIds.length
+        ? keyword.parentIds
+        : keyword.parentId
+          ? [keyword.parentId]
+          : []
+      ).forEach((parent) => addEdge(parent, keyword.id)),
+    );
+    groups.forEach((members) => {
+      const sorted = [...members].sort(
+        (a, b) => b.volume - a.volume || a.id.localeCompare(b.id),
+      );
+      sorted.slice(1).forEach((member) => addEdge(sorted[0].id, member.id));
+    });
+    const nodes = keywords.map((keyword) => {
+      const volume = keyword.marketVolumes[selectedRegion] ?? 0;
+      const angle =
+        ((hashString(keyword.topicId ?? keyword.id) % 360) / 180) * Math.PI;
+      const offset = hashString(keyword.id) % 120;
       return {
-        id: topic.id,
-        name: topic.text,
-        topic,
+        id: keyword.id,
+        name: keyword.text,
+        keyword,
         volume,
-        value: volume,
-        x: position.x,
-        y: position.y,
-        symbol: mainTopic ? "diamond" : "circle",
-        symbolSize: symbolSizeFor(volume),
-        category: mainTopic ? 0 : 1,
+        x: Math.cos(angle) * (200 + offset),
+        y: Math.sin(angle) * (200 + offset),
+        symbolSize: 16 + Math.min(34, Math.log10(volume + 1) * 7),
         itemStyle: {
-          color: mainTopic ? "#2563eb" : "#0891b2",
-          borderColor: "#ffffff",
-          borderWidth: 3,
-          opacity: volume > 0 ? 1 : 0.55
-        }
+          color: displayBucket(keyword.latestRanks[selectedRegion]?.rank).color,
+          borderColor: "#fff",
+          borderWidth: 2,
+          shadowBlur: 8,
+          shadowColor: "rgba(15,23,42,0.08)",
+        },
       };
     });
-
-    const linkKeys = new Set<string>();
-    const links = topics.flatMap((topic) => {
-      const parentIds = parentIdsFor(topic);
-
-      return parentIds.flatMap((parentId) => {
-        const key = `${parentId}:${topic.id}`;
-
-        if (linkKeys.has(key)) {
-          return [];
-        }
-
-        linkKeys.add(key);
-        return [
-          {
-            source: parentId,
-            target: topic.id,
-            lineStyle: {
-              color: "#8b949e",
-              width: topic.type === "SUB_TOPIC" ? 1.4 : 2,
-              opacity: 0.72
-            }
-          }
-        ];
-      });
-    });
-
     return {
-      backgroundColor: "transparent",
-      animationDurationUpdate: 450,
+      animationDurationUpdate: 400,
       tooltip: {
-        trigger: "item",
-        borderWidth: 0,
-        backgroundColor: "#16181d",
-        textStyle: {
-          color: "#ffffff",
-          fontFamily: "inherit"
+        renderMode: "richText",
+        confine: true,
+        formatter: (params: unknown) => {
+          const node = (
+            params as { data?: { keyword?: DashboardKeyword; volume?: number } }
+          ).data;
+          if (!node?.keyword) return "同话题或父子关键词关联";
+          const keyword = node.keyword;
+          return `${keyword.text}\n所属话题：${keyword.topicText ?? "—"}\n${REGIONS[selectedRegion].label}排名：${displayRank(keyword.latestRanks[selectedRegion])}\n${rankDescription(keyword.latestRanks[selectedRegion])}\n声量：${node.volume?.toLocaleString() ?? "—"}`;
         },
-        formatter: (rawParam: unknown) => {
-          const param = rawParam as TooltipParam;
-          const data = param.data;
-
-          if (!data?.topic) {
-            return "";
-          }
-
-          const typeLabel = data.topic.type === "MAIN" ? "主话题" : "子话题";
-
-          return [
-            `<strong>${data.topic.text}</strong>`,
-            `类型: ${typeLabel}`,
-            `${REGIONS[selectedRegion].label}声量: ${data.volume?.toLocaleString() ?? "0"}`
-          ].join("<br/>");
-        }
-      },
-      legend: {
-        top: 0,
-        left: 0,
-        itemWidth: 12,
-        itemHeight: 12,
-        textStyle: {
-          color: "#4b5563",
-          fontFamily: "inherit"
-        },
-        data: ["主话题", "子话题"]
       },
       series: [
         {
           type: "graph",
           layout: "force",
-          left: "center",
-          top: "center",
-          width: "94%",
-          height: "94%",
-          preserveAspect: "contain",
-          preserveAspectAlign: "center",
-          preserveAspectVerticalAlign: "middle",
-          center: ["50%", "50%"],
-          zoom: largeGraph ? 0.82 : 1,
-          scaleLimit: {
-            min: 0.25,
-            max: 4
-          },
-          nodeScaleRatio: largeGraph ? 0.38 : 0.55,
           roam: true,
           draggable: true,
           data: nodes,
-          links,
-          categories: [
-            {
-              name: "主话题"
-            },
-            {
-              name: "子话题"
-            }
-          ],
-          edgeSymbol: ["none", "arrow"],
-          edgeSymbolSize: 8,
+          links: [...edges.values()],
           label: {
             show: true,
             position: "right",
-            formatter: "{b}",
-            color: "#1f2937",
-            fontFamily: "inherit",
-            fontSize: 12,
+            color: "#475569",
+            fontSize: 11,
             width: 150,
-            overflow: "truncate"
+            overflow: "truncate",
           },
-          labelLayout: {
-            hideOverlap: true
-          },
+          labelLayout: { hideOverlap: true },
+          lineStyle: { color: "#cbd5e1", opacity: 0.6, curveness: 0.08 },
           force: {
             initLayout: "none",
-            repulsion: largeGraph ? [90, 360] : [130, 420],
-            edgeLength: largeGraph ? [42, 120] : [72, 170],
-            gravity: largeGraph ? 0.22 : 0.1,
-            friction: largeGraph ? 0.48 : 0.36,
-            layoutAnimation: false
+            repulsion: [160, 420],
+            edgeLength: [70, 140],
+            gravity: 0.12,
+            layoutAnimation: false,
           },
-          emphasis: {
-            focus: "adjacency",
-            lineStyle: {
-              width: 3
-            }
-          }
-        }
-      ]
+          scaleLimit: { min: 0.3, max: 4 },
+          emphasis: { focus: "adjacency", lineStyle: { width: 2 } },
+        },
+      ],
     };
-  }, [topics, selectedRegion]);
-
+  }, [keywords, selectedRegion]);
   useEffect(() => {
-    if (!chartRef.current) {
-      return;
-    }
-
-    const chart = echarts.init(chartRef.current, null, {
-      renderer: "canvas"
-    });
-    chartInstanceRef.current = chart;
-
-    const resizeObserver = new ResizeObserver(() => {
-      chart.resize();
-    });
-
-    resizeObserver.observe(chartRef.current);
-
+    if (!element.current || !keywords.length) return;
+    const chart = echarts.init(element.current);
+    instance.current = chart;
+    const observer = new ResizeObserver(() => chart.resize());
+    observer.observe(element.current);
     return () => {
-      resizeObserver.disconnect();
+      observer.disconnect();
       chart.dispose();
-      chartInstanceRef.current = null;
+      instance.current = null;
     };
-  }, []);
-
+  }, [keywords.length]);
   useEffect(() => {
-    const chart = chartInstanceRef.current;
-
-    if (!chart) {
-      return;
-    }
-
-    chart.setOption(option, true);
-    chart.resize();
+    instance.current?.setOption(option, true);
   }, [option]);
-
-  if (topics.length === 0) {
-    return <div className="emptyGraph">暂无话题</div>;
-  }
-
-  return <div ref={chartRef} className="keywordGraph" aria-label="话题关系图" />;
+  return keywords.length ? (
+    <div
+      ref={element}
+      className="keywordGraph"
+      role="img"
+      aria-label={`${REGIONS[selectedRegion].label}关键词关系图，按排名着色；完整数据可在关键词明细中查看`}
+    />
+  ) : (
+    <div className="emptyGraph">暂无关键词，请通过顶部「数据管理」导入</div>
+  );
 }

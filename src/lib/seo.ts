@@ -37,7 +37,7 @@ export type SearchRegionCode = keyof typeof REGIONS;
 
 export const REGION_CODES = Object.keys(REGIONS) as SearchRegionCode[];
 
-export type RankBucket = "TOP_5" | "TOP_10" | "TOP_50" | "NOT_FOUND";
+export type RankBucket = "TOP_5" | "TOP_10" | "TOP_30" | "TOP_50" | "TOP_100" | "NOT_FOUND";
 
 export const RANK_BUCKET_META: Record<
   RankBucket,
@@ -50,18 +50,20 @@ export const RANK_BUCKET_META: Record<
   },
   TOP_10: {
     label: "前 10",
-    color: "#f2c94c",
+    color: "#10b981",
     order: 2
   },
+  TOP_30: { label: "前 30", color: "#3b82f6", order: 3 },
   TOP_50: {
     label: "前 50",
-    color: "#d64545",
-    order: 3
+    color: "#f59e0b",
+    order: 4
   },
+  TOP_100: { label: "前 100", color: "#f97316", order: 5 },
   NOT_FOUND: {
     label: "未排名",
-    color: "#151515",
-    order: 4
+    color: "#94a3b8",
+    order: 6
   }
 };
 
@@ -70,23 +72,23 @@ export function getRankBucket(rank: number | null | undefined): RankBucket {
     return "NOT_FOUND";
   }
 
-  if (rank <= 5) {
-    return "TOP_5";
-  }
-
   if (rank <= 10) {
     return "TOP_10";
   }
+
+  if (rank <= 30) return "TOP_30";
 
   if (rank <= 50) {
     return "TOP_50";
   }
 
+  if (rank <= 100) return "TOP_100";
+
   return "NOT_FOUND";
 }
 
 export function rankLabel(rank: number | null | undefined): string {
-  return rank ? `#${rank}` : "未进入前 50";
+  return rank ? `#${rank}` : "未进入前 100";
 }
 
 export function rankDeltaLabel(delta: number | null | undefined): string {
@@ -136,9 +138,9 @@ export function hashString(value: string): number {
 
 export function demoRankFor(keyword: string, region: SearchRegionCode): number | null {
   const value = hashString(`${keyword}:${region}`);
-  const roll = value % 72;
+  const roll = value % 140;
 
-  if (roll > 50) {
+  if (roll > 100) {
     return null;
   }
 

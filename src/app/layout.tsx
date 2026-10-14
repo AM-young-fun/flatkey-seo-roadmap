@@ -3,12 +3,12 @@ import "antd/dist/reset.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SEO Rank Monitor",
-  description: "Keyword rank tracking dashboard"
+  title: "Flatkey 关键词洞察",
+  description: "Keyword rank tracking dashboard",
 };
 
 export default function RootLayout({
-  children
+  children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {

@@ -27,7 +27,9 @@ enum TopicType {
 enum RankBucket {
   TOP_5
   TOP_10
+  TOP_30
   TOP_50
+  TOP_100
   NOT_FOUND
 }
 
@@ -54,6 +56,7 @@ model Keyword {
   snapshots     RankingSnapshot[]
   diffs         RankingDiff[]
   volumes       KeywordVolume[]
+  observations  KeywordObservation[]
   lastSyncedAt  DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
@@ -62,6 +65,39 @@ model Keyword {
   @@index([topicId])
   @@index([type])
   @@index([active])
+}
+
+model RankingImport {
+  id          String               @id @default(cuid())
+  requestId   String               @unique
+  payloadHash String
+  count       Int
+  importedAt  DateTime             @default(now())
+  observations KeywordObservation[]
+}
+
+model KeywordObservation {
+  id           String       @id @default(cuid())
+  keywordId    String
+  keyword      Keyword      @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  importId     String
+  importBatch  RankingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  source       String
+  region       SearchRegion
+  rank         Float?
+  rankReported Boolean      @default(false)
+  volume       Int?
+  clicks       Int?
+  impressions  Int?
+  ctr          Float?
+  periodStart  DateTime?     @db.Date
+  periodEnd    DateTime?     @db.Date
+  collectedAt  DateTime
+  importedAt   DateTime     @default(now())
+
+  @@unique([importId, keywordId, region, source])
+  @@index([keywordId, region, source, collectedAt])
+  @@index([keywordId, region, collectedAt(sort: Desc), importedAt(sort: Desc)])
 }
 
 model Topic {
