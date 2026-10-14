@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { Prisma, type Topic } from "@prisma/client";
+import { createHash, randomUUID } from "node:crypto";
+import { Prisma, type Topic, type Keyword } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeDomain, REGION_CODES } from "@/lib/seo";
 import { ImportRequestError, type RankingImportPayload } from "@/lib/ranking-import";
@@ -45,45 +45,78 @@ export async function importSeo(payload: RankingImportPayload) {
         requestId: payload.requestId, payloadHash, siteDomain,
         count: payload.observations.length + payload.pages.length + payload.inventory.length + payload.traffic.length + payload.topics.length,
       } });
-      const topicCache = new Map<string, Topic>();
-      async function topic(text: string, parentText?: string): Promise<Topic> {
-        const key = `${text}:${parentText ?? ""}`;
-        if (topicCache.has(key)) return topicCache.get(key)!;
-        const parent = parentText && parentText !== text ? await topic(parentText) : null;
-        const value = await tx.topic.upsert({ where: { text }, create: { text, type: parent ? "SUB_TOPIC" : "MAIN", parentId: parent?.id }, update: { active: true } });
-        await tx.siteTopic.upsert({ where: { siteDomain_topicId: { siteDomain, topicId: value.id } }, create: { siteDomain, topicId: value.id }, update: {} });
-        if (parent) await tx.topicRelation.upsert({ where: { parentId_childId: { parentId: parent.id, childId: value.id } }, create: { parentId: parent.id, childId: value.id }, update: {} });
-        topicCache.set(key, value);
-        return value;
+      const topicSpecs = [...payload.topics.map((row) => ({ text: row.text, parent: row.parentTopic })),
+        ...payload.inventory.map((row) => ({ text: row.topic, parent: row.parentTopic })),
+        ...(payload.allowNewKeywords ? [{ text: "自然搜索发现词", parent: undefined }] : [])];
+      const topicTexts = [...new Set(topicSpecs.flatMap((row) => [row.text, ...(row.parent && row.parent !== row.text ? [row.parent] : [])]))];
+      const topics = topicTexts.length ? await tx.topic.findMany({ where: { text: { in: topicTexts } } }) : [];
+      const topicByText = new Map<string, Topic>(topics.map((row) => [row.text, row]));
+      const parentTexts = new Set(topicSpecs.map((row) => row.parent).filter(Boolean));
+      const newTopics = topicTexts.filter((text) => !topicByText.has(text)).map((text) => ({ id: randomUUID(), text, type: (!parentTexts.has(text) && topicSpecs.some((row) => row.text === text && row.parent && row.parent !== text) ? "SUB_TOPIC" : "MAIN") as "MAIN" | "SUB_TOPIC" }));
+      if (newTopics.length) {
+        await tx.topic.createMany({ data: newTopics });
+        for (const row of newTopics) topicByText.set(row.text, row as Topic);
       }
-      for (const row of payload.topics) await topic(row.text, row.parentTopic);
+      if (topicTexts.length) await tx.siteTopic.createMany({ data: topicTexts.map((text) => ({ siteDomain, topicId: topicByText.get(text)!.id })), skipDuplicates: true });
+      const relations = topicSpecs.filter((row) => row.parent && row.parent !== row.text).map((row) => ({ parentId: topicByText.get(row.parent!)!.id, childId: topicByText.get(row.text)!.id }));
+      if (relations.length) await tx.topicRelation.createMany({ data: relations, skipDuplicates: true });
+      const requestedTexts = [...new Set([...payload.inventory, ...payload.observations, ...payload.pages].map((row) => row.keyword.toLowerCase()))];
+      const keywords = requestedTexts.length ? await tx.$queryRaw<Keyword[]>(Prisma.sql`SELECT * FROM "Keyword" WHERE lower("text") IN (${Prisma.join(requestedTexts)})`) : [];
+      const keywordByText = new Map<string, Keyword>();
+      for (const keyword of keywords) {
+        const key = keyword.text.toLowerCase();
+        if (keywordByText.has(key)) throw new ImportRequestError(`关键词大小写匹配不唯一：${keyword.text}`, 422);
+        keywordByText.set(key, keyword);
+      }
+      const priorLinks = requestedTexts.length ? await tx.siteKeyword.findMany({ where: { siteDomain, keywordId: { in: keywords.map((row) => row.id) } } }) : [];
+      const linksById = new Map(priorLinks.map((row) => [row.keywordId, row]));
+      const plannedTexts = new Set(payload.inventory.map((row) => row.keyword.toLowerCase()));
+      for (const row of [...payload.observations, ...payload.pages]) {
+        const known = keywordByText.get(row.keyword.toLowerCase());
+        if (!payload.allowNewKeywords && !plannedTexts.has(row.keyword.toLowerCase()) && !(known && linksById.get(known.id)?.active && known.active)) throw new ImportRequestError(`关键词不在当前网站列表：${row.keyword}`, 422);
+      }
+      const newKeywords = requestedTexts.filter((text) => !keywordByText.has(text)).map((text) => {
+        const entry = payload.inventory.find((row) => row.keyword.toLowerCase() === text);
+        return { id: randomUUID(), text, topicId: topicByText.get(entry?.topic ?? "自然搜索发现词")!.id };
+      });
+      if (newKeywords.length) {
+        await tx.keyword.createMany({ data: newKeywords });
+        for (const row of newKeywords) keywordByText.set(row.text, { ...row, active: true } as Keyword);
+      }
+      // Merge all assignments and planned URLs before a single membership write.
+      const membershipData = new Map<string, { siteDomain: string; keywordId: string; topicId: string; origin: string; targetUrls: string[]; sourceUrl?: string; active: boolean }>();
+      const assignments: Array<{ siteDomain: string; keywordId: string; topicId: string }> = [];
+      const volumeData: Array<{ keywordId: string; region: (typeof REGION_CODES)[number]; volume: number; source: string; fetchedAt: Date }> = [];
       for (const row of payload.inventory) {
-        const assigned = await topic(row.topic, row.parentTopic);
-        const keyword = await tx.keyword.findFirst({ where: { text: { equals: row.keyword, mode: "insensitive" } } }) ??
-          await tx.keyword.create({ data: { text: row.keyword, topicId: assigned.id } });
-        const prior = await tx.siteKeyword.findUnique({ where: { siteDomain_keywordId: { siteDomain, keywordId: keyword.id } } });
-        const targetUrls = [...new Set([...(prior?.targetUrls ?? []), ...row.targetUrls])];
-        // Curated plans take precedence over research, while all topic assignments remain available.
+        const keyword = keywordByText.get(row.keyword.toLowerCase())!;
+        const prior = membershipData.get(keyword.id) ?? linksById.get(keyword.id);
         const promote = !prior || ["RESEARCH", "DISCOVERED"].includes(prior.origin);
-        await tx.siteKeyword.upsert({ where: { siteDomain_keywordId: { siteDomain, keywordId: keyword.id } },
-          create: { siteDomain, keywordId: keyword.id, topicId: assigned.id, origin: row.origin, targetUrls, sourceUrl: row.sourceUrl },
-          update: { active: true, targetUrls, ...(promote ? { topicId: assigned.id, origin: row.origin, sourceUrl: row.sourceUrl } : {}) },
+        membershipData.set(keyword.id, { siteDomain, keywordId: keyword.id, active: true,
+          topicId: promote ? topicByText.get(row.topic)!.id : prior!.topicId ?? topicByText.get(row.topic)!.id,
+          origin: promote ? row.origin : prior!.origin,
+          sourceUrl: promote ? row.sourceUrl : prior!.sourceUrl ?? undefined,
+          targetUrls: [...new Set([...(prior?.targetUrls ?? []), ...row.targetUrls])],
         });
-        await tx.siteKeywordTopic.upsert({ where: { siteDomain_keywordId_topicId: { siteDomain, keywordId: keyword.id, topicId: assigned.id } }, create: { siteDomain, keywordId: keyword.id, topicId: assigned.id }, update: {} });
-        for (const region of REGION_CODES) if (row.marketVolumes[region] !== undefined) {
-          await tx.keywordVolume.create({ data: { keywordId: keyword.id, region, volume: row.marketVolumes[region]!, source: "csv", fetchedAt: row.volumeObservedAt ? new Date(row.volumeObservedAt) : undefined } });
+        assignments.push({ siteDomain, keywordId: keyword.id, topicId: topicByText.get(row.topic)!.id });
+        for (const region of REGION_CODES) if (row.marketVolumes[region] !== undefined) volumeData.push({ keywordId: keyword.id, region, volume: row.marketVolumes[region]!, source: "csv", fetchedAt: row.volumeObservedAt ? new Date(row.volumeObservedAt) : new Date() });
+      }
+      for (const row of [...payload.observations, ...payload.pages]) {
+        const keyword = keywordByText.get(row.keyword.toLowerCase())!;
+        if (membershipData.has(keyword.id) || linksById.get(keyword.id)?.active) continue;
+        membershipData.set(keyword.id, { siteDomain, keywordId: keyword.id, active: true, topicId: topicByText.get("自然搜索发现词")!.id, origin: "DISCOVERED", targetUrls: [] });
+      }
+      const newLinks = [...membershipData.values()].filter((row) => !linksById.has(row.keywordId));
+      if (newLinks.length) await tx.siteKeyword.createMany({ data: newLinks });
+      for (const row of membershipData.values()) {
+        const prior = linksById.get(row.keywordId);
+        if (!prior) continue;
+        if (prior.topicId !== row.topicId || prior.origin !== row.origin || !prior.active || JSON.stringify(prior.targetUrls) !== JSON.stringify(row.targetUrls) || prior.sourceUrl !== (row.sourceUrl ?? null)) {
+          await tx.siteKeyword.update({ where: { siteDomain_keywordId: { siteDomain, keywordId: row.keywordId } }, data: row });
         }
       }
-      const links = await tx.siteKeyword.findMany({ where: { siteDomain, active: true }, include: { keyword: true } });
-      const byText = new Map(links.map((link) => [link.keyword.text.toLowerCase(), link.keywordId]));
-      for (const row of [...payload.observations, ...payload.pages]) {
-        if (byText.has(row.keyword.toLowerCase())) continue;
-        if (!payload.allowNewKeywords) throw new ImportRequestError(`关键词不在当前网站列表：${row.keyword}`, 422);
-        const assigned = await topic("自然搜索发现词");
-        const keyword = await tx.keyword.findFirst({ where: { text: { equals: row.keyword, mode: "insensitive" } } }) ?? await tx.keyword.create({ data: { text: row.keyword, topicId: assigned.id } });
-        await tx.siteKeyword.upsert({ where: { siteDomain_keywordId: { siteDomain, keywordId: keyword.id } }, create: { siteDomain, keywordId: keyword.id, topicId: assigned.id, origin: "DISCOVERED" }, update: { active: true } });
-        byText.set(row.keyword.toLowerCase(), keyword.id);
-      }
+      if (assignments.length) await tx.siteKeywordTopic.createMany({ data: assignments, skipDuplicates: true });
+      if (volumeData.length) await tx.keywordVolume.createMany({ data: volumeData });
+      const byText = new Map([...keywordByText.entries()].map(([text, keyword]) => [text, keyword.id]));
       if (payload.capture) {
         const c = payload.capture;
         const prior = await tx.rankingCapture.findUnique({ where: { id: c.id } });
@@ -92,7 +125,7 @@ export async function importSeo(payload: RankingImportPayload) {
       }
       if (payload.observations.length) await tx.keywordObservation.createMany({ data: payload.observations.map((row) => ({
         keywordId: byText.get(row.keyword.toLowerCase())!, importId: batch.id, siteDomain, captureId: payload.capture?.id,
-        source: row.source, region: row.region, rank: row.rank ?? null, rankReported: row.rank !== undefined,
+        source: row.source, region: row.region, rank: row.rank ?? null, rankReported: row.rank !== undefined || row.rankStatus !== undefined,
         rankStatus: row.rankStatus ?? (row.rank == null ? "no_data" : row.rank <= 100 ? "ranked" : "outside_top100"),
         url: row.url, volume: row.volume, clicks: row.clicks, impressions: row.impressions, ctr: row.ctr,
         periodStart: day(row.periodStart), periodEnd: day(row.periodEnd), collectedAt: new Date(row.collectedAt), dataUpdatedAt: row.dataUpdatedAt ? new Date(row.dataUpdatedAt) : null,

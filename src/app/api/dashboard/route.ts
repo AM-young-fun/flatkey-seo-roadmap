@@ -71,7 +71,7 @@ async function loadDashboard(siteDomain: string, source: string) {
     prisma.keyword.findMany({
       where: {
         active: true,
-        siteLinks: { some: { siteDomain, active: true } },
+        siteLinks: { some: { siteDomain, active: true, topicId: { not: null } } },
       },
       include: {
         siteLinks: { where: { siteDomain }, include: { topic: true, topicAssignments: { include: { topic: true } } } },

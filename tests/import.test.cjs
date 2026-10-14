@@ -32,7 +32,7 @@ const {
 } = require("../src/lib/ranking-import.ts");
 const { displayBucket, rankingStats } = require("../src/lib/rank-display.ts");
 const { Prisma } = require("@prisma/client");
-let batches, observations, failWrite;
+let batches, observations, failWrite, captures, trafficRows;
 const keywords = [
   {
     id: "keyword-1",
@@ -53,7 +53,7 @@ const keywords = [
 ];
 const db = {
   seoSite: { findUnique: async ({ where }) => ["flatkey.ai", "rackrate.org"].includes(where.domain) ? { domain: where.domain, active: true, ga4PropertyId: null } : null },
-  siteKeyword: { findMany: async ({where}) => where.siteDomain === "flatkey.ai" ? keywords.map(keyword => ({ keyword, keywordId: keyword.id, topic: keyword.topic, origin: "PLANNED", targetUrls: [] })) : [] },
+  siteKeyword: { findMany: async ({where}) => where.siteDomain === "flatkey.ai" ? keywords.map(keyword => ({ keyword, keywordId: keyword.id, topic: keyword.topic, origin: "PLANNED", targetUrls: [], active: true, topicId: "topic-1", sourceUrl: null })) : [] },
   keyword: { findMany: async ({where}) => where.siteLinks?.some?.siteDomain === "rackrate.org" ? [] : keywords },
   rankingImport: {
     findUnique: async ({ where }) =>
@@ -113,6 +113,14 @@ const db = {
       stagedRows = [];
     const result = await callback({
       $executeRaw: db.$executeRaw,
+      $queryRaw: async () => keywords,
+      seoSite: { findUniqueOrThrow: async ({where}) => db.seoSite.findUnique({where}), update: async () => ({}) },
+      rankingCapture: {
+        findUnique: async ({where}) => captures.find(c => c.id === where.id) ?? null,
+        upsert: async ({where,create}) => { if (!captures.some(c => c.id === where.id)) captures.push(create); return create; },
+        update: async ({where,data}) => Object.assign(captures.find(c => c.id === where.id),data),
+      },
+      weeklyTraffic: { createMany: async ({data}) => trafficRows.push(...data) },
       siteKeyword: db.siteKeyword,
       rankingImport: {
         findUnique: db.rankingImport.findUnique,
@@ -184,6 +192,8 @@ const request = (body, token = "test-import-key") =>
 beforeEach(() => {
   batches = [];
   observations = [];
+  captures = [];
+  trafficRows = [];
   failWrite = false;
   delete process.env.CRON_SECRET;
   delete process.env.LOGIN_PWD;
@@ -566,4 +576,22 @@ test("website and ranking-source filters cannot mix observations", async () => {
   assert.equal(ahrefs.keywords[0].latestRanks.US,null);
   const other = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=rackrate.org&source=gsc"))).json();
   assert.equal(other.keywords.length,0);
+});
+
+test("partial captures must be explicitly sealed and a completed capture rejects new writes", async () => {
+  const capture = { id: "site-2026-10-10", date: "2026-10-10", region: "US", source: "gsc", coverage: "site_top100", complete: false };
+  assert.equal((await route.POST(request({...batch(),capture}))).status,201);
+  assert.equal(captures[0].status,"PARTIAL");
+  assert.equal((await route.POST(request({requestId:"capture-seal",targetDomain:"flatkey.ai",capture:{...capture,complete:true}}))).status,201);
+  assert.equal(captures[0].status,"COMPLETE");
+  assert.equal((await route.POST(request({...batch(),requestId:"capture-late",capture}))).status,409);
+  assert.equal((await route.POST(request({...batch(),capture}))).status,200);
+});
+test("weekly traffic can be imported without rankings and retransmission is idempotent", async () => {
+  const body = { requestId: "traffic-week1", targetDomain: "flatkey.ai", traffic: [{ periodStart: "2026-10-06", periodEnd: "2026-10-12", timezone: "Asia/Shanghai", scope: "all_users", registrationMetric: "sign_up_distinct_users", ga4PropertyId: "123456", newUsers: 100, newRegistrations: 20, collectedAt: "2026-10-14T02:30:00Z" }] };
+  assert.equal((await route.POST(request(body))).status,201);
+  assert.equal(trafficRows[0].newRegistrations,20);
+  assert.equal(trafficRows[0].periodStart.toISOString().slice(0,10),"2026-10-06");
+  assert.equal((await route.POST(request(body))).status,200);
+  assert.equal(trafficRows.length,1);
 });

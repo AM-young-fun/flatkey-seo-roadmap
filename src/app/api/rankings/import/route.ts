@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   const site = await prisma.seoSite.findUnique({ where: { domain: targetDomain } });
   if (!site?.active) return NextResponse.json({ message: "网站未启用" }, { status: 400 });
   const keywords = await prisma.siteKeyword.findMany({
-    where: { siteDomain: targetDomain, active: true }, include: { keyword: true, topic: true },
+    where: { siteDomain: targetDomain, active: true, topicId: { not: null } }, include: { keyword: true, topic: true },
   });
   return NextResponse.json({ targetDomain, ga4PropertyId: site.ga4PropertyId,
     regions: ["US", "JP", "ES", "BR"],

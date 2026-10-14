@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       prisma.rankingCapture.findMany({ where: { siteDomain, region, source, status: "COMPLETE", coverage: "site_top100" }, orderBy: [{ captureDate: "desc" }, { updatedAt: "desc" }], take: 30 }),
       prisma.$queryRaw<KeywordPageObservation[]>`SELECT DISTINCT ON ("keywordId", "url") * FROM "KeywordPageObservation" WHERE "siteDomain" = ${siteDomain} AND "region" = ${region}::"SearchRegion" AND "source" = ${source} ORDER BY "keywordId", "url", "collectedAt" DESC, "importedAt" DESC`,
       prisma.$queryRaw<Array<{ keywordId: string; volume: number }>>`SELECT DISTINCT ON ("keywordId") "keywordId", "volume" FROM (SELECT "keywordId", "volume", "fetchedAt" AS date, CASE WHEN "source" = 'ahrefs' THEN 0 ELSE 1 END AS priority FROM "KeywordVolume" WHERE "region" = ${region}::"SearchRegion" AND "source" IN ('csv','ahrefs') UNION ALL SELECT "keywordId", "volume", "collectedAt" AS date, 0 AS priority FROM "KeywordObservation" WHERE "region" = ${region}::"SearchRegion" AND "volume" IS NOT NULL AND "source" = 'ahrefs') v ORDER BY "keywordId", priority, date DESC`,
-      prisma.siteKeyword.findMany({ where: { siteDomain, active: true }, include: { keyword: { select: { text: true } } } }),
+      prisma.siteKeyword.findMany({ where: { siteDomain, active: true, topicId: { not: null } }, include: { keyword: { select: { text: true } } } }),
     ]);
     const current = weekly.find((row) => row.periodStart.toISOString().slice(0, 10) === periods.current.start && row.periodEnd.toISOString().slice(0, 10) === periods.current.end);
     const previous = weekly.find((row) => row.periodStart.toISOString().slice(0, 10) === periods.previous.start && row.periodEnd.toISOString().slice(0, 10) === periods.previous.end);
