@@ -76,7 +76,7 @@ export function useDashboard(site = "all", source = "combined") {
     const update = () => {
       if (!document.hidden) void refresh();
     };
-    const timer = window.setInterval(update, 15_000);
+    const timer = window.setInterval(update, 60_000);
     document.addEventListener("visibilitychange", update);
     window.addEventListener("focus", update);
     return () => {

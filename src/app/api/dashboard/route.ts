@@ -1,4 +1,4 @@
-import { retryDatabaseRead, settleReads } from "@/lib/database-read";
+import { databaseErrorCode, retryDatabaseRead, settleReads } from "@/lib/database-read";
 import { NextResponse } from "next/server";
 import type { KeywordObservation } from "@prisma/client";
 import type {
@@ -338,12 +338,12 @@ export async function GET(request?: Request) {
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return NextResponse.json(cached.value, { headers: { "Cache-Control": "private, no-store" } });
     if (!pending.has(key)) pending.set(key, retryDatabaseRead(() => siteDomain === "all" ? loadSummary(source) : loadDashboard(siteDomain, source)).then((value) => {
-      cache.set(key, { value, expiresAt: Date.now() + 5000 });
+      cache.set(key, { value, expiresAt: Date.now() + 30000 });
       return value;
     }).finally(() => pending.delete(key)));
     return NextResponse.json(await pending.get(key), { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "UNKNOWN";
+    const code = databaseErrorCode(error);
     console.error("Dashboard read failed", { code });
     return NextResponse.json({ message: "数据暂时无法读取", code }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "2" } });
   }

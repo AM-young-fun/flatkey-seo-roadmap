@@ -35,7 +35,7 @@ function useInsights(selection: SeoSelection) {
       } finally { busy = false; }
     };
     void update();
-    const timer = setInterval(() => void update(), 30_000);
+    const timer = setInterval(() => void update(), 60_000);
     return () => { controller.abort(); clearInterval(timer); };
   }, [key, selection.site, selection.source, selection.region, version]);
   return { data: result?.key === key ? result.data : null, error, retry: () => retry((n) => n + 1) };

@@ -1,11 +1,21 @@
 const TRANSIENT_ERRORS = new Set(["P1001", "P1002", "P1017", "P2024"]);
 
+export function databaseErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "UNKNOWN";
+  const code = "code" in error ? String(error.code ?? "") : "";
+  if (code) return code;
+  // Some engine/driver connection failures have no Prisma error code.
+  const message = "message" in error ? String(error.message).toLowerCase() : "";
+  if (/connection|timed?\s*out|timeout|broken pipe|socket|server closed/.test(message)) return "CONNECTION_INTERRUPTED";
+  return "UNKNOWN";
+}
+
 export async function retryDatabaseRead<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    if (!TRANSIENT_ERRORS.has(code)) throw error;
+    const code = databaseErrorCode(error);
+    if (!TRANSIENT_ERRORS.has(code) && code !== "CONNECTION_INTERRUPTED") throw error;
     await new Promise((resolve) => setTimeout(resolve, 400));
     return read();
   }

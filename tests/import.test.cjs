@@ -435,7 +435,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
       requestId: "backfill-001",
     }),
   );
-  now += 6000;
+  now += 31000;
   data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(
@@ -455,7 +455,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
       requestId: "daily-2026-10-11",
     }),
   );
-  now += 6000;
+  now += 31000;
   data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, null);
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");
@@ -644,6 +644,12 @@ test("database reads retry transient connection errors but never schema or valid
   let attempts=0;
   assert.equal(await retryDatabaseRead(async()=>{if(++attempts===1)throw Object.assign(new Error("cold connection"),{code:"P1001"});return 42;}),42);
   assert.equal(attempts,2);
+  attempts=0;
+  assert.equal(await retryDatabaseRead(async()=>{if(++attempts===1)throw new Error("server closed the connection unexpectedly");return 7;}),7);
+  assert.equal(attempts,2);
+  attempts=0;
+  await assert.rejects(retryDatabaseRead(async()=>{attempts++;throw new Error("invalid schema");}));
+  assert.equal(attempts,1);
   attempts=0;
   await assert.rejects(retryDatabaseRead(async()=>{attempts++;throw Object.assign(new Error("missing table"),{code:"P2021"});}));
   assert.equal(attempts,1);

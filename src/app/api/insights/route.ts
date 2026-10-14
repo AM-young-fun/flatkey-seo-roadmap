@@ -1,4 +1,4 @@
-import { settleReads, retryDatabaseRead } from "@/lib/database-read";
+import { databaseErrorCode, settleReads, retryDatabaseRead } from "@/lib/database-read";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { weeklyPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
@@ -56,20 +56,25 @@ async function readInsights(request: Request): Promise<NextResponse> {
 
 
 async function summary(request: Request, region: SearchRegionCode, source: string): Promise<NextResponse> {
+  type SiteInsights = {
+    rankingSource: string; periods: ReturnType<typeof weeklyPeriods>;
+    traffic: { current: { newUsers: number; newRegistrations: number; collectedAt: string; ga4PropertyId: string } | null; previous: { newUsers: number; newRegistrations: number; collectedAt: string; ga4PropertyId: string } | null };
+    daily: { count: number; baseline: boolean; entered: string[]; lost: string[]; missing: string[]; detectedReduction: number | null; net: number | null; date: string; previousDate: string | null; unknownVolume: number } | null;
+    keywords: { id: string; text: string }[];
+    pages: Array<Record<string, unknown> & { id: string; keyword: string }>;
+  };
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
-  const parts = await Promise.all(domains.map(async (domain) => {
+  const parts: SiteInsights[] = [];
+  for (const domain of domains) {
     const url = new URL(request.url);
     url.searchParams.set("site", domain); url.searchParams.set("source", source); url.searchParams.set("region", region);
     const response = await GET(new Request(url));
-    if (!response.ok) throw new Error(`Site insight unavailable: ${domain}`);
-    return await response.json() as {
-      rankingSource: string; periods: ReturnType<typeof weeklyPeriods>;
-      traffic: { current: { newUsers: number; newRegistrations: number; collectedAt: string; ga4PropertyId: string } | null; previous: { newUsers: number; newRegistrations: number; collectedAt: string; ga4PropertyId: string } | null };
-      daily: { count: number; baseline: boolean; entered: string[]; lost: string[]; missing: string[]; detectedReduction: number | null; net: number | null; date: string; previousDate: string | null; unknownVolume: number } | null;
-      keywords: { id: string; text: string }[];
-      pages: Array<Record<string, unknown> & { id: string; keyword: string }>;
-    };
-  }));
+    if (!response.ok) {
+      const failure = await response.json() as { code?: string };
+      throw Object.assign(new Error("Site insight unavailable"), { code: failure.code ?? "UNKNOWN" });
+    }
+    parts.push(await response.json() as SiteInsights);
+  }
   const total = (period: "current" | "previous") => {
     const rows = parts.flatMap((part) => part.traffic[period] ? [part.traffic[period]!] : []);
     if (!rows.length) return null;
@@ -106,13 +111,13 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (saved && saved.expiresAt > Date.now()) return new NextResponse(saved.body,{status:saved.status,headers:saved.headers});
     if (!insightPending.has(key)) insightPending.set(key,retryDatabaseRead(()=>readInsights(request)).then(async response=>{
       const result = {body:await response.text(),headers:Object.fromEntries(response.headers),status:response.status};
-      if (result.status === 200) insightCache.set(key,{...result,expiresAt:Date.now()+10000});
+      if (result.status === 200) insightCache.set(key,{...result,expiresAt:Date.now()+30000});
       return result;
     }).finally(()=>insightPending.delete(key)));
     const result = await insightPending.get(key)!;
     return new NextResponse(result.body,{status:result.status,headers:result.headers});
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "UNKNOWN";
+    const code = databaseErrorCode(error);
     console.error("Insights read failed",code);
     return NextResponse.json({message:"分析数据读取失败，请重试",code},{status:503,headers:{"Cache-Control":"private, no-store"}});
   }
