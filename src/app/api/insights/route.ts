@@ -1,4 +1,3 @@
-import { overviewScope } from "@/lib/services/overview-scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { weeklyPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
@@ -63,12 +62,9 @@ export async function GET(request: Request): Promise<NextResponse> {
 
 async function summary(request: Request, region: SearchRegionCode, source: string): Promise<NextResponse> {
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
-  const limited = new URL(request.url).searchParams.get("limit") === "500";
-  const scope = limited ? await overviewScope(region) : null;
   const parts = await Promise.all(domains.map(async (domain) => {
     const url = new URL(request.url);
     url.searchParams.set("site", domain); url.searchParams.set("source", source); url.searchParams.set("region", region);
-    if (scope) url.searchParams.set("keywordIds", scope.filter((row) => row.siteDomain === domain).map((row) => row.keywordId).join(",") || "none");
     const response = await GET(new Request(url));
     if (!response.ok) throw new Error(`Site insight unavailable: ${domain}`);
     return await response.json() as {
@@ -98,7 +94,7 @@ async function summary(request: Request, region: SearchRegionCode, source: strin
       registrationRate: comparable ? relativeChange(current!.registrationRate, previous!.registrationRate) : null,
       ratePoints: comparable && current!.registrationRate !== null && previous!.registrationRate !== null ? (current!.registrationRate - previous!.registrationRate) * 100 : null,
     }, missingCurrent: domains.filter((_, index) => !parts[index].traffic.current), missingPrevious: domains.filter((_, index) => !parts[index].traffic.previous) },
-    daily: days.length ? { scopeLimit: limited ? 500 : null, count: days.reduce((sum, row) => sum + row.count, 0), baseline: !fullBaseline, entered: ids("entered"), lost: ids("lost"), missing: ids("missing"), detectedReduction: fullBaseline ? days.reduce((sum,row) => sum + (row.detectedReduction ?? 0), 0) : null, net: fullBaseline ? days.reduce((sum,row) => sum + (row.net ?? 0), 0) : null, unknownVolume: days.reduce((sum,row) => sum + row.unknownVolume,0), date: days.map((day) => day.date).sort().at(-1), previousDate: fullBaseline ? "各站上次完整采集" : null, siteCaptures: days, pendingSites: domains.filter((_, index) => !parts[index].daily) } : null,
+    daily: days.length ? { count: days.reduce((sum, row) => sum + row.count, 0), baseline: !fullBaseline, entered: ids("entered"), lost: ids("lost"), missing: ids("missing"), detectedReduction: fullBaseline ? days.reduce((sum,row) => sum + (row.detectedReduction ?? 0), 0) : null, net: fullBaseline ? days.reduce((sum,row) => sum + (row.net ?? 0), 0) : null, unknownVolume: days.reduce((sum,row) => sum + row.unknownVolume,0), date: days.map((day) => day.date).sort().at(-1), previousDate: fullBaseline ? "各站上次完整采集" : null, siteCaptures: days, pendingSites: domains.filter((_, index) => !parts[index].daily) } : null,
     keywords: parts.flatMap((part,index) => part.keywords.map((keyword) => ({ id: `${domains[index]}:${keyword.id}`, text: `${keyword.text} · ${domains[index]}` }))),
     pages: parts.flatMap((part,index) => part.pages.map((page) => ({ ...page, id: `${domains[index]}:${page.id}`, siteDomain: domains[index] }))),
   }, { headers: { "Cache-Control": "private, no-store" } });

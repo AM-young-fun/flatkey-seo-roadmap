@@ -633,11 +633,8 @@ test("case variants prefer the website's tracked keyword rather than an unassign
   assert.equal(observations[0].keywordId,"keyword-1");
 });
 
-test("overview limits payload to the database-selected 500 scope while details keep all records", async (t) => {
-  const original = db.$queryRaw;
-  t.mock.method(db, "$queryRaw", async (strings, ...values) => strings.join("").includes("LIMIT 500") ? [] : original(strings, ...values));
-  const limited = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=all&source=gsc&limit=500&region=US"))).json();
-  assert.equal(limited.keywords.length,0);
-  const full = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=all&source=gsc"))).json();
-  assert.equal(full.keywords.length,1);
+test("overview uses full site keyword inventory without a fixed 500 cap", async () => {
+  const data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=all&source=ahrefs"))).json();
+  assert.equal(data.keywords.length, 1);
+  assert.equal(data.keywords[0].siteName, "Flatkey");
 });

@@ -22,12 +22,23 @@ export function KeywordGraph({
     const ids = new Set(keywords.map((keyword) => keyword.id));
     const groups = new Map<string, DashboardKeyword[]>();
     keywords.forEach((keyword) => {
-      if (keyword.topicId)
-        groups.set(keyword.topicId, [
-          ...(groups.get(keyword.topicId) ?? []),
-          keyword,
-        ]);
+      const groupId = keyword.topicId ?? keyword.id;
+      const members = groups.get(groupId) ?? [];
+      members.push(keyword); groups.set(groupId, members);
     });
+    const groupList = [...groups.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+    const columns = Math.ceil(Math.sqrt(groupList.length * 1.6));
+    const positions = new Map<string, {x:number;y:number}>();
+    groupList.forEach(([, members], groupIndex) => {
+      const centerX = (groupIndex % columns) * 180;
+      const centerY = Math.floor(groupIndex / columns) * 180;
+      members.forEach((keyword, index) => {
+        const angle = index * Math.PI * (3 - Math.sqrt(5));
+        const radius = Math.min(75, 12 * Math.sqrt(index));
+        positions.set(keyword.id, { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius });
+      });
+    });
+    const large = keywords.length > 300;
     const edges = new Map<string, { source: string; target: string }>();
     const addEdge = (source: string, target: string) => {
       if (source !== target && ids.has(source) && ids.has(target))
@@ -48,7 +59,8 @@ export function KeywordGraph({
       sorted.slice(1).forEach((member) => addEdge(sorted[0].id, member.id));
     });
     const nodes = keywords.map((keyword) => {
-      const volume = keyword.marketVolumes[selectedRegion] ?? 0;
+      const knownVolume = keyword.marketVolumes[selectedRegion];
+      const volume = knownVolume ?? 0;
       const angle =
         ((hashString(keyword.topicId ?? keyword.id) % 360) / 180) * Math.PI;
       const offset = hashString(keyword.id) % 120;
@@ -56,20 +68,21 @@ export function KeywordGraph({
         id: keyword.id,
         name: keyword.text,
         keyword,
-        volume,
-        x: Math.cos(angle) * (200 + offset),
-        y: Math.sin(angle) * (200 + offset),
-        symbolSize: 16 + Math.min(34, Math.log10(volume + 1) * 7),
+        volume: knownVolume,
+        x: large ? positions.get(keyword.id)!.x : Math.cos(angle) * (200 + offset),
+        y: large ? positions.get(keyword.id)!.y : Math.sin(angle) * (200 + offset),
+        symbolSize: large ? 4 + Math.min(15, Math.log10(volume + 1) * 3) : 16 + Math.min(34, Math.log10(volume + 1) * 7),
         itemStyle: {
           color: displayBucket(keyword.latestRanks[selectedRegion]?.rank).color,
           borderColor: "#fff",
-          borderWidth: 2,
-          shadowBlur: 8,
+          borderWidth: large ? 0.5 : 2,
+          shadowBlur: large ? 0 : 8,
           shadowColor: "rgba(15,23,42,0.08)",
         },
       };
     });
     return {
+      animation: !large,
       animationDurationUpdate: 400,
       tooltip: {
         renderMode: "richText",
@@ -80,19 +93,19 @@ export function KeywordGraph({
           ).data;
           if (!node?.keyword) return "同话题或父子关键词关联";
           const keyword = node.keyword;
-          return `${keyword.text}\n所属话题：${keyword.topicText ?? "—"}\n${REGIONS[selectedRegion].label}排名：${displayRank(keyword.latestRanks[selectedRegion])}\n${rankDescription(keyword.latestRanks[selectedRegion])}\n声量：${node.volume?.toLocaleString() ?? "—"}`;
+          return `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${REGIONS[selectedRegion].label}排名：${displayRank(keyword.latestRanks[selectedRegion])}\n${rankDescription(keyword.latestRanks[selectedRegion])}\n声量：${node.volume?.toLocaleString() ?? "—"}`;
         },
       },
       series: [
         {
           type: "graph",
-          layout: "force",
+          layout: large ? "none" : "force",
           roam: true,
           draggable: true,
           data: nodes,
           links: [...edges.values()],
           label: {
-            show: true,
+            show: !large,
             position: "right",
             color: "#475569",
             fontSize: 11,
@@ -108,8 +121,8 @@ export function KeywordGraph({
             gravity: 0.12,
             layoutAnimation: false,
           },
-          scaleLimit: { min: 0.3, max: 4 },
-          emphasis: { focus: "adjacency", lineStyle: { width: 2 } },
+          scaleLimit: { min: 0.2, max: large ? 20 : 4 },
+          emphasis: { focus: "adjacency", label: { show: true }, lineStyle: { width: 2 } },
         },
       ],
     };

@@ -1,12 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SearchRegionCode } from "@/lib/seo";
 import type { DashboardResponse } from "@/lib/types";
 
 const dashboards = new Map<string, DashboardResponse>();
 
-export function useDashboard(site = "all", source = "combined", overviewRegion?: SearchRegionCode) {
-  const key = `${site}:${source}:${overviewRegion ?? "full"}`;
+export function useDashboard(site = "all", source = "combined") {
+  const key = `${site}:${source}`;
   const [data, setData] = useState<DashboardResponse | null>(
     () => dashboards.get(key) ?? null,
   );
@@ -23,7 +22,7 @@ export function useDashboard(site = "all", source = "combined", overviewRegion?:
       let payload: DashboardResponse | null = null;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const response = await fetch(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}${overviewRegion ? `&limit=500&region=${overviewRegion}` : ""}`, {
+          const response = await fetch(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}`, {
             cache: "no-store",
             signal: requestController.signal,
           });
@@ -71,7 +70,7 @@ export function useDashboard(site = "all", source = "combined", overviewRegion?:
         controller.current = null;
       }
     }
-  }, [key, site, source, overviewRegion]);
+  }, [key, site, source]);
   useEffect(() => {
     void refresh();
     const update = () => {

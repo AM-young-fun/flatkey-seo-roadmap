@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Table } from "antd";
 import { PageHeader } from "@/components/PageHeader";
 import { useSeoSelection, type SeoSelection } from "@/components/useSeoSelection";
 import { weeklyPeriods } from "@/lib/weekly-traffic";
@@ -14,8 +15,8 @@ type InsightData = {
   pages: { id: string; keyword: string; url: string; rank: number | null; clicks: number | null; impressions: number | null; source: string; siteDomain?: string; collectedAt: string; periodStart: string | null; periodEnd: string | null }[];
 };
 
-function useInsights(selection: SeoSelection, limited = false) {
-  const key = `${selection.site}:${selection.source}:${selection.region}:${limited}`;
+function useInsights(selection: SeoSelection) {
+  const key = `${selection.site}:${selection.source}:${selection.region}`;
   const [result, setResult] = useState<{ key: string; data: InsightData } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, retry] = useState(0);
@@ -26,7 +27,7 @@ function useInsights(selection: SeoSelection, limited = false) {
       if (busy || document.hidden) return;
       busy = true;
       try {
-        const response = await fetch(`/api/insights?site=${encodeURIComponent(selection.site)}&source=${selection.source}&region=${selection.region}${limited ? "&limit=500" : ""}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/insights?site=${encodeURIComponent(selection.site)}&source=${selection.source}&region=${selection.region}`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error("分析数据加载失败");
         const data = await response.json() as InsightData;
         if (!controller.signal.aborted) { setResult({ key, data }); setError(null); }
@@ -37,7 +38,7 @@ function useInsights(selection: SeoSelection, limited = false) {
     void update();
     const timer = setInterval(() => void update(), 30_000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [key, selection.site, selection.source, selection.region, version, limited]);
+  }, [key, selection.site, selection.source, selection.region, version]);
   return { data: result?.key === key ? result.data : null, error, retry: () => retry((n) => n + 1) };
 }
 
@@ -46,11 +47,11 @@ const change = (value: number | null | undefined) => value == null ? "无可比�
 const number = (value: number | null | undefined) => value == null ? "待导入" : value.toLocaleString();
 
 export function DailyChanges({ selection }: { selection: SeoSelection }) {
-  const { data, error, retry } = useInsights(selection, true);
+  const { data, error, retry } = useInsights(selection);
   const daily = data?.daily;
   const name = (id: string) => data?.keywords.find((word) => word.id === id)?.text ?? id;
   return <section className="dailyPanel">
-    <div className="dailyHeading"><div><p className="eyebrow">DAILY MOVEMENT</p><h2>概览 500 条内 · 前 100 变化</h2></div><Link href="/traffic" className="textLink">查看流量周报 →</Link></div>
+    <div className="dailyHeading"><div><p className="eyebrow">DAILY MOVEMENT</p><h2>有声量关键词 · 前 100 变化</h2></div><Link href="/traffic" className="textLink">查看流量周报 →</Link></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : !data ? <p className="muted">正在加载变化数据…</p> : !daily ? <p className="muted">等待首次完整采集；完成后建立基线，第二次完整采集后展示新增和减少。</p> : <>
       <div className="dailyNumbers"><span>前 100 <strong>{daily.count}</strong></span><span className="positive">新增检出 <strong>{daily.baseline ? "—" : daily.entered.length}</strong></span><span>减少检出 <strong>{daily.detectedReduction ?? "—"}</strong></span><span>净变化 <strong>{daily.net == null ? "—" : `${daily.net > 0 ? "+" : ""}${daily.net}`}</strong></span></div>
       <p className="chartNote">{daily.date} {daily.previousDate ? `对比 ${daily.previousDate}` : "首次采集，建立基线"} · 声量 &gt; 0 · Ahrefs 优先，GSC 补充。减少检出中确认排名外 {daily.lost.length} 个，缺失待核实 {daily.missing.length} 个；声量未知 {daily.unknownVolume} 个未纳入。</p>
@@ -97,7 +98,16 @@ export function RankedPages() {
     <div className="pageIntro"><p className="eyebrow">RANKED LANDING PAGES</p><h1>关键词与排名页面</h1><p>全部网站汇总 · 显示实际采集的页面记录</p></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
     <div className="detailToolbar"><label className="searchField"><input aria-label="搜索页面或关键词" placeholder="搜索页面或关键词…" value={search} onChange={(e) => setSearch(e.target.value)} /></label><span className="muted">{rows.length} 条页面记录</span></div>
-    <section className="tablePanel nativeTable"><table><thead><tr><th>所属网站</th><th>排名页面</th><th>关键词</th><th>排名</th><th>点击</th><th>曝光</th><th>数据区间 / 采集日期</th></tr></thead><tbody>{rows.slice(0,500).map((row) => <tr key={row.id}><td>{row.siteDomain ?? new URL(row.url).hostname}</td><td><a className="observedUrl" href={row.url} target="_blank" rel="noreferrer">{row.url.replace(/^https?:\/\//, "")}</a></td><td>{row.keyword}</td><td>{row.rank ?? "暂无数据"}</td><td>{row.clicks ?? "—"}</td><td>{row.impressions ?? "—"}</td><td>{row.periodStart ? `${row.periodStart.slice(0,10)} — ${row.periodEnd?.slice(0,10)}` : new Date(row.collectedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}</td></tr>)}</tbody></table>{!rows.length ? <div className="emptyGraph">{data ? "等待采集关键词与页面数据" : "正在加载…"}</div> : null}</section>
-    <p className="chartNote">页面记录保留各关键词与 URL 的最近一次观测日期，不代表所有页面今天仍在排名。每次筛选最多展示 500 条，可搜索缩小范围；计划页面与实际排名页面分别在关键词明细中显示。</p>
+    <section className="tablePanel"><Table rowKey="id" dataSource={rows} loading={!data && !error} pagination={{defaultPageSize:50,showSizeChanger:true,showTotal:total=>`共 ${total} 条页面记录`}} scroll={{x:1250}} size="middle" columns={[
+      {title:"所属网站",key:"site",width:130,render:(_,row)=>row.siteDomain ?? new URL(row.url).hostname},
+      {title:"排名页面",key:"url",width:300,render:(_,row)=><a className="observedUrl" href={row.url} target="_blank" rel="noreferrer">{row.url.replace(/^https?:\/\//, "")}</a>},
+      {title:"关键词",dataIndex:"keyword",key:"word",width:230},
+      {title:"来源",key:"source",width:110,render:(_,row)=>row.source === "gsc" ? "GSC 均值" : "Ahrefs"},
+      {title:"排名",key:"rank",width:90,render:(_,row)=>row.rank ?? "暂无数据"},
+      {title:"点击",key:"clicks",width:80,render:(_,row)=>row.clicks ?? "—"},
+      {title:"曝光",key:"impressions",width:90,render:(_,row)=>row.impressions ?? "—"},
+      {title:"数据区间 / 采集日期",key:"date",width:220,render:(_,row)=>row.periodStart ? `${row.periodStart.slice(0,10)} — ${row.periodEnd?.slice(0,10)}` : new Date(row.collectedAt).toLocaleDateString("zh-CN", {timeZone:"Asia/Shanghai"})},
+    ]} /></section>
+    <p className="chartNote">保留各关键词与 URL 的最近一次观测日期，可翻页查看完整记录。计划页面与实际排名页面分别在关键词明细中显示。</p>
   </main>;
 }
