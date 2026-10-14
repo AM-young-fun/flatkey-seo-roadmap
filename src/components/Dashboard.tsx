@@ -15,10 +15,16 @@ export function Dashboard() {
   const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
   const keywords = useMemo(() => data?.keywords ?? [], [data?.keywords]);
   const [graphSearch, setGraphSearch] = useState("");
+  const [graphScope, setGraphScope] = useState<"ranked" | "all">("ranked");
+  const rankedKeywords = useMemo(() => keywords.filter((keyword) => {
+    const rank = keyword.latestRanks[region]?.rank;
+    return rank != null && rank >= 1 && rank <= 100;
+  }), [keywords, region]);
   const graphKeywords = useMemo(() => {
+    const visible = graphScope === "ranked" ? rankedKeywords : keywords;
     const query = graphSearch.trim().toLowerCase();
-    return query ? keywords.filter((keyword) => `${keyword.text} ${keyword.topicText ?? ""} ${keyword.siteName ?? ""}`.toLowerCase().includes(query)) : keywords;
-  }, [keywords, graphSearch]);
+    return query ? visible.filter((keyword) => `${keyword.text} ${keyword.topicText ?? ""} ${keyword.siteName ?? ""}`.toLowerCase().includes(query)) : visible;
+  }, [keywords, rankedKeywords, graphScope, graphSearch]);
   const stats = rankingStats(keywords, region);
   const formatPercent = (count: number) =>
     `${stats.percent(count).toFixed(1)}%`;
@@ -43,14 +49,18 @@ export function Dashboard() {
             <div>
               <p className="eyebrow">KEYWORD NETWORK</p>
               <h2>关键词关系图</h2>
-              <p>完整词库 · 缩放、拖动或悬停查看关键词；连线表示同话题或父子关联</p>
+              <p>缩放、拖动或悬停查看关键词；连线表示同话题或父子关联</p>
             </div>
             <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
               查看明细
               <ArrowUpRight size={15} />
             </Link></div>
           </div>
-          {graphSearch ? <p className="chartNote">图中显示 {graphKeywords.length} 条匹配记录，覆盖率与分布仍统计完整词库。</p> : null}
+          <div className="graphScope" role="group" aria-label="关系图范围">
+            <button type="button" aria-pressed={graphScope === "ranked"} onClick={() => setGraphScope("ranked")}>已有前 100 排名 <span>{rankedKeywords.length}</span></button>
+            <button type="button" aria-pressed={graphScope === "all"} onClick={() => setGraphScope("all")}>完整词库 <span>{keywords.length}</span></button>
+          </div>
+          <p className="chartNote">图中显示 {graphKeywords.length} 条{graphSearch ? "匹配" : "关键词与网站"}记录。右侧覆盖率与分布统计完整词库，包含规划词、研究候选、集群词和搜索发现词。</p>
           <div className="rankLegend">
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>
@@ -68,7 +78,7 @@ export function Dashboard() {
         <aside className="analyticsColumn">
           <article className="analyticsCard">
             <p className="eyebrow">RANKING COVERAGE</p>
-            <h2>排名覆盖率</h2>
+            <h2>全词库排名覆盖率</h2>
             <div
               className="coverageDonut"
               role="img"

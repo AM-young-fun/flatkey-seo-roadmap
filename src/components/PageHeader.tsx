@@ -7,7 +7,7 @@ import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
 export function PageHeader({
   active, selection,
 }: {
-  active: "overview" | "keywords" | "manage" | "pages" | "traffic";
+  active: "overview" | "keywords" | "manage" | "traffic";
   selection?: SeoSelection;
 }) {
   return (
@@ -38,7 +38,6 @@ export function PageHeader({
           <List size={16} />
           关键词明细
         </Link>
-        <Link href="/pages" className={active === "pages" ? "navLink active" : "navLink"} aria-current={active === "pages" ? "page" : undefined}>排名页面</Link>
         <Link href="/traffic" className={active === "traffic" ? "navLink active" : "navLink"} aria-current={active === "traffic" ? "page" : undefined}>流量周报</Link>
         <Link
           href="/manage"

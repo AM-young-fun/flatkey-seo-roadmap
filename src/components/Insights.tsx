@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Table } from "antd";
 import { PageHeader } from "@/components/PageHeader";
 import { useSeoSelection, type SeoSelection } from "@/components/useSeoSelection";
 import { weeklyPeriods } from "@/lib/weekly-traffic";
@@ -87,28 +86,5 @@ export function TrafficReport() {
       </article>;
     })}</section>
     <div className="reportNote"><h2>统计口径</h2><p>两个相邻的周二至周一，共 7 天。新注册用户为 GA4 sign_up 成功事件的区间去重用户数；注册率 = 新注册用户数 ÷ 新用户数。去重用户数需直接按整个 7 天查询，不能把每日去重人数相加。</p><p>每个网站必须使用自己的同一 GA4 属性、同一时区与全站范围。汇总为各站去重用户数之和，同一人访问多个网站可能重复计数；跨网站无法全域去重。缺少数据或上一期为 0 时，环比显示无可比基线。注册用户可能包含老访客，因此该比率不代表新用户群的转化率。</p><p>本期导入：{traffic?.current?.collectedAt ? new Date(traffic.current.collectedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待导入"} · 上一期导入：{traffic?.previous?.collectedAt ? new Date(traffic.previous.collectedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待导入"}</p><Link href="/manage" className="textLink">前往数据管理导入周报 →</Link></div>
-  </main>;
-}
-
-export function RankedPages() {
-  const selection = useSeoSelection();
-  const { data, error, retry } = useInsights(selection);
-  const [search, setSearch] = useState("");
-  const rows = (data?.pages ?? []).filter((row) => `${row.keyword} ${row.url}`.toLowerCase().includes(search.toLowerCase()));
-  return <main className="appShell"><PageHeader active="pages" selection={selection} />
-    <div className="pageIntro"><p className="eyebrow">RANKED LANDING PAGES</p><h1>关键词与排名页面</h1><p>全部网站汇总 · 显示实际采集的页面记录</p></div>
-    {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
-    <div className="detailToolbar"><label className="searchField"><input aria-label="搜索页面或关键词" placeholder="搜索页面或关键词…" value={search} onChange={(e) => setSearch(e.target.value)} /></label><span className="muted">{rows.length} 条页面记录</span></div>
-    <section className="tablePanel"><Table rowKey="id" dataSource={rows} loading={!data && !error} pagination={{defaultPageSize:50,showSizeChanger:true,showTotal:total=>`共 ${total} 条页面记录`}} scroll={{x:1250}} size="middle" columns={[
-      {title:"所属网站",key:"site",width:130,render:(_,row)=>row.siteDomain ?? new URL(row.url).hostname},
-      {title:"排名页面",key:"url",width:300,render:(_,row)=><a className="observedUrl" href={row.url} target="_blank" rel="noreferrer">{row.url.replace(/^https?:\/\//, "")}</a>},
-      {title:"关键词",dataIndex:"keyword",key:"word",width:230},
-      {title:"来源",key:"source",width:110,render:(_,row)=>row.source === "gsc" ? "GSC 均值" : "Ahrefs"},
-      {title:"排名",key:"rank",width:90,render:(_,row)=>row.rank ?? "暂无数据"},
-      {title:"点击",key:"clicks",width:80,render:(_,row)=>row.clicks ?? "—"},
-      {title:"曝光",key:"impressions",width:90,render:(_,row)=>row.impressions ?? "—"},
-      {title:"数据区间 / 采集日期",key:"date",width:220,render:(_,row)=>row.periodStart ? `${row.periodStart.slice(0,10)} — ${row.periodEnd?.slice(0,10)}` : new Date(row.collectedAt).toLocaleDateString("zh-CN", {timeZone:"Asia/Shanghai"})},
-    ]} /></section>
-    <p className="chartNote">保留各关键词与 URL 的最近一次观测日期，可翻页查看完整记录。计划页面与实际排名页面分别在关键词明细中显示。</p>
   </main>;
 }

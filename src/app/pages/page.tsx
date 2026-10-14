@@ -1,2 +1,2 @@
-import { RankedPages } from "@/components/Insights";
-export default function Page() { return <RankedPages />; }
+import { redirect } from "next/navigation";
+export default function Page() { redirect("/keywords"); }
