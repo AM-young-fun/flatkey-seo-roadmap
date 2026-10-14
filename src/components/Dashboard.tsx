@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useSeoSelection } from "@/components/useSeoSelection";
 import { DailyChanges } from "@/components/Insights";
 import { ArrowUpRight } from "lucide-react";
@@ -12,7 +13,12 @@ export function Dashboard() {
   const selection = useSeoSelection();
   const { region } = selection;
   const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
-  const keywords = data?.keywords ?? [];
+  const keywords = useMemo(() => data?.keywords ?? [], [data?.keywords]);
+  const [graphSearch, setGraphSearch] = useState("");
+  const graphKeywords = useMemo(() => {
+    const query = graphSearch.trim().toLowerCase();
+    return query ? keywords.filter((keyword) => `${keyword.text} ${keyword.topicText ?? ""} ${keyword.siteName ?? ""}`.toLowerCase().includes(query)) : keywords;
+  }, [keywords, graphSearch]);
   const stats = rankingStats(keywords, region);
   const formatPercent = (count: number) =>
     `${stats.percent(count).toFixed(1)}%`;
@@ -37,13 +43,14 @@ export function Dashboard() {
             <div>
               <p className="eyebrow">KEYWORD NETWORK</p>
               <h2>关键词关系图</h2>
-              <p>完整词库 · 节点大小表示声量，连线表示同话题或父子关联</p>
+              <p>完整词库 · 缩放、拖动或悬停查看关键词；连线表示同话题或父子关联</p>
             </div>
-            <Link href="/keywords" className="textLink">
+            <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
               查看明细
               <ArrowUpRight size={15} />
-            </Link>
+            </Link></div>
           </div>
+          {graphSearch ? <p className="chartNote">图中显示 {graphKeywords.length} 条匹配记录，覆盖率与分布仍统计完整词库。</p> : null}
           <div className="rankLegend">
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>
@@ -55,7 +62,7 @@ export function Dashboard() {
           {loading ? (
             <div className="loadingState">正在加载关键词…</div>
           ) : (
-            <KeywordGraph keywords={keywords} selectedRegion={region} />
+            <KeywordGraph keywords={graphKeywords} selectedRegion={region} />
           )}
         </article>
         <aside className="analyticsColumn">
