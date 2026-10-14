@@ -14,8 +14,8 @@ type InsightData = {
   pages: { id: string; keyword: string; url: string; rank: number | null; clicks: number | null; impressions: number | null; source: string; siteDomain?: string; collectedAt: string; periodStart: string | null; periodEnd: string | null }[];
 };
 
-function useInsights(selection: SeoSelection) {
-  const key = `${selection.site}:${selection.source}:${selection.region}`;
+function useInsights(selection: SeoSelection, limited = false) {
+  const key = `${selection.site}:${selection.source}:${selection.region}:${limited}`;
   const [result, setResult] = useState<{ key: string; data: InsightData } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, retry] = useState(0);
@@ -26,7 +26,7 @@ function useInsights(selection: SeoSelection) {
       if (busy || document.hidden) return;
       busy = true;
       try {
-        const response = await fetch(`/api/insights?site=${encodeURIComponent(selection.site)}&source=${selection.source}&region=${selection.region}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/insights?site=${encodeURIComponent(selection.site)}&source=${selection.source}&region=${selection.region}${limited ? "&limit=500" : ""}`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error("分析数据加载失败");
         const data = await response.json() as InsightData;
         if (!controller.signal.aborted) { setResult({ key, data }); setError(null); }
@@ -37,7 +37,7 @@ function useInsights(selection: SeoSelection) {
     void update();
     const timer = setInterval(() => void update(), 30_000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [key, selection.site, selection.source, selection.region, version]);
+  }, [key, selection.site, selection.source, selection.region, version, limited]);
   return { data: result?.key === key ? result.data : null, error, retry: () => retry((n) => n + 1) };
 }
 
@@ -46,11 +46,11 @@ const change = (value: number | null | undefined) => value == null ? "无可比�
 const number = (value: number | null | undefined) => value == null ? "待导入" : value.toLocaleString();
 
 export function DailyChanges({ selection }: { selection: SeoSelection }) {
-  const { data, error, retry } = useInsights(selection);
+  const { data, error, retry } = useInsights(selection, true);
   const daily = data?.daily;
   const name = (id: string) => data?.keywords.find((word) => word.id === id)?.text ?? id;
   return <section className="dailyPanel">
-    <div className="dailyHeading"><div><p className="eyebrow">DAILY MOVEMENT</p><h2>有声量关键词 · 前 100 变化</h2></div><Link href="/traffic" className="textLink">查看流量周报 →</Link></div>
+    <div className="dailyHeading"><div><p className="eyebrow">DAILY MOVEMENT</p><h2>概览 500 条内 · 前 100 变化</h2></div><Link href="/traffic" className="textLink">查看流量周报 →</Link></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : !data ? <p className="muted">正在加载变化数据…</p> : !daily ? <p className="muted">等待首次完整采集；完成后建立基线，第二次完整采集后展示新增和减少。</p> : <>
       <div className="dailyNumbers"><span>前 100 <strong>{daily.count}</strong></span><span className="positive">新增检出 <strong>{daily.baseline ? "—" : daily.entered.length}</strong></span><span>减少检出 <strong>{daily.detectedReduction ?? "—"}</strong></span><span>净变化 <strong>{daily.net == null ? "—" : `${daily.net > 0 ? "+" : ""}${daily.net}`}</strong></span></div>
       <p className="chartNote">{daily.date} {daily.previousDate ? `对比 ${daily.previousDate}` : "首次采集，建立基线"} · 声量 &gt; 0 · Ahrefs 优先，GSC 补充。减少检出中确认排名外 {daily.lost.length} 个，缺失待核实 {daily.missing.length} 个；声量未知 {daily.unknownVolume} 个未纳入。</p>

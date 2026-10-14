@@ -26,6 +26,7 @@ type ImportKeywordsResponse = {
 export function ManagementDashboard() {
   const selection = useSeoSelection();
   const { data, refresh: loadDashboard, error } = useDashboard(selection.site, selection.source);
+  const [jsonText, setJsonText] = useState("");
   const [jsonFile, setJsonFile] = useState<File | null>(null);
   const [importProgress, setImportProgress] = useState("");
   const [credential, setCredential] = useState<string | null>(null);
@@ -157,11 +158,11 @@ export function ManagementDashboard() {
 
   async function importJson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!jsonFile) return;
+    if (!jsonFile && !jsonText.trim()) return;
     setImporting(true); setMessage(null);
     try {
-      if (jsonFile.size > 4_000_000) throw new Error("文件不能超过 4 MB");
-      const parsed = JSON.parse(await jsonFile.text());
+      if ((jsonFile?.size ?? new TextEncoder().encode(jsonText).length) > 4_000_000) throw new Error("文件不能超过 4 MB");
+      const parsed = JSON.parse(jsonFile ? await jsonFile.text() : jsonText);
       const batches = parsed.batches ?? [parsed];
       if (!Array.isArray(batches) || !batches.length || batches.length > 300) throw new Error("文件需要包含 1–300 个批次");
       if (batches.some((batch: { targetDomain: string }) => !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(batch.targetDomain))) throw new Error("文件包含尚未启用的网站");
@@ -174,7 +175,7 @@ export function ManagementDashboard() {
         total += result.imported ?? 0;
       }
       setMessage(`导入完成：${batches.length} 批，共 ${total} 条记录（重传批次自动去重）`);
-      setJsonFile(null);
+      setJsonFile(null); setJsonText("");
       await loadDashboard();
     } catch (error) { setMessage(error instanceof Error ? error.message : "导入失败"); }
     finally { setImporting(false); setImportProgress(""); }
@@ -350,7 +351,8 @@ export function ManagementDashboard() {
       <form className="jsonImportPanel" onSubmit={importJson}>
         <div><h2>采集结果与周报导入</h2><a className="textLink" href="/api/seo/worklist">下载每日采集清单</a><p>导入带网站标识的 JSON：支持关键词清单、排名页面、每日完整采集批次和 GA4 周报。</p><p>周报：周二至周一 · sign_up 区间去重用户数 · 北京时间</p></div>
         <label className="jsonFile"><span>选择 JSON 文件</span><input type="file" aria-label="选择采集或周报 JSON 文件" accept=".json,application/json" disabled={importing} onChange={(e) => setJsonFile(e.target.files?.[0] ?? null)} />{jsonFile?.name}</label>
-        <button className="managePrimary" disabled={!jsonFile || importing}>{importProgress || "导入数据"}</button>
+        <details className="jsonPaste"><summary>或粘贴 JSON 数据</summary><textarea aria-label="粘贴采集 JSON 数据" placeholder="粘贴单个批次或 batches 文件内容" value={jsonText} disabled={importing} onChange={(event) => { setJsonText(event.target.value); setJsonFile(null); }} /></details>
+        <button className="managePrimary" disabled={(!jsonFile && !jsonText.trim()) || importing}>{importProgress || "导入数据"}</button>
       </form>
       <section className="collectorConnection">
         <div className="collectorInfo">

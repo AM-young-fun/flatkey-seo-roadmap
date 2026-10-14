@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Table, Tooltip } from "antd";
+import { Table, Tooltip, Select } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Search } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -128,7 +128,7 @@ export function KeywordDetails() {
         </div>
       ) : null}
       <div className="detailToolbar">
-        <select className="originFilter" aria-label="词库来源" value={origin} onChange={(e) => setOrigin(e.target.value)}><option value="ALL">全部关键词</option><option value="PLANNED">规划词</option><option value="CLUSTER">集群词</option><option value="DISCOVERED">自然搜索发现词</option><option value="RESEARCH">研究候选</option></select>
+        <label className="originSelectField"><span>词库来源</span><Select aria-label="词库来源" className="originSelect" value={origin} onChange={setOrigin} popupMatchSelectWidth={240} options={[{value:"ALL",label:"全部关键词"},{value:"PLANNED",label:"规划词"},{value:"CLUSTER",label:"集群词"},{value:"DISCOVERED",label:"自然搜索发现词"},{value:"RESEARCH",label:"研究候选"}]} /></label>
         <label className="searchField">
           <Search size={17} />
           <input

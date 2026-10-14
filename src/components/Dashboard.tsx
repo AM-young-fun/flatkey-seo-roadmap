@@ -11,7 +11,7 @@ import { DISPLAY_BUCKETS, rankingStats } from "@/lib/rank-display";
 export function Dashboard() {
   const selection = useSeoSelection();
   const { region } = selection;
-  const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
+  const { data, loading, error, refresh } = useDashboard(selection.site, selection.source, region);
   const keywords = data?.keywords ?? [];
   const stats = rankingStats(keywords, region);
   const formatPercent = (count: number) =>
@@ -37,7 +37,7 @@ export function Dashboard() {
             <div>
               <p className="eyebrow">KEYWORD NETWORK</p>
               <h2>关键词关系图</h2>
-              <p>节点大小表示声量，连线表示同话题或父子关联；最多展示声量最高的 500 个词</p>
+              <p>当前地区声量最高的 500 条记录；关系图、覆盖率和排名分布采用相同范围</p>
             </div>
             <Link href="/keywords" className="textLink">
               查看明细
@@ -55,7 +55,7 @@ export function Dashboard() {
           {loading ? (
             <div className="loadingState">正在加载关键词…</div>
           ) : (
-            <KeywordGraph keywords={[...keywords].sort((a,b) => (b.marketVolumes[region] ?? -1) - (a.marketVolumes[region] ?? -1)).slice(0,500)} selectedRegion={region} />
+            <KeywordGraph keywords={keywords} selectedRegion={region} />
           )}
         </article>
         <aside className="analyticsColumn">

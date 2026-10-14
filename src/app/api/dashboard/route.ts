@@ -1,5 +1,6 @@
+import { overviewScope } from "@/lib/services/overview-scope";
 import { NextResponse } from "next/server";
-import type { KeywordObservation } from "@prisma/client";
+import { Prisma, type KeywordObservation } from "@prisma/client";
 import type {
   DashboardKeyword,
   DashboardResponse,
@@ -35,11 +36,12 @@ function emptyMarketVolumes(): DashboardKeyword["marketVolumes"] {
   );
 }
 
-async function loadDashboard(siteDomain: string, source: string) {
+async function loadDashboard(siteDomain: string, source: string, ids?: string[]) {
   if (!isDatabaseConfigured()) {
     return getDemoDashboard();
   }
 
+  const scopeFilter = ids ? Prisma.sql`AND o."keywordId" IN (${Prisma.join(ids.length ? ids : ["__none__"])})` : Prisma.empty;
   const [
     topics,
     keywords,
@@ -72,6 +74,7 @@ async function loadDashboard(siteDomain: string, source: string) {
       where: {
         active: true,
         siteLinks: { some: { siteDomain, active: true, topicId: { not: null } } },
+        ...(ids ? { id: { in: ids } } : {}),
       },
       include: {
         siteLinks: { where: { siteDomain }, include: { topic: true, topicAssignments: { include: { topic: true } } } },
@@ -118,14 +121,14 @@ async function loadDashboard(siteDomain: string, source: string) {
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
       FROM "KeywordObservation" o
       JOIN "Keyword" k ON k."id" = o."keywordId"
-      WHERE o."rankReported" = true AND o."siteDomain" = ${siteDomain} AND (o."source" = ${source} OR (${source} = 'combined' AND o."source" IN ('ahrefs', 'gsc'))) AND k."active" = true
+      WHERE o."rankReported" = true AND o."siteDomain" = ${siteDomain} AND (o."source" = ${source} OR (${source} = 'combined' AND o."source" IN ('ahrefs', 'gsc'))) AND k."active" = true ${scopeFilter}
       ORDER BY o."keywordId", o."region", CASE WHEN o."source" = 'ahrefs' AND o."rankStatus" <> 'no_data' THEN 0 WHEN o."source" = 'gsc' THEN 1 ELSE 2 END, o."collectedAt" DESC, o."importedAt" DESC
     `,
     prisma.$queryRaw<KeywordObservation[]>`
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
       FROM "KeywordObservation" o
       JOIN "Keyword" k ON k."id" = o."keywordId"
-      WHERE o."volume" IS NOT NULL AND o."source" = 'ahrefs' AND k."active" = true
+      WHERE o."volume" IS NOT NULL AND o."source" = 'ahrefs' AND k."active" = true ${scopeFilter}
       ORDER BY o."keywordId", o."region", o."collectedAt" DESC, o."importedAt" DESC
     `,
     prisma.rankingImport.findFirst({ where: { siteDomain }, orderBy: { importedAt: "desc" } }),
@@ -291,7 +294,7 @@ async function loadDashboard(siteDomain: string, source: string) {
     usingDemoData: false,
     targetDomain: siteDomain,
     regions: REGION_CODES,
-    topics: dashboardTopics,
+    topics: ids ? [] : dashboardTopics,
     keywords: dashboardKeywords,
     latestRun: latestRun
       ? {
@@ -309,11 +312,12 @@ async function loadDashboard(siteDomain: string, source: string) {
   return response;
 }
 
-async function loadSummary(source: string): Promise<DashboardResponse> {
+async function loadSummary(source: string, region: SearchRegionCode, limited: boolean): Promise<DashboardResponse> {
   if (!isDatabaseConfigured()) return getDemoDashboard();
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
   const names = ["Flatkey", "RackRate", "ModelFit"];
-  const parts = await Promise.all(domains.map((domain) => loadDashboard(domain, source)));
+  const scope = limited ? await overviewScope(region) : null;
+  const parts = await Promise.all(domains.map((domain) => loadDashboard(domain, source, scope ? scope.filter((row) => row.siteDomain === domain).map((row) => row.keywordId) : undefined)));
   return {
     usingDemoData: false, targetDomain: "全部网站", regions: REGION_CODES, latestRun: null,
     latestImportAt: parts.map((part) => part.latestImportAt).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null,
@@ -329,11 +333,14 @@ export async function GET(request?: Request) {
   const siteDomain = params.get("site") ?? "all";
   const source = params.get("source") ?? "combined";
   if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(siteDomain) || !["gsc", "ahrefs", "combined"].includes(source)) return NextResponse.json({ message: "参数无效" }, { status: 400 });
-  const key = `${siteDomain}:${source}`;
+  const limited = params.get("limit") === "500";
+  const region = (params.get("region") ?? "US") as SearchRegionCode;
+  if (!REGION_CODES.includes(region)) return NextResponse.json({ message: "地区无效" }, { status: 400 });
+  const key = `${siteDomain}:${source}:${region}:${limited}`;
   try {
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return NextResponse.json(cached.value, { headers: { "Cache-Control": "private, no-store" } });
-    if (!pending.has(key)) pending.set(key, (siteDomain === "all" ? loadSummary(source) : loadDashboard(siteDomain, source)).then((value) => {
+    if (!pending.has(key)) pending.set(key, (siteDomain === "all" ? loadSummary(source, region, limited) : loadDashboard(siteDomain, source)).then((value) => {
       cache.set(key, { value, expiresAt: Date.now() + 5000 });
       return value;
     }).finally(() => pending.delete(key)));

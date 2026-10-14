@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { SearchRegionCode } from "@/lib/seo";
 import type { DashboardResponse } from "@/lib/types";
 
 const dashboards = new Map<string, DashboardResponse>();
 
-export function useDashboard(site = "flatkey.ai", source = "ahrefs") {
-  const key = `${site}:${source}`;
+export function useDashboard(site = "all", source = "combined", overviewRegion?: SearchRegionCode) {
+  const key = `${site}:${source}:${overviewRegion ?? "full"}`;
   const [data, setData] = useState<DashboardResponse | null>(
     () => dashboards.get(key) ?? null,
   );
@@ -22,7 +23,7 @@ export function useDashboard(site = "flatkey.ai", source = "ahrefs") {
       let payload: DashboardResponse | null = null;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const response = await fetch(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}`, {
+          const response = await fetch(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}${overviewRegion ? `&limit=500&region=${overviewRegion}` : ""}`, {
             cache: "no-store",
             signal: requestController.signal,
           });
@@ -70,7 +71,7 @@ export function useDashboard(site = "flatkey.ai", source = "ahrefs") {
         controller.current = null;
       }
     }
-  }, [key, site, source]);
+  }, [key, site, source, overviewRegion]);
   useEffect(() => {
     void refresh();
     const update = () => {

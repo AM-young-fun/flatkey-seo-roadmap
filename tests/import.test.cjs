@@ -54,7 +54,7 @@ const keywords = [
 const db = {
   seoSite: { findUnique: async ({ where }) => ["flatkey.ai", "rackrate.org"].includes(where.domain) ? { domain: where.domain, active: true, ga4PropertyId: null } : null },
   siteKeyword: { findMany: async ({where}) => where.siteDomain === "flatkey.ai" ? keywords.map(keyword => ({ keyword, keywordId: keyword.id, topic: keyword.topic, origin: "PLANNED", targetUrls: [], active: true, topicId: "topic-1", sourceUrl: null })) : [] },
-  keyword: { findMany: async ({where}) => where.siteLinks?.some?.siteDomain === "rackrate.org" ? [] : keywords },
+  keyword: { findMany: async ({where}) => ["rackrate.org", "modelfit.cc"].includes(where.siteLinks?.some?.siteDomain) ? [] : keywords.filter(keyword => !where.id?.in || where.id.in.includes(keyword.id)) },
   rankingImport: {
     findUnique: async ({ where }) =>
       batches.find((batch) => batch.requestId === where.requestId) ?? null,
@@ -631,4 +631,13 @@ test("case variants prefer the website's tracked keyword rather than an unassign
   }));
   assert.equal((await route.POST(request(batch([{...gsc,keyword:"CLAUDE API"}])))).status,201);
   assert.equal(observations[0].keywordId,"keyword-1");
+});
+
+test("overview limits payload to the database-selected 500 scope while details keep all records", async (t) => {
+  const original = db.$queryRaw;
+  t.mock.method(db, "$queryRaw", async (strings, ...values) => strings.join("").includes("LIMIT 500") ? [] : original(strings, ...values));
+  const limited = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=all&source=gsc&limit=500&region=US"))).json();
+  assert.equal(limited.keywords.length,0);
+  const full = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=all&source=gsc"))).json();
+  assert.equal(full.keywords.length,1);
 });
