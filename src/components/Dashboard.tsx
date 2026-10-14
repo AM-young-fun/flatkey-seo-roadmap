@@ -21,7 +21,7 @@ export function Dashboard() {
   }, [keywords, graphSearch]);
   const stats = rankingStats(keywords, region);
   const formatPercent = (count: number) =>
-    `${stats.percent(count).toFixed(1)}%`;
+    data ? `${stats.percent(count).toFixed(1)}%` : "—";
   const hasGsc = keywords.some(
     (keyword) => keyword.latestRanks[region]?.source === "gsc",
   );
@@ -61,6 +61,8 @@ export function Dashboard() {
           </div>
           {loading ? (
             <div className="loadingState">正在加载关键词…</div>
+          ) : error && !data ? (
+            <div className="loadingState">词库读取失败，请点击上方「重新加载」</div>
           ) : (
             <KeywordGraph keywords={graphKeywords} selectedRegion={region} />
           )}
@@ -91,7 +93,7 @@ export function Dashboard() {
                   已有排名
                 </span>
                 <b>
-                  {stats.ranked}
+                  {data ? stats.ranked : "—"}
                   <small>{formatPercent(stats.ranked)}</small>
                 </b>
               </p>
@@ -101,7 +103,7 @@ export function Dashboard() {
                   未有排名
                 </span>
                 <b>
-                  {stats.unranked}
+                  {data ? stats.unranked : "—"}
                   <small>{formatPercent(stats.unranked)}</small>
                 </b>
               </p>
@@ -123,7 +125,7 @@ export function Dashboard() {
                       {bucket.range}
                     </span>
                     <b>
-                      {bucket.count}
+                      {data ? bucket.count : "—"}
                       <small>{formatPercent(bucket.count)}</small>
                     </b>
                   </div>

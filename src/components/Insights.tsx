@@ -37,7 +37,9 @@ function useInsights(selection: SeoSelection, week: string) {
     };
     void update();
     const timer = setInterval(() => void update(), 60_000);
-    return () => { controller.abort(); clearInterval(timer); };
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("focus", update);
+    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", update); window.removeEventListener("focus", update); };
   }, [key, selection.site, selection.source, selection.region, week, version]);
   return { data: result?.key === key ? result.data : null, error, retry: () => retry((n) => n + 1) };
 }

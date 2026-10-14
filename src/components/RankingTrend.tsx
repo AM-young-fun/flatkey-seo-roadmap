@@ -28,7 +28,9 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     };
     void read();
     const timer = setInterval(() => void read(), 60000);
-    return () => { controller.abort(); clearInterval(timer); };
+    document.addEventListener("visibilitychange", read);
+    window.addEventListener("focus", read);
+    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); };
   }, [region, version]);
   useEffect(() => {
     if (!element.current || !points?.length) return;
