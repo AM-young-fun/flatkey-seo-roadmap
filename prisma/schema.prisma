@@ -57,6 +57,8 @@ model Keyword {
   diffs         RankingDiff[]
   volumes       KeywordVolume[]
   observations  KeywordObservation[]
+  siteLinks     SiteKeyword[]
+  pageObservations KeywordPageObservation[]
   lastSyncedAt  DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
@@ -74,6 +76,10 @@ model RankingImport {
   count       Int
   importedAt  DateTime             @default(now())
   observations KeywordObservation[]
+  siteDomain  String?
+  site        SeoSite? @relation(fields: [siteDomain], references: [domain])
+  pageObservations KeywordPageObservation[]
+  trafficReports WeeklyTraffic[]
 }
 
 model KeywordObservation {
@@ -94,10 +100,124 @@ model KeywordObservation {
   periodEnd    DateTime?     @db.Date
   collectedAt  DateTime
   importedAt   DateTime     @default(now())
+  siteDomain   String?
+  site         SeoSite? @relation(fields: [siteDomain], references: [domain])
+  captureId    String?
+  capture      RankingCapture? @relation(fields: [captureId], references: [id])
+  url          String?
+  rankStatus   String @default("no_data")
+  dataUpdatedAt DateTime?
 
   @@unique([importId, keywordId, region, source])
   @@index([keywordId, region, source, collectedAt])
   @@index([keywordId, region, collectedAt(sort: Desc), importedAt(sort: Desc)])
+  @@index([siteDomain, keywordId, region, source, collectedAt(sort: Desc)])
+  @@index([captureId])
+}
+
+model SeoSite {
+  domain String @id
+  name String
+  active Boolean @default(true)
+  ga4PropertyId String?
+  initializedAt DateTime?
+  keywords SiteKeyword[]
+  topics SiteTopic[]
+  observations KeywordObservation[]
+  pageObservations KeywordPageObservation[]
+  captures RankingCapture[]
+  imports RankingImport[]
+  trafficReports WeeklyTraffic[]
+}
+
+model SiteTopic {
+  siteDomain String
+  topicId String
+  site SeoSite @relation(fields: [siteDomain], references: [domain], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  @@id([siteDomain, topicId])
+}
+
+model SiteKeyword {
+  siteDomain String
+  keywordId String
+  site SeoSite @relation(fields: [siteDomain], references: [domain], onDelete: Cascade)
+  keyword Keyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  topicId String?
+  topic Topic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  origin String @default("PLANNED")
+  active Boolean @default(true)
+  targetUrls String[] @default([])
+  sourceUrl String?
+  createdAt DateTime @default(now())
+  topicAssignments SiteKeywordTopic[]
+  @@id([siteDomain, keywordId])
+  @@index([siteDomain, active])
+}
+
+model SiteKeywordTopic {
+  siteDomain String
+  keywordId String
+  topicId String
+  siteKeyword SiteKeyword @relation(fields: [siteDomain, keywordId], references: [siteDomain, keywordId], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  @@id([siteDomain, keywordId, topicId])
+}
+
+model RankingCapture {
+  id String @id
+  siteDomain String
+  site SeoSite @relation(fields: [siteDomain], references: [domain])
+  source String
+  region SearchRegion
+  captureDate DateTime @db.Date
+  coverage String @default("tracked")
+  status String @default("PARTIAL")
+  updatedAt DateTime @updatedAt
+  observations KeywordObservation[]
+  @@index([siteDomain, region, source, captureDate(sort: Desc)])
+}
+
+model KeywordPageObservation {
+  id String @id @default(cuid())
+  siteDomain String
+  site SeoSite @relation(fields: [siteDomain], references: [domain])
+  keywordId String
+  keyword Keyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  importId String
+  importBatch RankingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  region SearchRegion
+  source String
+  url String
+  rank Float?
+  clicks Int?
+  impressions Int?
+  ctr Float?
+  periodStart DateTime? @db.Date
+  periodEnd DateTime? @db.Date
+  collectedAt DateTime
+  dataUpdatedAt DateTime?
+  importedAt DateTime @default(now())
+  @@unique([importId, keywordId, region, source, url])
+  @@index([siteDomain, keywordId, region, source, collectedAt(sort: Desc)])
+}
+
+model WeeklyTraffic {
+  id String @id @default(cuid())
+  siteDomain String
+  site SeoSite @relation(fields: [siteDomain], references: [domain])
+  importId String
+  importBatch RankingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  periodStart DateTime @db.Date
+  periodEnd DateTime @db.Date
+  timezone String @default("Asia/Shanghai")
+  newUsers Int
+  newRegistrations Int
+  ga4PropertyId String?
+  collectedAt DateTime
+  importedAt DateTime @default(now())
+  @@unique([importId, periodStart, periodEnd])
+  @@index([siteDomain, periodStart, periodEnd, collectedAt(sort: Desc)])
 }
 
 model Topic {
@@ -111,6 +231,9 @@ model Topic {
   parentEdges TopicRelation[] @relation("TopicRelationParent")
   childEdges  TopicRelation[] @relation("TopicRelationChild")
   keywords    Keyword[]
+  sites SiteTopic[]
+  siteKeywords SiteKeyword[]
+  siteKeywordAssignments SiteKeywordTopic[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 

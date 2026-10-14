@@ -1,17 +1,17 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowUpRight, Clock3 } from "lucide-react";
+import { useSeoSelection } from "@/components/useSeoSelection";
+import { DailyChanges } from "@/components/Insights";
+import { ArrowUpRight } from "lucide-react";
 import { KeywordGraph } from "@/components/KeywordGraph";
 import { PageHeader } from "@/components/PageHeader";
-import { RegionSelect } from "@/components/RegionSelect";
 import { useDashboard } from "@/components/useDashboard";
 import { DISPLAY_BUCKETS, rankingStats } from "@/lib/rank-display";
-import { type SearchRegionCode } from "@/lib/seo";
 
 export function Dashboard() {
-  const { data, loading, error, refresh } = useDashboard();
-  const [region, setRegion] = useState<SearchRegionCode>("US");
+  const selection = useSeoSelection();
+  const { region } = selection;
+  const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
   const keywords = data?.keywords ?? [];
   const stats = rankingStats(keywords, region);
   const formatPercent = (count: number) =>
@@ -19,16 +19,10 @@ export function Dashboard() {
   const hasGsc = keywords.some(
     (keyword) => keyword.latestRanks[region]?.source === "gsc",
   );
-  const updated =
-    data?.latestImportAt ??
-    keywords
-      .map((keyword) => keyword.lastSyncedAt)
-      .filter((value): value is string => Boolean(value))
-      .sort()
-      .at(-1);
   return (
     <main className="appShell">
-      <PageHeader active="overview" />
+      <PageHeader active="overview" selection={selection} />
+      <DailyChanges selection={selection} />
       {error ? (
         <div className="loadError" role="alert">
           <span>{error}</span>
@@ -37,35 +31,13 @@ export function Dashboard() {
           </button>
         </div>
       ) : null}
-      <div className="overviewToolbar">
-        <RegionSelect value={region} onChange={setRegion} />
-        <div className="toolbarMeta">
-          <div className="schedule">
-            <Clock3 size={15} />
-            <strong>每天 10:30 更新</strong>
-            <span>北京时间</span>
-          </div>
-          <span className="updateStamp">
-            最后更新{" "}
-            {updated
-              ? new Date(updated).toLocaleString("zh-CN", {
-                  timeZone: "Asia/Shanghai",
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : "暂无采集记录"}
-          </span>
-        </div>
-      </div>
       <section className="overviewGrid">
         <article className="graphPanel">
           <div className="panelHeader">
             <div>
               <p className="eyebrow">KEYWORD NETWORK</p>
               <h2>关键词关系图</h2>
-              <p>节点大小表示声量，连线表示同话题或父子关联</p>
+              <p>节点大小表示声量，连线表示同话题或父子关联；最多展示声量最高的 500 个词</p>
             </div>
             <Link href="/keywords" className="textLink">
               查看明细
@@ -83,7 +55,7 @@ export function Dashboard() {
           {loading ? (
             <div className="loadingState">正在加载关键词…</div>
           ) : (
-            <KeywordGraph keywords={keywords} selectedRegion={region} />
+            <KeywordGraph keywords={[...keywords].sort((a,b) => (b.marketVolumes[region] ?? -1) - (a.marketVolumes[region] ?? -1)).slice(0,500)} selectedRegion={region} />
           )}
         </article>
         <aside className="analyticsColumn">
@@ -171,7 +143,7 @@ export function Dashboard() {
             ? "包含 GSC 平均排名，统计区间可在明细中查看"
             : "排名以最近一次采集结果为准"}
         </span>
-        <span>每日采集 · 自动更新</span>
+        <span>每天 10:30 更新 · 北京时间</span>
       </footer>
     </main>
   );

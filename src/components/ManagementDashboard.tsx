@@ -12,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { useSeoSelection } from "@/components/useSeoSelection";
 import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
 const initialTopicForm = { text: "", type: "MAIN" as TopicType, parentId: "" };
@@ -23,7 +24,10 @@ type ImportKeywordsResponse = {
   errors?: Array<{ row: number; message: string }>;
 };
 export function ManagementDashboard() {
-  const { data, refresh: loadDashboard, error } = useDashboard();
+  const selection = useSeoSelection();
+  const { data, refresh: loadDashboard, error } = useDashboard(selection.site, selection.source);
+  const [jsonFile, setJsonFile] = useState<File | null>(null);
+  const [importProgress, setImportProgress] = useState("");
   const [credential, setCredential] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const [credentialStatus, setCredentialStatus] = useState<string | null>(null);
@@ -49,6 +53,7 @@ export function ManagementDashboard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          siteDomain: selection.site,
           text: topicForm.text,
           type: topicForm.type,
           parentId:
@@ -97,6 +102,7 @@ export function ManagementDashboard() {
     try {
       const formData = new FormData();
       formData.append("file", options.file);
+      formData.append("siteDomain", selection.site);
 
       const response = await fetch(options.endpoint, {
         method: "POST",
@@ -149,9 +155,34 @@ export function ManagementDashboard() {
     }
   }
 
+  async function importJson(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!jsonFile) return;
+    setImporting(true); setMessage(null);
+    try {
+      if (jsonFile.size > 4_000_000) throw new Error("文件不能超过 4 MB");
+      const parsed = JSON.parse(await jsonFile.text());
+      const batches = parsed.batches ?? [parsed];
+      if (!Array.isArray(batches) || !batches.length || batches.length > 300) throw new Error("文件需要包含 1–300 个批次");
+      if (batches.some((batch: { targetDomain: string }) => batch.targetDomain !== selection.site)) throw new Error("文件网站与顶部选择的网站不一致");
+      let total = 0;
+      for (let index = 0; index < batches.length; index++) {
+        setImportProgress(`正在导入 ${index + 1} / ${batches.length}`);
+        const response = await fetch("/api/seo/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batches[index]) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(`第 ${index + 1} 批失败：${result.message ?? "请重试"}。此前成功批次已保留，可重传同一文件。`);
+        total += result.imported ?? 0;
+      }
+      setMessage(`导入完成：${batches.length} 批，共 ${total} 条记录（重传批次自动去重）`);
+      setJsonFile(null);
+      await loadDashboard();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "导入失败"); }
+    finally { setImporting(false); setImportProgress(""); }
+  }
+
   return (
     <main className="appShell">
-      <PageHeader active="manage" />
+      <PageHeader active="manage" selection={selection} />
       <div className="managementIntro">
         <div>
           <p className="eyebrow">WORKSPACE</p>
@@ -316,6 +347,11 @@ export function ManagementDashboard() {
           </div>
         </div>
       </section>
+      <form className="jsonImportPanel" onSubmit={importJson}>
+        <div><h2>采集结果与周报导入</h2><p>导入带网站标识的 JSON：支持关键词清单、排名页面、每日完整采集批次和 GA4 周报。</p><p>周报：周二至周一 · sign_up 区间去重用户数 · 北京时间</p></div>
+        <label className="jsonFile"><span>选择 JSON 文件</span><input type="file" aria-label="选择采集或周报 JSON 文件" accept=".json,application/json" disabled={importing} onChange={(e) => setJsonFile(e.target.files?.[0] ?? null)} />{jsonFile?.name}</label>
+        <button className="managePrimary" disabled={!jsonFile || importing}>{importProgress || "导入数据"}</button>
+      </form>
       <section className="collectorConnection">
         <div className="collectorInfo">
           <span className="manageCardIcon">

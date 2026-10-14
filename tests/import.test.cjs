@@ -42,6 +42,7 @@ const keywords = [
     topicId: "topic-1",
     parentId: null,
     childEdges: [],
+    siteLinks: [{ topicId: "topic-1", topic: { text: "Claude" }, topicAssignments: [], targetUrls: [], origin: "PLANNED" }],
     active: true,
     snapshots: [],
     diffs: [],
@@ -51,7 +52,9 @@ const keywords = [
   },
 ];
 const db = {
-  keyword: { findMany: async () => keywords },
+  seoSite: { findUnique: async ({ where }) => ["flatkey.ai", "rackrate.org"].includes(where.domain) ? { domain: where.domain, active: true, ga4PropertyId: null } : null },
+  siteKeyword: { findMany: async ({where}) => where.siteDomain === "flatkey.ai" ? keywords.map(keyword => ({ keyword, keywordId: keyword.id, topic: keyword.topic, origin: "PLANNED", targetUrls: [] })) : [] },
+  keyword: { findMany: async ({where}) => where.siteLinks?.some?.siteDomain === "rackrate.org" ? [] : keywords },
   rankingImport: {
     findUnique: async ({ where }) =>
       batches.find((batch) => batch.requestId === where.requestId) ?? null,
@@ -75,10 +78,10 @@ const db = {
     updateMany: async () => ({ count: 0 }),
   },
   $executeRaw: async () => 0,
-  $queryRaw: async (strings) =>
+  $queryRaw: async (strings, ...values) =>
     db.keywordObservation.findMany({
       where: strings.join("").includes('"rankReported"')
-        ? { rankReported: true }
+        ? { rankReported: true, source: values[1], siteDomain: values[0] }
         : { source: "ahrefs", volume: { not: null } },
       distinct: ["keywordId", "region"],
     }),
@@ -88,6 +91,7 @@ const db = {
         .filter(
           (row) =>
             (!where.rankReported || row.rankReported) &&
+            (!where.siteDomain || row.siteDomain === where.siteDomain) &&
             (!where.volume || row.volume != null) &&
             (!where.source || row.source === where.source),
         )
@@ -108,7 +112,10 @@ const db = {
     const stagedBatches = [],
       stagedRows = [];
     const result = await callback({
+      $executeRaw: db.$executeRaw,
+      siteKeyword: db.siteKeyword,
       rankingImport: {
+        findUnique: db.rankingImport.findUnique,
         create: async ({ data }) => {
           if (batches.some((batch) => batch.requestId === data.requestId))
             throw new Prisma.PrismaClientKnownRequestError("duplicate", {
@@ -318,7 +325,7 @@ test("work-list GET requires the import key", async () => {
   );
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).keywords, [
-    { id: "keyword-1", keyword: "claude api", topic: "Claude" },
+    { id: "keyword-1", keyword: "claude api", topic: "Claude", origin: "PLANNED", targetUrls: [] },
   ]);
 });
 test("body size is bounded even without Content-Length", async () => {
@@ -398,7 +405,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
       ]),
     ),
   );
-  let data = await (await dashboard.GET()).json();
+  let data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");
   assert.equal(data.keywords[0].latestRanks.US.periodEnd, "2026-10-09");
@@ -419,7 +426,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
     }),
   );
   now += 6000;
-  data = await (await dashboard.GET()).json();
+  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(
     data.keywords[0].lastSyncedAt,
@@ -439,7 +446,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
     }),
   );
   now += 6000;
-  data = await (await dashboard.GET()).json();
+  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, null);
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");
 });
@@ -516,4 +523,47 @@ test("credential endpoint is private and never works with page login disabled", 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.equal((await response.json()).secret, "test-import-key");
+});
+
+const { weeklyPeriods, registrationRate, relativeChange } = require("../src/lib/weekly-traffic.ts");
+const { compareCaptures } = require("../src/lib/daily-changes.ts");
+test("weekly reporting uses adjacent completed Tuesday-Monday periods in Shanghai", () => {
+  assert.deepEqual(weeklyPeriods(new Date("2026-10-14T02:30:00Z")), { current: { start: "2026-10-06", end: "2026-10-12" }, previous: { start: "2026-09-29", end: "2026-10-05" } });
+  assert.equal(weeklyPeriods(new Date("2026-10-12T15:59:00Z")).current.end, "2026-10-05");
+  assert.equal(weeklyPeriods(new Date("2026-10-12T16:00:00Z")).current.end, "2026-10-12");
+  assert.equal(registrationRate(0, 0), null);
+  assert.equal(registrationRate(100, 20), 0.2);
+  assert.equal(relativeChange(20, 0), null);
+  assert.equal(relativeChange(0, 20), -1);
+});
+test("traffic imports enforce 7 days, same property, distinct signup users and closed weeks", () => {
+  const row = { periodStart: "2026-10-06", periodEnd: "2026-10-12", timezone: "Asia/Shanghai", newUsers: 100, newRegistrations: 20, ga4PropertyId: "123456", scope: "all_users", registrationMetric: "sign_up_distinct_users", collectedAt: "2026-10-14T02:30:00Z" };
+  const traffic = (rows) => ({ requestId: "week-1", targetDomain: "flatkey.ai", traffic: rows });
+  assert.equal(rankingImportSchema.safeParse(traffic([row])).success, true);
+  for (const invalid of [{ ...row, periodStart: "2026-10-05" }, { ...row, registrationMetric: "sign_up_events" }, { ...row, newUsers: -1 }, { ...row, periodEnd: "2026-10-19", periodStart: "2026-10-13" }]) assert.equal(rankingImportSchema.safeParse(traffic([invalid])).success, false);
+  assert.equal(rankingImportSchema.safeParse(traffic([row, { ...row, periodStart: "2026-09-29", periodEnd: "2026-10-05", ga4PropertyId: "999" }])).success, false);
+});
+test("daily comparison excludes zero/unknown volumes and distinguishes missing from confirmed loss", () => {
+  const row = (keywordId, rank, rankStatus = rank == null ? "no_data" : rank <= 100 ? "ranked" : "outside_top100") => ({keywordId,rank,rankStatus});
+  const previous = [row("a",10),row("b",99),row("c",50),row("d",20)];
+  const current = [row("a",5),row("b",110),row("c",null),row("e",100),row("zero",1)];
+  const result = compareCaptures(current,previous,new Set(["a","b","c","d","e"]));
+  assert.equal(result.count,2);
+  assert.deepEqual(result.entered,["e"]);
+  assert.deepEqual(result.lost,["b"]);
+  assert.deepEqual(result.missing,["c","d"]);
+  assert.equal(result.detectedReduction,3);
+  assert.equal(result.net,-2);
+  assert.equal(compareCaptures(current,null,new Set(["a"])).net,null);
+});
+test("rank URLs outside target site are rejected atomically", async () => {
+  assert.equal((await route.POST(request(batch([{...gsc,url:"https://other.ai/blog"}])))).status,400);
+  assert.equal(batches.length,0);
+});
+test("website and ranking-source filters cannot mix observations", async () => {
+  await route.POST(request(batch()));
+  const ahrefs = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=flatkey.ai&source=ahrefs"))).json();
+  assert.equal(ahrefs.keywords[0].latestRanks.US,null);
+  const other = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=rackrate.org&source=gsc"))).json();
+  assert.equal(other.keywords.length,0);
 });

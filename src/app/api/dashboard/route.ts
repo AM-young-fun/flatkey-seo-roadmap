@@ -35,7 +35,7 @@ function emptyMarketVolumes(): DashboardKeyword["marketVolumes"] {
   );
 }
 
-async function loadDashboard() {
+async function loadDashboard(siteDomain: string, source: string) {
   if (!isDatabaseConfigured()) {
     return getDemoDashboard();
   }
@@ -50,7 +50,7 @@ async function loadDashboard() {
   ] = await Promise.all([
     prisma.topic.findMany({
       where: {
-        active: true,
+        active: true, sites: { some: { siteDomain } },
       },
       include: {
         childEdges: {
@@ -71,28 +71,15 @@ async function loadDashboard() {
     prisma.keyword.findMany({
       where: {
         active: true,
-        topicId: {
-          not: null,
-        },
+        siteLinks: { some: { siteDomain, active: true } },
       },
       include: {
+        siteLinks: { where: { siteDomain }, include: { topic: true, topicAssignments: { include: { topic: true } } } },
         topic: {
           select: {
             id: true,
             text: true,
           },
-        },
-        snapshots: {
-          orderBy: {
-            checkedAt: "desc",
-          },
-          take: 18,
-        },
-        diffs: {
-          orderBy: {
-            createdAt: "desc",
-          },
-          take: 18,
         },
         volumes: {
           where: {
@@ -131,17 +118,17 @@ async function loadDashboard() {
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
       FROM "KeywordObservation" o
       JOIN "Keyword" k ON k."id" = o."keywordId"
-      WHERE o."rankReported" = true AND k."active" = true AND k."topicId" IS NOT NULL
+      WHERE o."rankReported" = true AND o."siteDomain" = ${siteDomain} AND o."source" = ${source} AND k."active" = true
       ORDER BY o."keywordId", o."region", o."collectedAt" DESC, o."importedAt" DESC, o."source" ASC
     `,
     prisma.$queryRaw<KeywordObservation[]>`
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
       FROM "KeywordObservation" o
       JOIN "Keyword" k ON k."id" = o."keywordId"
-      WHERE o."volume" IS NOT NULL AND o."source" = 'ahrefs' AND k."active" = true AND k."topicId" IS NOT NULL
+      WHERE o."volume" IS NOT NULL AND o."source" = 'ahrefs' AND k."active" = true
       ORDER BY o."keywordId", o."region", o."collectedAt" DESC, o."importedAt" DESC
     `,
-    prisma.rankingImport.findFirst({ orderBy: { importedAt: "desc" } }),
+    prisma.rankingImport.findFirst({ where: { siteDomain }, orderBy: { importedAt: "desc" } }),
   ]);
 
   const topicParentIdsById = new Map<string, string[]>();
@@ -214,6 +201,7 @@ async function loadDashboard() {
   }
 
   const dashboardKeywords: DashboardKeyword[] = keywords.map((keyword) => {
+    const membership = keyword.siteLinks[0];
     const latestRanks = emptyRanks();
     const marketVolumes = emptyMarketVolumes();
 
@@ -227,47 +215,14 @@ async function loadDashboard() {
 
     for (const region of REGION_CODES) {
       const observation = browserRanks.get(`${keyword.id}:${region}`);
-      const snapshot = keyword.snapshots.find((item) => item.region === region);
-      const diff =
-        keyword.diffs.find(
-          (item) =>
-            item.region === region &&
-            (!snapshot?.runId || item.runId === snapshot.runId),
-        ) ?? keyword.diffs.find((item) => item.region === region);
-
-      latestRanks[region] =
-        observation &&
-        (!snapshot || observation.collectedAt >= snapshot.checkedAt)
-          ? {
-              rank: observation.rank,
-              bucket: getRankBucket(observation.rank),
-              source: observation.source as "gsc" | "ahrefs",
-              periodStart:
-                observation.periodStart?.toISOString().slice(0, 10) ?? null,
-              periodEnd:
-                observation.periodEnd?.toISOString().slice(0, 10) ?? null,
-              url: null,
-              title: null,
-              searchVolume: marketVolumes[region],
-              checkedAt: observation.collectedAt.toISOString(),
-              previousRank: null,
-              rankDelta: null,
-              changed: false,
-            }
-          : snapshot
-            ? {
-                source: "serpapi",
-                rank: snapshot.rank,
-                bucket: snapshot.bucket,
-                url: snapshot.url,
-                title: snapshot.title,
-                searchVolume: marketVolumes[region],
-                checkedAt: snapshot.checkedAt.toISOString(),
-                previousRank: diff?.previousRank ?? null,
-                rankDelta: diff?.rankDelta ?? null,
-                changed: diff?.changed ?? false,
-              }
-            : null;
+      latestRanks[region] = observation ? {
+        rank: observation.rank, bucket: getRankBucket(observation.rank), source: observation.source as "gsc" | "ahrefs",
+        periodStart: observation.periodStart?.toISOString().slice(0,10) ?? null,
+        periodEnd: observation.periodEnd?.toISOString().slice(0,10) ?? null,
+        url: observation.url, title: null, searchVolume: marketVolumes[region], checkedAt: observation.collectedAt.toISOString(),
+        dataUpdatedAt: observation.dataUpdatedAt?.toISOString() ?? null, rankStatus: observation.rankStatus,
+        previousRank: null, rankDelta: null, changed: false,
+      } : null;
     }
 
     const knownRegionalVolumes = REGION_CODES.map(
@@ -278,8 +233,11 @@ async function loadDashboard() {
       id: keyword.id,
       text: keyword.text,
       type: keyword.type,
-      topicId: keyword.topicId,
-      topicText: keyword.topic?.text ?? null,
+      topicId: membership?.topicId ?? keyword.topicId,
+      topicText: membership?.topic?.text ?? keyword.topic?.text ?? null,
+      topicTexts: [...new Set([membership?.topic?.text, ...(membership?.topicAssignments.map((assignment) => assignment.topic.text) ?? [])].filter((text): text is string => Boolean(text)))],
+      origin: membership?.origin ?? "PLANNED",
+      targetUrls: membership?.targetUrls ?? [],
       parentId: keyword.parentId,
       parentIds:
         keyword.childEdges.length > 0
@@ -331,7 +289,7 @@ async function loadDashboard() {
   const response: DashboardResponse = {
     latestImportAt: latestImport?.importedAt.toISOString() ?? null,
     usingDemoData: false,
-    targetDomain: process.env.SEO_TARGET_DOMAIN || null,
+    targetDomain: siteDomain,
     regions: REGION_CODES,
     topics: dashboardTopics,
     keywords: dashboardKeywords,
@@ -351,48 +309,25 @@ async function loadDashboard() {
   return response;
 }
 
-let cached: { value: DashboardResponse; expiresAt: number } | null = null;
-let inFlight: Promise<DashboardResponse> | null = null;
-
-export async function GET() {
+const cache = new Map<string, { value: DashboardResponse; expiresAt: number }>();
+const pending = new Map<string, Promise<DashboardResponse>>();
+export async function GET(request?: Request) {
+  const params = request ? new URL(request.url).searchParams : new URLSearchParams();
+  const siteDomain = params.get("site") ?? "flatkey.ai";
+  const source = params.get("source") ?? "ahrefs";
+  if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(siteDomain) || !["gsc", "ahrefs"].includes(source)) return NextResponse.json({ message: "参数无效" }, { status: 400 });
+  const key = `${siteDomain}:${source}`;
   try {
-    if (cached && cached.expiresAt > Date.now()) {
-      return NextResponse.json(cached.value, {
-        headers: { "Cache-Control": "private, no-store" },
-      });
-    }
-    if (!inFlight) {
-      inFlight = loadDashboard()
-        .then((value) => {
-          cached = { value, expiresAt: Date.now() + 5_000 };
-          return value;
-        })
-        .finally(() => {
-          inFlight = null;
-        });
-    }
-    const value = await inFlight;
-    return NextResponse.json(value, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    const cached = cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return NextResponse.json(cached.value, { headers: { "Cache-Control": "private, no-store" } });
+    if (!pending.has(key)) pending.set(key, loadDashboard(siteDomain, source).then((value) => {
+      cache.set(key, { value, expiresAt: Date.now() + 5000 });
+      return value;
+    }).finally(() => pending.delete(key)));
+    return NextResponse.json(await pending.get(key), { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? String(error.code)
-        : "UNKNOWN";
-    const meta =
-      error && typeof error === "object" && "meta" in error ? error.meta : null;
-    const sqlState =
-      meta && typeof meta === "object" && "code" in meta
-        ? String(meta.code)
-        : null;
-    console.error("Dashboard read failed", { code, sqlState });
-    return NextResponse.json(
-      { message: "数据暂时无法读取", code, sqlState },
-      {
-        status: 503,
-        headers: { "Cache-Control": "no-store", "Retry-After": "2" },
-      },
-    );
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "UNKNOWN";
+    console.error("Dashboard read failed", { code });
+    return NextResponse.json({ message: "数据暂时无法读取", code }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "2" } });
   }
 }

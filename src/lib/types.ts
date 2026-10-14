@@ -4,6 +4,8 @@ export type KeywordType = "MAIN" | "LONG_TAIL";
 export type TopicType = "MAIN" | "SUB_TOPIC";
 
 export type RankSummary = {
+  dataUpdatedAt?: string | null;
+  rankStatus?: string;
   source?: "gsc" | "ahrefs" | "serpapi";
   periodStart?: string | null;
   periodEnd?: string | null;
@@ -24,6 +26,9 @@ export type DashboardKeyword = {
   type: KeywordType;
   topicId: string | null;
   topicText: string | null;
+  topicTexts?: string[];
+  origin?: string;
+  targetUrls?: string[];
   parentId: string | null;
   parentIds: string[];
   active: boolean;

@@ -139,6 +139,8 @@ export async function POST(request: Request) {
     );
   }
 
+  const siteDomain = String(formData.get("siteDomain") ?? "flatkey.ai");
+  if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(siteDomain)) return NextResponse.json({ message: "网站无效" }, { status: 400 });
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
@@ -383,6 +385,7 @@ export async function POST(request: Request) {
     });
   }
 
+  await prisma.siteTopic.createMany({ data: importedTopics.map((topic) => ({ siteDomain, topicId: topic.id })), skipDuplicates: true });
   return NextResponse.json({
     created,
     updated,

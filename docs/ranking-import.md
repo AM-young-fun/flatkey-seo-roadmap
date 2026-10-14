@@ -120,3 +120,43 @@ GSC 没有匹配查询时，只能表示该统计区间「暂无数据」，不�
 页面按原始数值分为 1–10、11–30、31–50、51–100、无前 100 排名。右侧分布是互斥区间，所有比例以当前关键词总数为分母。
 
 旧的 Vercel SerpApi 同步 Cron 已移除，以免和新的浏览器采集重复运行。每天 10:30 的独立会话在导入能力上线后配置。
+# SEO 洞察：多网站、页面与周报（2026-10）
+
+支持 `flatkey.ai`、`rackrate.org`、`modelfit.cc`。每条排名、页面、完整采集批次与周报都归属网站；关键词可在多个网站跟踪，话题和计划页面通过网站词库维护。页面登录与导入 Bearer 密钥保持原有权限范围。
+
+自动采集使用 `GET /api/rankings/import?site=rackrate.org` 读取词库，再 `POST /api/rankings/import`。管理页面的 JSON 文件导入走仅允许已登录会话的 `/api/seo/import`；支持单个请求对象，或 `{ "batches": [...] }`，最多 300 批，文件最多 4 MB。每个 API 请求最多 1000 条/2 MB，推荐将含词库维护的请求分成 25–50 条。每批原子写入；重传同一 requestId 和相同内容自动去重，失败后可重传完整文件。
+
+新增可选字段：
+
+- `topics`: `[{text, parentTopic?}]`，仅导入话题与关系。
+- `inventory`: `[{keyword, topic, parentTopic?, origin, targetUrls, sourceUrl?, marketVolumes, volumeObservedAt?}]`。origin 为 PLANNED / CLUSTER / DISCOVERED / RESEARCH。声量仅写入实际提供的地区；未知留空，不能用曝光量或全球声量代替美国月搜索量。多话题归属会保留，规划词优先于研究候选。targetUrls 为计划页面，不能代替已观测的排名 URL。
+- `observations[].url` 实际排名页面；`rankStatus` 为 ranked / outside_top100 / no_data。未提供时由 rank 推导，null 默认 no_data。`dataUpdatedAt` 记录来源更新时间，必须不晚于 collectedAt。
+- `pages`: 与 observations 相同字段，url 必填；保留关键词与每个页面的独立 GSC/Ahrefs记录。排名 URL 必须属于 targetDomain（含子域），GSC 必须带统计起止日期。
+- `allowNewKeywords: true` 允许自动发现词，归入“自然搜索发现词”；默认为 false，未知词整批拒绝。
+- `capture`: `{id,date,source,region,coverage,complete}`。date 为北京时间采集日期。coverage 为 tracked（规划词）或 site_top100（全站自然关键词）。全部分批写入后最后一批置 complete=true；也允许无观测行的单独完成请求。仅 COMPLETE 的 site_top100 批次参与每日新增/减少分析，同网站/来源/地区比较最近两个不同日期。缺失的上次排名词会标“缺失待核实”；只有明确 outside_top100 才标“确认排名外”。首批只建立基线。批次一旦完成不可追加；同一请求重传可返回已写结果。
+
+周报通过同一个 Bearer 接口导入 `traffic` 数组，也可上传 JSON：
+
+```json
+{
+  "requestId": "flatkey-ga4-week-2026-10-12-v1",
+  "targetDomain": "flatkey.ai",
+  "traffic": [{
+    "periodStart": "2026-10-06",
+    "periodEnd": "2026-10-12",
+    "timezone": "Asia/Shanghai",
+    "scope": "all_users",
+    "registrationMetric": "sign_up_distinct_users",
+    "ga4PropertyId": "123456789",
+    "newUsers": 1000,
+    "newRegistrations": 80,
+    "collectedAt": "2026-10-14T02:30:00Z"
+  }]
+}
+```
+
+示例属性和数字仅说明格式，采集时必须替换为实际值。周报按两个相邻、已完成的周二至周一的 7 天区间展示。周一仍未结束时，不纳入本期。新用户数为 GA4 newUsers；注册人数为 **在整个区间发生 sign_up 成功事件的去重用户数**，不能使用事件次数、出站点击，也不能相加每日去重人数。全站范围、同一属性、北京时间；首批导入会绑定 Flatkey 的 GA4 属性，其他两个站点使用已确认的属性。不能混入不同属性。
+
+注册率 = 去重注册用户 / 新用户。展示计数环比、注册率环比和百分点差；缺数据、分母为 0、上一期为 0 时保留无基线状态，不输出无穷值。注册人数可能包含回访用户，这一比值不是严格的新访客群转化率。若后续需要自然搜索专属流量或新访客群转化，应另建一致的过滤口径。
+
+每天打开后台采集并不保证底层排名每天刷新：Ahrefs Rank Tracker 通常每周更新；Site Explorer 各词更新频率不同。必须保留来源日期，不把历史 GSC 表格快照当作今日、指定地区的排名。定时任务应将失败批次保留 PARTIAL，禁止用空结果覆盖成功数据。

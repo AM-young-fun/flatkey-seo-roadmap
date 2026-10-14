@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardResponse } from "@/lib/types";
 
-let lastDashboard: DashboardResponse | null = null;
+const dashboards = new Map<string, DashboardResponse>();
 
-export function useDashboard() {
+export function useDashboard(site = "flatkey.ai", source = "ahrefs") {
+  const key = `${site}:${source}`;
   const [data, setData] = useState<DashboardResponse | null>(
-    () => lastDashboard,
+    () => dashboards.get(key) ?? null,
   );
+  const [dataKey, setDataKey] = useState(key);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -20,12 +22,12 @@ export function useDashboard() {
       let payload: DashboardResponse | null = null;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const response = await fetch("/api/dashboard", {
+          const response = await fetch(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}`, {
             cache: "no-store",
             signal: requestController.signal,
           });
           if (response.status === 401) {
-            lastDashboard = null;
+            dashboards.clear();
             window.location.assign("/login");
             return;
           }
@@ -49,13 +51,14 @@ export function useDashboard() {
         }
       }
       if (!payload) return;
-      lastDashboard = payload;
+      dashboards.set(key, payload);
       if (!requestController.signal.aborted) {
         setData((previous) =>
           JSON.stringify(previous) === JSON.stringify(payload)
             ? previous
             : payload,
         );
+        setDataKey(key);
         setError(null);
       }
     } catch (error) {
@@ -67,7 +70,7 @@ export function useDashboard() {
         controller.current = null;
       }
     }
-  }, []);
+  }, [key, site, source]);
   useEffect(() => {
     void refresh();
     const update = () => {
@@ -85,5 +88,6 @@ export function useDashboard() {
       busy.current = false;
     };
   }, [refresh]);
-  return { data, error, loading: !data && !error, refresh };
+  const visibleData = dataKey === key ? data : dashboards.get(key) ?? null;
+  return { data: visibleData, error, loading: !visibleData && !error, refresh };
 }

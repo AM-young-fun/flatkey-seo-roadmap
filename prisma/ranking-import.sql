@@ -60,4 +60,190 @@ BEGIN
     END IF;
 END $$;
 
+-- AlterTable
+ALTER TABLE "RankingImport" ADD COLUMN IF NOT EXISTS "siteDomain" TEXT;
+
+-- AlterTable
+ALTER TABLE "KeywordObservation" ADD COLUMN IF NOT EXISTS "captureId" TEXT,
+ADD COLUMN IF NOT EXISTS "dataUpdatedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "rankStatus" TEXT NOT NULL DEFAULT 'no_data',
+ADD COLUMN IF NOT EXISTS "siteDomain" TEXT,
+ADD COLUMN IF NOT EXISTS "url" TEXT;
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "SeoSite" (
+    "domain" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "ga4PropertyId" TEXT,
+    "initializedAt" TIMESTAMP(3),
+
+    CONSTRAINT "SeoSite_pkey" PRIMARY KEY ("domain")
+);
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "SiteTopic" (
+    "siteDomain" TEXT NOT NULL,
+    "topicId" TEXT NOT NULL,
+
+    CONSTRAINT "SiteTopic_pkey" PRIMARY KEY ("siteDomain","topicId")
+);
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "SiteKeyword" (
+    "siteDomain" TEXT NOT NULL,
+    "keywordId" TEXT NOT NULL,
+    "topicId" TEXT,
+    "origin" TEXT NOT NULL DEFAULT 'PLANNED',
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "targetUrls" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "sourceUrl" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SiteKeyword_pkey" PRIMARY KEY ("siteDomain","keywordId")
+);
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "SiteKeywordTopic" (
+    "siteDomain" TEXT NOT NULL,
+    "keywordId" TEXT NOT NULL,
+    "topicId" TEXT NOT NULL,
+
+    CONSTRAINT "SiteKeywordTopic_pkey" PRIMARY KEY ("siteDomain","keywordId","topicId")
+);
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "RankingCapture" (
+    "id" TEXT NOT NULL,
+    "siteDomain" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "region" "SearchRegion" NOT NULL,
+    "captureDate" DATE NOT NULL,
+    "coverage" TEXT NOT NULL DEFAULT 'tracked',
+    "status" TEXT NOT NULL DEFAULT 'PARTIAL',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RankingCapture_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "KeywordPageObservation" (
+    "id" TEXT NOT NULL,
+    "siteDomain" TEXT NOT NULL,
+    "keywordId" TEXT NOT NULL,
+    "importId" TEXT NOT NULL,
+    "region" "SearchRegion" NOT NULL,
+    "source" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "rank" DOUBLE PRECISION,
+    "clicks" INTEGER,
+    "impressions" INTEGER,
+    "ctr" DOUBLE PRECISION,
+    "periodStart" DATE,
+    "periodEnd" DATE,
+    "collectedAt" TIMESTAMP(3) NOT NULL,
+    "dataUpdatedAt" TIMESTAMP(3),
+    "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "KeywordPageObservation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "WeeklyTraffic" (
+    "id" TEXT NOT NULL,
+    "siteDomain" TEXT NOT NULL,
+    "importId" TEXT NOT NULL,
+    "periodStart" DATE NOT NULL,
+    "periodEnd" DATE NOT NULL,
+    "timezone" TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+    "newUsers" INTEGER NOT NULL,
+    "newRegistrations" INTEGER NOT NULL,
+    "ga4PropertyId" TEXT,
+    "collectedAt" TIMESTAMP(3) NOT NULL,
+    "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "WeeklyTraffic_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "SiteKeyword_siteDomain_active_idx" ON "SiteKeyword"("siteDomain", "active");
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "RankingCapture_siteDomain_region_source_captureDate_idx" ON "RankingCapture"("siteDomain", "region", "source", "captureDate" DESC);
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "KeywordPageObservation_siteDomain_keywordId_region_source_c_idx" ON "KeywordPageObservation"("siteDomain", "keywordId", "region", "source", "collectedAt" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX IF NOT EXISTS "KeywordPageObservation_importId_keywordId_region_source_url_key" ON "KeywordPageObservation"("importId", "keywordId", "region", "source", "url");
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "WeeklyTraffic_siteDomain_periodStart_periodEnd_collectedAt_idx" ON "WeeklyTraffic"("siteDomain", "periodStart", "periodEnd", "collectedAt" DESC);
+
+-- CreateIndex
+CREATE UNIQUE INDEX IF NOT EXISTS "WeeklyTraffic_importId_periodStart_periodEnd_key" ON "WeeklyTraffic"("importId", "periodStart", "periodEnd");
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "KeywordObservation_siteDomain_keywordId_region_source_colle_idx" ON "KeywordObservation"("siteDomain", "keywordId", "region", "source", "collectedAt" DESC);
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "KeywordObservation_captureId_idx" ON "KeywordObservation"("captureId");
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'RankingImport_siteDomain_fkey') THEN ALTER TABLE "RankingImport" ADD CONSTRAINT "RankingImport_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE SET NULL ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'KeywordObservation_siteDomain_fkey') THEN ALTER TABLE "KeywordObservation" ADD CONSTRAINT "KeywordObservation_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE SET NULL ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'KeywordObservation_captureId_fkey') THEN ALTER TABLE "KeywordObservation" ADD CONSTRAINT "KeywordObservation_captureId_fkey" FOREIGN KEY ("captureId") REFERENCES "RankingCapture"("id") ON DELETE SET NULL ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteTopic_siteDomain_fkey') THEN ALTER TABLE "SiteTopic" ADD CONSTRAINT "SiteTopic_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteTopic_topicId_fkey') THEN ALTER TABLE "SiteTopic" ADD CONSTRAINT "SiteTopic_topicId_fkey" FOREIGN KEY ("topicId") REFERENCES "Topic"("id") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteKeyword_siteDomain_fkey') THEN ALTER TABLE "SiteKeyword" ADD CONSTRAINT "SiteKeyword_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteKeyword_keywordId_fkey') THEN ALTER TABLE "SiteKeyword" ADD CONSTRAINT "SiteKeyword_keywordId_fkey" FOREIGN KEY ("keywordId") REFERENCES "Keyword"("id") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteKeyword_topicId_fkey') THEN ALTER TABLE "SiteKeyword" ADD CONSTRAINT "SiteKeyword_topicId_fkey" FOREIGN KEY ("topicId") REFERENCES "Topic"("id") ON DELETE SET NULL ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteKeywordTopic_siteDomain_keywordId_fkey') THEN ALTER TABLE "SiteKeywordTopic" ADD CONSTRAINT "SiteKeywordTopic_siteDomain_keywordId_fkey" FOREIGN KEY ("siteDomain", "keywordId") REFERENCES "SiteKeyword"("siteDomain", "keywordId") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SiteKeywordTopic_topicId_fkey') THEN ALTER TABLE "SiteKeywordTopic" ADD CONSTRAINT "SiteKeywordTopic_topicId_fkey" FOREIGN KEY ("topicId") REFERENCES "Topic"("id") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'RankingCapture_siteDomain_fkey') THEN ALTER TABLE "RankingCapture" ADD CONSTRAINT "RankingCapture_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE RESTRICT ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'KeywordPageObservation_siteDomain_fkey') THEN ALTER TABLE "KeywordPageObservation" ADD CONSTRAINT "KeywordPageObservation_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE RESTRICT ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'KeywordPageObservation_keywordId_fkey') THEN ALTER TABLE "KeywordPageObservation" ADD CONSTRAINT "KeywordPageObservation_keywordId_fkey" FOREIGN KEY ("keywordId") REFERENCES "Keyword"("id") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'KeywordPageObservation_importId_fkey') THEN ALTER TABLE "KeywordPageObservation" ADD CONSTRAINT "KeywordPageObservation_importId_fkey" FOREIGN KEY ("importId") REFERENCES "RankingImport"("id") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'WeeklyTraffic_siteDomain_fkey') THEN ALTER TABLE "WeeklyTraffic" ADD CONSTRAINT "WeeklyTraffic_siteDomain_fkey" FOREIGN KEY ("siteDomain") REFERENCES "SeoSite"("domain") ON DELETE RESTRICT ON UPDATE CASCADE; END IF; END $$;
+
+-- AddForeignKey
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'WeeklyTraffic_importId_fkey') THEN ALTER TABLE "WeeklyTraffic" ADD CONSTRAINT "WeeklyTraffic_importId_fkey" FOREIGN KEY ("importId") REFERENCES "RankingImport"("id") ON DELETE CASCADE ON UPDATE CASCADE; END IF; END $$;
+
+
+INSERT INTO "SeoSite" ("domain", "name", "ga4PropertyId") VALUES
+ ('flatkey.ai', 'Flatkey', NULL), ('rackrate.org', 'RackRate', '558899190'), ('modelfit.cc', 'ModelFit', '558978062') ON CONFLICT ("domain") DO NOTHING;
+INSERT INTO "SiteTopic" ("siteDomain", "topicId") SELECT 'flatkey.ai', "id" FROM "Topic" WHERE (SELECT "initializedAt" IS NULL FROM "SeoSite" WHERE "domain" = 'flatkey.ai') ON CONFLICT DO NOTHING;
+INSERT INTO "SiteKeyword" ("siteDomain", "keywordId", "topicId") SELECT 'flatkey.ai', "id", "topicId" FROM "Keyword" WHERE (SELECT "initializedAt" IS NULL FROM "SeoSite" WHERE "domain" = 'flatkey.ai') ON CONFLICT DO NOTHING;
+UPDATE "KeywordObservation" SET "siteDomain" = 'flatkey.ai', "rankStatus" = CASE WHEN "rank" <= 100 THEN 'ranked' WHEN "rank" > 100 THEN 'outside_top100' ELSE 'no_data' END WHERE "siteDomain" IS NULL;
+UPDATE "RankingImport" SET "siteDomain" = 'flatkey.ai' WHERE "siteDomain" IS NULL;
+UPDATE "SeoSite" SET "initializedAt" = NOW() WHERE "domain" = 'flatkey.ai' AND "initializedAt" IS NULL;
+
 COMMIT;

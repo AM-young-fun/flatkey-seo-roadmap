@@ -1639,3 +1639,55 @@ a:focus-visible {
     align-items: flex-start;
   }
 }
+
+/* Shared SEO header and reporting */
+.srOnly { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.siteHeader { flex-wrap:wrap; gap:16px; padding:18px 0; }
+.headerFilters { display:flex; align-items:center; gap:8px; margin-left:auto; }
+.headerFilters select { border:1px solid var(--border); border-radius:8px; background:#fff; color:#526985; font-size:11px; height:36px; padding:0 9px; }
+.headerFilters .regionButton { padding:0 10px; min-height:30px; font-size:11px; }
+.siteHeader nav { gap:2px; }
+.navLink { padding:9px 10px; font-size:12px; }
+.dailyPanel { background:#fff; border:1px solid var(--border); border-radius:14px; padding:22px 25px; margin:24px 0; }
+.dailyHeading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.dailyHeading h2 { font-size:16px; }
+.dailyNumbers { display:flex; flex-wrap:wrap; gap:32px; font-size:12px; color:#8290a5; }
+.dailyNumbers strong { margin-left:10px; font-size:24px; color:#23395c; }
+.dailyNumbers .positive strong { color:#10a780; }
+.movementDetails { margin-top:16px; font-size:12px; color:#65758d; }
+.movementDetails div { margin-top:14px; }
+.movementDetails p { line-height:1.8; padding-top:6px; }
+.periodComparison { display:flex; flex-wrap:wrap; gap:24px; margin-bottom:22px; font-size:12px; color:#8290a5; }
+.periodComparison span { display:flex; align-items:center; gap:8px; }
+.periodComparison i { width:7px; height:7px; border-radius:50%; background:#bfccdc; }
+.periodComparison .currentDot { background:#4485d5; }
+.trafficGrid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+.trafficCard { border:1px solid var(--border); border-radius:14px; background:#fff; padding:25px; }
+.trafficCard h2 { font-size:13px; color:#77869c; }
+.trafficCard > strong { display:block; font-size:36px; margin:18px 0 8px; font-weight:650; }
+.trafficChange { color:#6684aa; font-size:12px; margin-bottom:26px; }
+.compareBar { display:flex; align-items:center; gap:10px; font-size:11px; color:#8290a5; margin-top:14px; }
+.compareBar > div { flex:1; height:7px; border-radius:4px; background:#eef3f9; overflow:hidden; }
+.compareBar i { display:block; height:100%; background:#4485d5; border-radius:inherit; }
+.compareBar.previous i { background:#bfccdc; }
+.compareBar b { min-width:60px; text-align:right; color:#687a92; font-weight:500; }
+.reportNote { padding:25px; margin-top:22px; border:1px solid var(--border); border-radius:14px; background:#fff; }
+.reportNote h2 { font-size:14px; }
+.reportNote p { font-size:12px; color:#8290a5; line-height:1.9; margin:12px 0; }
+.observedUrl { display:block; color:#6283ac; font-size:11px; overflow-wrap:anywhere; max-width:300px; text-decoration:none; }
+.nativeTable { overflow:auto; }
+.nativeTable table { width:100%; border-collapse:collapse; min-width:1000px; font-size:12px; }
+.nativeTable th,.nativeTable td { padding:16px 12px; border-bottom:1px solid #edf1f6; text-align:left; }
+.nativeTable th { color:#687b94; background:#fafbfd; font-weight:600; }
+@media(max-width:1150px) { .siteHeader nav { width:100%; justify-content:flex-end; } .headerFilters { margin-left:auto; } }
+@media(max-width:760px) { .headerFilters { width:100%; flex-wrap:wrap; margin:0; } .headerFilters .regionSwitch { width:auto; } .siteHeader nav { flex-wrap:wrap; justify-content:flex-start; } .trafficGrid { grid-template-columns:1fr; } .dailyNumbers { gap:20px; } .dailyHeading { align-items:flex-start; } }
+
+.jsonImportPanel { display:flex; flex-wrap:wrap; align-items:center; gap:20px; padding:24px; margin-top:22px; background:#fff; border:1px solid var(--border); border-radius:14px; }
+.jsonImportPanel > div { flex:1; min-width:230px; }
+.jsonImportPanel h2 { font-size:16px; }
+.jsonImportPanel p { font-size:11px; color:#91a0b5; margin-top:8px; line-height:1.7; }
+.jsonFile { display:grid; gap:8px; font-size:11px; color:#8290a5; }
+.jsonFile input { max-width:230px; }
+.jsonImportPanel button { padding:0 20px; }
+
+.originFilter { height:36px; background:white; border:1px solid var(--border); color:#657b98; border-radius:8px; padding:0 12px; font-size:12px; }

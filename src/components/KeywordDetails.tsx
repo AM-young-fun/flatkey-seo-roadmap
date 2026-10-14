@@ -4,10 +4,10 @@ import { Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Search } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { RegionSelect } from "@/components/RegionSelect";
+import { useSeoSelection } from "@/components/useSeoSelection";
 import { useDashboard } from "@/components/useDashboard";
 import type { DashboardKeyword } from "@/lib/types";
-import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
+import { REGION_CODES, REGIONS } from "@/lib/seo";
 import {
   displayBucket,
   displayRank,
@@ -15,10 +15,12 @@ import {
 } from "@/lib/rank-display";
 
 export function KeywordDetails() {
-  const { data, error, loading, refresh } = useDashboard();
-  const [region, setRegion] = useState<SearchRegionCode>("US");
+  const selection = useSeoSelection();
+  const { region } = selection;
+  const { data, error, loading, refresh } = useDashboard(selection.site, selection.source);
   const [search, setSearch] = useState("");
-  const rows = (data?.keywords ?? []).filter((keyword) =>
+  const [origin, setOrigin] = useState("ALL");
+  const rows = (data?.keywords ?? []).filter((keyword) => origin === "ALL" || keyword.origin === origin).filter((keyword) =>
     `${keyword.text} ${keyword.topicText ?? ""}`
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
@@ -32,6 +34,7 @@ export function KeywordDetails() {
       sorter: (a, b) => a.text.localeCompare(b.text),
       render: (text: string) => <strong>{text}</strong>,
     },
+    { title: "词库来源", key: "origin", width: 100, render: (_, keyword) => <span className="muted">{({ PLANNED: "规划词", CLUSTER: "集群词", DISCOVERED: "发现词", RESEARCH: "研究候选" } as Record<string, string>)[keyword.origin ?? "PLANNED"]}</span> },
     {
       title: "所属话题",
       dataIndex: "topicText",
@@ -51,6 +54,11 @@ export function KeywordDetails() {
       render: (_, keyword) =>
         keyword.marketVolumes[region]?.toLocaleString() ?? "—",
     },
+    { title: "排名页面", key: "url", width: 250, render: (_, keyword) => {
+      const url = keyword.latestRanks[region]?.url;
+      return url ? <a className="observedUrl" href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, "")}</a> : <span className="muted">尚未采集页面</span>;
+    } },
+    { title: "计划页面", key: "targets", width: 220, render: (_, keyword) => <span className="muted">{keyword.targetUrls?.map((url) => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>)}</span> },
     {
       title: "更新时间",
       dataIndex: "lastSyncedAt",
@@ -101,7 +109,7 @@ export function KeywordDetails() {
   ];
   return (
     <main className="appShell">
-      <PageHeader active="keywords" />
+      <PageHeader active="keywords" selection={selection} />
       <div className="pageIntro">
         <p className="eyebrow">KEYWORD DIRECTORY</p>
         <h1>关键词明细</h1>
@@ -119,7 +127,7 @@ export function KeywordDetails() {
         </div>
       ) : null}
       <div className="detailToolbar">
-        <RegionSelect value={region} onChange={setRegion} />
+        <select className="originFilter" aria-label="词库来源" value={origin} onChange={(e) => setOrigin(e.target.value)}><option value="ALL">全部关键词</option><option value="PLANNED">规划词</option><option value="CLUSTER">集群词</option><option value="DISCOVERED">自然搜索发现词</option><option value="RESEARCH">研究候选</option></select>
         <label className="searchField">
           <Search size={17} />
           <input

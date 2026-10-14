@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const createTopicSchema = z.object({
+  siteDomain: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc"]).default("flatkey.ai"),
   text: z.string().trim().min(1).max(220),
   type: z.enum(["MAIN", "SUB_TOPIC"]).default("MAIN"),
   parentId: z.string().trim().min(1).nullable().optional()
@@ -149,6 +150,7 @@ export async function POST(request: Request) {
       });
     }
 
+    await transaction.siteTopic.upsert({ where: { siteDomain_topicId: { siteDomain: payload.siteDomain, topicId: savedTopic.id } }, create: { siteDomain: payload.siteDomain, topicId: savedTopic.id }, update: {} });
     return savedTopic;
   });
 

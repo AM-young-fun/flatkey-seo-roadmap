@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isWeeklyPeriod, weeklyPeriods } from "@/lib/weekly-traffic";
 
 export const MAX_IMPORT_BYTES = 2_000_000;
 export const IMPORT_API_PATH = "/api/rankings/import";
@@ -15,12 +16,15 @@ const dateOnly = z
   }, "日期无效");
 const count = z.number().int().min(0).max(2_147_483_647);
 
-const observationSchema = z
+export const observationSchema = z
   .object({
     keyword: z.string().trim().min(1).max(500),
     region: z.enum(["US", "JP", "ES", "BR"]),
     source: z.enum(["gsc", "ahrefs"]),
     collectedAt: z.iso.datetime({ offset: true }),
+    url: z.url().max(2000).optional(),
+    dataUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+    rankStatus: z.enum(["ranked", "outside_top100", "no_data"]).optional(),
     rank: z.number().min(1).max(1_000_000).nullable().optional(),
     volume: count.optional(),
     clicks: count.optional(),
@@ -33,6 +37,10 @@ const observationSchema = z
   .superRefine((row, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: "custom", message });
+    if (row.rankStatus === "ranked" && !(row.rank != null && row.rank <= 100)) issue("ranked 必须提供前 100 排名");
+    if (row.rankStatus === "outside_top100" && row.rank != null && row.rank <= 100) issue("前 100 排名不能标为排名外");
+    if (row.rankStatus === "no_data" && row.rank != null) issue("no_data 不能提供排名");
+    if (row.dataUpdatedAt && Date.parse(row.dataUpdatedAt) > Date.parse(row.collectedAt)) issue("来源更新时间不能晚于采集时间");
     if (row.source === "gsc") {
       if (row.rank === undefined)
         issue("GSC 必须提供 rank；没有数据时显式传 null");
@@ -79,10 +87,65 @@ export const rankingImportSchema = z
       .max(160)
       .regex(/^[\w.:-]+$/),
     targetDomain: z.string().trim().min(1).max(253),
-    observations: z.array(observationSchema).min(1).max(1000),
+    observations: z.array(observationSchema).max(1000).default([]),
+    pages: z.array(observationSchema.safeExtend({ url: z.url().max(2000) })).max(1000).default([]),
+    allowNewKeywords: z.boolean().default(false),
+    topics: z.array(z.object({ text: z.string().trim().min(1).max(500), parentTopic: z.string().trim().min(1).max(500).optional() }).strict()).max(1000).default([]),
+    inventory: z.array(z.object({
+      keyword: z.string().trim().min(1).max(500),
+      topic: z.string().trim().min(1).max(500),
+      parentTopic: z.string().trim().min(1).max(500).optional(),
+      origin: z.enum(["PLANNED", "CLUSTER", "DISCOVERED", "RESEARCH"]).default("PLANNED"),
+      targetUrls: z.array(z.url().max(2000)).max(20).default([]),
+      sourceUrl: z.url().max(2000).optional(),
+      volumeObservedAt: z.iso.datetime({ offset: true }).optional(),
+      marketVolumes: z.object({ US: count.optional(), JP: count.optional(), ES: count.optional(), BR: count.optional() }).strict().default({}),
+    }).strict()).max(1000).default([]),
+    capture: z.object({
+      id: z.string().regex(/^[\w.:-]+$/).max(160),
+      date: dateOnly,
+      source: z.enum(["gsc", "ahrefs"]),
+      region: z.enum(["US", "JP", "ES", "BR"]),
+      coverage: z.enum(["tracked", "site_top100"]).default("tracked"),
+      complete: z.boolean().default(false),
+    }).strict().optional(),
+    traffic: z.array(z.object({
+      periodStart: dateOnly, periodEnd: dateOnly,
+      timezone: z.literal("Asia/Shanghai"),
+      newUsers: count, newRegistrations: count,
+      scope: z.literal("all_users"),
+      registrationMetric: z.literal("sign_up_distinct_users"),
+      ga4PropertyId: z.string().regex(/^\d+$/),
+      collectedAt: z.iso.datetime({ offset: true }),
+    }).strict().superRefine((row, ctx) => {
+      if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周二至周一的连续 7 天" });
+      if (row.periodEnd > weeklyPeriods(new Date(row.collectedAt)).current.end || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报，采集时间不能在未来" });
+    })).max(52).default([]),
   })
   .strict()
   .superRefine((batch, ctx) => {
+    if (batch.observations.length + batch.pages.length + batch.inventory.length + batch.traffic.length + batch.topics.length > 1000 ||
+        !(batch.observations.length + batch.pages.length + batch.inventory.length + batch.traffic.length + batch.topics.length || batch.capture?.complete)) {
+      ctx.addIssue({ code: "custom", message: "每批必须有数据且最多 1000 条" });
+    }
+    for (const row of [...batch.observations, ...batch.pages]) {
+      if (batch.capture && (row.region !== batch.capture.region || row.source !== batch.capture.source ||
+          new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(row.collectedAt)) !== batch.capture.date)) {
+        ctx.addIssue({ code: "custom", message: "采集批次的日期、来源、地区必须一致" });
+      }
+    }
+    const pageKeys = new Set<string>();
+    for (const row of batch.pages) {
+      const key = `${row.keyword.toLowerCase()}:${row.source}:${row.region}:${row.url}`;
+      if (pageKeys.has(key)) ctx.addIssue({ code: "custom", message: "页面记录重复" });
+      pageKeys.add(key);
+    }
+    if (new Set(batch.traffic.map((row) => row.ga4PropertyId)).size > 1) ctx.addIssue({ code: "custom", message: "周报必须来自同一 GA4 属性" });
+    const weeks = new Set<string>();
+    for (const row of batch.traffic) {
+      if (weeks.has(row.periodStart)) ctx.addIssue({ code: "custom", message: "周报区间不能重复" });
+      weeks.add(row.periodStart);
+    }
     const seen = new Set<string>();
     batch.observations.forEach((row, index) => {
       const key = `${row.keyword.toLowerCase()}:${row.region}:${row.source}`;

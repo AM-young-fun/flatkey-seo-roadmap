@@ -186,6 +186,8 @@ export async function POST(request: Request) {
     );
   }
 
+  const siteDomain = String(formData.get("siteDomain") ?? "flatkey.ai");
+  if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(siteDomain)) return NextResponse.json({ message: "网站无效" }, { status: 400 });
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
@@ -252,7 +254,7 @@ export async function POST(request: Request) {
         text: {
           in: topicTexts
         },
-        active: true
+        active: true, sites: { some: { siteDomain } }
       },
       select: {
         id: true,
@@ -304,7 +306,6 @@ export async function POST(request: Request) {
   }
 
   await prisma.$transaction(async (transaction) => {
-    const savedKeywordIds: string[] = [];
     const volumeRows: Array<{
       keywordId: string;
       region: SearchRegion;
@@ -334,7 +335,7 @@ export async function POST(request: Request) {
         },
         update: {
           topicId: topic.id,
-          defaultVolume: usVolume,
+          ...(entry.volumes.US !== undefined ? { defaultVolume: usVolume } : {}),
           active: true
         },
         select: {
@@ -348,7 +349,8 @@ export async function POST(request: Request) {
         created += 1;
       }
 
-      savedKeywordIds.push(savedKeyword.id);
+      await transaction.siteKeyword.upsert({ where: { siteDomain_keywordId: { siteDomain, keywordId: savedKeyword.id } }, create: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id }, update: { topicId: topic.id, active: true } });
+      await transaction.siteKeywordTopic.upsert({ where: { siteDomain_keywordId_topicId: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id } }, create: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id }, update: {} });
       REGION_CODES.forEach((region) => {
         const volume = entry.volumes[region];
 
@@ -362,17 +364,6 @@ export async function POST(request: Request) {
           volume,
           source: "csv"
         });
-      });
-    }
-
-    if (savedKeywordIds.length > 0) {
-      await transaction.keywordVolume.deleteMany({
-        where: {
-          keywordId: {
-            in: savedKeywordIds
-          },
-          source: "csv"
-        }
       });
     }
 

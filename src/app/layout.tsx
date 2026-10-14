@@ -3,7 +3,7 @@ import "antd/dist/reset.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Flatkey 关键词洞察",
+  title: "Flatkey SEO 洞察",
   description: "Keyword rank tracking dashboard",
 };
 
