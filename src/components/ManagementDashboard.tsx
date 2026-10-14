@@ -53,7 +53,7 @@ export function ManagementDashboard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          siteDomain: selection.site,
+          siteDomain: "flatkey.ai",
           text: topicForm.text,
           type: topicForm.type,
           parentId:
@@ -102,7 +102,7 @@ export function ManagementDashboard() {
     try {
       const formData = new FormData();
       formData.append("file", options.file);
-      formData.append("siteDomain", selection.site);
+      formData.append("siteDomain", "flatkey.ai");
 
       const response = await fetch(options.endpoint, {
         method: "POST",
@@ -164,7 +164,7 @@ export function ManagementDashboard() {
       const parsed = JSON.parse(await jsonFile.text());
       const batches = parsed.batches ?? [parsed];
       if (!Array.isArray(batches) || !batches.length || batches.length > 300) throw new Error("文件需要包含 1–300 个批次");
-      if (batches.some((batch: { targetDomain: string }) => batch.targetDomain !== selection.site)) throw new Error("文件网站与顶部选择的网站不一致");
+      if (batches.some((batch: { targetDomain: string }) => !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(batch.targetDomain))) throw new Error("文件包含尚未启用的网站");
       let total = 0;
       for (let index = 0; index < batches.length; index++) {
         setImportProgress(`正在导入 ${index + 1} / ${batches.length}`);

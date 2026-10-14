@@ -118,8 +118,8 @@ async function loadDashboard(siteDomain: string, source: string) {
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
       FROM "KeywordObservation" o
       JOIN "Keyword" k ON k."id" = o."keywordId"
-      WHERE o."rankReported" = true AND o."siteDomain" = ${siteDomain} AND o."source" = ${source} AND k."active" = true
-      ORDER BY o."keywordId", o."region", o."collectedAt" DESC, o."importedAt" DESC, o."source" ASC
+      WHERE o."rankReported" = true AND o."siteDomain" = ${siteDomain} AND (o."source" = ${source} OR (${source} = 'combined' AND o."source" IN ('ahrefs', 'gsc'))) AND k."active" = true
+      ORDER BY o."keywordId", o."region", CASE WHEN o."source" = 'ahrefs' THEN 0 ELSE 1 END, o."collectedAt" DESC, o."importedAt" DESC
     `,
     prisma.$queryRaw<KeywordObservation[]>`
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
@@ -309,18 +309,31 @@ async function loadDashboard(siteDomain: string, source: string) {
   return response;
 }
 
+async function loadSummary(source: string): Promise<DashboardResponse> {
+  if (!isDatabaseConfigured()) return getDemoDashboard();
+  const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
+  const names = ["Flatkey", "RackRate", "ModelFit"];
+  const parts = await Promise.all(domains.map((domain) => loadDashboard(domain, source)));
+  return {
+    usingDemoData: false, targetDomain: "全部网站", regions: REGION_CODES, latestRun: null,
+    latestImportAt: parts.map((part) => part.latestImportAt).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null,
+    topics: parts.flatMap((part, index) => part.topics.map((topic) => ({ ...topic, id: `${domains[index]}:${topic.id}`, parentId: topic.parentId ? `${domains[index]}:${topic.parentId}` : null, parentIds: topic.parentIds.map((id) => `${domains[index]}:${id}`) }))),
+    keywords: parts.flatMap((part, index) => part.keywords.map((keyword) => ({ ...keyword, siteDomain: domains[index], siteName: names[index], id: `${domains[index]}:${keyword.id}`, topicId: keyword.topicId ? `${domains[index]}:${keyword.topicId}` : null, parentId: keyword.parentId ? `${domains[index]}:${keyword.parentId}` : null, parentIds: keyword.parentIds.map((id) => `${domains[index]}:${id}`) }))),
+  };
+}
+
 const cache = new Map<string, { value: DashboardResponse; expiresAt: number }>();
 const pending = new Map<string, Promise<DashboardResponse>>();
 export async function GET(request?: Request) {
   const params = request ? new URL(request.url).searchParams : new URLSearchParams();
-  const siteDomain = params.get("site") ?? "flatkey.ai";
-  const source = params.get("source") ?? "ahrefs";
-  if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(siteDomain) || !["gsc", "ahrefs"].includes(source)) return NextResponse.json({ message: "参数无效" }, { status: 400 });
+  const siteDomain = params.get("site") ?? "all";
+  const source = params.get("source") ?? "combined";
+  if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(siteDomain) || !["gsc", "ahrefs", "combined"].includes(source)) return NextResponse.json({ message: "参数无效" }, { status: 400 });
   const key = `${siteDomain}:${source}`;
   try {
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return NextResponse.json(cached.value, { headers: { "Cache-Control": "private, no-store" } });
-    if (!pending.has(key)) pending.set(key, loadDashboard(siteDomain, source).then((value) => {
+    if (!pending.has(key)) pending.set(key, (siteDomain === "all" ? loadSummary(source) : loadDashboard(siteDomain, source)).then((value) => {
       cache.set(key, { value, expiresAt: Date.now() + 5000 });
       return value;
     }).finally(() => pending.delete(key)));

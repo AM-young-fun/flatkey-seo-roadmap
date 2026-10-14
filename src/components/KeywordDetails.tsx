@@ -34,6 +34,7 @@ export function KeywordDetails() {
       sorter: (a, b) => a.text.localeCompare(b.text),
       render: (text: string) => <strong>{text}</strong>,
     },
+    { title: "所属网站", key: "site", width: 115, render: (_, keyword) => <span className="muted">{keyword.siteName ?? "Flatkey"}</span> },
     { title: "词库来源", key: "origin", width: 100, render: (_, keyword) => <span className="muted">{({ PLANNED: "规划词", CLUSTER: "集群词", DISCOVERED: "发现词", RESEARCH: "研究候选" } as Record<string, string>)[keyword.origin ?? "PLANNED"]}</span> },
     {
       title: "所属话题",
@@ -114,7 +115,7 @@ export function KeywordDetails() {
         <p className="eyebrow">KEYWORD DIRECTORY</p>
         <h1>关键词明细</h1>
         <p>
-          {data?.targetDomain ?? "—"} · 共 {data?.keywords.length ?? 0} 个关键词
+          全部网站 · 共 {data?.keywords.length ?? 0} 条关键词与网站记录
           · 每天 10:30（北京时间）更新
         </p>
       </div>

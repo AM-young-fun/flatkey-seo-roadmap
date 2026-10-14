@@ -26,6 +26,8 @@ export type DashboardKeyword = {
   type: KeywordType;
   topicId: string | null;
   topicText: string | null;
+  siteDomain?: string;
+  siteName?: string;
   topicTexts?: string[];
   origin?: string;
   targetUrls?: string[];
