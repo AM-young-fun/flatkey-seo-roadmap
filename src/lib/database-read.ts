@@ -11,6 +11,8 @@ export function databaseErrorCategory(error: unknown): string | null {
   const sqlState = meta && "code" in meta ? String(meta.code) : "";
   if (/^[0-9A-Z]{5}$/.test(sqlState)) return `SQLSTATE_${sqlState}`;
   const message = "message" in error ? String(error.message).toLowerCase() : "";
+  const messageState = message.match(/(?:sqlstate|code)[\s:="'`]*([0-9a-z]{5})\b/i)?.[1]?.toUpperCase();
+  if (messageState && /^[0-9][0-9A-Z]{4}$/.test(messageState)) return `SQLSTATE_${messageState}`;
   // Describe result/driver failures without returning query text, credentials,
   // connection strings or arbitrary provider messages to the browser/logs.
   for (const [pattern, category] of [
@@ -18,6 +20,9 @@ export function databaseErrorCategory(error: unknown): string | null {
     [/serializ/, "RESULT_SERIALIZATION"], [/enum/, "ENUM_VALUE"],
     [/json/, "JSON_VALUE"], [/date|time value/, "DATE_VALUE"],
     [/syntax error/, "SQL_SYNTAX"], [/response from the engine was empty/, "ENGINE_EMPTY"],
+    [/distinct.*order|order.*distinct/, "DISTINCT_ORDER"],
+    [/column.*does not exist/, "COLUMN_MISSING"], [/operator does not exist/, "OPERATOR_TYPE"],
+    [/parameter|bind/, "PARAMETER_BIND"], [/unsupported/, "UNSUPPORTED_RESULT"],
   ] as const) if (pattern.test(message)) return category;
   return null;
 }
