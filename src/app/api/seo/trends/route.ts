@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { dailyReportPoints, EARLIEST_TREND_DATE, recentTrendRange, selectDailyReports, trendRange, type TrendResult } from "@/lib/ranking-trends";
+import { recentTrendRange, snapshotTrendPoints, trendRange, type TrendResult } from "@/lib/ranking-trends";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -22,21 +22,32 @@ export async function GET(request: Request) {
     const saved = cache.get(key);
     if (saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });
     if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<Result> => {
-      const daily = await prisma.dailyRankingReport.findMany({
-        where: { region, source: { in: ["gsc", "ahrefs"] }, siteDomain: { in: ["flatkey.ai", "rackrate.org", "modelfit.cc"] }, site: { active: true }, date: { gte: new Date(EARLIEST_TREND_DATE), lte: new Date(range.end) } },
-        select: { id: true, date: true, siteDomain: true, source: true, top10: true, top30: true, top50: true, top100: true },
-        orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }],
-      });
-      const latest = selectDailyReports(daily, EARLIEST_TREND_DATE, range.end).at(-1);
-      const snapshotRows = latest ? await prisma.dailyRankingReport.findMany({
-        where: { id: { in: [...latest[1].values()].map(row => row.id) } },
-        select: { siteDomain: true, source: true, collectedAt: true, rankings: true },
-      }) : [];
-      const value: Result = { ...range, mode: "daily", points: dailyReportPoints(daily, range.start, range.end),
-        snapshot: latest ? { date: latest[0], region, sites: [...latest[1].keys()].sort(), rankings: snapshotRows.flatMap(row =>
-          (row.rankings as {keyword:string;rank:number}[]).map(rank => ({...rank, siteDomain:row.siteDomain, source:row.source as "gsc" | "ahrefs", collectedAt:row.collectedAt.toISOString()}))
-        ) } : null,
-      };
+      // Only completed site reports establish a full-vocabulary snapshot day.
+      // Daily GSC exposure queries are not a census of all ranked keywords.
+      const rows = await prisma.$queryRaw<Array<{date:string;rank:number|null;siteDomain:string;source:string}>>`
+        WITH snapshot_days AS (
+          SELECT DISTINCT "captureDate" AS day FROM "RankingCapture"
+          WHERE region = ${region}::"SearchRegion" AND status = 'COMPLETE' AND coverage = 'site_top100'
+            AND "siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc') AND source IN ('gsc','ahrefs')
+            AND "captureDate" BETWEEN ${range.start}::date AND ${range.end}::date
+        ), latest AS (
+          SELECT DISTINCT ON (d.day, o."siteDomain", o."keywordId")
+            d.day, o.rank, o."siteDomain", o.source
+          FROM snapshot_days d
+          JOIN "KeywordObservation" o ON o."collectedAt" < ((d.day + 1)::timestamp AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'UTC'
+          JOIN "SiteKeyword" sk ON sk."siteDomain" = o."siteDomain" AND sk."keywordId" = o."keywordId"
+          JOIN "Keyword" k ON k.id = o."keywordId"
+          JOIN "SeoSite" site ON site.domain = o."siteDomain"
+          WHERE o.region = ${region}::"SearchRegion" AND o."rankReported" = true AND o.source IN ('gsc','ahrefs')
+            AND (o.rank IS NOT NULL OR o."rankStatus" = 'outside_top100')
+            AND o."siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc')
+            AND sk.active = true AND sk."topicId" IS NOT NULL AND k.active = true AND site.active = true
+          ORDER BY d.day, o."siteDomain", o."keywordId",
+            CASE WHEN o.source = 'ahrefs' AND o."rankStatus" <> 'no_data' THEN 0 WHEN o.source = 'gsc' THEN 1 ELSE 2 END,
+            o."collectedAt" DESC, o."importedAt" DESC
+        ) SELECT TO_CHAR(d.day, 'YYYY-MM-DD') AS date, l.rank, COALESCE(l."siteDomain",'') AS "siteDomain", COALESCE(l.source,'') AS source FROM snapshot_days d LEFT JOIN latest l ON l.day = d.day
+      `;
+      const value: Result = { ...range, mode: "capture", points: snapshotTrendPoints(rows), snapshot: null };
       cache.set(key, { value, expires: Date.now() + 30000 });
       return value;
     }).finally(() => pending.delete(key)));

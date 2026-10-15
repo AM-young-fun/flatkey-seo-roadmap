@@ -691,8 +691,7 @@ test("GA4 imports preserve original report timezone and the actual success event
   assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[{...row,timezone:"invalid/timezone"}]}).success,false);
 });
 
-const { trendRange, dailyReportPoints, recentTrendRange, selectDailyReports } = require("../src/lib/ranking-trends.ts");
-const { dailyOverviewKeywords } = require("../src/lib/daily-overview.ts");
+const { trendRange, dailyReportPoints, recentTrendRange, snapshotTrendPoints } = require("../src/lib/ranking-trends.ts");
 const { compareWeeklyRankings } = require("../src/lib/weekly-keywords.ts");
 test("trend ranges reject pre-October8, invalid, reversed and future dates", () => {
   const now = new Date("2026-10-15T02:00:00Z");
@@ -708,21 +707,10 @@ test("overview week rolls at Shanghai midnight and always contains at most seven
   assert.deepEqual(recentTrendRange(new Date("2026-10-14T15:59:00Z")), {start:"2026-10-08",end:"2026-10-14"});
   assert.deepEqual(recentTrendRange(new Date("2026-10-14T16:00:00Z")), {start:"2026-10-09",end:"2026-10-15"});
 });
-test("single-day overview drops old ranks and matches the curve, including newly discovered words", () => {
-  const keyword = (text, siteDomain, rank) => ({id:`${siteDomain}:${text}`,text,siteDomain,type:"LONG_TAIL",topicId:null,topicText:null,parentId:null,parentIds:[],active:true,lastSyncedAt:null,volume:0,marketVolumes:{US:null,JP:null,ES:null,BR:null},latestRanks:{US:{rank},JP:{rank:5},ES:null,BR:null}});
-  const inventory = [keyword("CLAUDE API","flatkey.ai",1),keyword("yesterday only","flatkey.ai",2),keyword("uncovered site","rackrate.org",3)];
-  const rows = [{date:new Date("2026-10-12"),siteDomain:"flatkey.ai",source:"gsc",top10:1,top30:1,top50:0,top100:0}];
-  const latest=selectDailyReports(rows,"2026-10-08","2026-10-15").at(-1);
-  const snapshot = {date:latest[0],region:"US",sites:["flatkey.ai"],rankings:[{siteDomain:"flatkey.ai",keyword:"claude api",rank:10.5,source:"gsc",collectedAt},{siteDomain:"flatkey.ai",keyword:"brand new",rank:5,source:"gsc",collectedAt}]};
-  const overview=dailyOverviewKeywords(inventory,snapshot);
-  assert.deepEqual(rankingStats(overview,"US").buckets.slice(0,4).map(row=>row.count),dailyReportPoints(rows,"2026-10-08","2026-10-15")[0].counts);
-  assert.equal(overview[1].latestRanks.US,null);
-  assert.equal(overview[2].latestRanks.US,null);
-  assert.equal(overview[0].latestRanks.JP.rank,5);
-  assert.equal(inventory[1].latestRanks.US.rank,2);
-  assert.equal(overview[0].latestRanks.US.periodStart,"2026-10-12");
-  const next=dailyOverviewKeywords(inventory,{...snapshot,date:"2026-10-13",rankings:[]});
-  assert.equal(rankingStats(next,"US").ranked,0);
+test("full snapshot trends count confirmed ranks, retain explicit outside results, and leave unobserved days absent", () => {
+  const rows=[{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:10.5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:101}];
+  assert.deepEqual(snapshotTrendPoints(rows),[{date:"2026-10-14",counts:[1,1,0,0],sites:["flatkey.ai"],sources:["gsc"]}]);
+  assert.deepEqual(snapshotTrendPoints([]),[]);
 });
 test("historical daily imports validate full detail counts and do not overwrite current rankings", async () => {
   const row={date:"2026-10-08",region:"US",source:"gsc",top10:1,top30:1,top50:0,top100:0,totalKeywords:2,rankings:[{keyword:"claude api",rank:10},{keyword:"second",rank:10.5}],complete:true,sourceUrl:"https://search.google.com/search-console/performance/search-analytics",collectedAt};

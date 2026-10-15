@@ -119,7 +119,7 @@ async function loadDashboard(siteDomain: string, source: string) {
       SELECT DISTINCT ON (o."keywordId", o."region") o.*
       FROM "KeywordObservation" o
       JOIN "Keyword" k ON k."id" = o."keywordId"
-      WHERE o."rankReported" = true AND o."siteDomain" = ${siteDomain} AND (o."source" = ${source} OR (${source} = 'combined' AND o."source" IN ('ahrefs', 'gsc'))) AND k."active" = true
+      WHERE o."rankReported" = true AND (o.rank IS NOT NULL OR o."rankStatus" = 'outside_top100') AND o."siteDomain" = ${siteDomain} AND (o."source" = ${source} OR (${source} = 'combined' AND o."source" IN ('ahrefs', 'gsc'))) AND k."active" = true
       ORDER BY o."keywordId", o."region", CASE WHEN o."source" = 'ahrefs' AND o."rankStatus" <> 'no_data' THEN 0 WHEN o."source" = 'gsc' THEN 1 ELSE 2 END, o."collectedAt" DESC, o."importedAt" DESC
     `,
     prisma.$queryRaw<KeywordObservation[]>`

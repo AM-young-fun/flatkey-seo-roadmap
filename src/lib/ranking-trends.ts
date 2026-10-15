@@ -11,13 +11,21 @@ export function trendRange(start = EARLIEST_TREND_DATE, end = trendToday(), now 
 }
 
 export type TrendPoint = { date: string; counts: number[]; sites: string[]; sources: string[] };
-export type DailySnapshot = {
-  date: string;
-  region: import("./seo").SearchRegionCode;
-  sites: string[];
-  rankings: { siteDomain: string; keyword: string; rank: number; source: "gsc" | "ahrefs"; collectedAt: string }[];
-};
-export type TrendResult = { points: TrendPoint[]; mode: "daily"; start: string; end: string; snapshot: DailySnapshot | null };
+export type TrendResult = { points: TrendPoint[]; mode: "capture"; start: string; end: string; snapshot: null };
+
+export function snapshotTrendPoints(rows: {date:string;rank:number|null;siteDomain:string;source:string}[]): TrendPoint[] {
+  const points = new Map<string, TrendPoint>();
+  for (const row of rows) {
+    const point = points.get(row.date) ?? {date:row.date,counts:[0,0,0,0],sites:[],sources:[]};
+    const rank = row.rank;
+    if (rank != null && rank >= 1 && rank <= 100) point.counts[rank <= 10 ? 0 : rank <= 30 ? 1 : rank <= 50 ? 2 : 3]++;
+    if (row.siteDomain && !point.sites.includes(row.siteDomain)) point.sites.push(row.siteDomain);
+    if (row.source && !point.sources.includes(row.source)) point.sources.push(row.source);
+    points.set(row.date, point);
+  }
+  return [...points.values()].sort((a,b)=>a.date.localeCompare(b.date));
+}
+
 type DailyReport = { date: Date; siteDomain: string; source: string; top10: number; top30: number; top50: number; top100: number };
 
 export function recentTrendRange(now = new Date()) {

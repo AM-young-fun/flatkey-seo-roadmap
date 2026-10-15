@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSeoSelection } from "@/components/useSeoSelection";
 import { RankingTrend } from "@/components/RankingTrend";
 import { ArrowUpRight } from "lucide-react";
@@ -8,19 +8,13 @@ import { KeywordGraph } from "@/components/KeywordGraph";
 import { PageHeader } from "@/components/PageHeader";
 import { useDashboard } from "@/components/useDashboard";
 import { DISPLAY_BUCKETS, rankingStats } from "@/lib/rank-display";
-import { dailyOverviewKeywords } from "@/lib/daily-overview";
-import { trendToday, type DailySnapshot } from "@/lib/ranking-trends";
-import type { SearchRegionCode } from "@/lib/seo";
 
 export function Dashboard() {
   const selection = useSeoSelection();
   const { region } = selection;
   const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
-  const [daily, setDaily] = useState<{region:SearchRegionCode;snapshot:DailySnapshot|null} | null>(null);
-  const onSnapshot = useCallback((snapshot:DailySnapshot|null, region:SearchRegionCode) => setDaily({region,snapshot}), []);
-  const snapshot = daily?.region === region ? daily.snapshot : null;
-  const ready = Boolean(data && snapshot);
-  const keywords = useMemo(() => data && snapshot ? dailyOverviewKeywords(data.keywords, snapshot) : [], [data, snapshot]);
+  const ready = Boolean(data);
+  const keywords = useMemo(() => data?.keywords ?? [], [data?.keywords]);
   const [graphSearch, setGraphSearch] = useState("");
   const graphKeywords = useMemo(() => {
     const query = graphSearch.trim().toLowerCase();
@@ -35,8 +29,8 @@ export function Dashboard() {
   return (
     <main className="appShell">
       <PageHeader active="overview" selection={selection} />
-      <RankingTrend region={region} onSnapshot={onSnapshot} />
-      <div className="dailySnapshotHeading" aria-live="polite"><strong>{snapshot ? `${snapshot.date} 单日排名` : daily?.region === region ? "暂无单日排名记录" : "正在读取单日排名…"}</strong><span>{snapshot ? `覆盖网站：${snapshot.sites.join("、")}。${snapshot.date < trendToday() ? "这是最新可用日期，今天的数据尚未采集。" : ""}下方图表均使用这一天的数据。` : "有完整单日报告后展示，不沿用历史汇总排名。"}</span></div>
+      <RankingTrend region={region} />
+      <div className="dailySnapshotHeading"><strong>全词库排名总览</strong><span>每个词使用最近一次确认的排名，包含历史采集结果；当天没有曝光不清空旧排名，明确查到前 100 外时才更新。</span></div>
       {error ? (
         <div className="loadError" role="alert">
           <span>{error}</span>
@@ -63,16 +57,14 @@ export function Dashboard() {
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>
                 <i style={{ background: bucket.color }} />
-                {bucket.key === "NOT_FOUND" ? "当天未检出前 100" : bucket.range}
+                {bucket.key === "NOT_FOUND" ? "暂无前 100 排名" : bucket.range}
               </span>
             ))}
           </div>
-          {loading || (data && daily?.region !== region) ? (
+          {loading ? (
             <div className="loadingState">正在加载关键词…</div>
           ) : error && !data ? (
             <div className="loadingState">词库读取失败，请点击上方「重新加载」</div>
-          ) : !snapshot ? (
-            <div className="loadingState">暂无完整单日报告</div>
           ) : (
             <KeywordGraph keywords={graphKeywords} selectedRegion={region} />
           )}
@@ -84,7 +76,7 @@ export function Dashboard() {
             <div
               className="coverageDonut"
               role="img"
-              aria-label={`当天检出前100 ${formatPercent(stats.ranked)}，当天未检出前100 ${formatPercent(stats.unranked)}`}
+              aria-label={`已有前100排名 ${formatPercent(stats.ranked)}，暂无前100排名 ${formatPercent(stats.unranked)}`}
               style={{
                 background: stats.total
                   ? `conic-gradient(#10b981 0% ${stats.percent(stats.ranked)}%, #e8edf3 ${stats.percent(stats.ranked)}% 100%)`
@@ -93,14 +85,14 @@ export function Dashboard() {
             >
               <div>
                 <strong>{formatPercent(stats.ranked)}</strong>
-                <span>当天检出前 100</span>
+                <span>已有前 100 排名</span>
               </div>
             </div>
             <div className="coverageRows">
               <p>
                 <span>
                   <i style={{ background: "#10b981" }} />
-                  当天前 100
+                  已有前 100 排名
                 </span>
                 <b>
                   {ready ? stats.ranked : "—"}
@@ -110,7 +102,7 @@ export function Dashboard() {
               <p>
                 <span>
                   <i style={{ background: "#94a3b8" }} />
-                  当天未检出前 100
+                  暂无前 100 排名
                 </span>
                 <b>
                   {ready ? stats.unranked : "—"}
@@ -119,7 +111,7 @@ export function Dashboard() {
               </p>
             </div>
             <p className="chartNote">
-              灰色表示当天报告未检出前 100，包含未覆盖的网站与查询词，不表示已确认跌出排名。
+              灰色包括已确认 100 名以外和暂无排名数据的词；不代表网页未被收录。当前待采集 {stats.pending} 个。
             </p>
           </article>
           <article className="analyticsCard">
@@ -131,7 +123,7 @@ export function Dashboard() {
                   <div className="distributionLabel">
                     <span>
                       <i style={{ background: bucket.color }} />
-                      {bucket.key === "NOT_FOUND" ? "当天未检出前 100" : bucket.range}
+                      {bucket.key === "NOT_FOUND" ? "暂无前 100 排名" : bucket.range}
                     </span>
                     <b>
                       {ready ? bucket.count : "—"}
@@ -150,7 +142,7 @@ export function Dashboard() {
               ))}
             </div>
             <p className="chartNote">
-              各区间互不重叠，数量与上方对应日期的折线一致；占比以完整词库为分母。
+              各区间互不重叠，按每个词最近一次确认的排名统计；占比以完整词库为分母。
             </p>
           </article>
         </aside>
@@ -158,8 +150,8 @@ export function Dashboard() {
       <footer className="overviewFooter">
         <span>
           {hasGsc
-            ? "GSC 单日有曝光查询的平均排名"
-            : "排名以标明日期的单日报告为准"}
+            ? "包含 GSC 区间平均排名，悬停可查看来源、统计区间和采集日期"
+            : "每个关键词以最近一次确认的排名为准"}
         </span>
         <span>每天 10:30 更新 · 北京时间</span>
       </footer>

@@ -4,9 +4,9 @@ import * as echarts from "echarts";
 import Link from "next/link";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { recentTrendRange, type DailySnapshot, type TrendResult } from "@/lib/ranking-trends";
+import { recentTrendRange, type TrendResult } from "@/lib/ranking-trends";
 
-export function RankingTrend({ region, onSnapshot }: { region: SearchRegionCode; onSnapshot: (snapshot: DailySnapshot | null, region: SearchRegionCode) => void }) {
+export function RankingTrend({ region }: { region: SearchRegionCode }) {
   const [range, setRange] = useState(() => recentTrendRange());
   const key = `${region}:${range.start}:${range.end}`;
   const [result, setResult] = useState<(TrendResult & {key:string}) | null>(null);
@@ -26,7 +26,7 @@ export function RankingTrend({ region, onSnapshot }: { region: SearchRegionCode;
         if (response.status === 401) { window.location.assign("/login"); return; }
         if (!response.ok) throw new Error("加载失败");
         const data = await response.json() as TrendResult;
-        if (!controller.signal.aborted) { setResult({...data,key}); onSnapshot(data.snapshot, region); setError(false); }
+        if (!controller.signal.aborted) { setResult({...data,key}); setError(false); }
       } catch { if (!controller.signal.aborted) setError(true); }
       finally { busy = false; }
     };
@@ -35,7 +35,7 @@ export function RankingTrend({ region, onSnapshot }: { region: SearchRegionCode;
     document.addEventListener("visibilitychange", read);
     window.addEventListener("focus", read);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); };
-  }, [region, key, range.start, range.end, version, onSnapshot]);
+  }, [region, key, range.start, range.end, version]);
   useEffect(() => {
     if (!element.current || !points?.length) return;
     const chart = echarts.init(element.current);
@@ -55,8 +55,8 @@ export function RankingTrend({ region, onSnapshot }: { region: SearchRegionCode;
     return () => { observer.disconnect(); chart.dispose(); };
   }, [points, range.start, range.end]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近 7 天 · 每天进入前 100 的关键词数量</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>
+    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近 7 天 · 全词库前 100 排名数量</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>
     {error ? <div className="loadError"><span>趋势暂时无法读取</span><button onClick={()=>retry(value=>value+1)}>重新加载</button></div> : null}
-    {!points ? <p className="muted">正在加载…</p> : !points.length ? <p className="muted">最近 7 天暂无单日排名记录，未采集的日期留空。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}最近7天关键词排名数量趋势，${range.start}至${range.end}，${points.length}个有数据日期`} /><p className="chartNote">{range.start} 至 {range.end} · 只计入各日期当天检出的排名；未采集的日期留空。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">前 100 合计为四个排名区间之和，不累计历史关键词。GSC 按当天有曝光的公开查询及当日平均排名统计；当天未检出不等于确认跌出前 100。使用同一来源与网站范围，不混入整月汇总排名。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。</p></details></>}
+    {!points ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !points.length ? <p className="muted">最近 7 天暂无完整词库快照，无法还原的历史日期留空。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}最近7天关键词排名数量趋势，${range.start}至${range.end}，${points.length}个有数据日期`} /><p className="chartNote">{range.start} 至 {range.end} · 按完整采集快照统计，包含截至该日每个词最近确认的排名；缺少快照的日期留空。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">前 100 合计为四个排名区间之和，同一网站同一关键词只计一次。每个快照包含此前已确认的排名；明确查到前 100 外才移出。GSC 单日曝光词报告不能代替完整词库快照，不用于补齐缺失的历史总数。GSC 排名保留其原统计区间。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。</p></details></>}
   </section>;
 }
