@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isDatabaseConfigured } from "@/lib/env";
+import { databaseErrorCode } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { loadKeywordOkr, mutateKeywordOkr } from "@/lib/services/keyword-okr";
 
@@ -17,8 +18,9 @@ export async function GET(request: Request) {
     return NextResponse.json(await loadKeywordOkr(site), { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
-    console.error("Keyword OKR read failed");
-    return NextResponse.json({ message: "正式目标读取失败；请确认数据库迁移已完成后重试" }, { status: 503, headers });
+    const code = databaseErrorCode(error);
+    console.error("Keyword OKR read failed", code);
+    return NextResponse.json({ message: "正式目标暂时无法读取，请稍后重试", code }, { status: 503, headers });
   }
 }
 

@@ -835,7 +835,7 @@ test("logout during a pending cache restore cannot resurrect old data", async ()
   assert.equal(store.peek("all","combined"),null);
 });
 
-const { databaseErrorCode, retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");
+const { databaseErrorCode, databaseErrorCategory, databaseReadPhase, retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");
 test("Prisma initialization diagnostics preserve safe errorCode without leaking connection text", () => {
   assert.equal(databaseErrorCode({name:"PrismaClientInitializationError",errorCode:"P1001",message:"connection to private database failed"}),"P1001");
   assert.equal(databaseErrorCode({code:"postgresql://secret@example.test/private",message:"initialization failed"}),"UNKNOWN");
@@ -858,6 +858,14 @@ test("failed read groups finish outstanding reads before surfacing the failure",
   let completed=false;
   await assert.rejects(settleReads([Promise.reject(new Error("failed")),new Promise(resolve=>setTimeout(()=>{completed=true;resolve(1);},10))]));
   assert.equal(completed,true);
+});
+test("read diagnostics identify the failing phase without exposing database text", async () => {
+  const failure = new Error("failed deserialization postgresql://secret@example.test/private");
+  await assert.rejects(settleReads([Promise.resolve([]), Promise.reject(failure)], ["topics", "volumes"]), error => error === failure);
+  assert.equal(databaseReadPhase(failure), "volumes");
+  assert.equal(databaseErrorCategory(failure), "RESULT_DESERIALIZATION");
+  assert.equal(databaseErrorCategory({meta:{code:"42P10"}}), "SQLSTATE_42P10");
+  assert.equal(databaseErrorCategory({meta:{code:"postgresql://secret@example.test/private"}}), null);
 });
 
 test("ranking filters preserve fractional boundaries and separate unknown from confirmed outside top100", () => {

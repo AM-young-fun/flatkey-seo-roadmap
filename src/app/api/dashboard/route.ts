@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
+import { databaseErrorCategory, databaseErrorCode, databaseReadPhase, retryDatabaseRead } from "@/lib/database-read";
 import { loadDashboard } from "@/lib/services/dashboard-data";
 import type { DashboardResponse } from "@/lib/types";
 import { REGION_CODES } from "@/lib/seo";
@@ -37,7 +37,9 @@ export async function GET(request?: Request) {
     } });
   } catch (error) {
     const code = databaseErrorCode(error);
-    console.error("Dashboard read failed", { code });
-    return NextResponse.json({ message: "数据暂时无法读取", code }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "2" } });
+    const readPhase = databaseReadPhase(error);
+    const category = databaseErrorCategory(error);
+    console.error("Dashboard read failed", { code, readPhase, category });
+    return NextResponse.json({ message: "数据暂时无法读取", code, readPhase, category }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "2" } });
   }
 }

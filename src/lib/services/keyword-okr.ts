@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { retryDatabaseRead } from "@/lib/database-read";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordOkrMutation, type KeywordOkrMutationResponse, type KeywordOkrResponse, type KeywordOkrItem } from "@/lib/keyword-okr";
@@ -137,7 +138,20 @@ export async function mutateKeywordOkr(input: KeywordOkrMutation): Promise<Keywo
 
 export async function loadKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
   if (siteDomain !== OKR_SITE) throw new ImportRequestError("当前正式目标审计仅适用于 Flatkey", 400);
-  const audits = await prisma.keywordCurationAudit.findMany({ where: { siteDomain }, orderBy: { appliedAt: "desc" }, take: 10, select: { id: true, status: true, appliedAt: true, restoredAt: true, after: true } });
+  return retryDatabaseRead(() => readKeywordOkr(siteDomain));
+}
+
+async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
+  type AuditSummary = { id: string; status: string; appliedAt: Date; restoredAt: Date | null; changed: number };
+  // Before/after payloads contain the entire site inventory. Count in PostgreSQL
+  // so viewing audit history never transfers multi-megabyte recovery snapshots.
+  const audits = await prisma.$queryRaw<AuditSummary[]>(Prisma.sql`
+    /* keyword-okr:audit-summaries */
+    SELECT id, status, "appliedAt", "restoredAt",
+      CASE WHEN jsonb_typeof("after") = 'array' THEN jsonb_array_length("after") ELSE 0 END AS changed
+    FROM "KeywordCurationAudit" WHERE "siteDomain" = ${siteDomain}
+    ORDER BY "appliedAt" DESC, id DESC LIMIT 10
+  `);
   const initialized = audits.some(row => row.status === "APPLIED");
   const rows = initialized ? await readState(prisma) : [];
   const tasks = initialized ? await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { not: "RESTORED" } }, orderBy: { id: "asc" } }) : [];
@@ -170,6 +184,6 @@ export async function loadKeywordOkr(siteDomain: string): Promise<KeywordOkrResp
     })),
     tasks: tasks.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, type: row.type as "NEW" | "EXPAND" | "REUSE", status: row.status,
       title: row.title, reason: row.reason, keywords: row.keywords, targetUrls: row.targetUrls, owner: row.owner, dueAt: iso(row.dueAt) })),
-    audits: audits.map(row => ({ id: row.id, status: row.status, appliedAt: iso(row.appliedAt)!, restoredAt: iso(row.restoredAt), changed: Array.isArray(row.after) ? row.after.length : 0 })),
+    audits: audits.map(row => ({ id: row.id, status: row.status, appliedAt: iso(row.appliedAt)!, restoredAt: iso(row.restoredAt), changed: row.changed })),
   };
 }

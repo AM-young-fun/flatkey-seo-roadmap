@@ -29,11 +29,19 @@ const db = {
     }
     return rows.length;
   },
-  $queryRaw: async query => query.sql.includes("observed-pages") ? state.pages : state.keywords,
+  $queryRaw: async query => {
+    if (query.sql.includes("audit-summaries")) {
+      state.auditReadCount = (state.auditReadCount ?? 0) + 1;
+      state.auditReadSql = query.sql;
+      if (state.auditTransientFailures > 0) { state.auditTransientFailures--; throw Object.assign(new Error("private database connection details"), { code: "P1001" }); }
+      return state.audits.map(row => ({ id: row.id, status: row.status, appliedAt: row.appliedAt, restoredAt: row.restoredAt, changed: row.after.length }));
+    }
+    return query.sql.includes("observed-pages") ? state.pages : state.keywords;
+  },
   seoSite: { findUnique: async ({ where }) => where.domain === "flatkey.ai" ? { active: true } : null },
   keywordCurationAudit: {
     findUnique: async ({ where }) => state.audits.find(row => row.id === where.id) ?? null,
-    findMany: async () => state.audits,
+    findMany: async () => { throw new Error("must not fetch full audit snapshots on a read"); },
     create: async ({ data }) => { state.audits.push({ status: "APPLIED", appliedAt: new Date(), restoredAt: null, ...structuredClone(data) }); },
     update: async ({ where, data }) => Object.assign(state.audits.find(row => row.id === where.id), data),
   },
@@ -206,4 +214,18 @@ test("task intent review keeps formal words while removing cross-topic assignmen
     }
   }
   assert.deepEqual(tasks.get(14).targetUrls, [], "single-model specifications cannot stand in for a comparison");
+});
+
+test("OKR reads summarize multiple large audits in PostgreSQL and retry a transient connection failure", async () => {
+  await mutateKeywordOkr(input("apply"));
+  state.audits.push({ id: "older-restored-audit", status: "RESTORED", appliedAt: new Date("2026-10-14T00:00:00Z"), restoredAt: new Date(), after: new Array(5321).fill({}) });
+  state.auditTransientFailures = 1;
+  const response = await loadKeywordOkr("flatkey.ai");
+  assert.equal(state.auditReadCount, 2);
+  assert.equal(response.initialized, true);
+  assert.equal(response.summary.formal, 1512);
+  assert.equal(response.audits.length, 2);
+  assert.equal(response.audits.find(row => row.id === "older-restored-audit").changed, 5321);
+  assert.match(state.auditReadSql, /jsonb_array_length\("after"\)/);
+  assert.ok(!response.audits.some(row => "after" in row || "before" in row));
 });

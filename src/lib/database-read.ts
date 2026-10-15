@@ -1,4 +1,26 @@
 const TRANSIENT_ERRORS = new Set(["P1001", "P1002", "P1017", "P2024"]);
+const readPhases = new WeakMap<object, string>();
+
+export function databaseReadPhase(error: unknown): string | null {
+  return error && typeof error === "object" ? readPhases.get(error) ?? null : null;
+}
+
+export function databaseErrorCategory(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const meta = "meta" in error && error.meta && typeof error.meta === "object" ? error.meta : null;
+  const sqlState = meta && "code" in meta ? String(meta.code) : "";
+  if (/^[0-9A-Z]{5}$/.test(sqlState)) return `SQLSTATE_${sqlState}`;
+  const message = "message" in error ? String(error.message).toLowerCase() : "";
+  // Describe result/driver failures without returning query text, credentials,
+  // connection strings or arbitrary provider messages to the browser/logs.
+  for (const [pattern, category] of [
+    [/deserializ/, "RESULT_DESERIALIZATION"], [/conver|cast/, "TYPE_CONVERSION"],
+    [/serializ/, "RESULT_SERIALIZATION"], [/enum/, "ENUM_VALUE"],
+    [/json/, "JSON_VALUE"], [/date|time value/, "DATE_VALUE"],
+    [/syntax error/, "SQL_SYNTAX"], [/response from the engine was empty/, "ENGINE_EMPTY"],
+  ] as const) if (pattern.test(message)) return category;
+  return null;
+}
 
 export function databaseErrorCode(error: unknown): string {
   if (!error || typeof error !== "object") return "UNKNOWN";
@@ -35,9 +57,13 @@ export async function retryDatabaseRead<T>(read: () => Promise<T>): Promise<T> {
 
 // Wait for every scheduled read before retrying, so failed requests do not
 // leave a second wave of queries competing with the retry for pool slots.
-export async function settleReads<T extends unknown[]>(tasks: [...{ [K in keyof T]: Promise<T[K]> }]): Promise<T> {
+export async function settleReads<T extends unknown[]>(tasks: [...{ [K in keyof T]: Promise<T[K]> }], phases?: readonly string[]): Promise<T> {
   const results = await Promise.allSettled(tasks);
-  const rejected = results.find((result) => result.status === "rejected");
-  if (rejected?.status === "rejected") throw rejected.reason;
+  const failedIndex = results.findIndex((result) => result.status === "rejected");
+  const rejected = results[failedIndex];
+  if (rejected?.status === "rejected") {
+    if (phases?.[failedIndex] && rejected.reason && typeof rejected.reason === "object") readPhases.set(rejected.reason, phases[failedIndex]);
+    throw rejected.reason;
+  }
   return results.map((result) => (result as PromiseFulfilledResult<unknown>).value) as T;
 }

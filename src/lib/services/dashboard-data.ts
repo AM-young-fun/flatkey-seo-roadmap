@@ -244,7 +244,7 @@ export async function loadDashboard(site: string, source: string, period: "week"
           ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
         p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
     `),
-  ]);
+  ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages"]);
   return assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
     latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null,
     pages, reportingPeriod);
