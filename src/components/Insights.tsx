@@ -87,9 +87,9 @@ export function TrafficReport() {
   const traffic = data?.traffic;
   const history = data?.history ?? [weeklyPeriods().current.start, ...(week ? [week] : [])];
   const metrics = [
-    { label: "新用户数量", key: "newUsers" as const, format: number },
-    { label: "新注册用户数量", key: "newRegistrations" as const, format: number },
-    { label: "注册率", key: "registrationRate" as const, format: pct },
+    { label: "新用户数量", key: "newUsers" as const, format: number, note:"GA4 首次访问的新用户数" },
+    { label: "注册成功用户（去重）", key: "newRegistrations" as const, format: number, note:"成功注册事件的整周去重用户数，不是事件次数" },
+    { label: "注册人数 / 新用户数", key: "registrationRate" as const, format: pct, note:"自定义比例，与 GA4「用户关键事件率」口径不同" },
   ];
   return <main className="appShell"><PageHeader active="traffic" selection={selection} />
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || weeklyPeriods().current.start} onChange={(start) => setWeek(start === weeklyPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === weeklyPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
@@ -99,14 +99,14 @@ export function TrafficReport() {
     <section className="trafficGrid">{metrics.map((metric) => {
       const current = traffic?.current?.[metric.key]; const previous = traffic?.previous?.[metric.key];
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);
-      return <article className="trafficCard" key={metric.key}><h2>{metric.label}</h2><strong>{data ? metric.format(current) : "加载中…"}</strong><p className="trafficChange">环比 {data ? change(traffic?.changes[metric.key]) : "加载中…"}</p>
+      return <article className="trafficCard" key={metric.key}><h2>{metric.label}</h2><p className="trafficMetricNote">{metric.note}</p><strong>{data ? metric.format(current) : "加载中…"}</strong><p className="trafficChange">环比 {data ? change(traffic?.changes[metric.key]) : "加载中…"}</p>
         <div className="compareBar"><span>本期</span><div><i style={{ width: `${(current ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(current) : "加载中…"}</b></div>
         <div className="compareBar previous"><span>上期</span><div><i style={{ width: `${(previous ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(previous) : "加载中…"}</b></div>
         {metric.key === "registrationRate" && traffic?.changes.ratePoints != null ? <p className="chartNote">变化 {traffic.changes.ratePoints > 0 ? "+" : ""}{traffic.changes.ratePoints.toFixed(2)} 个百分点</p> : null}
       </article>;
     })}</section>
-    <section className="dailyPanel siteTrafficPanel"><h2>各网站数据</h2><div className="siteTrafficTable"><table><thead><tr><th>网站</th><th>新用户</th><th>注册用户</th><th>注册率</th><th>本期状态</th></tr></thead><tbody>{["flatkey.ai","rackrate.org","modelfit.cc"].map(domain=>{const row=traffic?.siteTraffic?.find(site=>site.siteDomain===domain)?.current;return <tr key={domain}><th>{domain}</th><td>{data?number(row?.newUsers):"加载中…"}</td><td>{data?number(row?.newRegistrations):"加载中…"}</td><td>{data?pct(row?.registrationRate):"加载中…"}</td><td>{!data?"读取中":row?"已采集":"本期暂无有效周报"}</td></tr>;})}</tbody></table></div></section>
+    <section className="dailyPanel siteTrafficPanel"><h2>各网站数据</h2><div className="siteTrafficTable"><table><thead><tr><th>网站</th><th>新用户</th><th>注册用户（去重）</th><th>注册人数 / 新用户数</th><th>本期状态</th></tr></thead><tbody>{["flatkey.ai","rackrate.org","modelfit.cc"].map(domain=>{const row=traffic?.siteTraffic?.find(site=>site.siteDomain===domain)?.current;return <tr key={domain}><th>{domain}</th><td>{data?number(row?.newUsers):"加载中…"}</td><td>{data?number(row?.newRegistrations):"加载中…"}</td><td>{data?pct(row?.registrationRate):"加载中…"}</td><td>{!data?"读取中":row?"已采集":"本期暂无有效周报"}</td></tr>;})}</tbody></table></div></section>
     <WeeklyKeywordChanges data={data} />
-    <details className="reportNote"><summary>数据说明</summary><p>注册人数为 GA4 注册成功事件的整周去重用户数，注册率 = 注册人数 ÷ 新用户数。GA4 按各网站原报告时区统计：{traffic?.current?.timezones?.join("、") ?? "等待采集"}；每天 10:30 为北京时间的采集时间。</p><p>两期采集的网站范围、GA4 属性、事件和时区一致时才计算环比；缺少网站的数据不会补成 0。多个网站的用户数相加，同一人访问多个网站可能重复计数。上一期为 0 时无法计算环比。</p><p>注册事件口径：{traffic?.current?.registrationMetrics?.join("、") ?? "待导入"}。本周采集时间：{traffic?.current?.collectedAt ? new Date(traffic.current.collectedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待导入"}。历史周报保留每个已导入周期；选择后对比它的前一周。</p><Link href="/manage" className="textLink">前往数据管理 →</Link></details>
+    <details className="reportNote"><summary>数据说明</summary><p>注册人数为 GA4 注册成功事件的整周去重用户数。同一用户触发多次事件只算一人，不能把事件次数当成人数。「注册人数 / 新用户数」为自定义比例，并非 GA4「用户关键事件率」，也未限定为首次访问的新用户群体，不能当作新用户转化率。GA4 按各网站原报告时区统计：{traffic?.current?.timezones?.join("、") ?? "等待采集"}；每天 10:30 为北京时间的采集时间。</p><p>两期采集的网站范围、GA4 属性、事件和时区一致时才计算环比；缺少网站的数据不会补成 0。多个网站的用户数相加，同一人访问多个网站可能重复计数。上一期为 0 时无法计算环比。</p><p>注册事件口径：{traffic?.current?.registrationMetrics?.join("、") ?? "待导入"}。本期采集时间：{traffic?.current?.collectedAt ? new Date(traffic.current.collectedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待导入"}。历史周报保留每个已导入周期；选择后对比它的前一周。</p><Link href="/manage" className="textLink">前往数据管理 →</Link></details>
   </main>;
 }

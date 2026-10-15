@@ -84,7 +84,7 @@ export function Dashboard() {
             <div
               className="coverageDonut"
               role="img"
-              aria-label={`已有排名 ${formatPercent(stats.ranked)}，未有排名 ${formatPercent(stats.unranked)}`}
+              aria-label={`当天检出前100 ${formatPercent(stats.ranked)}，当天未检出前100 ${formatPercent(stats.unranked)}`}
               style={{
                 background: stats.total
                   ? `conic-gradient(#10b981 0% ${stats.percent(stats.ranked)}%, #e8edf3 ${stats.percent(stats.ranked)}% 100%)`

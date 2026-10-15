@@ -1738,3 +1738,5 @@ a:focus-visible {
 
 .dailySnapshotHeading { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px 18px; margin:24px 0 18px; color:#70819a; font-size:13px; line-height:1.8; }
 .dailySnapshotHeading strong { color:#19283f; font-size:16px; }
+
+.trafficMetricNote { color:var(--muted); font-size:12px; line-height:1.7; min-height:40px; margin:8px 0 16px; }
