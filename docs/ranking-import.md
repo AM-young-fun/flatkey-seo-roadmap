@@ -15,6 +15,10 @@
 
 ## 1. 获取当前关键词
 
+采集使用 Chrome 工作资料 `mkt.voc.ai`（`jilin.zhang@mkt.voc.ai`）。先核验页面账号和资源选择器：Flatkey 为网域资源 `sc-domain:flatkey.ai`；RackRate 与 ModelFit 分别为 URL 前缀资源 `https://rackrate.org/`、`https://modelfit.cc/`。同名网域资源未验证时会报无权访问，不能因此认定该站没有数据。
+
+导入保留长查询原文，关键词最多 2000 个 UTF-8 字节，不截断或改写。超长查询应单独保留并报告校验失败，不让其阻止其他批次。GSC 导出要核对过滤器 CSV 中的国家、Web 搜索类型与绝对起止日期，并核对查询行数是否达到导出上限。查询与页面须在同一查询过滤条件下联合读取，不能把导出文件中独立的查询表和网页表按顺序拼接。
+
 ```sh
 curl --fail-with-body \
   -H "Authorization: Bearer $RANKING_IMPORT_SECRET" \

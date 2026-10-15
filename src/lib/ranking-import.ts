@@ -15,10 +15,15 @@ const dateOnly = z
     );
   }, "日期无效");
 const count = z.number().int().min(0).max(2_147_483_647);
+// Preserve long exported queries while keeping the unique text index key small.
+const importedKeyword = z.string().trim().min(1).max(2000).refine(
+  value => new TextEncoder().encode(value).length <= 2000,
+  "关键词不能超过 2000 个 UTF-8 字节",
+);
 
 export const observationSchema = z
   .object({
-    keyword: z.string().trim().min(1).max(500),
+    keyword: importedKeyword,
     region: z.enum(["US", "JP", "ES", "BR"]),
     source: z.enum(["gsc", "ahrefs"]),
     collectedAt: z.iso.datetime({ offset: true }),
@@ -92,7 +97,7 @@ export const rankingImportSchema = z
     allowNewKeywords: z.boolean().default(false),
     topics: z.array(z.object({ text: z.string().trim().min(1).max(500), parentTopic: z.string().trim().min(1).max(500).optional() }).strict()).max(1000).default([]),
     inventory: z.array(z.object({
-      keyword: z.string().trim().min(1).max(500),
+      keyword: importedKeyword,
       topic: z.string().trim().min(1).max(500),
       parentTopic: z.string().trim().min(1).max(500).optional(),
       origin: z.enum(["PLANNED", "CLUSTER", "DISCOVERED", "RESEARCH"]).default("PLANNED"),

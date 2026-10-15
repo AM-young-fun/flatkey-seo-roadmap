@@ -220,6 +220,15 @@ test("GSC preserves fractional rank and rejects missing statistical period", () 
     false,
   );
 });
+test("long exported queries are preserved and oversized UTF-8 keys fail before writing", () => {
+  const keyword = "a".repeat(1092);
+  assert.equal(rankingImportSchema.parse(batch([{ ...gsc, keyword }])).observations[0].keyword, keyword);
+  assert.equal(rankingImportSchema.safeParse(batch([{ ...gsc, keyword: "a".repeat(2000) }])).success, true);
+  for (const keyword of ["a".repeat(2001), "词".repeat(667)]) {
+    assert.equal(rankingImportSchema.safeParse(batch([{ ...gsc, keyword }])).success, false);
+    assert.equal(rankingImportSchema.safeParse({ ...batch([]), inventory: [{keyword,topic:"发现词"}] }).success, false);
+  }
+});
 test("Ahrefs accepts volume-only and explicit no-rank rows, rejects decimal rank", () => {
   const row = {
     keyword: "claude api",
