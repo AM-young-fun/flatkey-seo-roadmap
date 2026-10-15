@@ -6,6 +6,7 @@ Next.js + PostgreSQL + Prisma + ECharts 的关键词排名监控面板。
 
 - `/`：关键词关系图、地区切换、排名覆盖率及前 10 / 30 / 50 / 100 分布。
 - `/keywords`：关键词、所属话题、地区声量、更新时间及四国排名明细。
+- `/okr`：Flatkey 正式目标、研究池、可恢复归档、页面关联及内容任务。先预览固定审计，再应用；应用前后状态保存在数据库中。
 - `/manage`：话题维护与 CSV 导入。
 - `GET /api/rankings/import`：定时采集任务读取当前关键词列表。
 - `POST /api/rankings/import`：批量导入 GSC / Ahrefs 浏览器采集结果，支持密钥认证、事务写入和幂等重试。
@@ -35,7 +36,11 @@ SERPAPI_API_KEY="..."
 AHREFS_API_TOKEN="..."
 ```
 
-没有 `DATABASE_URL` 时，页面会显示 demo 数据；旧同步 API 在缺少排名 API 配置时会返回 demo 排名，Ahrefs 演示声量不会写入数据库。浏览器采集导入接口只保存上传的真实采集结果。
+没有 `DATABASE_URL` 时，原仪表盘会显示 demo 数据；OKR 页明确显示未连接数据库，不会将内置审计冒充已应用数据。浏览器采集导入接口只保存上传的真实采集结果。
+
+排名抓取默认关闭，即使已有供应商密钥也不会启动。只有另行批准并设置 `SERP_MONITORING_ENABLED="true"`，且 `DISABLE_EXTERNAL_FETCH` 未开启时，旧同步 API 才可运行。本轮词库整理不启用抓取、不产生排名 API 费用。
+
+Flatkey 正式名单有 1,512 个去重词，包含 95 个受保护的模型词。42 个词可直接关联已核实正文；候选页面和意图待核页面单独标记，不计为已覆盖。46 个计划页面登记为 22 个新建、7 个扩写和 17 个复用任务。未进入正式名单的原词保留研究及历史，明确无关词归档；不删除全局关键词或 GSC / Ahrefs 观测记录。后续导入不会覆盖人工审核的页面映射。持续零声量自动归档需至少 60 天、至少 3 次有效采样及四国零值证据，模型、新词、曝光或页面证据优先保留。
 
 设置 `LOGIN_PWD` 后，页面和普通 API 会要求先登录；不设置时登录保护不启用。登录态通过 `httpOnly` cookie 保持 30 天。
 
@@ -72,13 +77,8 @@ japan seo tracking,seo tools
 
 1. 在 Vercel 项目里添加 `.env.example` 中的环境变量。
 2. 使用支持连接池的 PostgreSQL URL 填 `DATABASE_URL`。
-3. 首次部署后，在本地或 CI 对生产数据库执行：
-
-```bash
-npm run db:push
-```
-
-4. 生产构建自动增加导入数据表；登录「数据管理」复制导入密钥。每日浏览器采集任务通过独立会话配置，见导入接口文档。
+3. 生产构建自动执行 `prisma/ranking-import.sql` 的幂等增量迁移，保留已有数据；不要对现有生产库运行 `db:push`。
+4. 登录「数据管理」复制导入密钥。已有浏览器导入流程见导入接口文档；本轮不配置新的抓取任务。
 
 ## API
 
@@ -87,6 +87,8 @@ npm run db:push
 - `POST /api/keywords`：新增关键词
 - `GET /api/keywords/import/template`：下载 CSV 模板
 - `POST /api/keywords/import`：CSV 导入关键词
+- `GET /api/keywords/okr?site=flatkey.ai`：已持久化的正式名单、页面及任务
+- `POST /api/keywords/okr`：登录态下预览、应用或恢复固定审计批次
 - `POST /api/sync/run`：手动执行一次同步
 - `GET /api/cron/daily-rankings`：Vercel Cron 入口
 - `GET /api/health`：健康检查

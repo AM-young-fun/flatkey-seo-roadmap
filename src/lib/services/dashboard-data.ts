@@ -1,10 +1,13 @@
-import { Prisma, type KeywordObservation } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { settleReads } from "@/lib/database-read";
 import { isDatabaseConfigured } from "@/lib/env";
 import { getDemoDashboard } from "@/lib/demo-data";
 import { getRankBucket, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import type { DashboardKeyword, DashboardResponse, DashboardTopic, SyncRunSummary } from "@/lib/types";
+import { buildRankingEvidence, latestQueryEvidence, rankingReportingPeriod, type RankingObservationRow, type RankingPageRow } from "@/lib/ranking-evidence";
+import { assessKeywordVolume, type VolumeReviewSample } from "@/lib/keyword-volume-review";
+import { keywordRelevance } from "@/lib/keyword-relevance";
+import type { DashboardKeyword, DashboardResponse, DashboardTopic, RankingEvidence, RankingReportingPeriod, SyncRunSummary } from "@/lib/types";
 
 const SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
 const NAMES: Record<string, string> = { "flatkey.ai": "Flatkey", "rackrate.org": "RackRate", "modelfit.cc": "ModelFit" };
@@ -12,14 +15,17 @@ type TopicRow = Pick<DashboardTopic, "id" | "text" | "type" | "parentId" | "pare
 type KeywordRow = Pick<DashboardKeyword, "id" | "text" | "type" | "parentId" | "parentIds" | "topicId" | "topicText"> & {
   siteDomain: string; topicTexts: string[]; origin: string; targetUrls: string[];
   defaultVolume: number; lastSyncedAt: Date | null;
+  firstTrackedAt?: Date; hasSearchActivity?: boolean; hasObservedPage?: boolean;
 };
-type VolumeRow = { keywordId: string; region: SearchRegionCode; volume: number; fetchedAt: Date };
-type RankRow = Pick<KeywordObservation, "keywordId" | "region" | "rank" | "source" | "periodStart" | "periodEnd" | "url" | "collectedAt" | "dataUpdatedAt" | "rankStatus"> & { siteDomain: string };
+type VolumeRow = { keywordId: string; region: SearchRegionCode; volume: number; fetchedAt: Date; volumeHistory?: VolumeReviewSample[] };
+type RankRow = RankingObservationRow;
 const emptyVolumes = () => Object.fromEntries(REGION_CODES.map(region => [region, null])) as DashboardKeyword["marketVolumes"];
 
 export function assembleDashboard(
   site: string, topics: TopicRow[], rows: KeywordRow[], ranks: RankRow[], volumes: VolumeRow[], latestImportAt: string | null,
   latestRun: DashboardResponse["latestRun"] = null,
+  pages: RankingPageRow[] = [],
+  reportingPeriod: RankingReportingPeriod | null = null,
 ): DashboardResponse {
   const all = site === "all";
   const scoped = (domain: string, id: string) => all ? `${domain}:${id}` : id;
@@ -32,25 +38,39 @@ export function assembleDashboard(
       marketVolumes: emptyVolumes(), volume: 0,
     });
   }
-  const rankMap = new Map(ranks.map(row => [`${row.siteDomain}:${row.keywordId}:${row.region}`, row]));
+  const ranksByKey = new Map<string, RankRow[]>();
+  const pagesByKey = new Map<string, RankingPageRow[]>();
+  for (const rank of ranks) {
+    const key = `${rank.siteDomain}:${rank.keywordId}:${rank.region}`;
+    ranksByKey.set(key, [...(ranksByKey.get(key) ?? []), rank]);
+  }
+  for (const page of pages) {
+    const key = `${page.siteDomain}:${page.keywordId}:${page.region}`;
+    pagesByKey.set(key, [...(pagesByKey.get(key) ?? []), page]);
+  }
   const volumeMap = new Map(volumes.map(row => [`${row.keywordId}:${row.region}`, row]));
-  const keywords: DashboardKeyword[] = rows.map(row => {
+  const keywords: DashboardKeyword[] = rows.filter(row => keywordRelevance(row.siteDomain, row.text).status !== "unrelated").map(row => {
     const latestRanks = Object.fromEntries(REGION_CODES.map(region => [region, null])) as DashboardKeyword["latestRanks"];
+    const rankingEvidence = Object.fromEntries(REGION_CODES.map(region => [region, [] as RankingEvidence[]])) as NonNullable<DashboardKeyword["rankingEvidence"]>;
     const marketVolumes = emptyVolumes();
     const updated = row.lastSyncedAt ? [row.lastSyncedAt.toISOString()] : [];
     for (const region of REGION_CODES) {
       const volume = volumeMap.get(`${row.id}:${region}`);
       marketVolumes[region] = volume?.volume ?? (region === "US" && row.defaultVolume > 0 ? row.defaultVolume : null);
       if (volume) updated.push(volume.fetchedAt.toISOString());
-      const rank = rankMap.get(`${row.siteDomain}:${row.id}:${region}`);
+      const key = `${row.siteDomain}:${row.id}:${region}`;
+      rankingEvidence[region] = buildRankingEvidence(ranksByKey.get(key) ?? [], pagesByKey.get(key) ?? [], reportingPeriod);
+      for (const evidence of rankingEvidence[region]) {
+        updated.push(evidence.checkedAt, ...evidence.pages.map(page => page.checkedAt));
+      }
+      const rank = latestQueryEvidence(rankingEvidence[region]);
       if (rank) {
-        updated.push(rank.collectedAt.toISOString());
         latestRanks[region] = {
-          rank: rank.rank, bucket: getRankBucket(rank.rank), source: rank.source as "gsc" | "ahrefs",
-          periodStart: rank.periodStart?.toISOString().slice(0, 10) ?? null,
-          periodEnd: rank.periodEnd?.toISOString().slice(0, 10) ?? null,
-          url: rank.url, title: null, searchVolume: marketVolumes[region], checkedAt: rank.collectedAt.toISOString(),
-          dataUpdatedAt: rank.dataUpdatedAt?.toISOString() ?? null, rankStatus: rank.rankStatus,
+          rank: rank.rank, bucket: getRankBucket(rank.rank), source: rank.source,
+          periodStart: rank.periodStart, periodEnd: rank.periodEnd,
+          url: rank.url, title: null, searchVolume: marketVolumes[region], checkedAt: rank.checkedAt,
+          dataUpdatedAt: rank.dataUpdatedAt, dataDate: rank.dataDate, rankStatus: rank.rankStatus,
+          clicks: rank.clicks, impressions: rank.impressions, ctr: rank.ctr, serpVerification: "unverified",
           previousRank: null, rankDelta: null, changed: false,
         };
       }
@@ -65,29 +85,63 @@ export function assembleDashboard(
       };
       if (marketVolumes[region] != null) addVolume(row.topicId);
     }
+    const firstTrackedAt = row.firstTrackedAt?.toISOString() ?? null;
+    const volumeReview = assessKeywordVolume({ text: row.text, siteDomain: row.siteDomain,
+      topicTexts: [row.topicText ?? "", ...row.topicTexts], targetUrls: row.targetUrls,
+      firstTrackedAt, marketVolumes, rankingEvidence,
+      histories: Object.fromEntries(REGION_CODES.map(region => [region, volumeMap.get(`${row.id}:${region}`)?.volumeHistory ?? []])),
+      hasSearchActivity: row.hasSearchActivity, hasObservedPage: row.hasObservedPage,
+    });
     return {
       id: scoped(row.siteDomain, row.id), text: row.text, type: row.type, active: true,
-      ...(all ? { siteDomain: row.siteDomain, siteName: NAMES[row.siteDomain] } : {}),
+      siteDomain: row.siteDomain, siteName: NAMES[row.siteDomain] ?? row.siteDomain,
       topicId: row.topicId ? scoped(row.siteDomain, row.topicId) : null, topicText: row.topicText,
       topicTexts: [...new Set([row.topicText, ...row.topicTexts].filter((value): value is string => Boolean(value)))],
       origin: row.origin, targetUrls: row.targetUrls,
       parentId: row.parentId ? scoped(row.siteDomain, row.parentId) : null,
       parentIds: (row.parentIds.length ? row.parentIds : row.parentId ? [row.parentId] : []).map(id => scoped(row.siteDomain, id)),
       lastSyncedAt: updated.sort().at(-1) ?? null,
-      volume: Math.max(0, ...REGION_CODES.map(region => marketVolumes[region] ?? 0)), marketVolumes, latestRanks,
+      volume: Math.max(0, ...REGION_CODES.map(region => marketVolumes[region] ?? 0)), marketVolumes, latestRanks, rankingEvidence,
+      firstTrackedAt, volumeReview,
     };
   });
   for (const topic of topicMap.values()) topic.volume = Math.max(0, ...REGION_CODES.map(region => topic.marketVolumes[region] ?? 0));
   return { usingDemoData: false, targetDomain: all ? "全部网站" : site, regions: REGION_CODES,
-    keywords, topics: [...topicMap.values()], latestImportAt, latestRun };
+    keywords, topics: [...topicMap.values()], latestImportAt, latestRun,
+    ...(reportingPeriod ? { reportingPeriod } : {}) };
 }
 
-export async function loadDashboard(site: string, source: string): Promise<DashboardResponse> {
-  if (!isDatabaseConfigured()) return getDemoDashboard();
+export async function loadDashboard(site: string, source: string, period: "week" | "history" = "week", now = new Date()): Promise<DashboardResponse> {
+  const week = rankingReportingPeriod(now);
+  const reportingPeriod = period === "week" ? week : null;
+  if (!isDatabaseConfigured()) return { ...getDemoDashboard(), ...(reportingPeriod ? { reportingPeriod } : {}) };
   const domains = Prisma.join(site === "all" ? SITES : [site]);
+  const splitDaily = Prisma.raw(period === "week" ? "true" : "false");
+  const latestQueries = Prisma.sql`
+    ${Prisma.raw(period === "week" ? "/* dashboard:weekly */" : "/* dashboard:history */")}
+    SELECT DISTINCT ON (o."siteDomain", o."keywordId", o.region, o.source,
+      CASE WHEN ${splitDaily} AND o.source = 'gsc' AND o."periodStart" = o."periodEnd" THEN o."periodEnd" END)
+      o.id, o."siteDomain", o."keywordId", o.region, o.rank, o.source, o."periodStart", o."periodEnd",
+      o.url, o.clicks, o.impressions, o.ctr, o."collectedAt", o."dataUpdatedAt", o."rankStatus", o."importedAt"
+    FROM "KeywordObservation" o JOIN "Keyword" k ON k.id = o."keywordId"
+    JOIN "SiteKeyword" sk ON sk."siteDomain" = o."siteDomain" AND sk."keywordId" = o."keywordId"
+    WHERE o."siteDomain" IN (${domains}) AND o."rankReported" = true
+      AND (o.source = ${source} OR (${source} = 'combined' AND o.source IN ('gsc','ahrefs')))
+      AND (${period === "history"} OR
+        (o.source = 'gsc' AND ((o."periodStart" = ${week.start}::date AND o."periodEnd" = ${week.end}::date)
+          OR (o."periodStart" = o."periodEnd" AND o."periodEnd" BETWEEN ${week.start}::date AND ${week.end}::date)))
+        OR (o.source = 'ahrefs' AND o."dataUpdatedAt" IS NOT NULL AND
+          (o."dataUpdatedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date BETWEEN ${week.start}::date AND ${week.end}::date))
+      AND k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL
+    ORDER BY o."siteDomain", o."keywordId", o.region, o.source,
+      CASE WHEN ${splitDaily} AND o.source = 'gsc' AND o."periodStart" = o."periodEnd" THEN o."periodEnd" END,
+      CASE WHEN o.source = 'ahrefs' THEN COALESCE(o."dataUpdatedAt", o."periodEnd"::timestamp, o."collectedAt")
+        ELSE COALESCE(o."periodEnd"::timestamp, o."dataUpdatedAt", o."collectedAt") END DESC,
+      o."dataUpdatedAt" DESC NULLS LAST, o."collectedAt" DESC, o."importedAt" DESC, o.id DESC
+  `;
   // One set of flat reads serves every site. PostgreSQL reduces historical
   // observations to current values before transferring them to the server.
-  const [topics, keywords, ranks, volumes, latestImport, latestRun] = await settleReads([
+  const [topics, keywords, ranks, volumes, latestImport, latestRun, pages] = await settleReads([
     prisma.$queryRaw<TopicRow[]>(Prisma.sql`
       /* dashboard:topics */
       SELECT st."siteDomain", t.id, t.text, t.type, t."parentId",
@@ -100,50 +154,98 @@ export async function loadDashboard(site: string, source: string): Promise<Dashb
       /* dashboard:keywords */
       SELECT sk."siteDomain", k.id, k.text, k.type, sk."topicId", t.text AS "topicText",
         k."parentId", k."defaultVolume", k."lastSyncedAt", sk.origin, sk."targetUrls",
+        sk."createdAt" AS "firstTrackedAt",
+        (EXISTS(SELECT 1 FROM "KeywordObservation" o WHERE o."siteDomain" = sk."siteDomain" AND o."keywordId" = k.id
+            AND o.source IN ('gsc','ahrefs') AND (o.clicks > 0 OR o.impressions > 0))
+          OR EXISTS(SELECT 1 FROM "KeywordPageObservation" p WHERE p."siteDomain" = sk."siteDomain" AND p."keywordId" = k.id
+            AND p.source IN ('gsc','ahrefs') AND (p.clicks > 0 OR p.impressions > 0))) AS "hasSearchActivity",
+        (EXISTS(SELECT 1 FROM "KeywordObservation" o WHERE o."siteDomain" = sk."siteDomain" AND o."keywordId" = k.id
+            AND o.source IN ('gsc','ahrefs') AND o.rank >= 1 AND o.url ~* '^https?://')
+          OR EXISTS(SELECT 1 FROM "KeywordPageObservation" p WHERE p."siteDomain" = sk."siteDomain" AND p."keywordId" = k.id
+            AND p.source IN ('gsc','ahrefs') AND p.rank >= 1 AND p.url ~* '^https?://')) AS "hasObservedPage",
         ARRAY(SELECT e."parentId" FROM "KeywordRelation" e WHERE e."childId" = k.id) AS "parentIds",
         ARRAY(SELECT DISTINCT a.text FROM "SiteKeywordTopic" s JOIN "Topic" a ON a.id = s."topicId"
           WHERE s."siteDomain" = sk."siteDomain" AND s."keywordId" = k.id ORDER BY a.text) AS "topicTexts"
       FROM "SiteKeyword" sk JOIN "Keyword" k ON k.id = sk."keywordId"
       LEFT JOIN "Topic" t ON t.id = sk."topicId"
-      WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND sk."topicId" IS NOT NULL AND k.active = true
+      WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL AND k.active = true
       ORDER BY sk."siteDomain", k.type, k.text
     `),
     prisma.$queryRaw<RankRow[]>(Prisma.sql`
       /* dashboard:ranks */
-      SELECT DISTINCT ON (o."siteDomain", o."keywordId", o.region)
-        o."siteDomain", o."keywordId", o.region, o.rank, o.source, o."periodStart", o."periodEnd",
-        o.url, o."collectedAt", o."dataUpdatedAt", o."rankStatus"
-      FROM "KeywordObservation" o JOIN "Keyword" k ON k.id = o."keywordId"
-      JOIN "SiteKeyword" sk ON sk."siteDomain" = o."siteDomain" AND sk."keywordId" = o."keywordId"
-      WHERE o."siteDomain" IN (${domains}) AND o."rankReported" = true
-        AND (o.rank IS NOT NULL OR o."rankStatus" = 'outside_top100')
-        AND (o.source = ${source} OR (${source} = 'combined' AND o.source IN ('gsc','ahrefs')))
-        AND k.active = true AND sk.active = true AND sk."topicId" IS NOT NULL
-      ORDER BY o."siteDomain", o."keywordId", o.region, o."collectedAt" DESC,
-        CASE WHEN o.source = 'ahrefs' AND o."rankStatus" <> 'no_data' THEN 0 WHEN o.source = 'gsc' THEN 1 ELSE 2 END,
-        o."importedAt" DESC
+      ${latestQueries}
     `),
     prisma.$queryRaw<VolumeRow[]>(Prisma.sql`
       /* dashboard:volumes */
       WITH eligible AS (
         SELECT DISTINCT k.id FROM "Keyword" k JOIN "SiteKeyword" sk ON sk."keywordId" = k.id
-        WHERE k.active = true AND sk.active = true AND sk."topicId" IS NOT NULL AND sk."siteDomain" IN (${domains})
+        WHERE k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL AND sk."siteDomain" IN (${domains})
       ), candidates AS (
-        SELECT v."keywordId", v.region, v.volume, v.source, v."fetchedAt", NULL::timestamp AS "importedAt", 1 AS preference
+        SELECT v."keywordId", v.region, v.volume, v.source, v."fetchedAt", NULL::timestamp AS "importedAt", 1 AS preference,
+          v."observedAt" AS "sourceDataDate"
         FROM "KeywordVolume" v JOIN eligible k ON k.id = v."keywordId"
         WHERE v.source IN ('ahrefs','csv') AND v.region IS NOT NULL
         UNION ALL
-        SELECT o."keywordId", o.region, o.volume, o.source, o."collectedAt", o."importedAt", 0 AS preference
+        SELECT o."keywordId", o.region, o.volume, o.source, o."collectedAt", o."importedAt", 0 AS preference,
+          o."dataUpdatedAt" AS "sourceDataDate"
         FROM "KeywordObservation" o JOIN eligible k ON k.id = o."keywordId"
         WHERE o.source = 'ahrefs' AND o.volume IS NOT NULL
+      ), current_values AS (
+        SELECT DISTINCT ON ("keywordId", region) "keywordId", region, volume, "fetchedAt" FROM candidates
+        ORDER BY "keywordId", region, CASE WHEN source = 'ahrefs' THEN 0 ELSE 1 END,
+          COALESCE("sourceDataDate", "fetchedAt") DESC, preference, "importedAt" DESC NULLS LAST
+      ), daily_samples AS (
+        -- Reimports of the same source data day count once. Positive demand
+        -- wins over a conflicting zero; undated Ahrefs zeros prove no age.
+        SELECT "keywordId", region, "sourceDataDate"::date AS day, MAX(volume) AS volume
+        FROM candidates GROUP BY "keywordId", region, "sourceDataDate"::date
+      ), histories AS (
+        SELECT "keywordId", region, jsonb_agg(jsonb_build_object('volume', volume,
+          'dataDate', TO_CHAR(day, 'YYYY-MM-DD')) ORDER BY day NULLS LAST) AS "volumeHistory"
+        FROM daily_samples GROUP BY "keywordId", region
       )
-      SELECT DISTINCT ON ("keywordId", region) "keywordId", region, volume, "fetchedAt" FROM candidates
-      ORDER BY "keywordId", region, CASE WHEN source = 'ahrefs' THEN 0 ELSE 1 END,
-        "fetchedAt" DESC, preference, "importedAt" DESC NULLS LAST
+      SELECT c.*, h."volumeHistory" FROM current_values c JOIN histories h
+        ON h."keywordId" = c."keywordId" AND h.region = c.region
     `),
     prisma.rankingImport.findFirst({ where: { siteDomain: { in: site === "all" ? SITES : [site] } }, orderBy: { importedAt: "desc" }, select: { importedAt: true } }),
     site === "all" ? Promise.resolve(null) : prisma.syncRun.findFirst({ orderBy: { startedAt: "desc" } }),
+    prisma.$queryRaw<RankingPageRow[]>(Prisma.sql`
+      /* dashboard:pages */
+      WITH latest_queries AS (${latestQueries}), eligible_pages AS (
+        SELECT p.* FROM "KeywordPageObservation" p
+        JOIN "Keyword" k ON k.id = p."keywordId"
+        JOIN "SiteKeyword" sk ON sk."siteDomain" = p."siteDomain" AND sk."keywordId" = p."keywordId"
+        WHERE p."siteDomain" IN (${domains}) AND k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL
+          AND (p.source = ${source} OR (${source} = 'combined' AND p.source IN ('gsc','ahrefs')))
+          AND (${period === "history"} OR
+            (p.source = 'gsc' AND ((p."periodStart" = ${week.start}::date AND p."periodEnd" = ${week.end}::date)
+              OR (p."periodStart" = p."periodEnd" AND p."periodEnd" BETWEEN ${week.start}::date AND ${week.end}::date)))
+            OR (p.source = 'ahrefs' AND p."dataUpdatedAt" IS NOT NULL AND
+              (p."dataUpdatedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date BETWEEN ${week.start}::date AND ${week.end}::date))
+      ), latest_pages AS (
+        SELECT DISTINCT ON (p."siteDomain", p."keywordId", p.region, p.source,
+          CASE WHEN ${splitDaily} AND p.source = 'gsc' AND p."periodStart" = p."periodEnd" THEN p."periodEnd" END) p.*
+        FROM eligible_pages p
+        ORDER BY p."siteDomain", p."keywordId", p.region, p.source,
+          CASE WHEN ${splitDaily} AND p.source = 'gsc' AND p."periodStart" = p."periodEnd" THEN p."periodEnd" END,
+          CASE WHEN p.source = 'ahrefs' THEN COALESCE(p."dataUpdatedAt", p."periodEnd"::timestamp, p."collectedAt")
+            ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
+          p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
+      ), reports AS (
+        SELECT "siteDomain", "keywordId", region, source, "periodStart", "periodEnd" FROM latest_queries
+        UNION SELECT "siteDomain", "keywordId", region, source, "periodStart", "periodEnd" FROM latest_pages
+      )
+      SELECT DISTINCT ON (p."siteDomain", p."keywordId", p.region, p.source, p."periodStart", p."periodEnd", p.url) p.*
+      FROM eligible_pages p JOIN reports r ON r."siteDomain" = p."siteDomain" AND r."keywordId" = p."keywordId"
+        AND r.region = p.region AND r.source = p.source
+        AND r."periodStart" IS NOT DISTINCT FROM p."periodStart" AND r."periodEnd" IS NOT DISTINCT FROM p."periodEnd"
+      ORDER BY p."siteDomain", p."keywordId", p.region, p.source, p."periodStart", p."periodEnd", p.url,
+        CASE WHEN p.source = 'ahrefs' THEN COALESCE(p."dataUpdatedAt", p."periodEnd"::timestamp, p."collectedAt")
+          ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
+        p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
+    `),
   ]);
   return assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
-    latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null);
+    latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null,
+    pages, reportingPeriod);
 }

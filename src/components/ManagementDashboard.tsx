@@ -16,6 +16,7 @@ import { useSeoSelection } from "@/components/useSeoSelection";
 import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
 import { postImportBatch } from "@/lib/import-client";
+import { KeywordReviewPanel } from "@/components/KeywordReviewPanel";
 const initialTopicForm = { text: "", type: "MAIN" as TopicType, parentId: "" };
 type ImportKeywordsResponse = {
   message?: string;
@@ -359,6 +360,7 @@ export function ManagementDashboard() {
         <details className="jsonPaste"><summary>或粘贴 JSON 数据</summary><textarea aria-label="粘贴采集 JSON 数据" placeholder="粘贴单个批次或 batches 文件内容" value={jsonText} disabled={importing} onChange={(event) => { setJsonText(event.target.value); setJsonFile(null); }} /></details>
         <button className="managePrimary" disabled={(!jsonFile && !jsonText.trim()) || importing}>{importProgress || "导入数据"}</button>
       </form>
+      <KeywordReviewPanel />
       <section className="collectorConnection">
         <div className="collectorInfo">
           <span className="manageCardIcon">

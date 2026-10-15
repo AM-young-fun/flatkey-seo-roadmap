@@ -4,7 +4,7 @@ import {
   SearchRegion
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { envString, isDatabaseConfigured } from "@/lib/env";
+import { envString, isDatabaseConfigured, isSerpMonitoringEnabled } from "@/lib/env";
 import {
   getRankBucket,
   REGION_CODES,
@@ -118,6 +118,15 @@ export async function markStaleRankingSyncRuns() {
 }
 
 export async function runDailyRankingSync() {
+  if (!isSerpMonitoringEnabled()) {
+    return {
+      status: "DISABLED" as const,
+      runId: null,
+      summary: null,
+      message: "排名抓取尚未启用，当前仅维护目标词和页面关联。"
+    };
+  }
+
   if (!isDatabaseConfigured()) {
     const now = new Date().toISOString();
 

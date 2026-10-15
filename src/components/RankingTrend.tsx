@@ -74,7 +74,7 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
         const values = raw as {axisValue:string;seriesName:string;value:number|null}[];
         const point = byDate.get(String(values[0]?.axisValue));
         if (!point) return "尚未建立词库基线";
-        return [`截至 ${point.date} 的总量`, ...values.filter(row=>row.value != null).map(row=>`${row.seriesName}：${Number(row.value).toLocaleString()} 个`), `排名记录更新于 ${point.asOf ?? point.date}`, point.asOf && point.asOf < point.date ? "沿用最近确认结果，未当作当天重新检测" : "已纳入截至该日的确认结果"].join("\n");
+        return [`截至 ${point.date} 已采集的报告记录`, ...values.filter(row=>row.value != null).map(row=>`${row.seriesName}：${Number(row.value).toLocaleString()} 个`), `排名记录更新于 ${point.asOf ?? point.date}`, point.asOf && point.asOf < point.date ? "沿用最近报告，未在当天重新检测" : "已纳入截至该日采集的来源报告"].join("\n");
       } },
       legend: { top: 0, textStyle: {color:"#70819a",fontSize:11} },
       grid: { left: 45, right: 25, top: 45, bottom: 40 },
@@ -92,9 +92,9 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [points, range.start, range.end]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近 7 天 · 截至每日的前 100 总量（含历史排名）</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>
-    {latest ? <p className="inventoryTrendTotal">截至 {latest.date}，前 100 总量 <strong>{latest.counts.reduce((sum,count)=>sum+count,0).toLocaleString()}</strong> 个{latest.asOf && latest.asOf < latest.date ? ` · 沿用 ${latest.asOf} 最近确认结果` : ""}</p> : null}
+    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近 7 天 · 来源报告中的前 100 记录（非实时名次）</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>
+    {latest ? <p className="inventoryTrendTotal">截至 {latest.date}，报告前 100 记录 <strong>{latest.counts.reduce((sum,count)=>sum+count,0).toLocaleString()}</strong> 个{latest.asOf && latest.asOf < latest.date ? ` · 沿用 ${latest.asOf} 最近报告` : ""}</p> : null}
     {error ? <div className="loadError"><span>趋势暂时无法读取</span><button onClick={()=>retry(value=>value+1)}>重新加载</button></div> : null}
-    {!points ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !points.length ? <p className="muted">尚未建立词库排名基线，暂时无法展示总量趋势。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}最近7天关键词排名数量趋势，${displayStart}至${displayEnd}，${points.length}个有数据日期`} /><p className="chartNote">{displayStart} 至 {displayEnd} · 每日总量包含历史确认的排名；没有新确认结果时沿用上次总量，仅展示有数据的日期。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">前 100 合计为四个排名区间之和，同一网站同一关键词只计一次。总量按每个关键词截至该日最近确认的排名计算，已确认排名一直保留，明确查到前 100 外才移出。有新确认结果时更新所属区间，没有新确认结果时总量保持不变；悬停可查看结果的真实更新日期。GSC 单日曝光词数量不作为词库总量，也不向首次有效采集之前反推历史排名。GSC 排名保留其原统计区间。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。</p></details></>}
+    {!points ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !points.length ? <p className="muted">尚未建立词库排名基线，暂时无法展示总量趋势。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}最近7天关键词排名数量趋势，${displayStart}至${displayEnd}，${points.length}个有数据日期`} /><p className="chartNote">{displayStart} 至 {displayEnd} · 按当时已采集的来源报告统计；没有新报告的日期沿用上次结果，不代表当天搜索可复现。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">前 100 合计为四个排名区间之和，同一网站同一关键词只计一次。每个关键词按截至该日可用报告的实际数据日期选取；更新的无数据报告会替代旧排名，但无数据不代表确认前 100 外。未重新采集时沿用上次报告，悬停可查看采集更新日期。GSC 单日曝光词数量不作为词库总量，也不向首次有效采集之前反推历史排名。GSC 排名保留其原统计区间。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。</p></details></>}
   </section>;
 }

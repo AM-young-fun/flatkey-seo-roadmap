@@ -9,7 +9,7 @@ export class DashboardReadError extends Error {
 // another full database read whenever a dashboard component mounts.
 export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.now, persistence?: DashboardPersistence) {
   const entries = new Map<string, { value?: DashboardResponse; updatedAt: number; body?: string; pending?: Promise<DashboardResponse> }>();
-  const keyFor = (site: string, source: string) => `${site}:${source}`;
+  const keyFor = (site: string, source: string) => `weekly-evidence-v1:${site}:${source}`;
   let generation = 0;
   const clear = () => { generation++; entries.clear(); persistence?.clear(); };
   return {
@@ -41,7 +41,7 @@ export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.n
         let payload: DashboardResponse | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const response = await fetcher(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}`, { cache: "no-store" });
+            const response = await fetcher(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
             if (!response.ok) {
               if (response.status === 401) clear();
               const failure = await response.json().catch(() => ({})) as { code?: string };

@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS "SiteKeyword" (
     CONSTRAINT "SiteKeyword_pkey" PRIMARY KEY ("siteDomain","keywordId")
 );
 
+-- Keep the source observation date separate from collection/import time.
+-- Existing rows stay undated: upload time cannot establish 60-day demand history.
+ALTER TABLE "KeywordVolume" ADD COLUMN IF NOT EXISTS "observedAt" TIMESTAMP(3);
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "exclusionReason" TEXT,
+ADD COLUMN IF NOT EXISTS "excludedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "restoredAt" TIMESTAMP(3);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "SiteKeywordTopic" (
     "siteDomain" TEXT NOT NULL,
@@ -257,4 +264,32 @@ CREATE TABLE IF NOT EXISTS "DailyRankingReport" (
  UNIQUE ("importId", "date", "region", "source")
 );
 CREATE INDEX IF NOT EXISTS "DailyRankingReport_region_date_siteDomain_source_collectedAt_idx" ON "DailyRankingReport"("region", "date", "siteDomain", "source", "collectedAt" DESC);
+-- Additive OKR curation metadata. Existing inventory remains research until
+-- an explicit authenticated application of the bundled audit.
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "pool" TEXT NOT NULL DEFAULT 'RESEARCH';
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "reviewStatus" TEXT NOT NULL DEFAULT 'UNREVIEWED';
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "mappingStatus" TEXT NOT NULL DEFAULT 'UNMAPPED';
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "candidateUrls" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "auditReason" TEXT;
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "protected" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "curatedAt" TIMESTAMP(3);
+ALTER TABLE "SiteKeyword" ADD COLUMN IF NOT EXISTS "curationId" TEXT;
+CREATE INDEX IF NOT EXISTS "SiteKeyword_siteDomain_pool_idx" ON "SiteKeyword"("siteDomain", "pool");
+CREATE TABLE IF NOT EXISTS "KeywordCurationAudit" (
+ "id" TEXT PRIMARY KEY, "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"("domain"),
+ "payloadHash" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'APPLIED',
+ "before" JSONB NOT NULL, "after" JSONB NOT NULL, "summary" JSONB NOT NULL,
+ "appliedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "restoredAt" TIMESTAMP(3)
+);
+CREATE INDEX IF NOT EXISTS "KeywordCurationAudit_siteDomain_appliedAt_idx" ON "KeywordCurationAudit"("siteDomain", "appliedAt");
+CREATE TABLE IF NOT EXISTS "KeywordContentTask" (
+ "id" TEXT PRIMARY KEY, "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"("domain"),
+ "auditId" TEXT NOT NULL REFERENCES "KeywordCurationAudit"("id"),
+ "plannedUrl" TEXT NOT NULL, "type" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'TODO',
+ "title" TEXT NOT NULL, "reason" TEXT NOT NULL, "keywords" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ "targetUrls" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[], "owner" TEXT, "dueAt" TIMESTAMP(3),
+ "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS "KeywordContentTask_siteDomain_status_idx" ON "KeywordContentTask"("siteDomain", "status");
+CREATE INDEX IF NOT EXISTS "KeywordContentTask_auditId_idx" ON "KeywordContentTask"("auditId");
 COMMIT;

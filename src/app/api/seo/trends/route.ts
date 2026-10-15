@@ -22,8 +22,8 @@ export async function GET(request: Request) {
     const saved = cache.get(key);
     if (saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });
     if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<Result> => {
-      // Daily stock includes every prior confirmed keyword. One seed before
-      // the window keeps a quiet week from losing the historical inventory.
+      // Historical report inventory as known on each collection day. A newer
+      // no_data report supersedes an older rank; report date determines recency.
       const rows = await prisma.$queryRaw<Array<{date:string;rank:number|null;siteDomain:string;source:string}>>`
         WITH update_days AS (
           SELECT "captureDate" AS day FROM "RankingCapture" c
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
           JOIN "Keyword" k ON k.id = o."keywordId"
           JOIN "SeoSite" site ON site.domain = o."siteDomain"
           WHERE o.region = ${region}::"SearchRegion" AND o."rankReported" = true
-            AND o.source IN ('gsc','ahrefs') AND (o.rank IS NOT NULL OR o."rankStatus" = 'outside_top100')
+            AND o.source IN ('gsc','ahrefs')
             AND o."siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc')
             AND sk.active = true AND sk."topicId" IS NOT NULL AND k.active = true AND site.active = true
             AND (o."collectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${range.end}::date
@@ -54,13 +54,11 @@ export async function GET(request: Request) {
           JOIN "Keyword" k ON k.id = o."keywordId"
           JOIN "SeoSite" site ON site.domain = o."siteDomain"
           WHERE o.region = ${region}::"SearchRegion" AND o."rankReported" = true AND o.source IN ('gsc','ahrefs')
-            AND (o.rank IS NOT NULL OR o."rankStatus" = 'outside_top100')
             AND o."siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc')
             AND sk.active = true AND sk."topicId" IS NOT NULL AND k.active = true AND site.active = true
           ORDER BY d.day, o."siteDomain", o."keywordId",
-            o."collectedAt" DESC,
-            CASE WHEN o.source = 'ahrefs' AND o."rankStatus" <> 'no_data' THEN 0 WHEN o.source = 'gsc' THEN 1 ELSE 2 END,
-            o."importedAt" DESC
+            COALESCE(o."periodEnd"::timestamp, o."dataUpdatedAt", o."collectedAt") DESC,
+            o."dataUpdatedAt" DESC NULLS LAST, o."collectedAt" DESC, o."importedAt" DESC, o.source ASC, o.id DESC
         ) SELECT TO_CHAR(d.day, 'YYYY-MM-DD') AS date, l.rank, COALESCE(l."siteDomain",'') AS "siteDomain", COALESCE(l.source,'') AS source FROM snapshot_days d LEFT JOIN latest l ON l.day = d.day
       `;
       const value: Result = { ...range, mode: "capture", points: inventoryTrendByDay(snapshotTrendPoints(rows), range.start, range.end), snapshot: null };

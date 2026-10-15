@@ -40,10 +40,11 @@ export async function GET(request: Request) {
   const targetDomain = normalizeDomain(new URL(request.url).searchParams.get("site") ?? process.env.SEO_TARGET_DOMAIN ?? "flatkey.ai");
   const site = await prisma.seoSite.findUnique({ where: { domain: targetDomain } });
   if (!site?.active) return NextResponse.json({ message: "网站未启用" }, { status: 400 });
+  const curationApplied = targetDomain === "flatkey.ai" && Boolean(await prisma.keywordCurationAudit.findFirst({ where: { siteDomain: targetDomain, status: "APPLIED" }, select: { id: true } }));
   const keywords = await prisma.siteKeyword.findMany({
-    where: { siteDomain: targetDomain, active: true, topicId: { not: null } }, include: { keyword: true, topic: true },
+    where: { siteDomain: targetDomain, active: true, keyword: { active: true }, topicId: { not: null }, ...(curationApplied ? { pool: "FORMAL" } : {}) }, include: { keyword: true, topic: true },
   });
-  return NextResponse.json({ targetDomain, ga4PropertyId: site.ga4PropertyId,
+  return NextResponse.json({ targetDomain, curationApplied, ga4PropertyId: site.ga4PropertyId,
     regions: ["US", "JP", "ES", "BR"],
     keywords: keywords.map((link) => ({ id: link.keywordId, keyword: link.keyword.text, topic: link.topic?.text ?? null, origin: link.origin, targetUrls: link.targetUrls })),
   }, { headers: { "Cache-Control": "no-store" } });

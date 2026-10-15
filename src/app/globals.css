@@ -1642,6 +1642,19 @@ a:focus-visible {
 
 /* Shared SEO header and reporting */
 .srOnly { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.evidenceSummary { display:flex; flex-direction:column; gap:6px; overflow-wrap:anywhere; }
+.evidenceSummary small { color:#70819a; font-size:11px; font-weight:400; }
+.keywordEvidenceDetails { padding:8px 20px; overflow-wrap:anywhere; }
+.keywordEvidenceDetails section { margin-bottom:20px; }
+.keywordEvidenceDetails li { margin:8px 0; }
+.keywordEvidenceDetails a { color:#2563eb; }
+.dailyEvidenceTable { width:100%; border-collapse:collapse; margin:12px 0; font-size:12px; }
+.dailyEvidenceTable th,.dailyEvidenceTable td { border-bottom:1px solid #e5eaf2; padding:8px; text-align:left; }
+.reviewToolbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:12px; }
+.reviewToolbar button { border:1px solid #dbe3ef; padding:8px 14px; border-radius:8px; background:#fff; color:#b42318; cursor:pointer; }
+.reviewToolbar button:disabled { opacity:.45; cursor:default; }
+.keywordReviewPanel { display:block; }
+.keywordReviewPanel .reviewToolbar { margin-top:16px; }
 .siteHeader { flex-wrap:wrap; gap:16px; padding:18px 0; }
 .headerFilters { display:flex; align-items:center; gap:8px; margin-left:auto; }
 .headerFilters select { border:1px solid var(--border); border-radius:8px; background:#fff; color:#526985; font-size:11px; height:36px; padding:0 9px; }
@@ -1762,6 +1775,52 @@ a:focus-visible {
 .overviewSummaryGrid .analyticsCard .eyebrow { margin-bottom:8px; }
 .overviewGrid { display:block; }
 .overviewGrid .graphPanel { width:100%; }
+/* Business keyword objectives and page coverage. */
+.okrIntro { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.okrCaptureState { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:14px 18px; margin:0 0 20px; border:1px solid #dbe4ef; border-radius:10px; background:#f6f9fd; color:#61738b; font-size:12px; line-height:1.7; }
+.okrCaptureState strong { color:#354b69; }
+.okrCaptureState > .textLink { margin-left:auto; }
+.okrUninitialized { border:1px solid #f1d59b; color:#8b6624; background:#fffaf0; border-radius:10px; padding:18px 20px; margin:18px 0; font-size:13px; line-height:1.8; }
+.okrUninitialized p { margin:8px 0 14px; }
+.okrUninitialized button,.okrRefresh { border:1px solid #dbe3ef; border-radius:7px; background:white; color:#526985; font-size:12px; padding:8px 12px; cursor:pointer; }
+.okrApplyActions { display:flex; flex-wrap:wrap; gap:10px; }
+.okrPreview { margin-top:20px; padding-top:20px; border-top:1px solid #ecdcbf; }
+.okrPreview h2 { font-size:16px; margin:0 0 10px; }
+.okrPreview dl { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.okrPreview dl div { background:#fff; padding:12px 16px; border:1px solid #eee1c9; border-radius:8px; }
+.okrPreview dt { color:#8d7959; font-size:12px; }
+.okrPreview dd { margin:6px 0 0; color:#5b492b; font-size:24px; font-weight:600; }
+.okrPreview ul { margin:14px 0; padding-left:20px; }
+.okrPreview li { padding:3px 0; }
+.okrUninitialized .okrApplyPrimary { background:#253e60; color:white; border-color:#253e60; padding:11px 18px; font-weight:600; }
+.okrUninitialized button:disabled { opacity:.5; cursor:default; }
+.okrPreview > small { display:block; margin-top:12px; font-size:11px; color:#9d8c72; overflow-wrap:anywhere; }
+.okrSummary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:22px 0; }
+.okrSummary article { border:1px solid var(--border); background:#fff; border-radius:12px; padding:20px; }
+.okrSummary span { color:#72829a; font-size:12px; }
+.okrSummary strong { display:block; font-size:30px; color:#253d5e; margin:12px 0 8px; }
+.okrSummary small { color:#8a98ab; font-size:11px; line-height:1.7; }
+.okrSection { margin:24px 0; border:1px solid var(--border); border-radius:14px; background:#fff; overflow:hidden; padding:22px 24px; }
+.okrSectionHeading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; }
+.okrSectionHeading h2 { font-size:17px; margin:0 0 8px; }
+.okrSectionHeading h2 span { color:#91a0b4; font-weight:500; margin-left:8px; }
+.okrSectionHeading p { color:#7e8da3; line-height:1.8; font-size:12px; margin:0; }
+.okrPoolTabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #edf1f6; padding-bottom:16px; margin-bottom:18px; }
+.okrPoolTabs button { display:flex; align-items:center; gap:12px; border:1px solid transparent; border-radius:8px; background:#f5f7fa; color:#75859b; padding:9px 14px; cursor:pointer; font-size:12px; }
+.okrPoolTabs button.selected { background:#eaf1fb; color:#315d95; border-color:#cdddf2; font-weight:600; }
+.okrPoolTabs span { min-width:20px; color:#8a9ab0; }
+.okrToolbar { margin:0 0 12px; padding:0; }
+.okrSection .chartNote { margin-bottom:14px; }
+.okrReason { display:block; max-width:380px; color:#64768f; line-height:1.8; font-size:12px; overflow-wrap:anywhere; }
+.okrProtected { display:flex; align-items:center; gap:5px; }
+.okrSection .ant-tag { white-space:normal; line-height:1.8; }
+.okrSection .keywordEvidenceDetails { padding:14px 12px; font-size:12px; line-height:1.9; }
+.okrSection .keywordEvidenceDetails h3 { margin:20px 0 10px; font-size:13px; }
+.okrSection .keywordEvidenceDetails .observedUrl { max-width:100%; }
+.okrRestore { padding:6px 10px; color:#a05f36; border:1px solid #eddccd; border-radius:7px; background:#fffaf6; cursor:pointer; font-size:11px; }
+.okrRestore:disabled,.okrRefresh:disabled { opacity:.5; cursor:default; }
+@media(max-width:900px) { .okrSummary { grid-template-columns:repeat(2,minmax(0,1fr)); } .okrIntro { align-items:flex-start; flex-direction:column; gap:14px; } }
+@media(max-width:600px) { .okrSection { padding:18px 14px; } .okrSummary { gap:10px; } .okrSummary article { padding:16px; } .okrSummary strong { font-size:25px; } .okrCaptureState > .textLink { margin-left:0; } .okrPoolTabs { gap:6px; } .okrPoolTabs button { padding:8px 10px; gap:8px; } .okrPreview dl { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:1050px) {
   .overviewSummaryGrid { grid-template-columns:minmax(0,1fr) 310px; gap:16px; }
   .overviewSummaryGrid .analyticsCard { padding:18px; }

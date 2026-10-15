@@ -1,16 +1,22 @@
-import { KeywordType, type SearchRegion } from "@prisma/client";
+import { KeywordType, Prisma, type SearchRegion } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { parseCsv, cleanCsvCell } from "@/lib/csv";
 import { isDatabaseConfigured } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
+import { keywordRelevance } from "@/lib/keyword-relevance";
+import { cleanupSiteKeywords } from "@/lib/services/keyword-cleanup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const MAX_CSV_BYTES = 1_000_000;
 const HEADER_KEYWORD_NAMES = new Set(["keyword", "keywords", "关键词"]);
 const HEADER_TOPIC_NAMES = new Set(["topic", "所属话题", "话题", "parent topic", "topic name"]);
+const OBSERVED_AT_HEADERS = new Set(["volume_observed_at", "volume observed at", "声量数据日期", "搜索量数据日期"]);
+const observedAtDate = z.union([z.iso.date(), z.iso.datetime({ offset: true })]).refine(value => Date.parse(value) <= Date.now() + 300000, "声量来源日期不能在未来");
 const VOLUME_HEADERS: Record<SearchRegionCode, Set<string>> = {
   US: new Set(["volume", "us_volume", "us volume", "美国声量", "声量"]),
   JP: new Set(["jp_volume", "jp volume", "日本声量"]),
@@ -30,12 +36,14 @@ type ImportEntry = {
   keyword: string;
   topic: string;
   volumes: Partial<Record<SearchRegionCode, number>>;
+  observedAt: Date | null;
 };
 
 type HeaderIndexes = {
   keyword: number;
   topic: number;
   volumes: Partial<Record<SearchRegionCode, number>>;
+  observedAt?: number;
 };
 
 function parseVolume(value: string): number | null {
@@ -72,7 +80,8 @@ function headerIndexes(row: string[]): HeaderIndexes | null {
   return {
     keyword: keywordIndex,
     topic: topicIndex,
-    volumes
+    volumes,
+    observedAt: normalized.findIndex((cell) => OBSERVED_AT_HEADERS.has(cell))
   };
 }
 
@@ -123,6 +132,13 @@ function parseImportEntries(csvText: string): {
       return;
     }
 
+    const observedText = indexes.observedAt == null || indexes.observedAt < 0 ? "" : cleanCsvCell(row[indexes.observedAt]);
+    const observed = observedText ? observedAtDate.safeParse(observedText) : null;
+    if (observed && !observed.success) {
+      errors.push({ row: rowNumber, keyword, topic, message: "声量来源日期须为有效的 ISO 日期或带时区时间，且不能在未来" });
+      return;
+    }
+
     const normalizedKeyword = keyword.toLowerCase();
     if (seenKeywords.has(normalizedKeyword)) {
       skipped += 1;
@@ -148,7 +164,8 @@ function parseImportEntries(csvText: string): {
       row: rowNumber,
       keyword,
       topic,
-      volumes
+      volumes,
+      observedAt: observed?.success ? new Date(observed.data) : null
     });
   });
 
@@ -244,87 +261,65 @@ export async function POST(request: Request) {
 
   let created = 0;
   let updated = 0;
+  let excluded = 0;
   const importErrors = [...parsedRows.errors];
   const topicTexts = Array.from(new Set(parsedRows.entries.map((entry) => entry.topic)));
   const keywordTexts = Array.from(new Set(parsedRows.entries.map((entry) => entry.keyword)));
 
-  const [topics, existingKeywords] = await Promise.all([
-    prisma.topic.findMany({
-      where: {
-        text: {
-          in: topicTexts
-        },
-        active: true, sites: { some: { siteDomain } }
-      },
-      select: {
-        id: true,
-        text: true
-      }
-    }),
-    prisma.keyword.findMany({
-      where: {
-        text: {
-          in: keywordTexts
-        }
-      },
-      select: {
-        id: true,
-        text: true
-      }
-    })
-  ]);
-
-  const topicByText = new Map(topics.map((topic) => [topic.text, topic]));
-  const existingKeywordByText = new Map(existingKeywords.map((keyword) => [keyword.text, keyword]));
-  const validEntries = parsedRows.entries.filter((entry) => {
-    if (topicByText.has(entry.topic)) {
-      return true;
-    }
-
-    importErrors.push({
-      row: entry.row,
-      keyword: entry.keyword,
-      topic: entry.topic,
-      message: "所属话题未找到，请先导入话题"
-    });
-    return false;
+  const topics = await prisma.topic.findMany({
+    where: {
+      text: { in: topicTexts },
+      active: true, sites: { some: { siteDomain } }
+    },
+    select: { id: true, text: true }
   });
 
-  if (validEntries.length === 0) {
-    return NextResponse.json(
-      {
-        message: "CSV 没有可写入的关键词",
-        created: 0,
-        updated: 0,
-        skipped: parsedRows.skipped + importErrors.length,
-        errors: importErrors
-      },
-      {
-        status: 400
-      }
-    );
-  }
+  const topicByText = new Map(topics.map((topic) => [topic.text, topic]));
 
-  await prisma.$transaction(async (transaction) => {
+  const cleanup = await prisma.$transaction(async (transaction) => {
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${siteDomain}`}))`;
+    const existingKeywords = await transaction.$queryRaw<Array<{ id: string; text: string }>>(Prisma.sql`
+      SELECT "id", "text" FROM "Keyword" WHERE lower("text") IN (${Prisma.join(keywordTexts.map((text) => text.toLowerCase()))})
+    `);
+    const priorLinks = await transaction.siteKeyword.findMany({ where: { siteDomain, keywordId: { in: existingKeywords.map((keyword) => keyword.id) } } });
+    const linksById = new Map(priorLinks.map((link) => [link.keywordId, link]));
+    const unrelatedTexts = new Set(keywordTexts.filter((text) => keywordRelevance(siteDomain, text).status === "unrelated").map((text) => text.toLowerCase()));
+    const excludedTexts = new Set([...unrelatedTexts, ...existingKeywords.filter((keyword) => linksById.get(keyword.id)?.active === false).map((keyword) => keyword.text.toLowerCase())]);
+    const groups = new Map<string, typeof existingKeywords>();
+    for (const keyword of existingKeywords) groups.set(keyword.text.toLowerCase(), [...(groups.get(keyword.text.toLowerCase()) ?? []), keyword]);
     const volumeRows: Array<{
       keywordId: string;
       region: SearchRegion;
       volume: number;
       source: string;
+      observedAt: Date | null;
     }> = [];
 
-    for (const entry of validEntries) {
+    for (const entry of parsedRows.entries) {
+      if (excludedTexts.has(entry.keyword.toLowerCase())) {
+        excluded += 1;
+        continue;
+      }
       const topic = topicByText.get(entry.topic);
 
       if (!topic) {
+        importErrors.push({ row: entry.row, keyword: entry.keyword, topic: entry.topic, message: "所属话题未找到，请先导入话题" });
         continue;
       }
 
-      const existingKeyword = existingKeywordByText.get(entry.keyword);
+      const group = groups.get(entry.keyword.toLowerCase()) ?? [];
+      const tracked = group.filter((keyword) => linksById.get(keyword.id)?.active);
+      const candidates = tracked.length ? tracked : group;
+      const existingKeyword = candidates.find((keyword) => keyword.text === entry.keyword) ?? candidates.find((keyword) => keyword.text === entry.keyword.toLowerCase()) ?? (candidates.length === 1 ? candidates[0] : undefined);
+      if (candidates.length && !existingKeyword) {
+        importErrors.push({ row: entry.row, keyword: entry.keyword, topic: entry.topic, message: "关键词大小写匹配不唯一" });
+        continue;
+      }
+      const curated = Boolean(existingKeyword && linksById.get(existingKeyword.id)?.curationId);
       const usVolume = entry.volumes.US ?? 0;
       const savedKeyword = await transaction.keyword.upsert({
         where: {
-          text: entry.keyword
+          text: existingKeyword?.text ?? entry.keyword
         },
         create: {
           text: entry.keyword,
@@ -334,9 +329,8 @@ export async function POST(request: Request) {
           active: true
         },
         update: {
-          topicId: topic.id,
-          ...(entry.volumes.US !== undefined ? { defaultVolume: usVolume } : {}),
-          active: true
+          ...(!curated ? { topicId: topic.id } : {}),
+          ...(entry.volumes.US !== undefined ? { defaultVolume: usVolume } : {})
         },
         select: {
           id: true
@@ -349,8 +343,8 @@ export async function POST(request: Request) {
         created += 1;
       }
 
-      await transaction.siteKeyword.upsert({ where: { siteDomain_keywordId: { siteDomain, keywordId: savedKeyword.id } }, create: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id }, update: { topicId: topic.id, active: true } });
-      await transaction.siteKeywordTopic.upsert({ where: { siteDomain_keywordId_topicId: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id } }, create: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id }, update: {} });
+      await transaction.siteKeyword.upsert({ where: { siteDomain_keywordId: { siteDomain, keywordId: savedKeyword.id } }, create: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id }, update: curated ? {} : { topicId: topic.id } });
+      if (!curated) await transaction.siteKeywordTopic.upsert({ where: { siteDomain_keywordId_topicId: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id } }, create: { siteDomain, keywordId: savedKeyword.id, topicId: topic.id }, update: {} });
       REGION_CODES.forEach((region) => {
         const volume = entry.volumes[region];
 
@@ -362,7 +356,8 @@ export async function POST(request: Request) {
           keywordId: savedKeyword.id,
           region: region as SearchRegion,
           volume,
-          source: "csv"
+          source: "csv",
+          observedAt: entry.observedAt
         });
       });
     }
@@ -372,12 +367,20 @@ export async function POST(request: Request) {
         data: volumeRows
       });
     }
-  });
+    return created + updated + excluded > 0 ? cleanupSiteKeywords(transaction, siteDomain) : null;
+  }, { timeout: 55_000, maxWait: 5000 });
+
+  if (created + updated + excluded === 0) return NextResponse.json({
+    message: "CSV 没有可写入的关键词", created, updated, excluded,
+    skipped: parsedRows.skipped + importErrors.length, errors: importErrors,
+  }, { status: 400 });
 
   return NextResponse.json({
     created,
     updated,
-    skipped: parsedRows.skipped + importErrors.length,
+    excluded,
+    cleanup,
+    skipped: parsedRows.skipped + importErrors.length + excluded,
     errors: importErrors
   });
 }

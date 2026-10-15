@@ -1,11 +1,10 @@
 import type { GoogleRankResult } from "@/lib/types";
 import {
-  demoRankFor,
   REGIONS,
   type SearchRegionCode,
   urlMatchesDomain
 } from "@/lib/seo";
-import { envBool, envInt, envString } from "@/lib/env";
+import { envBool, envInt, envString, isSerpMonitoringEnabled } from "@/lib/env";
 
 type SerpApiOrganicResult = {
   position?: number;
@@ -22,30 +21,19 @@ function timeoutSignal(milliseconds: number): AbortSignal {
   return AbortSignal.timeout(milliseconds);
 }
 
-function demoGoogleResult(keyword: string, region: SearchRegionCode): GoogleRankResult {
-  const rank = demoRankFor(keyword, region);
-
-  return {
-    rank,
-    url: rank ? `https://example.com/${encodeURIComponent(keyword)}` : null,
-    title: rank ? `${keyword} - Example` : null,
-    rawCount: rank ? 50 : 0,
-    provider: "mock"
-  };
-}
-
 export async function fetchGoogleRanking(
   keyword: string,
   region: SearchRegionCode,
   targetDomain: string
 ): Promise<GoogleRankResult> {
+  if (!isSerpMonitoringEnabled()) throw new Error("排名抓取尚未启用");
   const provider = envString("GOOGLE_SEARCH_PROVIDER", "serpapi");
   const apiKey = envString("SERPAPI_API_KEY");
   const disabled = envBool("DISABLE_EXTERNAL_FETCH", false);
 
-  if (disabled || provider === "mock" || !apiKey || !targetDomain) {
-    return demoGoogleResult(keyword, region);
-  }
+  if (disabled) throw new Error("Google 搜索结果采集已停用，不能生成真实排名");
+  if (provider === "mock") throw new Error("演示排名不能用于真实排名监控");
+  if (!apiKey || !targetDomain) throw new Error("缺少 Google 搜索采集配置，当前排名尚未核验");
 
   if (provider !== "serpapi") {
     throw new Error(`Unsupported GOOGLE_SEARCH_PROVIDER: ${provider}`);

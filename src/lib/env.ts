@@ -25,3 +25,9 @@ export function envBool(name: string, fallback = false): boolean {
 export function isDatabaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
+
+// Provider credentials alone must never start paid rank checks. Enabling them
+// is a separate operational decision after the target pool has been approved.
+export function isSerpMonitoringEnabled(): boolean {
+  return process.env.SERP_MONITORING_ENABLED === "true" && !envBool("DISABLE_EXTERNAL_FETCH");
+}

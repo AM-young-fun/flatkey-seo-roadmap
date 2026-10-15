@@ -7,5 +7,5 @@ export const maxDuration = 300;
 
 export async function POST() {
   const result = await runDailyRankingSync();
-  return NextResponse.json(result);
+  return NextResponse.json(result, { status: result.status === "DISABLED" ? 409 : 200 });
 }

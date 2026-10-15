@@ -35,11 +35,11 @@ export function Dashboard() {
         <aside className="analyticsColumn">
           <article className="analyticsCard">
             <p className="eyebrow">RANKING COVERAGE</p>
-            <h2>全词库排名覆盖率</h2>
+            <h2>来源报告排名覆盖率</h2>
             <div
               className="coverageDonut"
               role="img"
-              aria-label={`已有前100排名 ${formatPercent(stats.ranked)}，暂无前100排名 ${formatPercent(stats.unranked)}`}
+              aria-label={`报告前100记录 ${formatPercent(stats.ranked)}，无前100记录 ${formatPercent(stats.unranked)}`}
               style={{
                 background: stats.total
                   ? `conic-gradient(#10b981 0% ${stats.percent(stats.ranked)}%, #e8edf3 ${stats.percent(stats.ranked)}% 100%)`
@@ -48,14 +48,14 @@ export function Dashboard() {
             >
               <div>
                 <strong>{formatPercent(stats.ranked)}</strong>
-                <span>已有前 100 排名</span>
+                <span>报告前 100 记录</span>
               </div>
             </div>
             <div className="coverageRows">
               <p>
                 <span>
                   <i style={{ background: "#10b981" }} />
-                  已有前 100 排名
+                  报告前 100 记录
                 </span>
                 <b>
                   {ready ? stats.ranked : "—"}
@@ -105,12 +105,12 @@ export function Dashboard() {
               ))}
             </div>
             <p className="chartNote">
-              各区间互不重叠，按每个词最近一次确认的排名统计；占比以完整词库为分母。
+              各区间互不重叠，按数据日期最新的来源报告统计；包含 GSC 区间均值，不代表实时搜索名次。
             </p>
           </article>
         </aside>
       </section>
-      <div className="dailySnapshotHeading"><strong>全词库排名总览</strong><span>每个词使用最近一次确认的排名，包含历史采集结果；当天没有曝光不清空旧排名，明确查到前 100 外时才更新。</span></div>
+      <div className="dailySnapshotHeading"><strong>业务词库来源记录</strong><span>按真实统计期或来源更新日期选取报告；本期无数据不沿用同来源旧排名。查看明细可分别核对 GSC、Ahrefs 和实际页面。</span></div>
       {error ? (
         <div className="loadError" role="alert">
           <span>{error}</span>
@@ -154,7 +154,7 @@ export function Dashboard() {
         <span>
           {hasGsc
             ? "包含 GSC 区间平均排名，悬停可查看来源、统计区间和采集日期"
-            : "每个关键词以最近一次确认的排名为准"}
+            : "每个关键词以最新数据日期的来源报告为准；当前 Google 搜索未核验"}
         </span>
         <span>每天 10:30 更新 · 北京时间</span>
       </footer>

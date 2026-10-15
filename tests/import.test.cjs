@@ -31,8 +31,9 @@ const {
   readImportJson,
 } = require("../src/lib/ranking-import.ts");
 const { displayBucket, rankingStats, matchesRanking } = require("../src/lib/rank-display.ts");
+const { compareRankingObservations, matchesWeeklyRanking, isDailyRanking } = require("../src/lib/ranking-evidence.ts");
 const { Prisma } = require("@prisma/client");
-let batches, observations, failWrite, captures, trafficRows, dailyRows;
+let batches, observations, pageObservations, failWrite, captures, trafficRows, dailyRows;
 const keywords = [
   {
     id: "keyword-1",
@@ -53,6 +54,7 @@ const keywords = [
 ];
 const db = {
   seoSite: { findUnique: async ({ where }) => ["flatkey.ai", "rackrate.org"].includes(where.domain) ? { domain: where.domain, active: true, ga4PropertyId: null } : null },
+  keywordCurationAudit: { findFirst: async () => null },
   siteKeyword: { findMany: async ({where}) => where.siteDomain === "flatkey.ai" ? keywords.map(keyword => ({ keyword, keywordId: keyword.id, topic: keyword.topic, origin: "PLANNED", targetUrls: [], active: true, topicId: "topic-1", sourceUrl: null })) : [] },
   keyword: { findMany: async ({where}) => ["rackrate.org", "modelfit.cc"].includes(where.siteLinks?.some?.siteDomain) ? [] : keywords.filter(keyword => !where.id?.in || where.id.in.includes(keyword.id)) },
   rankingImport: {
@@ -84,9 +86,19 @@ const db = {
     if (sql.includes("dashboard:topics")) return values.includes("flatkey.ai") ? [{siteDomain:"flatkey.ai",id:"topic-1",text:"Claude",type:"MAIN",parentId:null,parentIds:[]}] : [];
     if (sql.includes("dashboard:keywords")) return values.includes("flatkey.ai") ? keywords.map(k=>({...k,siteDomain:"flatkey.ai",parentIds:[],topicText:k.topic.text,topicTexts:[],origin:"PLANNED",targetUrls:[]})) : [];
     if (sql.includes("dashboard:ranks")) {
-      const source = values.at(-1);
-      const rows = observations.filter(row=>values.includes(row.siteDomain) && row.rankReported && (row.rank != null || row.rankStatus === "outside_top100") && (source === "combined" || row.source === source)).sort((a,b)=>b.collectedAt-a.collectedAt || b.importedAt-a.importedAt);
-      const seen=new Set();return rows.filter(row=>{const key=`${row.siteDomain}:${row.keywordId}:${row.region}`;if(seen.has(key))return false;seen.add(key);return true;});
+      const source = values.find(value=>["combined","gsc","ahrefs"].includes(value));
+      const dates = values.filter(value=>typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value));
+      const period = sql.includes("dashboard:weekly") ? {start:dates[0],end:dates[1]} : null;
+      const rows = observations.filter(row=>values.includes(row.siteDomain) && row.rankReported && (source === "combined" || row.source === source) &&
+        (!period || matchesWeeklyRanking(row,period) || isDailyRanking(row,period))).sort((a,b)=>compareRankingObservations(b,a));
+      const seen=new Set();return rows.filter(row=>{const key=`${row.siteDomain}:${row.keywordId}:${row.region}:${row.source}:${period && isDailyRanking(row,period) ? row.periodEnd.toISOString() : ""}`;if(seen.has(key))return false;seen.add(key);return true;});
+    }
+    if (sql.includes("dashboard:pages")) {
+      const source = values.find(value=>["combined","gsc","ahrefs"].includes(value));
+      const dates = values.filter(value=>typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value));
+      const period = sql.includes("dashboard:weekly") ? {start:dates[0],end:dates[1]} : null;
+      return pageObservations.filter(row=>values.includes(row.siteDomain) && (source === "combined" || row.source === source) &&
+        (!period || matchesWeeklyRanking(row,period) || isDailyRanking(row,period)));
     }
     if (sql.includes("dashboard:volumes")) {
       const rows=await db.keywordObservation.findMany({where:{source:"ahrefs",volume:{not:null}},distinct:["keywordId","region"]});
@@ -119,7 +131,7 @@ const db = {
   },
   $transaction: async (callback) => {
     const stagedBatches = [],
-      stagedRows = [];
+      stagedRows = [], stagedPages = [];
     const result = await callback({
       $executeRaw: db.$executeRaw,
       $queryRaw: async () => keywords,
@@ -157,9 +169,16 @@ const db = {
           );
         },
       },
+      keywordPageObservation: {
+        createMany: async ({ data }) => {
+          if (failWrite) throw new Error("simulated write failure");
+          stagedPages.push(...data.map(row=>({...row, importedAt:new Date()})));
+        },
+      },
     });
     batches.push(...stagedBatches);
     observations.push(...stagedRows);
+    pageObservations.push(...stagedPages);
     return result;
   },
 };
@@ -202,6 +221,7 @@ const request = (body, token = "test-import-key") =>
 beforeEach(() => {
   batches = [];
   observations = [];
+  pageObservations = [];
   captures = [];
   trafficRows = [];
   dailyRows = [];
@@ -418,7 +438,7 @@ test("display tiers handle all boundaries and cumulative statistics", () => {
   assert.equal(rankingStats([], "US").percent(0), 0);
 });
 
-test("dashboard shows imported GSC fractions, independent zero volume, and ignores older backfills", async (t) => {
+test("dashboard preserves GSC fractions, keeps zero volume and selects latest source data including no_data", async (t) => {
   let now = Date.now();
   t.mock.method(Date, "now", () => now);
   await route.POST(
@@ -435,7 +455,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
       ]),
     ),
   );
-  let data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
+  let data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc&period=history"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");
   assert.equal(data.keywords[0].latestRanks.US.periodEnd, "2026-10-09");
@@ -456,7 +476,7 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
     }),
   );
   now += 31000;
-  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
+  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc&period=history"))).json();
   assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(
     data.keywords[0].lastSyncedAt,
@@ -476,10 +496,20 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
     }),
   );
   now += 31000;
-  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
-  // A no-exposure report does not clear the last confirmed ranking.
-  assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
+  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc&period=history"))).json();
+  // The latest report is shown as unknown, rather than reviving a historical rank.
+  assert.equal(data.keywords[0].latestRanks.US.rank, null);
+  assert.equal(data.keywords[0].latestRanks.US.rankStatus, "no_data");
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");
+  assert.equal(data.keywords[0].rankingEvidence.US[0].periodEnd, "2026-10-10");
+  await route.POST(request({
+    ...batch([{...gsc,rank:1,collectedAt:"2026-10-12T02:30:00Z",periodEnd:"2026-10-08"}]),
+    requestId:"old-report-read-later",
+  }));
+  now += 31000;
+  data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc&period=history"))).json();
+  assert.equal(data.keywords[0].latestRanks.US.rank, null);
+  assert.equal(data.keywords[0].latestRanks.US.periodEnd, "2026-10-10");
 });
 
 test("import credential never bypasses authentication on other APIs", async () => {
@@ -603,6 +633,65 @@ test("website and ranking-source filters cannot mix observations", async () => {
   assert.equal(other.keywords.length,0);
 });
 
+test("dashboard keeps latest GSC and Ahrefs reports independent even when the newest source has no_data", async () => {
+  assert.equal((await route.POST(request(batch([
+    gsc,
+    {keyword:"claude api",region:"US",source:"ahrefs",collectedAt,rank:40,dataUpdatedAt:"2026-10-08T12:00:00Z"},
+  ])))).status,201);
+  let data = await loadDashboard("flatkey.ai","combined","history");
+  assert.deepEqual(data.keywords[0].rankingEvidence.US.map(row=>[row.source,row.rank]),[["gsc",12.4],["ahrefs",40]]);
+  assert.equal(data.keywords[0].latestRanks.US.source,"gsc");
+  assert.equal((await route.POST(request({
+    ...batch([{...gsc,rank:null,rankStatus:"no_data",periodEnd:"2026-10-10",collectedAt:"2026-10-11T02:30:00Z"}]),
+    requestId:"source-no-data",
+  }))).status,201);
+  data = await loadDashboard("flatkey.ai","combined","history");
+  assert.deepEqual(data.keywords[0].rankingEvidence.US.map(row=>[row.source,row.rank]),[["gsc",null],["ahrefs",40]]);
+  assert.equal(data.keywords[0].latestRanks.US.rankStatus,"no_data");
+  const ahrefsOnly = await loadDashboard("flatkey.ai","ahrefs","history");
+  assert.equal(ahrefsOnly.keywords[0].rankingEvidence.US.length,1);
+  assert.equal(ahrefsOnly.keywords[0].latestRanks.US.rank,40);
+});
+
+test("dashboard joins exact-period page evidence while pages-only imports cannot invent a query rank", async () => {
+  assert.equal((await route.POST(request({
+    ...batch(),pages:[{...gsc,url:"https://flatkey.ai/claude",rank:18.6,impressions:8,clicks:1}],
+  }))).status,201);
+  let data = await loadDashboard("flatkey.ai","gsc","history");
+  const query = data.keywords[0].rankingEvidence.US.find(row=>row.scope==="query");
+  assert.equal(query.rank,12.4);
+  assert.equal(query.pages[0].rank,18.6);
+  assert.equal(query.pages[0].impressions,8);
+  assert.equal(query.url,null);
+  assert.equal((await route.POST(request({
+    requestId:"pages-jp-only",targetDomain:"flatkey.ai",
+    pages:[{...gsc,region:"JP",url:"https://flatkey.ai/jp/claude",rank:4.8}],
+  }))).status,201);
+  data = await loadDashboard("flatkey.ai","combined","history");
+  assert.equal(data.keywords[0].latestRanks.JP,null);
+  assert.equal(data.keywords[0].rankingEvidence.JP[0].scope,"pages");
+  assert.equal(data.keywords[0].rankingEvidence.JP[0].pages[0].rank,4.8);
+});
+
+test("default dashboard filters the rolling week before choosing latest source reports", async () => {
+  observations.push(
+    {...gsc,keywordId:"keyword-1",siteDomain:"flatkey.ai",rankReported:true,rankStatus:"ranked",periodStart:new Date("2026-10-08"),periodEnd:new Date("2026-10-14"),collectedAt:new Date("2026-10-15T01:30:00Z"),importedAt:new Date("2026-10-15T01:31:00Z")},
+    {...gsc,keywordId:"keyword-1",siteDomain:"flatkey.ai",rank:1,rankReported:true,rankStatus:"ranked",periodStart:new Date("2026-09-17"),periodEnd:new Date("2026-10-14"),collectedAt:new Date("2026-10-15T02:30:00Z"),importedAt:new Date("2026-10-15T02:31:00Z")},
+    {...gsc,keywordId:"keyword-1",siteDomain:"flatkey.ai",rank:5,rankReported:true,rankStatus:"ranked",periodStart:new Date("2026-10-12"),periodEnd:new Date("2026-10-12"),collectedAt:new Date("2026-10-15T02:30:00Z"),importedAt:new Date("2026-10-15T02:31:00Z")},
+  );
+  const data = await loadDashboard("flatkey.ai","gsc","week",new Date("2026-10-15T06:30:00Z"));
+  assert.equal(data.reportingPeriod.start,"2026-10-08");
+  assert.equal(data.reportingPeriod.end,"2026-10-14");
+  assert.equal(data.keywords[0].latestRanks.US.rank,12.4);
+  assert.equal(data.keywords[0].rankingEvidence.US[0].daily[0].rank,5);
+  const history = await loadDashboard("flatkey.ai","gsc","history");
+  assert.equal(history.keywords[0].latestRanks.US.rank,1);
+  observations.splice(0,1);
+  const noWeeklyReport = await loadDashboard("flatkey.ai","gsc","week",new Date("2026-10-15T06:30:00Z"));
+  assert.equal(noWeeklyReport.keywords[0].latestRanks.US,null);
+  assert.equal(noWeeklyReport.keywords[0].rankingEvidence.US[0].scope,"daily");
+});
+
 test("partial captures must be explicitly sealed and a completed capture rejects new writes", async () => {
   const capture = { id: "site-2026-10-10", date: "2026-10-10", region: "US", source: "gsc", coverage: "site_top100", complete: false };
   assert.equal((await route.POST(request({...batch(),capture}))).status,201);
@@ -689,7 +778,7 @@ test("summary bulk read does not repeat queries per site or retrieve a legacy sy
   t.mock.method(db.syncRun,"findFirst",async()=>{throw new Error("unneeded sync read");});
   const value=await loadDashboard("all","combined");
   assert.equal(value.keywords.length,1);
-  assert.equal(reads,4);
+  assert.equal(reads,5);
 });
 
 const { createDashboardStore } = require("../src/lib/dashboard-client.ts");

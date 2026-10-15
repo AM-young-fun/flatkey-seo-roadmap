@@ -1,8 +1,8 @@
 const TEMPLATE_ROWS = [
-  ["keyword", "topic", "us_volume", "jp_volume", "es_volume", "br_volume"],
-  ["ai form builder", "AI Form Builder", "1200", "180", "90", "70"],
-  ["best ai form builder", "AI Form Builder", "450", "60", "30", "20"],
-  ["typeform ai alternative", "AI Form Builder", "250", "", "", ""]
+  ["keyword", "topic", "us_volume", "jp_volume", "es_volume", "br_volume", "volume_observed_at"],
+  ["llm api routing", "LLM API Routing", "", "", "", "", ""],
+  ["llm api fallback routing", "Fallback Routing for LLM APIs", "", "", "", "", ""],
+  ["speech to text api routing", "Speech-to-Text API Routing", "", "", "", "", ""]
 ];
 
 function csvEscape(value: string): string {

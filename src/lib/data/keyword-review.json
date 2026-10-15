@@ -1,0 +1,1240 @@
+{
+  "reviewedAt": "2026-10-15",
+  "scope": {
+    "flatkey.ai": "统一 AI 模型与工具 API 接入、路由、定价、用量/成本治理；GPU 算力。工具 API 以 https://flatkey.ai/tools 目录为准，未证实的通用 API 服务列待复核。",
+    "rackrate.org": "GPU 租赁与云服务价格比较",
+    "modelfit.cc": "模型显存、GPU 需求与推理部署适配计算"
+  },
+  "genericNoise": [
+    "yes",
+    "true",
+    "ture",
+    "false",
+    "no",
+    "sure",
+    "ok",
+    "test",
+    "null",
+    "undefined",
+    "nan"
+  ],
+  "excluded": [
+    {
+      "site": "flatkey.ai",
+      "keyword": "\"deepseek_api_key\" filetype:env",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "\"sk-ant-api03\"",
+      "reason": "只搜索 API 密钥前缀，缺少产品、定价或集成意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "$20",
+      "reason": "仅包含货币金额，无可判断业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "%\"budget owner\" 中文 预算负责人",
+      "reason": "一般性预算负责人词语翻译，无 AI API 需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "+\"budget owner\" 中文 预算负责人",
+      "reason": "一般性预算负责人词语翻译，无 AI API 需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "+\"owa-based\" \"lower quota\"",
+      "reason": "Outlook Web App 配额片段，非模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "2026 zen",
+      "reason": "无可识别 AI、API 或 GPU 业务意图的日期/名称片段"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "401k compliance checklist",
+      "reason": "401(k) 退休金合规清单，非 API 401 错误"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "4g internet failover",
+      "reason": "4G 网络备用连接，非 AI 模型故障转移"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "5000枚",
+      "reason": "单独数量单位，无业务对象"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "9 common lies",
+      "reason": "一般性谎言话题，非 LiteLLM 错误"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "_sdk_smoke_test",
+      "reason": "内部 SDK 冒烟测试标识，非搜索业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "alibaba verified supplier",
+      "reason": "阿里巴巴认证供应商，非 AI API 或 GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "anthropic_auth_token= ext:toml",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "arc raiders gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "arc raiders low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "aws multi model database",
+      "reason": "多模型数据库，model 指数据库数据模型"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "battlefield 2042 low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "best spotify alternatives",
+      "reason": "音乐流媒体 Spotify 替代品"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "car model names",
+      "reason": "汽车车型名称"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "common mistakes in literature reviews",
+      "reason": "学术文献综述写作错误，非 LiteLLM 错误"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "comparar provedores de apis de comunicação com billing por uso",
+      "reason": "通信消息 API 的按用量计费比较，非 AI 模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "compare limits",
+      "reason": "缺少对象的一般比较指令"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cyberpunk 2077 gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cyberpunk 2077 low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cyberpunk gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cyberpunk low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "direct routing vs operator connect",
+      "reason": "Microsoft Teams 电话连接方案比较，非模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "documentos de enrutamiento para su aprobación",
+      "reason": "一般文件审批流，非 AI 模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "elden ring low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "firefox",
+      "reason": "Firefox 浏览器名称，无 AI API 或 GPU 业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "fortnite low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "free leaderboard",
+      "reason": "通用排行榜，无 AI API 免费额度意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "free leaderboard template",
+      "reason": "通用排行榜模板，与 AI API 免费额度无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "free tier list maker",
+      "reason": "排名分层图制作工具，与免费 AI API 额度无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "free tier maker",
+      "reason": "排名分层图制作工具，与 AI API 免费额度无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gpu utilization 100 but low fps",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gpu utilization low but low fps",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gpu utilization low in games",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gpu utilization low while gaming",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gtm4wp",
+      "reason": "Google Tag Manager for WordPress 插件"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "h100 vs h200 tapo",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "helldivers 2 low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "hogwarts legacy gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "hogwarts legacy low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how to evaluate new employee performance",
+      "reason": "人力资源新员工绩效评价，非 AI 模型评测"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how to get a pay per call number",
+      "reason": "电话按通话付费号码，属于电话营销业务"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "hunter guo",
+      "reason": "人物姓名或 APK 分发检索，无 AI API 或 GPU 业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "i need a table",
+      "reason": "一般对话指令，非业务关键词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "inurl:/blame \"openai_api_key\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "is it safe",
+      "reason": "缺少对象的一般疑问句"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "it didnt work",
+      "reason": "缺少对象的一般反馈，非业务关键词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "kdp ai policy",
+      "reason": "Kindle Direct Publishing 出版政策"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "level streaming production",
+      "reason": "游戏引擎关卡流送生产话题，非 AI API 或 GPU 租赁"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "liteapks gemini",
+      "reason": "人物姓名或 APK 分发检索，无 AI API 或 GPU 业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization arc raiders",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization cyberpunk",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization cyberpunk 2077",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization hogwarts legacy",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization in games",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization low fps",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization tarkov",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization warzone",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "low gpu utilization warzone 2",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "marvel rivals low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "minecraft low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "moda7l",
+      "reason": "无法识别业务意图的无意义字符串"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "model pose names",
+      "reason": "人像模特姿势名称，model 指人物模特"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "nike alternatives",
+      "reason": "Nike 运动品牌替代品"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "openai 401k",
+      "reason": "OpenAI 雇员 401(k) 退休金，非 API 401 错误"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "openai 401k match",
+      "reason": "OpenAI 雇员 401(k) 退休金待遇，非 API 401 错误"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "operating model playbook",
+      "reason": "组织运营模式手册，model 非 AI 模型"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "pay per call networks",
+      "reason": "按通话付费推广联盟，属于电话营销业务"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "peloton bike alternatives",
+      "reason": "Peloton 健身自行车替代品"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "pq essa diferença?",
+      "reason": "缺少对象的一般对话问句"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "pricing for storage units",
+      "reason": "实体仓储单元租赁"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "q2 2026 means",
+      "reason": "季度日期含义，非 AI 模型或 GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "qual é o melhor?",
+      "reason": "缺少对象的一般比较问句"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "restraineddepth.com",
+      "reason": "与业务无关的域名字符串"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "self hosted discord alternative",
+      "reason": "Discord 聊天平台替代品"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:blog.csdn.net \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:colab.research.google.com \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:controlc.com \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:dev.to \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:gitcode.com \"deepseek_api_key\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:gitlab.com \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:hackmd.io \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:huggingface.co \"deepseek_api_key\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:justpaste.it \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:kaggle.com \"deepseek_api_key\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:oschina.net \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:paste.ee \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:pastebin.com \"deepseek_api_key\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:railway.app \"openai_api_key\" or \"database_url\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:replit.com \"deepseek_api_key\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "site:runkit.com \"deepseek_api_key=\"",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:/.git/",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:cgit",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:git/blob",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:gitblit",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:gitweb",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:log/",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:scm",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sk-\" \"deepseek_api_key= \" inurl:summary/",
+      "reason": "面向公开配置/代码/粘贴站搜索密钥，非 API 产品、集成或选型需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "skill https",
+      "reason": "缺少可识别业务对象的词语片段"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "starfield gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "starfield low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "storage units near me pricing",
+      "reason": "实体仓储单元租赁"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "storage units pricing",
+      "reason": "实体仓储单元租赁"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "sure",
+      "reason": "无业务语义的单独确认词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h110 vs h200",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 comparison",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 difference",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 differences",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 hub difference",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 smart hub comparison",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 smart hub differences",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 specs",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs h200 vs h500",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h100 vs tapo h200",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo h200 vs h100",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo hub h100 vs h200",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo hub h100 vs h200 vs h500",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo hub h200 vs h100",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tapo smart hub h100 vs h200",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tarificación de seguros glm",
+      "reason": "保险精算的广义线性模型 GLM，非智谱 GLM 模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tarkov gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tarkov low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "teste checklist 5",
+      "reason": "通用测试清单碎片，缺少业务对象"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "the loop at the patch scorecard",
+      "reason": "缺少明确业务对象的文本碎片"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tp-link tapo h100 vs h200",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tp-link tapo h100 vs h200 difference",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tp-link tapo h100 vs h200 differences",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "tp-link tapo h200 vs h100",
+      "reason": "TP-Link Tapo 智能家居集线器同名型号，非 NVIDIA GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "u haul cost calculator",
+      "reason": "U-Haul 搬家车辆租赁费用"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "visa direct vs ach",
+      "reason": "银行支付网络 Visa Direct 与 ACH"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "waht is the price?",
+      "reason": "缺少对象的一般价格疑问句"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "warzone 2 gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "warzone 2 low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "warzone gpu utilization low",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "warzone low gpu utilization",
+      "reason": "电子游戏帧率/显卡占用故障，与 AI 推理和 GPU 云服务无关"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "web browser",
+      "reason": "泛指网页浏览器，无 AI API 或 GPU 业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what are the best alternatives to shopify",
+      "reason": "电商建站 Shopify 替代品"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what is a gtm",
+      "reason": "GTM 营销概念定义，无 AI API 或 GPU 业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "yes",
+      "reason": "无业务语义的单独确认词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "zendesk advanced ai pricing",
+      "reason": "客服 SaaS Zendesk 的 AI 附加功能价格，非模型 API 采购"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "zendesk vs freshdesk pricing",
+      "reason": "客服工单 SaaS 价格比较"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "что это за модель",
+      "reason": "缺少模型名称的一般对话提问"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "ほかの",
+      "reason": "无业务对象的日语功能词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "コンセプトテスト 費用",
+      "reason": "概念测试市场调研费用，非 AI 模型评测"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "ルート529",
+      "reason": "日语道路路线编号，非 HTTP 529 或模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "個人開発",
+      "reason": "泛指个人开发，无可识别 AI API 或 GPU 需求"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "原生的",
+      "reason": "单独形容词，缺少业务对象"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "（输入内容为空）###(input content is empty)",
+      "reason": "输入为空提示，无业务语义"
+    },
+    {
+      "site": "rackrate.org",
+      "keyword": "\"compare the market\"",
+      "reason": "保险/金融比价品牌同名查询，非 GPU 租赁价格比较"
+    }
+  ],
+  "review": [
+    {
+      "site": "flatkey.ai",
+      "keyword": "\"circuit breakers runbook and canary checklist\" \"routing.p95\"",
+      "reason": "技术字段碎片，可能为 AI 路由运维内容"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "%\"ayz-d-shallotpeat-cbv7-cheap-5p4g-0323-0812\"",
+      "reason": "无法确认是否实际模型别名，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "(2) off-peak rates are half of the peak rates. peak hours are 01:00 - 04:00 \nand 06:00 - 10:00 utc, monday through friday, excluding chinese public \nholidays. all other hours are off-peak, including weekends and chinese \npublic holidays in full.",
+      "reason": "可能为模型 API 的峰谷计费说明；文本未提供模型或供应商名称，需要补充上下文，暂保留原始数据。"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "6sense api pricing",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：6sense 销售营销数据 API 价格"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "a flat key",
+      "reason": "可能为 Flatkey 品牌误写，也可能为音乐调号，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "a new model",
+      "reason": "model 语义不明确"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "a4b",
+      "reason": "a4b 是有效 Gemma 模型后缀，也可能为一般代号，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "ai automation for contractors",
+      "reason": "承包商 AI 自动化应用，非明确模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "ai customer feedback",
+      "reason": "AI 客户反馈应用，不明确需要模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "ai website migration",
+      "reason": "AI 建站迁移服务，非明确 API 迁移"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "analytics token comparison",
+      "reason": "analytics token 语义不明确，可能为 AI 用量分析"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "api adoption funnel",
+      "reason": "API 增长漏斗，非直接 API 集成/模型选型"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "api funnel",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：Funnel 营销分析 API，非模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "batch 1key",
+      "reason": "1key 可能是 API 竞争品牌，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "billing platform for finance teams not engineering",
+      "reason": "普通财务计费平台查询，AI 计费意图不明确"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "camel vs llama vs alpaca",
+      "reason": "CAMEL、LLaMA、Alpaca 也是 AI 模型/框架名称，勿按动物同名误删"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "check deepseek traffic",
+      "reason": "可能为 AI 搜索流量来源分析，不是模型 API 路由流量"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "check traffic from deepseek",
+      "reason": "可能为 AI 搜索流量来源分析，不是模型 API 路由流量"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "clinical evidence ai",
+      "reason": "医疗循证 AI 应用，非核心模型/API/GPU 选型"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cloudflare workers free plan limits requests per day 2026",
+      "reason": "普通 Cloudflare Workers 免费额度，未指明 AI"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cloudflare workers free tier limits 2026 requests per day",
+      "reason": "普通 Cloudflare Workers 免费额度，未指明 AI"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "cookie alternatives",
+      "reason": "cookie 可指食品或浏览器认证；需 SERP 判定"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "crm api rate limits comparison",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：CRM 平台 API 限额比较，非 AI 模型接口"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "customer service ai use cases",
+      "reason": "AI 客服用例，没有明确 API 购买意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "direct deposit api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：银行直接存款 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "direct vs indirect supplier",
+      "reason": "供应链术语，可能误匹配直接模型供应商账户主题"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "dispatch checklist via api",
+      "reason": "可能为物流调度 API 或运维任务，需辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "esignature api pricing",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：电子签名 API 价格"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "evidence ai medicine",
+      "reason": "医疗循证 AI 应用，非核心模型/API/GPU 选型"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "fl studio api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：FL Studio 音乐制作软件 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "funnel api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：Funnel 营销分析 API，非模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gtm api",
+      "reason": "GTM 可指 Google Tag Manager，也可指 go-to-market 工具"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "gtm research",
+      "reason": "通用市场进入研究，是否保留取决于工具 API 覆盖"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how do i implement approval flows for workflows before they go to \nproduction?",
+      "reason": "通用生产工作流审批，AI 模型审批意图不明确"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how does pay per call work",
+      "reason": "可能指电话营销付费，也可能指 API 按调用计费"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how should businesses compare message fees, translation quotas, automation \nlimits, and api access?",
+      "reason": "通信平台费用比较，AI 模型意图不明确"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how to evaluate a model",
+      "reason": "model 语义不明确"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "how to use ai for customer feedback",
+      "reason": "AI 客户反馈应用，非明确模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "image buddy",
+      "reason": "产品/品牌名，需确认是否 AI 图像工具"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "imagebuddy",
+      "reason": "产品/品牌名，需确认是否 AI 图像工具"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "jira api base url",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：Jira 业务管理 API，非 AI 模型、工具或 GPU 服务"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "level access ai",
+      "reason": "Level Access 为可访问性服务，AI 关键词关联较弱"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "metered billing api,billing \ninfrastructure,commercial,bofu,primary,developers,direct fit",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：含逗号标签的导入字段碎片，非有效搜索关键词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "missingkeymissing key-pair-id query parameter or cookie value",
+      "reason": "CloudFront 签名 URL/Cookie 错误，与 AI API 认证关系偏间接"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "model names",
+      "reason": "model 可指 AI 模型，也可指车型或人像模特"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "money management api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：金融资金管理 API，非 AI 计费治理"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "nasdaq api pricing",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：证券行情 API 价格"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "new evaluation",
+      "reason": "new evaluation 过于宽泛"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "one base",
+      "reason": "one base 无法独立确认业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "open route",
+      "reason": "可能为模型路由或 OpenRouteService 地图路线，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "our deployment frequency has doubled, but the on-call team cannot manually \ninvestigate every regression. which ai sre products are designed for \nhigh-change production environments?",
+      "reason": "AI SRE 产品选型，与模型 API 业务关系偏间接"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "pay per call service",
+      "reason": "可能指电话营销付费，也可能指 API 按调用计费；没有 AI/API 限定词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "pay per call service provider",
+      "reason": "可能指电话营销服务商，也可能指 API 计费服务商"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "per customer",
+      "reason": "不完整的计费词语"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "platform fees",
+      "reason": "通用平台费率，不足以判断 AI API 意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "portal de desenvolvedor interno vs plataforma",
+      "reason": "内部开发者门户对平台比较，AI API 关联偏间接"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "reliable api for up-to-date account balances",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：银行账户余额 API，非 AI API 用量或预付余额"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "routemotion",
+      "reason": "RouteMotion 未确认产品身份"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "router comparison tool",
+      "reason": "router 可指网络硬件或模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "rpm 是 什么 意思",
+      "reason": "RPM 通常也指机械转速，需 SERP 判定；保留 rpm/tpm 联合词"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "seed 2026",
+      "reason": "seed 可能指 Seedance 或其他名称"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "stage api shared image-growning and language contr",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：损坏的文本片段，缺少可识别业务意图"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "terra api alternative",
+      "reason": "Terra 可指健康数据 API 或模型名称，需人工辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "typesafe pricing",
+      "reason": "Typesafe 为模型提供者或开发工具同名，需辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "unifi access api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：Ubiquiti UniFi 门禁控制 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "unified health api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：医疗健康数据聚合 API，非 AI 模型或 GPU"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "vehicle routing api",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：车辆路线规划 API，非模型路由"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "verfolgen sie den traffic von ki und llm chatbots",
+      "reason": "AI/LLM 搜索流量归因工具，非模型 API 路由流量"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what are restb.ai comparable properties' pricing tiers and api quotas?",
+      "reason": "Restb.ai 房地产视觉 AI API，是否在工具 API 供应范围需确认"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what are the api error-handling and rate-limiting differences between \nkontent.ai and contentstack?",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：内容管理系统 Kontent.ai 与 Contentstack 的 API 比较"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what is an ai dark factory",
+      "reason": "AI 工厂可指软件/智能体工厂、算力工厂或工业制造，需要按搜索意图区分，暂保留原始数据。"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what is an ai saas factory?",
+      "reason": "软件生成或 AI 算力工厂均可能，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what is an ai-ready factory?",
+      "reason": "AI 工厂可指软件/智能体工厂、算力工厂或工业制造，需要按搜索意图区分，暂保留原始数据。"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "what is byok encryption",
+      "reason": "BYOK 常指加密密钥管理，也可能为 AI bring-your-own-key"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "who is kimi",
+      "reason": "Kimi 可能为模型、人物或品牌"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "x api price",
+      "reason": "x 可指 X/Twitter API 或 xAI API，需 SERP 人工辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "zendesk api pricing",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：客服工单系统 Zendesk API 价格"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "zip ai procurement",
+      "reason": "采购自动化 AI 产品，非明确模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "トラフィック制御 コスト",
+      "reason": "トラフィック制御 可为道路交通或网络流量，需辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "トラフィック制御 価格",
+      "reason": "トラフィック制御 可为道路交通或网络流量，需辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "トラフィック制御 費用",
+      "reason": "トラフィック制御 可为道路交通或网络流量，需辨别"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "企業情報api 料金 費用",
+      "reason": "Flatkey 工具 API 范围可能覆盖此服务；需要确认工具目录或搜索意图，暂保留原始数据。原审查：企业工商信息数据 API 费用，非 AI 模型 API"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "内部開発者ポータル vs プラットフォーム",
+      "reason": "内部开发者门户对平台比较，AI API 关联偏间接"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "創作ロールプレイ",
+      "reason": "创作角色扮演可为生成式模型用例，暂保留"
+    },
+    {
+      "site": "flatkey.ai",
+      "keyword": "自己ホスト型可観測性",
+      "reason": "可观测性可为通用自托管监控或 LLM 监控"
+    }
+  ],
+  "counts": {
+    "reviewedExactSiteKeywordPairs": 5422,
+    "curatedUnrelatedExactPairs": 156,
+    "curatedReviewExactPairs": 85,
+    "curatedUnrelatedBySite": {
+      "flatkey.ai": 155,
+      "rackrate.org": 1
+    },
+    "movedFromUnrelatedToReview": 22
+  }
+}

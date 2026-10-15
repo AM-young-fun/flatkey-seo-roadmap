@@ -34,7 +34,7 @@ export function displayRank(summary: RankSummary | null | undefined) {
   if (!summary) return "未采集";
   if (summary.rank == null)
     return summary.rankStatus === "outside_top100" ? "前 100 外" : "暂无数据";
-  return `#${Number(summary.rank.toFixed(1))}`;
+  return `${summary.source === "gsc" ? "均值 " : "#"}${Number(summary.rank.toFixed(1))}`;
 }
 
 export function matchesRanking(summary: RankSummary | null | undefined, scope: string) {
@@ -59,7 +59,7 @@ export function rankDescription(summary: RankSummary | null | undefined) {
       : summary.source === "ahrefs"
         ? "Ahrefs 排名"
         : "Google 排名";
-  return `${source}${summary.dataUpdatedAt ? ` · 来源更新于 ${summary.dataUpdatedAt.slice(0,10)}` : ""}${summary.periodStart ? ` · ${summary.periodStart} 至 ${summary.periodEnd}` : ""}`;
+  return `${source}${summary.dataUpdatedAt ? ` · 来源更新于 ${summary.dataUpdatedAt.slice(0,10)}` : ""}${summary.periodStart ? ` · ${summary.periodStart} 至 ${summary.periodEnd}` : ""} · 当前 Google 搜索未核验`;
 }
 
 export function rankingStats(

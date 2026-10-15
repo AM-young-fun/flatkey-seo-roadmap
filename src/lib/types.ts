@@ -2,9 +2,85 @@ import type { RankBucket, SearchRegionCode } from "@/lib/seo";
 
 export type KeywordType = "MAIN" | "LONG_TAIL";
 export type TopicType = "MAIN" | "SUB_TOPIC";
+export type RankingSource = "gsc" | "ahrefs";
+export type RankingStatus = "ranked" | "outside_top100" | "no_data";
+export type RankingReportingPeriod = { start: string; end: string; label: string };
+
+export type RankingPageEvidence = {
+  url: string;
+  rank: number | null;
+  clicks: number | null;
+  impressions: number | null;
+  ctr: number | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dataDate: string;
+  checkedAt: string;
+  importedAt: string | null;
+  dataUpdatedAt: string | null;
+  serpVerification: "unverified";
+};
+
+export type RankingEvidence = {
+  source: RankingSource;
+  // A page report never supplies the site's query-level average or position.
+  scope: "query" | "pages" | "daily";
+  rank: number | null;
+  rankStatus: RankingStatus;
+  clicks: number | null;
+  impressions: number | null;
+  ctr: number | null;
+  url: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dataDate: string;
+  checkedAt: string;
+  importedAt: string | null;
+  dataUpdatedAt: string | null;
+  pages: RankingPageEvidence[];
+  daily?: RankingDailyEvidence[];
+  serpVerification: "unverified";
+};
+
+export type RankingDailyEvidence = Omit<RankingPageEvidence, "url"> & {
+  date: string;
+  source: RankingSource;
+  rankStatus: RankingStatus;
+  url: string | null;
+  pages: RankingPageEvidence[];
+};
+
+export type RegionalVolumeReview = {
+  status: "positive" | "sustained_zero" | "unknown" | "stale" | "incomplete";
+  latestVolume: number | null;
+  latestDataDate: string | null;
+  sampleCount: number;
+  zeroSamples: number;
+  zeroSpanDays: number;
+  largestGapDays: number | null;
+  lastPositiveDate: string | null;
+  hasPositiveVolume: boolean;
+  isSustainedZero: boolean;
+  reason: string;
+};
+
+export type KeywordVolumeReview = {
+  status: "protected" | "new_term" | "candidate" | "insufficient_evidence";
+  isCandidate: boolean;
+  label: string;
+  reasons: string[];
+  firstTrackedAt: string | null;
+  trackedDays: number | null;
+  regions: Record<SearchRegionCode, RegionalVolumeReview>;
+};
 
 export type RankSummary = {
   dataUpdatedAt?: string | null;
+  dataDate?: string;
+  serpVerification?: "unverified";
+  clicks?: number | null;
+  impressions?: number | null;
+  ctr?: number | null;
   rankStatus?: string;
   source?: "gsc" | "ahrefs" | "serpapi";
   periodStart?: string | null;
@@ -38,6 +114,9 @@ export type DashboardKeyword = {
   volume: number;
   marketVolumes: Record<SearchRegionCode, number | null>;
   latestRanks: Record<SearchRegionCode, RankSummary | null>;
+  rankingEvidence?: Record<SearchRegionCode, RankingEvidence[]>;
+  firstTrackedAt?: string | null;
+  volumeReview?: KeywordVolumeReview;
 };
 
 export type DashboardTopic = {
@@ -90,6 +169,7 @@ export type DashboardRun = {
 };
 
 export type DashboardResponse = {
+  reportingPeriod?: RankingReportingPeriod;
   latestImportAt?: string | null;
   usingDemoData: boolean;
   targetDomain: string | null;

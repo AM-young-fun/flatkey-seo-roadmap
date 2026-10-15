@@ -28,7 +28,7 @@ async function handleCron(request: Request) {
   }
 
   const result = await runDailyRankingSync();
-  return NextResponse.json(result);
+  return NextResponse.json(result, { status: result.status === "DISABLED" ? 409 : 200 });
 }
 
 export async function GET(request: Request) {

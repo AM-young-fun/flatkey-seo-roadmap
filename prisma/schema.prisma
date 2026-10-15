@@ -149,12 +149,24 @@ model SiteKeyword {
   topic Topic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
   origin String @default("PLANNED")
   active Boolean @default(true)
+  exclusionReason String?
+  excludedAt DateTime?
+  restoredAt DateTime?
   targetUrls String[] @default([])
   sourceUrl String?
+  pool String @default("RESEARCH")
+  reviewStatus String @default("UNREVIEWED")
+  mappingStatus String @default("UNMAPPED")
+  candidateUrls String[] @default([])
+  auditReason String?
+  protected Boolean @default(false)
+  curatedAt DateTime?
+  curationId String?
   createdAt DateTime @default(now())
   topicAssignments SiteKeywordTopic[]
   @@id([siteDomain, keywordId])
   @@index([siteDomain, active])
+  @@index([siteDomain, pool])
 }
 
 model SiteKeywordTopic {
@@ -357,7 +369,42 @@ model KeywordVolume {
   volume    Int
   source    String        @default("ahrefs")
   fetchedAt DateTime      @default(now())
+  observedAt DateTime?
 
   @@index([keywordId, region, fetchedAt])
   @@index([runId])
+}
+
+// Site-scoped before/after snapshots make a curation batch reversible without
+// deleting shared Keyword records or any ranking/volume observations.
+model KeywordCurationAudit {
+  id String @id
+  siteDomain String
+  payloadHash String
+  status String @default("APPLIED")
+  before Json
+  after Json
+  summary Json
+  appliedAt DateTime @default(now())
+  restoredAt DateTime?
+  @@index([siteDomain, appliedAt])
+}
+
+model KeywordContentTask {
+  id String @id
+  siteDomain String
+  auditId String
+  plannedUrl String
+  type String
+  status String @default("TODO")
+  title String
+  reason String
+  keywords String[] @default([])
+  targetUrls String[] @default([])
+  owner String?
+  dueAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([siteDomain, status])
+  @@index([auditId])
 }
