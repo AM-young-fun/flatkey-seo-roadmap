@@ -645,7 +645,11 @@ test("overview uses full site keyword inventory without a fixed 500 cap", async 
   assert.equal(data.keywords[0].siteName, "Flatkey");
 });
 
-const { retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");
+const { databaseErrorCode, retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");
+test("Prisma initialization diagnostics preserve safe errorCode without leaking connection text", () => {
+  assert.equal(databaseErrorCode({name:"PrismaClientInitializationError",errorCode:"P1001",message:"connection to private database failed"}),"P1001");
+  assert.equal(databaseErrorCode({code:"postgresql://secret@example.test/private",message:"initialization failed"}),"UNKNOWN");
+});
 test("database reads retry transient connection errors but never schema or validation errors", async () => {
   let attempts=0;
   assert.equal(await retryDatabaseRead(async()=>{if(++attempts===1)throw Object.assign(new Error("cold connection"),{code:"P1001"});return 42;}),42);

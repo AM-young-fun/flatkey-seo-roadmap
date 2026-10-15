@@ -2,7 +2,10 @@ const TRANSIENT_ERRORS = new Set(["P1001", "P1002", "P1017", "P2024"]);
 
 export function databaseErrorCode(error: unknown): string {
   if (!error || typeof error !== "object") return "UNKNOWN";
-  const code = "code" in error ? String(error.code ?? "") : "";
+  // Initialization errors expose errorCode; query errors expose code.
+  // Return only Prisma's public code, never a connection URL or raw message.
+  const candidate = "code" in error ? error.code : "errorCode" in error ? error.errorCode : "";
+  const code = /^P\d{4}$/.test(String(candidate ?? "")) ? String(candidate) : "";
   if (code) return code;
   // Some engine/driver connection failures have no Prisma error code.
   const message = "message" in error ? String(error.message).toLowerCase() : "";
