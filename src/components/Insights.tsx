@@ -26,9 +26,23 @@ function useInsights(week: string) {
       if (busy || document.hidden) return;
       busy = true;
       try {
-        const response = await fetch(`/api/insights?site=all&source=combined&region=all${week ? `&week=${encodeURIComponent(week)}` : ""}`, { cache: "no-store", signal: controller.signal });
-        if (!response.ok) throw new Error("周报暂时无法读取");
-        const data = await response.json() as InsightData;
+        let data: InsightData | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const response = await fetch(`/api/insights?site=all&source=combined&region=all${week ? `&week=${encodeURIComponent(week)}` : ""}`, { cache: "no-store", signal: controller.signal });
+            if (response.status === 401) { window.location.assign("/login"); return; }
+            if (!response.ok) {
+              const failure = await response.json().catch(()=>({})) as {code?:string};
+              throw Object.assign(new Error(`周报暂时无法读取${failure.code ? `（${failure.code}）` : ""}`), { retryable: response.status >= 500 });
+            }
+            data = await response.json() as InsightData;
+            break;
+          } catch (error) {
+            if (controller.signal.aborted || attempt === 1 || (error instanceof Error && "retryable" in error && error.retryable === false)) throw error;
+            await new Promise(resolve=>setTimeout(resolve,600));
+          }
+        }
+        if (!data) return;
         if (!controller.signal.aborted) { setResult({ key, data }); setError(null); }
       } catch (error) {
         if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "加载失败");
@@ -52,15 +66,15 @@ function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
   const comparable = weekly && !weekly.baseline;
   const name = (id: string) => data?.keywords.find(word=>word.id===id)?.text ?? id;
   const cards = [
-    { label: "期末前 100 关键词", value: comparable ? weekly.count : "待采集" },
-    { label: "本周新增", value: comparable ? weekly.entered.length : "待比较" },
-    { label: "本周减少", value: comparable ? weekly.detectedReduction : "待比较" },
+    { label: "期末前 100 关键词", value: comparable ? weekly.count : "待发布" },
+    { label: "本期新增", value: comparable ? weekly.entered.length : "待比较" },
+    { label: "本期减少", value: comparable ? weekly.detectedReduction : "待比较" },
     { label: "净变化", value: comparable && weekly.net != null ? `${weekly.net > 0 ? "+" : ""}${weekly.net}` : "待比较" },
   ];
   return <section className="dailyPanel weeklyKeywords">
     <div className="dailyHeading"><div><h2>关键词环比变化</h2><p className="chartNote">每周二更新 · 上期期末与本期期末相比 · 四个地区汇总 · 只统计有搜索量的前 100 关键词</p></div></div>
     <div className="weeklyKeywordCards">{cards.map(card=><div key={card.label}><span>{card.label}</span><strong>{card.value}</strong></div>)}</div>
-    <p className="chartNote">{data ? `上期期末 ${data.periods.previous.end} → 本期期末 ${data.periods.current.end}。` : ""}{!weekly || weekly.baseline ? "缺少上期或本期期末的完整单日报告，暂时无法比较。" : `新增 ${weekly.entered.length} 个，减少 ${weekly.detectedReduction} 个；已比较 ${weekly.siteCaptures?.length ?? 0}/12 个网站与地区组合。`}</p>
+    <p className="chartNote">{data ? `上期期末 ${data.periods.previous.end} → 本期期末 ${data.periods.current.end}。` : ""}{!weekly || weekly.baseline ? "待周二发布环比；缺少任一期末的完整数据时不计算。" : `新增 ${weekly.entered.length} 个，减少 ${weekly.detectedReduction} 个；已比较 ${weekly.siteCaptures?.length ?? 0}/12 个网站与地区组合。`}</p>
     <details className="movementDetails"><summary>数据说明与关键词列表</summary><p className="chartNote">以两个相邻周期的最后一天（周一）为准，日期必须精确匹配，不使用附近日期代替。同一网站、地区、来源比较后汇总；跨网站、跨国家分别计数。无声量和声量未知的词不计入。{weekly?.pendingMarkets?.length ? `待补齐：${weekly.pendingMarkets.join("、")}。` : ""}减少中，确认排名外 {weekly?.lost.length ?? 0} 个、未检出待核实 {weekly?.missing.length ?? 0} 个。</p>{weekly?.siteCaptures?.map(site=><p className="chartNote" key={site.site}>{site.site} · {site.source.toUpperCase()} · 上期期末 {site.previousDate} · 本期期末 {site.date}</p>)}{comparable ? [["新增进入前 100", weekly.entered], ["确认排名外", weekly.lost], ["未检出待核实", weekly.missing]].map(([label, ids])=><p key={label as string}><b>{label as string}：</b>{(ids as string[]).map(name).join("、") || "无"}</p>) : null}</details>
   </section>;
 }
@@ -79,15 +93,15 @@ export function TrafficReport() {
   ];
   return <main className="appShell"><PageHeader active="traffic" selection={selection} />
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || weeklyPeriods().current.start} onChange={(start) => setWeek(start === weeklyPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === weeklyPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
-    <div className="periodComparison"><span><i className="currentDot" />本周 {periods.current.start} — {periods.current.end}</span><span><i />上周 {periods.previous.start} — {periods.previous.end}</span></div>
+    <div className="periodComparison"><span><i className="currentDot" />本期 {periods.current.start} — {periods.current.end}</span><span><i />上期 {periods.previous.start} — {periods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
     <p className="chartNote reportScope">每周二补充周报，其他日期不补充。流量与注册汇总所有地区，按周二至周一的 7 天统计。{!data ? "正在读取周报…" : traffic?.currentSites.length ? `已采集：${traffic.currentSites.join("、")}（${traffic.currentSites.length}/3 个网站）。` : "等待 GA4 数据导入。"}</p>
     <section className="trafficGrid">{metrics.map((metric) => {
       const current = traffic?.current?.[metric.key]; const previous = traffic?.previous?.[metric.key];
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);
       return <article className="trafficCard" key={metric.key}><h2>{metric.label}</h2><strong>{data ? metric.format(current) : "加载中…"}</strong><p className="trafficChange">环比 {data ? change(traffic?.changes[metric.key]) : "加载中…"}</p>
-        <div className="compareBar"><span>本周</span><div><i style={{ width: `${(current ?? 0) / maximum * 100}%` }} /></div><b>{metric.format(current)}</b></div>
-        <div className="compareBar previous"><span>上周</span><div><i style={{ width: `${(previous ?? 0) / maximum * 100}%` }} /></div><b>{metric.format(previous)}</b></div>
+        <div className="compareBar"><span>本期</span><div><i style={{ width: `${(current ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(current) : "加载中…"}</b></div>
+        <div className="compareBar previous"><span>上期</span><div><i style={{ width: `${(previous ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(previous) : "加载中…"}</b></div>
         {metric.key === "registrationRate" && traffic?.changes.ratePoints != null ? <p className="chartNote">变化 {traffic.changes.ratePoints > 0 ? "+" : ""}{traffic.changes.ratePoints.toFixed(2)} 个百分点</p> : null}
       </article>;
     })}</section>
