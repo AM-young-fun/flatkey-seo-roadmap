@@ -32,7 +32,7 @@ const {
 } = require("../src/lib/ranking-import.ts");
 const { displayBucket, rankingStats, matchesRanking } = require("../src/lib/rank-display.ts");
 const { Prisma } = require("@prisma/client");
-let batches, observations, failWrite, captures, trafficRows;
+let batches, observations, failWrite, captures, trafficRows, dailyRows;
 const keywords = [
   {
     id: "keyword-1",
@@ -121,6 +121,7 @@ const db = {
         update: async ({where,data}) => Object.assign(captures.find(c => c.id === where.id),data),
       },
       weeklyTraffic: { createMany: async ({data}) => trafficRows.push(...data) },
+      dailyRankingReport: { createMany: async ({data}) => dailyRows.push(...data) },
       siteKeyword: db.siteKeyword,
       rankingImport: {
         findUnique: db.rankingImport.findUnique,
@@ -194,6 +195,7 @@ beforeEach(() => {
   observations = [];
   captures = [];
   trafficRows = [];
+  dailyRows = [];
   failWrite = false;
   delete process.env.CRON_SECRET;
   delete process.env.LOGIN_PWD;
@@ -683,4 +685,39 @@ test("GA4 imports preserve original report timezone and the actual success event
   assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[row]}).success,true);
   assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[{...row,collectedAt:"2026-10-13T02:30:00Z"}]}).success,false);
   assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[{...row,timezone:"invalid/timezone"}]}).success,false);
+});
+
+const { trendRange, dailyReportPoints } = require("../src/lib/ranking-trends.ts");
+const { compareWeeklyRankings } = require("../src/lib/weekly-keywords.ts");
+test("trend ranges reject pre-October8, invalid, reversed and future dates", () => {
+  const now = new Date("2026-10-15T02:00:00Z");
+  assert.deepEqual(trendRange("2026-10-08","2026-10-15",now),{start:"2026-10-08",end:"2026-10-15"});
+  for (const pair of [["2026-10-07","2026-10-15"],["2026-10-15","2026-10-08"],["2026-10-08","2026-10-16"],["2026-02-30","2026-10-15"]]) assert.throws(()=>trendRange(...pair,now));
+});
+test("daily series keeps corrections, uses a stable source, and leaves missing site days empty", () => {
+  const row=(site,date,count,source="gsc")=>({siteDomain:site,date:new Date(date),source,top10:count,top30:0,top50:0,top100:0});
+  const points=dailyReportPoints([row("a","2026-10-08",3),row("a","2026-10-08",1),row("a","2026-10-08",90,"ahrefs"),row("b","2026-10-08",2),row("a","2026-10-09",4)],"2026-10-08","2026-10-10");
+  assert.equal(points.length,1); assert.equal(points[0].counts[0],5);
+});
+test("historical daily imports validate full detail counts and do not overwrite current rankings", async () => {
+  const row={date:"2026-10-08",region:"US",source:"gsc",top10:1,top30:1,top50:0,top100:0,totalKeywords:2,rankings:[{keyword:"claude api",rank:10},{keyword:"second",rank:10.5}],complete:true,sourceUrl:"https://search.google.com/search-console/performance/search-analytics",collectedAt};
+  const body={requestId:"historical-daily",targetDomain:"flatkey.ai",dailyRankings:[row]};
+  assert.equal((await route.POST(request(body))).status,201);assert.equal(dailyRows.length,1);assert.equal(observations.length,0);
+  assert.equal((await route.POST(request(body))).status,200);assert.equal(dailyRows.length,1);
+  for(const invalid of [{...row,complete:false},{...row,top10:2},{...row,totalKeywords:1},{...row,date:"2026-10-20"},{...row,sourceUrl:"https://other.example/report"}]) assert.equal(rankingImportSchema.safeParse({...body,dailyRankings:[invalid]}).success,false);
+});
+test("keyword period comparison uses the two exact Monday endpoints and preserves country eligibility", () => {
+  const row=(date,rank,region="US",source="gsc")=>({siteDomain:"flatkey.ai",region,source,date:new Date(date),rankings:[{keyword:"claude api",rank}]});
+  const reports=[row("2026-10-12",5),row("2026-10-06",100),row("2026-10-05",110),row("2026-10-12",1,"JP")];
+  const result=compareWeeklyRankings(reports,new Set(["flatkey.ai:US:claude api"]),"2026-10-05","2026-10-12");
+  assert.equal(result.daily.entered.length,1);assert.equal(result.daily.net,1);assert.equal(result.daily.siteCaptures.length,1);assert.equal(result.daily.previousDate,"2026-10-05");
+  assert.equal(compareWeeklyRankings(reports.filter(row=>row.date.toISOString().slice(0,10)!=="2026-10-05"),new Set(),"2026-10-05","2026-10-12").daily,null);
+});
+
+test("weekly keyword publication is separate from daily imports and only accepts Tuesday publication of Monday endpoints", () => {
+  const row={date:"2026-10-12",publishForWeek:"2026-10-06",region:"US",source:"gsc",top10:0,top30:0,top50:0,top100:0,totalKeywords:0,rankings:[],complete:true,sourceUrl:"https://search.google.com/search-console/performance/search-analytics",collectedAt:"2026-10-13T10:30:00Z"};
+  const body=(r)=>({requestId:"weekly-publish",targetDomain:"flatkey.ai",dailyRankings:[r]});
+  assert.equal(rankingImportSchema.safeParse(body(row)).success,true);
+  assert.equal(rankingImportSchema.safeParse(body({...row,date:"2026-10-05"})).success,true);
+  for(const invalid of [{...row,date:"2026-10-06"},{...row,collectedAt:"2026-10-14T10:30:00Z"},{...row,publishForWeek:"2026-10-13"}]) assert.equal(rankingImportSchema.safeParse(body(invalid)).success,false);
 });

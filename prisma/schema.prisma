@@ -80,6 +80,7 @@ model RankingImport {
   site        SeoSite? @relation(fields: [siteDomain], references: [domain])
   pageObservations KeywordPageObservation[]
   trafficReports WeeklyTraffic[]
+  dailyRankings DailyRankingReport[]
 }
 
 model KeywordObservation {
@@ -128,6 +129,7 @@ model SeoSite {
   captures RankingCapture[]
   imports RankingImport[]
   trafficReports WeeklyTraffic[]
+  dailyRankings DailyRankingReport[]
 }
 
 model SiteTopic {
@@ -219,6 +221,29 @@ model WeeklyTraffic {
   importedAt DateTime @default(now())
   @@unique([importId, periodStart, periodEnd])
   @@index([siteDomain, periodStart, periodEnd, collectedAt(sort: Desc)])
+}
+
+model DailyRankingReport {
+  id String @id @default(cuid())
+  siteDomain String
+  site SeoSite @relation(fields: [siteDomain], references: [domain])
+  importId String
+  importBatch RankingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  date DateTime @db.Date
+  publishedWeek DateTime? @db.Date
+  region SearchRegion
+  source String
+  top10 Int
+  top30 Int
+  top50 Int
+  top100 Int
+  totalKeywords Int
+  rankings Json
+  sourceUrl String
+  collectedAt DateTime
+  importedAt DateTime @default(now())
+  @@unique([importId, date, region, source])
+  @@index([region, date, siteDomain, source, collectedAt(sort: Desc)])
 }
 
 model Topic {

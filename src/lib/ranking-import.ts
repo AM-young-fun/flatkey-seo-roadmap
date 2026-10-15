@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isWeeklyPeriod, weeklyPeriods } from "@/lib/weekly-traffic";
+import { isWeeklyPeriod, reportPeriods, weeklyPeriods } from "@/lib/weekly-traffic";
 
 export const MAX_IMPORT_BYTES = 2_000_000;
 export const IMPORT_API_PATH = "/api/rankings/import";
@@ -109,6 +109,40 @@ export const rankingImportSchema = z
       coverage: z.enum(["tracked", "site_top100"]).default("tracked"),
       complete: z.boolean().default(false),
     }).strict().optional(),
+    dailyRankings: z.array(z.object({
+      date: dateOnly,
+      publishForWeek: dateOnly.optional(),
+      region: z.enum(["US", "JP", "ES", "BR"]),
+      source: z.enum(["gsc", "ahrefs"]),
+      top10: count, top30: count, top50: count, top100: count,
+      totalKeywords: count,
+      rankings: z.array(z.object({ keyword: z.string().trim().min(1).max(10000), rank: z.number().min(1).max(1000000) }).strict()).max(10000),
+      complete: z.literal(true),
+      sourceUrl: z.url().max(2000),
+      collectedAt: z.iso.datetime({ offset: true }),
+    }).strict().superRefine((row, ctx) => {
+      const issue = (message: string) => ctx.addIssue({ code: "custom", message });
+      if (row.date > row.collectedAt.slice(0, 10) || Date.parse(row.collectedAt) > Date.now() + 300000) issue("单日排名日期不能晚于采集日期，采集时间不能在未来");
+      if (row.publishForWeek) {
+        try {
+          const periods = reportPeriods(row.publishForWeek);
+          const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(row.collectedAt));
+          if (new Date(day).getUTCDay() !== 2 || row.publishForWeek > weeklyPeriods(new Date(row.collectedAt)).current.start || ![periods.previous.end, periods.current.end].includes(row.date)) issue("关键词环比仅在周二发布已结束周期，使用上期与本期的周一数据");
+        } catch { issue("关键词环比发布周期无效"); }
+      }
+      if (row.top10 + row.top30 + row.top50 + row.top100 > row.totalKeywords) issue("排名区间必须互不重叠，数量之和不能超过报告关键词总数");
+      const unique = new Set(row.rankings.map(rank => rank.keyword.toLowerCase()));
+      const counts = [0, 0, 0, 0];
+      for (const rank of row.rankings) {
+        const index = rank.rank <= 10 ? 0 : rank.rank <= 30 ? 1 : rank.rank <= 50 ? 2 : rank.rank <= 100 ? 3 : -1;
+        if (index >= 0) counts[index]++;
+      }
+      if (unique.size !== row.totalKeywords || row.rankings.length !== unique.size || counts.some((value, index) => value !== [row.top10, row.top30, row.top50, row.top100][index])) issue("单日统计必须与完整去重关键词明细一致");
+      try {
+        const url = new URL(row.sourceUrl);
+        if (url.protocol !== "https:" || url.username || url.password || url.hostname !== (row.source === "gsc" ? "search.google.com" : "app.ahrefs.com")) issue("单日报告必须提供对应来源的报告链接");
+      } catch { issue("报告链接无效"); }
+    })).max(1000).default([]),
     traffic: z.array(z.object({
       periodStart: dateOnly, periodEnd: dateOnly,
       timezone: z.string().max(80).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }, "报告时区无效"),
@@ -126,8 +160,8 @@ export const rankingImportSchema = z
   })
   .strict()
   .superRefine((batch, ctx) => {
-    if (batch.observations.length + batch.pages.length + batch.inventory.length + batch.traffic.length + batch.topics.length > 1000 ||
-        !(batch.observations.length + batch.pages.length + batch.inventory.length + batch.traffic.length + batch.topics.length || batch.capture?.complete)) {
+    if (batch.observations.length + batch.pages.length + batch.inventory.length + batch.traffic.length + batch.topics.length + batch.dailyRankings.length > 1000 ||
+        !(batch.observations.length + batch.pages.length + batch.inventory.length + batch.traffic.length + batch.topics.length + batch.dailyRankings.length || batch.capture?.complete)) {
       ctx.addIssue({ code: "custom", message: "每批必须有数据且最多 1000 条" });
     }
     for (const row of [...batch.observations, ...batch.pages]) {
@@ -137,6 +171,12 @@ export const rankingImportSchema = z
       }
     }
     const pageKeys = new Set<string>();
+    const dailyKeys = new Set<string>();
+    for (const row of batch.dailyRankings) {
+      const key = `${row.date}:${row.region}:${row.source}`;
+      if (dailyKeys.has(key)) ctx.addIssue({ code: "custom", message: "单日排名的日期、地区、来源不能重复" });
+      dailyKeys.add(key);
+    }
     for (const row of batch.pages) {
       const key = `${row.keyword.toLowerCase()}:${row.source}:${row.region}:${row.url}`;
       if (pageKeys.has(key)) ctx.addIssue({ code: "custom", message: "页面记录重复" });

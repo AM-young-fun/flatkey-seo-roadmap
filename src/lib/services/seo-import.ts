@@ -23,7 +23,8 @@ export async function importSeo(payload: RankingImportPayload) {
   for (const row of payload.traffic) {
     if (site.ga4PropertyId && site.ga4PropertyId !== row.ga4PropertyId) throw new ImportRequestError("GA4 属性与网站不匹配", 400);
   }
-  const payloadHash = createHash("sha256").update(JSON.stringify({ ...payload, targetDomain: siteDomain, requestId: undefined })).digest("hex");
+  const { dailyRankings, ...legacyPayload } = payload;
+  const payloadHash = createHash("sha256").update(JSON.stringify({ ...(dailyRankings.length ? payload : legacyPayload), targetDomain: siteDomain, requestId: undefined })).digest("hex");
   const replay = (batch: { id: string; payloadHash: string; count: number; importedAt: Date }) => {
     if (batch.payloadHash !== payloadHash) throw new ImportRequestError("requestId 已被不同内容使用", 409);
     return { importId: batch.id, imported: batch.count, duplicate: true, importedAt: batch.importedAt.toISOString() };
@@ -43,7 +44,7 @@ export async function importSeo(payload: RankingImportPayload) {
       }
       const batch = await tx.rankingImport.create({ data: {
         requestId: payload.requestId, payloadHash, siteDomain,
-        count: payload.observations.length + payload.pages.length + payload.inventory.length + payload.traffic.length + payload.topics.length,
+        count: payload.observations.length + payload.pages.length + payload.inventory.length + payload.traffic.length + payload.topics.length + payload.dailyRankings.length,
       } });
       const topicSpecs = [...payload.topics.map((row) => ({ text: row.text, parent: row.parentTopic })),
         ...payload.inventory.map((row) => ({ text: row.topic, parent: row.parentTopic })),
@@ -144,6 +145,11 @@ export async function importSeo(payload: RankingImportPayload) {
       if (payload.traffic.length) await tx.weeklyTraffic.createMany({ data: payload.traffic.map((row) => ({
         siteDomain, importId: batch.id, periodStart: day(row.periodStart)!, periodEnd: day(row.periodEnd)!, timezone: row.timezone,
         newUsers: row.newUsers, newRegistrations: row.newRegistrations, registrationMetric: row.registrationMetric, ga4PropertyId: row.ga4PropertyId, collectedAt: new Date(row.collectedAt),
+      })) });
+      if (payload.dailyRankings.length) await tx.dailyRankingReport.createMany({ data: payload.dailyRankings.map((row) => ({
+        siteDomain, importId: batch.id, date: day(row.date)!, publishedWeek: day(row.publishForWeek), region: row.region, source: row.source,
+        top10: row.top10, top30: row.top30, top50: row.top50, top100: row.top100,
+        totalKeywords: row.totalKeywords, rankings: row.rankings, sourceUrl: row.sourceUrl, collectedAt: new Date(row.collectedAt),
       })) });
       if (payload.capture?.complete) await tx.rankingCapture.update({ where: { id: payload.capture.id }, data: { status: "COMPLETE" } });
       return { importId: batch.id, imported: batch.count, duplicate: false, importedAt: batch.importedAt.toISOString() };

@@ -18,7 +18,7 @@ export function PageHeader({
         </span>
         Flatkey<span className="brandSub">SEO 洞察</span>
       </Link>
-      {selection ? <div className="headerFilters">
+      {selection && active !== "traffic" ? <div className="headerFilters">
         <RegionSelect value={selection.region} onChange={selection.setRegion} />
       </div> : null}
       <nav aria-label="主导航">

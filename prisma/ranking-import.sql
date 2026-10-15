@@ -247,4 +247,14 @@ UPDATE "RankingImport" SET "siteDomain" = 'flatkey.ai' WHERE "siteDomain" IS NUL
 UPDATE "SeoSite" SET "initializedAt" = NOW() WHERE "domain" = 'flatkey.ai' AND "initializedAt" IS NULL;
 
 ALTER TABLE "WeeklyTraffic" ADD COLUMN IF NOT EXISTS "registrationMetric" TEXT NOT NULL DEFAULT 'sign_up_distinct_users';
+CREATE TABLE IF NOT EXISTS "DailyRankingReport" (
+ "id" TEXT PRIMARY KEY, "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"("domain"),
+ "importId" TEXT NOT NULL REFERENCES "RankingImport"("id") ON DELETE CASCADE,
+ "date" DATE NOT NULL, "publishedWeek" DATE, "region" "SearchRegion" NOT NULL, "source" TEXT NOT NULL,
+ "top10" INTEGER NOT NULL, "top30" INTEGER NOT NULL, "top50" INTEGER NOT NULL, "top100" INTEGER NOT NULL,
+ "totalKeywords" INTEGER NOT NULL, "rankings" JSONB NOT NULL, "sourceUrl" TEXT NOT NULL,
+ "collectedAt" TIMESTAMP(3) NOT NULL, "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE ("importId", "date", "region", "source")
+);
+CREATE INDEX IF NOT EXISTS "DailyRankingReport_region_date_siteDomain_source_collectedAt_idx" ON "DailyRankingReport"("region", "date", "siteDomain", "source", "collectedAt" DESC);
 COMMIT;

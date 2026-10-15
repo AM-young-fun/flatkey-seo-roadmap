@@ -1713,6 +1713,19 @@ a:focus-visible {
 .sourceExplanation { margin:-8px 0 16px; }
 .rankingTrend { height:250px; width:100%; }
 .trendPanel h2 { margin:0; }
+.reportScope.chartNote { margin:16px 0 24px; line-height:1.8; }
+.siteTrafficPanel { margin-top:24px; }
+.siteTrafficPanel h2 { margin:0 0 18px; font-size:16px; }
+.siteTrafficTable { overflow-x:auto; }
+.siteTrafficTable table { width:100%; border-collapse:collapse; text-align:left; font-size:13px; }
+.siteTrafficTable td,.siteTrafficTable th { padding:14px 16px; border-bottom:1px solid #edf1f6; white-space:nowrap; }
+.siteTrafficTable thead { color:#7f8fa5; background:#f8fafc; }
+.trendControls { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:16px; }
+.trendDateRange { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; }
+.trendDateRange label { display:flex; align-items:center; gap:8px; }
+.trendDateRange input { padding:8px 10px; border:1px solid #dfe6ef; border-radius:10px; background:#fff; color:#263853; font:inherit; min-width:125px; }
+.trendDateRange input:focus { outline:2px solid #bcd8ff; outline-offset:2px; }
+@media(max-width:760px) { .trendPanel .dailyHeading { flex-direction:column; } .trendControls { justify-content:flex-start; width:100%; } .trendDateRange { flex-wrap:wrap; } .trendDateRange label { flex-direction:column; align-items:flex-start; } }
 .weeklyKeywordCards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:20px 0; }
 .weeklyKeywordCards span { display:block; color:#8290a5; font-size:12px; }
 .weeklyKeywordCards strong { display:block; margin-top:10px; font-size:26px; color:#223654; }
