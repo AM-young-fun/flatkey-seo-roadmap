@@ -4,7 +4,7 @@ import * as echarts from "echarts";
 import Link from "next/link";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { EARLIEST_TREND_DATE, trendToday, type TrendPoint } from "@/lib/ranking-trends";
+import { EARLIEST_TREND_DATE, trendRange, trendToday, type TrendPoint } from "@/lib/ranking-trends";
 
 export function RankingTrend({ region }: { region: SearchRegionCode }) {
   const [range, setRange] = useState(() => ({ start: EARLIEST_TREND_DATE, end: trendToday() }));
@@ -14,6 +14,13 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
   const [version, retry] = useState(0);
   const element = useRef<HTMLDivElement>(null);
   const points = result?.key === key ? result.points : null;
+  function changeRange(part: "start" | "end", value: string) {
+    setRange(previous => {
+      if (previous[part] === value) return previous;
+      try { return trendRange(part === "start" ? value : previous.start, part === "end" ? value : previous.end); }
+      catch { return previous; }
+    });
+  }
   useEffect(() => {
     const controller = new AbortController();
     let busy = false;
@@ -53,7 +60,7 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     return () => { observer.disconnect(); chart.dispose(); };
   }, [points, range.start, range.end]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 每天各排名区间的关键词数量{points && result?.mode === "daily" ? " · 历史单日排名" : ""}</p></div><div className="trendControls"><div className="trendDateRange" role="group" aria-label="趋势日期范围"><label>开始日期<input aria-label="趋势开始日期" type="date" min={EARLIEST_TREND_DATE} max={range.end} value={range.start} onChange={event=>{const start=event.target.value;if(start>=EARLIEST_TREND_DATE && start<=range.end)setRange(previous=>({...previous,start}));}} /></label><span>至</span><label>结束日期<input aria-label="趋势结束日期" type="date" min={range.start} max={trendToday()} value={range.end} onChange={event=>{const end=event.target.value;if(end>=range.start && end<=trendToday())setRange(previous=>({...previous,end}));}} /></label></div><Link href="/traffic" className="textLink">查看周报 →</Link></div></div>
+    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 每天各排名区间的关键词数量{points && result?.mode === "daily" ? " · 历史单日排名" : ""}</p></div><div className="trendControls"><div className="trendDateRange" role="group" aria-label="趋势日期范围"><label>开始日期<input aria-label="趋势开始日期" type="date" min={EARLIEST_TREND_DATE} max={range.end} value={range.start} onInput={event=>changeRange("start",event.currentTarget.value)} onChange={event=>changeRange("start",event.currentTarget.value)} /></label><span>至</span><label>结束日期<input aria-label="趋势结束日期" type="date" min={range.start} max={trendToday()} value={range.end} onInput={event=>changeRange("end",event.currentTarget.value)} onChange={event=>changeRange("end",event.currentTarget.value)} /></label></div><Link href="/traffic" className="textLink">查看周报 →</Link></div></div>
     {error ? <div className="loadError"><span>趋势暂时无法读取</span><button onClick={()=>retry(value=>value+1)}>重新加载</button></div> : null}
     {!points ? <p className="muted">正在加载…</p> : !points.length ? <p className="muted">所选日期暂无排名记录，尚未公布或尚未采集的日期留空。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}关键词每日排名区间数量趋势，${range.start}至${range.end}，${points.length}个有数据日期`} /><p className="chartNote">{result?.mode === "daily" ? `已补录至 ${points.at(-1)!.date}，共 ${points.length} 天。GSC 按单日有曝光的查询及当日平均排名统计，与整月汇总数量不同。` : `当前为采集快照，${points.length} 个采集日期；历史单日数据补录后显示每日趋势。`} 无数据日期留空。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">最早可选 2026-10-08。历史数据使用来源报告日期，采集快照使用北京时间采集日期，两种口径不拼接。各排名区间互不重叠；GSC 查询报告不包含匿名查询，同一网站同一词按报告去重。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。网站缺少当天报告时留空，避免把缺失当成下降。</p></details></>}
   </section>;
