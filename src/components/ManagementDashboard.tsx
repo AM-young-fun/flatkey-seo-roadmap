@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useSeoSelection } from "@/components/useSeoSelection";
 import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
+import { postImportBatch } from "@/lib/import-client";
 const initialTopicForm = { text: "", type: "MAIN" as TopicType, parentId: "" };
 type ImportKeywordsResponse = {
   message?: string;
@@ -167,14 +168,18 @@ export function ManagementDashboard() {
       if (!Array.isArray(batches) || !batches.length || batches.length > 300) throw new Error("文件需要包含 1–300 个批次");
       if (batches.some((batch: { targetDomain: string }) => !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(batch.targetDomain))) throw new Error("文件包含尚未启用的网站");
       let total = 0;
+      let duplicateBatches = 0;
       for (let index = 0; index < batches.length; index++) {
         setImportProgress(`正在导入 ${index + 1} / ${batches.length}`);
-        const response = await fetch("/api/seo/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batches[index]) });
-        const result = await response.json();
-        if (!response.ok) throw new Error(`第 ${index + 1} 批失败：${result.message ?? "请重试"}。此前成功批次已保留，可重传同一文件。`);
-        total += result.imported ?? 0;
+        try {
+          const result = await postImportBatch(batches[index], {onRetry:attempt=>setImportProgress(`第 ${index+1} / ${batches.length} 批连接异常，正在原样重试 ${attempt} / 2`)});
+          total += result.imported;
+          if (result.duplicate) duplicateBatches++;
+        } catch(error) {
+          throw new Error(`第 ${index+1} 批未确认：${error instanceof Error ? error.message : "请重试"}。此前成功批次已保留，可重传同一文件。`);
+        }
       }
-      setMessage(`导入完成：${batches.length} 批，共 ${total} 条记录（重传批次自动去重）`);
+      setMessage(`导入完成：${batches.length} 批，共确认 ${total} 条记录；新增批次 ${batches.length-duplicateBatches}，重复跳过 ${duplicateBatches}（未重复写入）`);
       setJsonFile(null); setJsonText("");
       await loadDashboard();
     } catch (error) { setMessage(error instanceof Error ? error.message : "导入失败"); }

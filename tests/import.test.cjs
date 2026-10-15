@@ -691,7 +691,7 @@ test("GA4 imports preserve original report timezone and the actual success event
   assert.equal(rankingImportSchema.safeParse({...batch([]),traffic:[{...row,timezone:"invalid/timezone"}]}).success,false);
 });
 
-const { trendRange, dailyReportPoints, recentTrendRange, snapshotTrendPoints } = require("../src/lib/ranking-trends.ts");
+const { trendRange, dailyReportPoints, recentTrendRange, snapshotTrendPoints, inventoryTrendByDay } = require("../src/lib/ranking-trends.ts");
 const { compareWeeklyRankings } = require("../src/lib/weekly-keywords.ts");
 test("trend ranges reject pre-October8, invalid, reversed and future dates", () => {
   const now = new Date("2026-10-15T02:00:00Z");
@@ -711,6 +711,18 @@ test("full snapshot trends count confirmed ranks, retain explicit outside result
   const rows=[{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:10.5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:101}];
   assert.deepEqual(snapshotTrendPoints(rows),[{date:"2026-10-14",counts:[1,1,0,0],sites:["flatkey.ai"],sources:["gsc"]}]);
   assert.deepEqual(snapshotTrendPoints([]),[]);
+});
+test("inventory totals carry history through quiet days and rolling weeks without inventing a pre-baseline", () => {
+  const point=(date,counts)=>({date,counts,sites:["flatkey.ai"],sources:["gsc"]});
+  const base=point("2026-10-14",[464,267,72,116]);
+  const days=inventoryTrendByDay([base],"2026-10-09","2026-10-15");
+  assert.deepEqual(days.map(row=>[row.date,row.counts.reduce((a,b)=>a+b,0),row.asOf]),[["2026-10-14",919,"2026-10-14"],["2026-10-15",919,"2026-10-14"]]);
+  assert.equal(inventoryTrendByDay([base],"2026-10-20","2026-10-26").length,7);
+  const updated=inventoryTrendByDay([base,point("2026-10-16",[463,268,72,115])],"2026-10-14","2026-10-17");
+  assert.deepEqual(updated.map(row=>row.counts.reduce((a,b)=>a+b,0)),[919,919,918,918]);
+  assert.equal(updated.at(-1).asOf,"2026-10-16");
+  assert.deepEqual(inventoryTrendByDay([],"2026-10-09","2026-10-15"),[]);
+  assert.deepEqual(base.counts,[464,267,72,116]);
 });
 test("historical daily imports validate full detail counts and do not overwrite current rankings", async () => {
   const row={date:"2026-10-08",region:"US",source:"gsc",top10:1,top30:1,top50:0,top100:0,totalKeywords:2,rankings:[{keyword:"claude api",rank:10},{keyword:"second",rank:10.5}],complete:true,sourceUrl:"https://search.google.com/search-console/performance/search-analytics",collectedAt};
@@ -733,4 +745,33 @@ test("weekly keyword publication is separate from daily imports and only accepts
   assert.equal(rankingImportSchema.safeParse(body(row)).success,true);
   assert.equal(rankingImportSchema.safeParse(body({...row,date:"2026-10-05"})).success,true);
   for(const invalid of [{...row,date:"2026-10-06"},{...row,collectedAt:"2026-10-14T10:30:00Z"},{...row,publishForWeek:"2026-10-13"}]) assert.equal(rankingImportSchema.safeParse(body(invalid)).success,false);
+});
+
+const { postImportBatch } = require("../src/lib/import-client.ts");
+test("import replays the exact batch after a lost commit response and confirms a duplicate without a second write", async () => {
+  const bodies=[];let writes=0;
+  const result=await postImportBatch({requestId:"lost-response",targetDomain:"flatkey.ai",observations:[]},{delay:async()=>{},fetch:async(_url,options)=>{
+    bodies.push(options.body);
+    if (bodies.length===1) {writes++;throw new TypeError("connection lost after commit");}
+    return new Response(JSON.stringify({imported:1,duplicate:true}),{status:200});
+  }});
+  assert.equal(writes,1);assert.equal(bodies.length,2);assert.equal(bodies[0],bodies[1]);assert.equal(result.duplicate,true);
+});
+test("manual import retries only transient failures with a fixed limit and never retries validation errors", async () => {
+  let attempts=0;const delays=[];
+  await assert.rejects(postImportBatch({requestId:"temporary"},{delay:async(ms)=>delays.push(ms),fetch:async()=>{attempts++;return new Response(JSON.stringify({message:"temporarily unavailable",retryable:true}),{status:503});}}));
+  assert.equal(attempts,3);assert.deepEqual(delays,[1000,2000]);
+  attempts=0;
+  await assert.rejects(postImportBatch({requestId:"invalid"},{delay:async()=>{},fetch:async()=>{attempts++;return new Response(JSON.stringify({message:"invalid batch",retryable:true}),{status:422});}}));
+  assert.equal(attempts,1);
+});
+test("import API exposes safe transient diagnostics and preserves the original requestId", async () => {
+  const original=db.seoSite.findUnique;
+  db.seoSite.findUnique=async()=>{throw Object.assign(new Error("private connection details"),{name:"PrismaClientInitializationError",errorCode:"P1001"});};
+  try {
+    const response=await route.POST(request(batch()));const body=await response.json();
+    assert.equal(response.status,503);assert.equal(body.code,"P1001");assert.equal(body.retryable,true);assert.equal(body.requestId,batch().requestId);
+    assert.equal(response.headers.get("Retry-After"),"2");assert.ok(!JSON.stringify(body).includes("private connection"));assert.ok(!body.message.includes("整批未写入"));
+    assert.equal(batches.length,0);
+  } finally {db.seoSite.findUnique=original;}
 });

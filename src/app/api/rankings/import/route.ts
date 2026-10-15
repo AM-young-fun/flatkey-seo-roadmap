@@ -1,3 +1,4 @@
+import { importFailure } from "@/lib/import-failure";
 import { importSeo } from "@/lib/services/seo-import";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -51,6 +52,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const authError = authorize(request);
   if (authError) return authError;
+  let requestId: string | undefined;
   try {
     const parsed = rankingImportSchema.safeParse(await readImportJson(request));
     if (!parsed.success)
@@ -58,6 +60,7 @@ export async function POST(request: Request) {
         { message: "导入数据校验失败", errors: parsed.error.issues },
         { status: 400 },
       );
+    requestId = parsed.data.requestId;
     const result = await importSeo(parsed.data);
     return NextResponse.json(result, { status: result.duplicate ? 200 : 201 });
   } catch (error) {
@@ -66,13 +69,8 @@ export async function POST(request: Request) {
         { message: error.message },
         { status: error.status },
       );
-    console.error(
-      "Ranking import failed",
-      error instanceof Error ? error.name : "Unknown error",
-    );
-    return NextResponse.json(
-      { message: "导入失败，未写入本批数据，请使用相同 requestId 重试" },
-      { status: 500 },
-    );
+    const failure = importFailure(error, requestId);
+    console.error("SEO import failed", {code:failure.body.code,requestId});
+    return NextResponse.json(failure.body, {status:failure.status,headers:failure.headers});
   }
 }

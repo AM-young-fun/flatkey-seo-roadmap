@@ -1740,3 +1740,6 @@ a:focus-visible {
 .dailySnapshotHeading strong { color:#19283f; font-size:16px; }
 
 .trafficMetricNote { color:var(--muted); font-size:12px; line-height:1.7; min-height:40px; margin:8px 0 16px; }
+
+.inventoryTrendTotal { margin:0 0 20px; color:#70819a; font-size:13px; line-height:1.8; }
+.inventoryTrendTotal strong { color:#19283f; font-size:20px; margin:0 4px; }

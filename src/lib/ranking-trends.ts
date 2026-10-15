@@ -10,8 +10,23 @@ export function trendRange(start = EARLIEST_TREND_DATE, end = trendToday(), now 
   return { start, end };
 }
 
-export type TrendPoint = { date: string; counts: number[]; sites: string[]; sources: string[] };
+export type TrendPoint = { date: string; counts: number[]; sites: string[]; sources: string[]; asOf?: string };
 export type TrendResult = { points: TrendPoint[]; mode: "capture"; start: string; end: string; snapshot: null };
+
+// A point is the known inventory at the end of a date, not that date's intake.
+// Carry the last known state forward while retaining its actual update date.
+export function inventoryTrendByDay(updates: TrendPoint[], start: string, end: string): TrendPoint[] {
+  const sorted = [...updates].sort((a,b)=>a.date.localeCompare(b.date));
+  let index = 0;
+  let known: TrendPoint | undefined;
+  const result: TrendPoint[] = [];
+  for (const day = new Date(`${start}T00:00:00Z`); day <= new Date(`${end}T00:00:00Z`); day.setUTCDate(day.getUTCDate()+1)) {
+    const date = day.toISOString().slice(0,10);
+    while (index < sorted.length && sorted[index].date <= date) known = sorted[index++];
+    if (known) result.push({...known,date,asOf:known.asOf ?? known.date,counts:[...known.counts]});
+  }
+  return result;
+}
 
 export function snapshotTrendPoints(rows: {date:string;rank:number|null;siteDomain:string;source:string}[]): TrendPoint[] {
   const points = new Map<string, TrendPoint>();

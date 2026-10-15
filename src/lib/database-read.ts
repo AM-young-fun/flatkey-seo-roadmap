@@ -4,7 +4,7 @@ export function databaseErrorCode(error: unknown): string {
   if (!error || typeof error !== "object") return "UNKNOWN";
   // Initialization errors expose errorCode; query errors expose code.
   // Return only Prisma's public code, never a connection URL or raw message.
-  const candidate = "code" in error ? error.code : "errorCode" in error ? error.errorCode : "";
+  const candidate = ("code" in error ? error.code : undefined) ?? ("errorCode" in error ? error.errorCode : "");
   const code = /^P\d{4}$/.test(String(candidate ?? "")) ? String(candidate) : "";
   if (code) return code;
   // Some engine/driver connection failures have no Prisma error code.
@@ -18,12 +18,16 @@ export function databaseErrorCode(error: unknown): string {
   return "UNKNOWN";
 }
 
+export function isTransientDatabaseError(error: unknown) {
+  const code = databaseErrorCode(error);
+  return TRANSIENT_ERRORS.has(code) || ["CONNECTION_INTERRUPTED", "ENGINE_EMPTY", "PrismaClientUnknownRequestError", "PrismaClientInitializationError"].includes(code);
+}
+
 export async function retryDatabaseRead<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (error) {
-    const code = databaseErrorCode(error);
-    if (!TRANSIENT_ERRORS.has(code) && !["CONNECTION_INTERRUPTED", "ENGINE_EMPTY", "PrismaClientUnknownRequestError", "PrismaClientInitializationError"].includes(code)) throw error;
+    if (!isTransientDatabaseError(error)) throw error;
     await new Promise((resolve) => setTimeout(resolve, 400));
     return read();
   }
