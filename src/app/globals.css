@@ -1743,3 +1743,33 @@ a:focus-visible {
 
 .inventoryTrendTotal { margin:0 0 20px; color:#70819a; font-size:13px; line-height:1.8; }
 .inventoryTrendTotal strong { color:#19283f; font-size:20px; margin:0 4px; }
+
+/* Summary first, full-width keyword network below. */
+.overviewSummaryGrid { display:grid; grid-template-columns:minmax(0, 1fr) 360px; gap:22px; align-items:stretch; margin:24px 0; }
+.overviewSummaryGrid .trendPanel { min-width:0; margin:0; display:flex; flex-direction:column; }
+.overviewSummaryGrid .rankingTrend { flex:1; min-height:300px; }
+.overviewSummaryGrid .analyticsColumn { min-width:0; display:grid; grid-template-columns:1fr; gap:16px; }
+.overviewSummaryGrid .analyticsCard { padding:20px 22px; }
+.overviewSummaryGrid .analyticsCard h2 { font-size:17px; }
+.overviewSummaryGrid .coverageDonut { width:150px; height:150px; margin:18px auto; }
+.overviewSummaryGrid .coverageDonut > div { width:124px; height:124px; }
+.overviewSummaryGrid .coverageDonut strong { font-size:30px; }
+.overviewSummaryGrid .coverageDonut span { font-size:11px; }
+.overviewSummaryGrid .coverageRows { gap:8px; }
+.overviewSummaryGrid .distributionRows { gap:12px; margin-top:18px; }
+.overviewSummaryGrid .chartNote { font-size:11px; line-height:1.7; }
+.overviewSummaryGrid .analyticsCard .eyebrow { margin-bottom:8px; }
+.overviewGrid { display:block; }
+.overviewGrid .graphPanel { width:100%; }
+@media(max-width:1050px) {
+  .overviewSummaryGrid { grid-template-columns:minmax(0,1fr) 310px; gap:16px; }
+  .overviewSummaryGrid .analyticsCard { padding:18px; }
+}
+@media(max-width:760px) {
+  .overviewSummaryGrid { grid-template-columns:1fr; }
+  .overviewSummaryGrid .analyticsColumn { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .overviewSummaryGrid .rankingTrend { min-height:250px; }
+}
+@media(max-width:520px) {
+  .overviewSummaryGrid .analyticsColumn { grid-template-columns:1fr; }
+}

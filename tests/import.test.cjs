@@ -78,13 +78,22 @@ const db = {
     updateMany: async () => ({ count: 0 }),
   },
   $executeRaw: async () => 0,
-  $queryRaw: async (strings, ...values) =>
-    db.keywordObservation.findMany({
-      where: strings.join("").includes('"rankReported"')
-        ? { rankReported: true, source: values[1], siteDomain: values[0] }
-        : { source: "ahrefs", volume: { not: null } },
-      distinct: ["keywordId", "region"],
-    }),
+  $queryRaw: async (query, ...args) => {
+    const sql = Array.isArray(query) ? query.join("") : query.sql;
+    const values = query.values ?? args;
+    if (sql.includes("dashboard:topics")) return values.includes("flatkey.ai") ? [{siteDomain:"flatkey.ai",id:"topic-1",text:"Claude",type:"MAIN",parentId:null,parentIds:[]}] : [];
+    if (sql.includes("dashboard:keywords")) return values.includes("flatkey.ai") ? keywords.map(k=>({...k,siteDomain:"flatkey.ai",parentIds:[],topicText:k.topic.text,topicTexts:[],origin:"PLANNED",targetUrls:[]})) : [];
+    if (sql.includes("dashboard:ranks")) {
+      const source = values.at(-1);
+      const rows = observations.filter(row=>values.includes(row.siteDomain) && row.rankReported && (row.rank != null || row.rankStatus === "outside_top100") && (source === "combined" || row.source === source)).sort((a,b)=>b.collectedAt-a.collectedAt || b.importedAt-a.importedAt);
+      const seen=new Set();return rows.filter(row=>{const key=`${row.siteDomain}:${row.keywordId}:${row.region}`;if(seen.has(key))return false;seen.add(key);return true;});
+    }
+    if (sql.includes("dashboard:volumes")) {
+      const rows=await db.keywordObservation.findMany({where:{source:"ahrefs",volume:{not:null}},distinct:["keywordId","region"]});
+      return rows.map(row=>({...row,fetchedAt:row.collectedAt}));
+    }
+    return db.keywordObservation.findMany({where:sql.includes('"rankReported"') ? {rankReported:true,source:values[1],siteDomain:values[0]} : {source:"ahrefs",volume:{not:null}},distinct:["keywordId","region"]});
+  },
   keywordObservation: {
     findMany: async ({ where, distinct }) => {
       const rows = observations
@@ -468,7 +477,8 @@ test("dashboard shows imported GSC fractions, independent zero volume, and ignor
   );
   now += 31000;
   data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?source=gsc"))).json();
-  assert.equal(data.keywords[0].latestRanks.US.rank, null);
+  // A no-exposure report does not clear the last confirmed ranking.
+  assert.equal(data.keywords[0].latestRanks.US.rank, 12.4);
   assert.equal(data.keywords[0].latestRanks.US.source, "gsc");
 });
 
@@ -652,6 +662,61 @@ test("overview uses full site keyword inventory without a fixed 500 cap", async 
   const data = await (await dashboard.GET(new Request("https://flatkey.test/api/dashboard?site=all&source=ahrefs"))).json();
   assert.equal(data.keywords.length, 1);
   assert.equal(data.keywords[0].siteName, "Flatkey");
+});
+
+const { assembleDashboard, loadDashboard } = require("../src/lib/services/dashboard-data.ts");
+test("bulk dashboard keeps shared keywords and topics separate across sites and preserves every region", () => {
+  const topic = {id:"topic",text:"Shared topic",type:"MAIN",parentId:null,parentIds:[]};
+  const keyword = {id:"shared",text:"shared keyword",type:"MAIN",topicId:"topic",topicText:"Shared topic",topicTexts:["Second topic"],parentId:null,parentIds:[],origin:"DISCOVERED",targetUrls:[],defaultVolume:100,lastSyncedAt:null};
+  const rank = {keywordId:"shared",region:"US",rank:5,source:"gsc",periodStart:new Date("2026-10-01"),periodEnd:new Date("2026-10-14"),url:"https://flatkey.ai/",collectedAt:new Date(collectedAt),dataUpdatedAt:null,rankStatus:"ranked"};
+  const value=assembleDashboard("all",["flatkey.ai","rackrate.org"].map(siteDomain=>({...topic,siteDomain})),["flatkey.ai","rackrate.org"].map(siteDomain=>({...keyword,siteDomain})),[{...rank,siteDomain:"flatkey.ai"},{...rank,siteDomain:"rackrate.org",rank:101,rankStatus:"outside_top100",url:"https://rackrate.org/"}],[{keywordId:"shared",region:"US",volume:0,fetchedAt:new Date(collectedAt)},{keywordId:"shared",region:"JP",volume:12,fetchedAt:new Date(collectedAt)}],null);
+  assert.equal(value.keywords.length,2);
+  assert.equal(new Set(value.keywords.map(row=>row.id)).size,2);
+  assert.equal(value.keywords[0].latestRanks.US.rank,5);
+  assert.equal(value.keywords[1].latestRanks.US.rank,101);
+  assert.equal(value.keywords[0].marketVolumes.US,0);
+  assert.equal(value.keywords[1].marketVolumes.JP,12);
+  assert.equal(value.keywords[0].marketVolumes.BR,null);
+  assert.equal(value.keywords[0].latestRanks.JP,null);
+  assert.equal(value.topics[0].marketVolumes.JP,12);
+  assert.equal(value.topics[1].marketVolumes.JP,12);
+});
+
+test("summary bulk read does not repeat queries per site or retrieve a legacy sync run", async (t) => {
+  let reads=0;
+  const original=db.$queryRaw;
+  t.mock.method(db,"$queryRaw",async(...args)=>{reads++;return original(...args);});
+  t.mock.method(db.syncRun,"findFirst",async()=>{throw new Error("unneeded sync read");});
+  const value=await loadDashboard("all","combined");
+  assert.equal(value.keywords.length,1);
+  assert.equal(reads,4);
+});
+
+const { createDashboardStore } = require("../src/lib/dashboard-client.ts");
+test("dashboard navigation shares pending reads, reuses fresh data and refreshes after expiry", async () => {
+  let requests=0, now=100000, release;
+  const body=JSON.stringify({keywords:[],targetDomain:"all"});
+  const store=createDashboardStore(async()=>{requests++;if(requests===1)await new Promise(resolve=>{release=resolve;});return new Response(body);},()=>now);
+  const a=store.read("all","combined"), b=store.read("all","combined");
+  assert.equal(requests,1);release();
+  const [first,second]=await Promise.all([a,b]);
+  assert.equal(first,second);
+  assert.equal(await store.read("all","combined"),first);
+  assert.equal(requests,1);
+  now+=31000;
+  assert.equal(await store.read("all","combined"),first);
+  assert.equal(requests,2);
+  await store.read("all","combined",true);
+  assert.equal(requests,3);
+});
+
+test("dashboard authentication failure clears cached data and never retries", async () => {
+  let requests=0;
+  const store=createDashboardStore(async()=>++requests===1 ? new Response(JSON.stringify({keywords:[]})) : new Response("{}",{status:401}));
+  await store.read("all","combined");
+  await assert.rejects(store.read("all","combined",true),error=>error.status===401);
+  assert.equal(store.peek("all","combined"),null);
+  assert.equal(requests,2);
 });
 
 const { databaseErrorCode, retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");

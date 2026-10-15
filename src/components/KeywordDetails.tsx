@@ -130,7 +130,7 @@ export function KeywordDetails() {
         <p className="eyebrow">KEYWORD DIRECTORY</p>
         <h1>关键词明细</h1>
         <p>
-          全部网站 · 共 {data?.keywords.length ?? 0} 条关键词与网站记录
+          全部网站 · {data ? `共 ${data.keywords.length} 条关键词与网站记录` : "正在加载关键词…"}
           · 每天 10:30（北京时间）更新
         </p>
       </div>

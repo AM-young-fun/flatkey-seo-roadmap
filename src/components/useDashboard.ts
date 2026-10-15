@@ -1,93 +1,41 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { DashboardResponse } from "@/lib/types";
-
-const dashboards = new Map<string, DashboardResponse>();
+import { useCallback, useEffect, useState } from "react";
+import { dashboardStore, DashboardReadError } from "@/lib/dashboard-client";
 
 export function useDashboard(site = "all", source = "combined") {
   const key = `${site}:${source}`;
-  const [data, setData] = useState<DashboardResponse | null>(
-    () => dashboards.get(key) ?? null,
-  );
-  const [dataKey, setDataKey] = useState(key);
-  const [error, setError] = useState<string | null>(null);
-  const busy = useRef(false);
-  const controller = useRef<AbortController | null>(null);
-  const refresh = useCallback(async () => {
-    if (busy.current) return;
-    busy.current = true;
-    const requestController = new AbortController();
-    controller.current = requestController;
-    try {
-      let payload: DashboardResponse | null = null;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          const response = await fetch(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}`, {
-            cache: "no-store",
-            signal: requestController.signal,
-          });
-          if (response.status === 401) {
-            dashboards.clear();
-            window.location.assign("/login");
-            return;
-          }
-          if (!response.ok) {
-            const failure = (await response.json().catch(() => ({}))) as {
-              code?: string;
-              sqlState?: string;
-            };
-            const suffix = failure.code
-              ? `（${failure.code}${failure.sqlState ? ` / ${failure.sqlState}` : ""}）`
-              : `（${response.status}）`;
-            throw new Error(`数据加载失败${suffix}，请重试`);
-          }
-          payload = (await response.json()) as DashboardResponse;
-          break;
-        } catch (error) {
-          if (requestController.signal.aborted || attempt === 2) throw error;
-          await new Promise<void>((resolve) =>
-            window.setTimeout(resolve, (attempt + 1) * 600),
-          );
-        }
-      }
-      if (!payload) return;
-      dashboards.set(key, payload);
-      if (!requestController.signal.aborted) {
-        setData((previous) =>
-          JSON.stringify(previous) === JSON.stringify(payload)
-            ? previous
-            : payload,
-        );
-        setDataKey(key);
-        setError(null);
-      }
-    } catch (error) {
-      if (!requestController.signal.aborted)
-        setError(error instanceof Error ? error.message : "加载失败");
-    } finally {
-      if (controller.current === requestController) {
-        busy.current = false;
-        controller.current = null;
-      }
-    }
-  }, [key, site, source]);
+  const [state, setState] = useState(() => ({ key, data: dashboardStore.peek(site, source), error: null as string | null }));
+  const [version, setVersion] = useState(0);
+  const refresh = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
-    void refresh();
-    const update = () => {
-      if (!document.hidden) void refresh();
+    let active = true;
+    const update = async (force = false) => {
+      try {
+        const data = await dashboardStore.read(site, source, force);
+        if (active) setState(previous => previous.key === key && previous.data === data && !previous.error ? previous : { key, data, error: null });
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof DashboardReadError && error.status === 401) {
+          dashboardStore.clear();
+          window.location.assign("/login");
+          return;
+        }
+        setState(previous => ({ key, data: previous.key === key ? previous.data : dashboardStore.peek(site, source), error: error instanceof Error ? error.message : "加载失败" }));
+      }
     };
-    const timer = window.setInterval(update, 60_000);
-    document.addEventListener("visibilitychange", update);
-    window.addEventListener("focus", update);
+    void update(version > 0);
+    const onVisible = () => { if (!document.hidden) void update(); };
+    const timer = window.setInterval(onVisible, 60000);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     return () => {
+      active = false;
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", update);
-      window.removeEventListener("focus", update);
-      controller.current?.abort();
-      controller.current = null;
-      busy.current = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
     };
-  }, [refresh]);
-  const visibleData = dataKey === key ? data : dashboards.get(key) ?? null;
-  return { data: visibleData, error, loading: !visibleData && !error, refresh };
+  }, [key, site, source, version]);
+  const data = state.key === key ? state.data : dashboardStore.peek(site, source);
+  const error = state.key === key ? state.error : null;
+  return { data, error, loading: !data && !error, refresh };
 }

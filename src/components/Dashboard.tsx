@@ -20,7 +20,7 @@ export function Dashboard() {
     const query = graphSearch.trim().toLowerCase();
     return query ? keywords.filter((keyword) => `${keyword.text} ${keyword.topicText ?? ""} ${keyword.siteName ?? ""}`.toLowerCase().includes(query)) : keywords;
   }, [keywords, graphSearch]);
-  const stats = rankingStats(keywords, region);
+  const stats = useMemo(() => rankingStats(keywords, region), [keywords, region]);
   const formatPercent = (count: number) =>
     ready ? `${stats.percent(count).toFixed(1)}%` : "—";
   const hasGsc = keywords.some(
@@ -29,46 +29,8 @@ export function Dashboard() {
   return (
     <main className="appShell">
       <PageHeader active="overview" selection={selection} />
-      <RankingTrend region={region} />
-      <div className="dailySnapshotHeading"><strong>全词库排名总览</strong><span>每个词使用最近一次确认的排名，包含历史采集结果；当天没有曝光不清空旧排名，明确查到前 100 外时才更新。</span></div>
-      {error ? (
-        <div className="loadError" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => void refresh()}>
-            重新加载
-          </button>
-        </div>
-      ) : null}
-      <section className="overviewGrid">
-        <article className="graphPanel">
-          <div className="panelHeader">
-            <div>
-              <p className="eyebrow">KEYWORD NETWORK</p>
-              <h2>关键词关系图</h2>
-              <p>缩放、拖动或悬停查看关键词；连线表示同话题或父子关联</p>
-            </div>
-            <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
-              查看明细
-              <ArrowUpRight size={15} />
-            </Link></div>
-          </div>
-          <p className="chartNote">完整圆形词库 · 图中显示 {ready ? graphKeywords.length : "—"} 条{graphSearch ? "匹配" : "关键词与网站"}记录。包含页面目标词、集群页面词、实际搜索词和待评估词。</p>
-          <div className="rankLegend">
-            {DISPLAY_BUCKETS.map((bucket) => (
-              <span key={bucket.key}>
-                <i style={{ background: bucket.color }} />
-                {bucket.key === "NOT_FOUND" ? "暂无前 100 排名" : bucket.range}
-              </span>
-            ))}
-          </div>
-          {loading ? (
-            <div className="loadingState">正在加载关键词…</div>
-          ) : error && !data ? (
-            <div className="loadingState">词库读取失败，请点击上方「重新加载」</div>
-          ) : (
-            <KeywordGraph keywords={graphKeywords} selectedRegion={region} />
-          )}
-        </article>
+      <section className="overviewSummaryGrid">
+        <RankingTrend region={region} />
         <aside className="analyticsColumn">
           <article className="analyticsCard">
             <p className="eyebrow">RANKING COVERAGE</p>
@@ -111,7 +73,7 @@ export function Dashboard() {
               </p>
             </div>
             <p className="chartNote">
-              灰色包括已确认 100 名以外和暂无排名数据的词；不代表网页未被收录。当前待采集 {stats.pending} 个。
+              灰色包括已确认 100 名以外和暂无排名数据的词；不代表网页未被收录。当前待采集 {ready ? stats.pending : "—"} 个。
             </p>
           </article>
           <article className="analyticsCard">
@@ -146,6 +108,46 @@ export function Dashboard() {
             </p>
           </article>
         </aside>
+      </section>
+      <div className="dailySnapshotHeading"><strong>全词库排名总览</strong><span>每个词使用最近一次确认的排名，包含历史采集结果；当天没有曝光不清空旧排名，明确查到前 100 外时才更新。</span></div>
+      {error ? (
+        <div className="loadError" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void refresh()}>
+            重新加载
+          </button>
+        </div>
+      ) : null}
+      <section className="overviewGrid">
+        <article className="graphPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">KEYWORD NETWORK</p>
+              <h2>关键词关系图</h2>
+              <p>缩放、拖动或悬停查看关键词；连线表示同话题或父子关联</p>
+            </div>
+            <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
+              查看明细
+              <ArrowUpRight size={15} />
+            </Link></div>
+          </div>
+          <p className="chartNote">完整圆形词库 · 图中显示 {ready ? graphKeywords.length : "—"} 条{graphSearch ? "匹配" : "关键词与网站"}记录。包含页面目标词、集群页面词、实际搜索词和待评估词。</p>
+          <div className="rankLegend">
+            {DISPLAY_BUCKETS.map((bucket) => (
+              <span key={bucket.key}>
+                <i style={{ background: bucket.color }} />
+                {bucket.key === "NOT_FOUND" ? "暂无前 100 排名" : bucket.range}
+              </span>
+            ))}
+          </div>
+          {loading ? (
+            <div className="loadingState">正在加载关键词…</div>
+          ) : error && !data ? (
+            <div className="loadingState">词库读取失败，请点击上方「重新加载」</div>
+          ) : (
+            <KeywordGraph keywords={graphKeywords} selectedRegion={region} />
+          )}
+        </article>
       </section>
       <footer className="overviewFooter">
         <span>

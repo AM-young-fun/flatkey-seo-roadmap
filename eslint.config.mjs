@@ -6,6 +6,7 @@ const eslintConfig = tseslint.config(
   {
     ignores: [
       ".next/**",
+      ".local/**",
       "node_modules/**",
       "next-env.d.ts",
       "tsconfig.tsbuildinfo"

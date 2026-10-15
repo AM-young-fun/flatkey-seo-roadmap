@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import * as echarts from "echarts";
+import type * as echarts from "echarts";
 import Link from "next/link";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
@@ -41,10 +41,13 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
   }, [region, key, range.start, range.end, version]);
   useEffect(() => {
     if (!element.current || !points?.length) return;
-    const chart = echarts.init(element.current);
+    const target = element.current;
+    let disposed = false;
+    let chart: echarts.ECharts | undefined;
+    let observer: ResizeObserver | undefined;
     const byDate = new Map(points.map((point) => [point.date, point]));
     const dates = points.map(point => point.date);
-    chart.setOption({ animation: false, color: ["#19283f", ...DISPLAY_BUCKETS.slice(0,4).map(bucket=>bucket.color)],
+    const option: echarts.EChartsOption = { animation: false, color: ["#19283f", ...DISPLAY_BUCKETS.slice(0,4).map(bucket=>bucket.color)],
       tooltip: { trigger: "axis", renderMode:"richText", confine:true, formatter:(raw:unknown)=> {
         const values = raw as {axisValue:string;seriesName:string;value:number|null}[];
         const point = byDate.get(String(values[0]?.axisValue));
@@ -55,10 +58,16 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
       grid: { left: 45, right: 25, top: 45, bottom: 40 },
       xAxis: { type:"category", data:dates, boundaryGap:true, axisLabel:{formatter:(value:string)=>value.slice(5),color:"#8795a9"}, axisLine:{lineStyle:{color:"#e5eaf2"}} },
       yAxis: { type:"value", minInterval:1, axisLabel:{color:"#8795a9"},splitLine:{lineStyle:{color:"#eef2f7"}} },
-      series: [{ name:"前 100 合计", type:"line", lineStyle:{width:3}, itemStyle:{color:"#19283f"}, symbolSize:6, connectNulls:false, data:dates.map(date=> { const point=byDate.get(date); return point ? point.counts.reduce((sum,count)=>sum+count,0) : null; }) }, ...DISPLAY_BUCKETS.slice(0,4).map((bucket,index)=>({ name:`${bucket.range} 名`, type:"line", itemStyle:{color:bucket.color}, lineStyle:{color:bucket.color}, smooth:false, showSymbol:true, symbolSize:points.length===1?10:5, connectNulls:false, data:dates.map(date=>byDate.get(date)?.counts[index] ?? null) }))],
+      series: [{ name:"前 100 合计", type:"line" as const, lineStyle:{width:3}, itemStyle:{color:"#19283f"}, symbolSize:6, connectNulls:false, data:dates.map(date=> { const point=byDate.get(date); return point ? point.counts.reduce((sum,count)=>sum+count,0) : null; }) }, ...DISPLAY_BUCKETS.slice(0,4).map((bucket,index)=>({ name:`${bucket.range} 名`, type:"line" as const, itemStyle:{color:bucket.color}, lineStyle:{color:bucket.color}, smooth:false, showSymbol:true, symbolSize:points.length===1?10:5, connectNulls:false, data:dates.map(date=>byDate.get(date)?.counts[index] ?? null) }))],
+    };
+    void import("@/lib/charts").then(({ init }) => {
+      if (disposed) return;
+      chart = init(target);
+      chart.setOption(option);
+      observer = new ResizeObserver(() => chart?.resize());
+      observer.observe(target);
     });
-    const observer = new ResizeObserver(()=>chart.resize()); observer.observe(element.current);
-    return () => { observer.disconnect(); chart.dispose(); };
+    return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [points, range.start, range.end]);
   return <section className="dailyPanel trendPanel">
     <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近 7 天 · 截至每日的前 100 总量（含历史排名）</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>

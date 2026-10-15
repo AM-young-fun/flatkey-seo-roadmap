@@ -1,5 +1,5 @@
 "use client";
-import * as echarts from "echarts";
+import type * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { DashboardKeyword } from "@/lib/types";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
@@ -17,7 +17,6 @@ export function KeywordGraph({
   selectedRegion: SearchRegionCode;
 }) {
   const element = useRef<HTMLDivElement>(null);
-  const instance = useRef<echarts.ECharts | null>(null);
   const option = useMemo<echarts.EChartsOption>(() => {
     const ids = new Set(keywords.map((keyword) => keyword.id));
     const groups = new Map<string, DashboardKeyword[]>();
@@ -118,19 +117,23 @@ export function KeywordGraph({
   }, [keywords, selectedRegion]);
   useEffect(() => {
     if (!element.current || !keywords.length) return;
-    const chart = echarts.init(element.current);
-    instance.current = chart;
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(element.current);
+    const target = element.current;
+    let disposed = false;
+    let chart: echarts.ECharts | undefined;
+    let observer: ResizeObserver | undefined;
+    void import("@/lib/charts").then(({ init }) => {
+      if (disposed) return;
+      chart = init(target);
+      chart.setOption(option, true);
+      observer = new ResizeObserver(() => chart?.resize());
+      observer.observe(target);
+    });
     return () => {
-      observer.disconnect();
-      chart.dispose();
-      instance.current = null;
+      disposed = true;
+      observer?.disconnect();
+      chart?.dispose();
     };
-  }, [keywords.length]);
-  useEffect(() => {
-    instance.current?.setOption(option, true);
-  }, [option]);
+  }, [keywords.length, option]);
   return keywords.length ? (
     <div
       ref={element}
