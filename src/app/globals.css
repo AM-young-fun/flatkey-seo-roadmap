@@ -1776,7 +1776,9 @@ a:focus-visible {
 .overviewGrid { display:block; }
 .overviewGrid .graphPanel { width:100%; }
 /* Business keyword objectives and page coverage. */
-.okrIntro { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.keywordViewTabs { display:flex; flex-wrap:wrap; gap:6px; margin:24px 0; padding:5px; width:fit-content; background:#eaf0f7; border-radius:10px; }
+.keywordViewTabs button { border:0; padding:11px 22px; border-radius:7px; background:transparent; color:#74869e; font-size:13px; cursor:pointer; }
+.keywordViewTabs button.selected { color:#2e507b; background:#fff; box-shadow:0 2px 7px #253e6010; font-weight:600; }
 .okrCaptureState { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:14px 18px; margin:0 0 20px; border:1px solid #dbe4ef; border-radius:10px; background:#f6f9fd; color:#61738b; font-size:12px; line-height:1.7; }
 .okrCaptureState strong { color:#354b69; }
 .okrCaptureState > .textLink { margin-left:auto; }
@@ -1795,32 +1797,20 @@ a:focus-visible {
 .okrUninitialized .okrApplyPrimary { background:#253e60; color:white; border-color:#253e60; padding:11px 18px; font-weight:600; }
 .okrUninitialized button:disabled { opacity:.5; cursor:default; }
 .okrPreview > small { display:block; margin-top:12px; font-size:11px; color:#9d8c72; overflow-wrap:anywhere; }
-.okrSummary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:22px 0; }
-.okrSummary article { border:1px solid var(--border); background:#fff; border-radius:12px; padding:20px; }
-.okrSummary span { color:#72829a; font-size:12px; }
-.okrSummary strong { display:block; font-size:30px; color:#253d5e; margin:12px 0 8px; }
-.okrSummary small { color:#8a98ab; font-size:11px; line-height:1.7; }
 .okrSection { margin:24px 0; border:1px solid var(--border); border-radius:14px; background:#fff; overflow:hidden; padding:22px 24px; }
 .okrSectionHeading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; }
 .okrSectionHeading h2 { font-size:17px; margin:0 0 8px; }
 .okrSectionHeading h2 span { color:#91a0b4; font-weight:500; margin-left:8px; }
 .okrSectionHeading p { color:#7e8da3; line-height:1.8; font-size:12px; margin:0; }
-.okrPoolTabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #edf1f6; padding-bottom:16px; margin-bottom:18px; }
-.okrPoolTabs button { display:flex; align-items:center; gap:12px; border:1px solid transparent; border-radius:8px; background:#f5f7fa; color:#75859b; padding:9px 14px; cursor:pointer; font-size:12px; }
-.okrPoolTabs button.selected { background:#eaf1fb; color:#315d95; border-color:#cdddf2; font-weight:600; }
-.okrPoolTabs span { min-width:20px; color:#8a9ab0; }
-.okrToolbar { margin:0 0 12px; padding:0; }
 .okrSection .chartNote { margin-bottom:14px; }
 .okrReason { display:block; max-width:380px; color:#64768f; line-height:1.8; font-size:12px; overflow-wrap:anywhere; }
-.okrProtected { display:flex; align-items:center; gap:5px; }
 .okrSection .ant-tag { white-space:normal; line-height:1.8; }
 .okrSection .keywordEvidenceDetails { padding:14px 12px; font-size:12px; line-height:1.9; }
 .okrSection .keywordEvidenceDetails h3 { margin:20px 0 10px; font-size:13px; }
 .okrSection .keywordEvidenceDetails .observedUrl { max-width:100%; }
 .okrRestore { padding:6px 10px; color:#a05f36; border:1px solid #eddccd; border-radius:7px; background:#fffaf6; cursor:pointer; font-size:11px; }
 .okrRestore:disabled,.okrRefresh:disabled { opacity:.5; cursor:default; }
-@media(max-width:900px) { .okrSummary { grid-template-columns:repeat(2,minmax(0,1fr)); } .okrIntro { align-items:flex-start; flex-direction:column; gap:14px; } }
-@media(max-width:600px) { .okrSection { padding:18px 14px; } .okrSummary { gap:10px; } .okrSummary article { padding:16px; } .okrSummary strong { font-size:25px; } .okrCaptureState > .textLink { margin-left:0; } .okrPoolTabs { gap:6px; } .okrPoolTabs button { padding:8px 10px; gap:8px; } .okrPreview dl { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .okrSection { padding:18px 14px; } .okrPreview dl { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:1050px) {
   .overviewSummaryGrid { grid-template-columns:minmax(0,1fr) 310px; gap:16px; }
   .overviewSummaryGrid .analyticsCard { padding:18px; }

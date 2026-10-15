@@ -2,13 +2,13 @@
 import { RegionSelect } from "@/components/RegionSelect";
 import { type SeoSelection } from "@/components/useSeoSelection";
 import Link from "next/link";
-import { ChartNoAxesCombined, List, Settings2, LogOut, Target } from "lucide-react";
+import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
 import { dashboardStore } from "@/lib/dashboard-client";
 
 export function PageHeader({
   active, selection,
 }: {
-  active: "overview" | "keywords" | "manage" | "traffic" | "okr";
+  active: "overview" | "keywords" | "manage" | "traffic";
   selection?: SeoSelection;
 }) {
   return (
@@ -23,10 +23,6 @@ export function PageHeader({
         <RegionSelect value={selection.region} onChange={selection.setRegion} />
       </div> : null}
       <nav aria-label="主导航">
-        <Link href="/okr" className={active === "okr" ? "navLink active" : "navLink"} aria-current={active === "okr" ? "page" : undefined}>
-          <Target size={16} />
-          SEO 目标
-        </Link>
         <Link
           href="/"
           className={active === "overview" ? "navLink active" : "navLink"}

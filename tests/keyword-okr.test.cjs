@@ -175,3 +175,35 @@ test("content tasks expose only formal keywords and topic edge edits block an au
   await assert.rejects(mutateKeywordOkr(input("restore")), /话题关联已变化/);
   assert.equal(state.audits[0].status, "APPLIED");
 });
+
+test("task intent review keeps formal words while removing cross-topic assignments and misleading titles", () => {
+  const formal = new Map(okrAudit.keywords.map(row => [row.text, row]));
+  const tasks = new Map(okrAudit.tasks.map(row => [row.number, row]));
+  const mismatches = [
+    [1, "ai agent开发"], [3, "apify for web scraping"], [3, "best scraping api"], [7, "deepseek v2 pricing"],
+    [11, "chat gpt vs grok vs gemini"], [11, "grok vs gemini vs chatgpt"], [12, "ai reliability engineering"],
+    [14, "kimi context window"], [15, "aws budget alerts"], [15, "azure budget alerts"], [15, "litellm examples"],
+    [16, "llama 4 vs gpt 4"], [17, "multi modal testing"], [28, "coreweave kubernetes gpu cluster"],
+    [36, "labarna ai sovereign ai infrastructure company"], [39, "context deadline exceeded meaning"],
+    [39, "what does context deadline exceeded mean"], [40, "openai compatible endpoint"],
+    [41, "how to get openai api key"], [43, "context window optimization"], [44, "qdrant free tier"],
+  ];
+  assert.equal(mismatches.length, 21);
+  for (const [number, word] of mismatches) {
+    assert.ok(formal.has(word), `business word remains formal: ${word}`);
+    assert.ok(!tasks.get(number).keywords.includes(word), `different intent cannot inherit task ${number}: ${word}`);
+  }
+  assert.equal(okrAudit.tasks.reduce((sum, row) => sum + row.keywords.length, 0), 167);
+  assert.match(tasks.get(12).title, /Kie\.ai/);
+  assert.match(tasks.get(15).title, /LiteLLM/);
+  assert.match(tasks.get(16).title, /Qwen/);
+  assert.match(tasks.get(14).title, /GPT-5系列/);
+  assert.ok(tasks.get(7).keywords.includes("deepseek v4 pro pricing first look"));
+  for (const row of okrAudit.tasks) {
+    if (row.type === "NEW") assert.deepEqual(row.targetUrls, [], "adjacent incomplete content is not an available target");
+    for (const word of row.keywords) {
+      if (formal.get(word).actions.includes("retain_remap")) assert.equal(word, "deepseek v4 pro pricing first look");
+    }
+  }
+  assert.deepEqual(tasks.get(14).targetUrls, [], "single-model specifications cannot stand in for a comparison");
+});

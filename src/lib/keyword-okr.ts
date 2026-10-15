@@ -1,4 +1,4 @@
-export const KEYWORD_OKR_AUDIT_ID = "flatkey-keyword-curation-2026-10-15-v1";
+export const KEYWORD_OKR_AUDIT_ID = "flatkey-keyword-curation-2026-10-15-v2";
 export type KeywordPool = "FORMAL" | "RESEARCH" | "ARCHIVED" | "MERGED";
 export type KeywordMappingStatus = "READY" | "MODEL_PROTECTED" | "RECORDED" | "UNMAPPED" | "NEEDS_BUILD" | "NEEDS_EXPANSION" | "NEEDS_REMAP" | "MULTIPLE_CANDIDATES";
 export type KeywordOkrItem = {

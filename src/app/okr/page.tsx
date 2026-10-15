@@ -1,5 +1,5 @@
-import { KeywordOkrWorkspace } from "@/components/KeywordOkrWorkspace";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <KeywordOkrWorkspace />;
+  redirect("/keywords");
 }
