@@ -1745,6 +1745,7 @@ a:focus-visible {
 .inventoryTrendTotal strong { color:#19283f; font-size:20px; margin:0 4px; }
 
 /* Summary first, full-width keyword network below. */
+.cacheNotice { margin:16px 0; color:#738298; font-size:12px; }
 .overviewSummaryGrid { display:grid; grid-template-columns:minmax(0, 1fr) 360px; gap:22px; align-items:stretch; margin:24px 0; }
 .overviewSummaryGrid .trendPanel { min-width:0; margin:0; display:flex; flex-direction:column; }
 .overviewSummaryGrid .rankingTrend { flex:1; min-height:300px; }

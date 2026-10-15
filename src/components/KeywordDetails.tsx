@@ -26,7 +26,7 @@ const ORIGINS = [
 export function KeywordDetails() {
   const selection = useSeoSelection();
   const { region } = selection;
-  const { data, error, loading, refresh } = useDashboard(selection.site, selection.source);
+  const { data, error, loading, refreshing, refresh } = useDashboard(selection.site, selection.source);
   const [search, setSearch] = useState("");
   const [origin, setOrigin] = useState("ALL");
   const [rankScope, setRankScope] = useState("ALL");
@@ -134,6 +134,7 @@ export function KeywordDetails() {
           · 每天 10:30（北京时间）更新
         </p>
       </div>
+      {refreshing ? <p className="cacheNotice" role="status">已显示上次加载的词库结果，正在获取最新数据…</p> : null}
       {error ? (
         <div className="loadError" role="alert">
           <span>{error}</span>

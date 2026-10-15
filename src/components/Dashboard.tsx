@@ -12,7 +12,7 @@ import { DISPLAY_BUCKETS, rankingStats } from "@/lib/rank-display";
 export function Dashboard() {
   const selection = useSeoSelection();
   const { region } = selection;
-  const { data, loading, error, refresh } = useDashboard(selection.site, selection.source);
+  const { data, loading, error, refreshing, refresh } = useDashboard(selection.site, selection.source);
   const ready = Boolean(data);
   const keywords = useMemo(() => data?.keywords ?? [], [data?.keywords]);
   const [graphSearch, setGraphSearch] = useState("");
@@ -29,6 +29,7 @@ export function Dashboard() {
   return (
     <main className="appShell">
       <PageHeader active="overview" selection={selection} />
+      {refreshing ? <p className="cacheNotice" role="status">已显示上次加载的词库结果，正在获取最新数据…</p> : null}
       <section className="overviewSummaryGrid">
         <RankingTrend region={region} />
         <aside className="analyticsColumn">

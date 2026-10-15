@@ -5,11 +5,17 @@ import Link from "next/link";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { recentTrendRange, type TrendResult } from "@/lib/ranking-trends";
+import { dashboardSession } from "@/lib/dashboard-session";
+
+const trendResults = new Map<string, TrendResult>();
 
 export function RankingTrend({ region }: { region: SearchRegionCode }) {
   const [range, setRange] = useState(() => recentTrendRange());
   const key = `${region}:${range.start}:${range.end}`;
-  const [result, setResult] = useState<(TrendResult & {key:string}) | null>(null);
+  const [result, setResult] = useState<(TrendResult & {key:string}) | null>(() => {
+    const saved = trendResults.get(key);
+    return saved ? { ...saved, key } : null;
+  });
   const [error, setError] = useState(false);
   const [version, retry] = useState(0);
   const element = useRef<HTMLDivElement>(null);
@@ -20,6 +26,17 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
   useEffect(() => {
     const controller = new AbortController();
     let busy = false;
+    let completed = false;
+    const remembered = trendResults.get(key);
+    if (remembered) setResult(previous => previous?.key === key ? previous : { ...remembered, key });
+    void dashboardSession.load(`trend:${key}`).then(saved => {
+      if (!saved || completed || controller.signal.aborted) return;
+      try {
+        const data = JSON.parse(saved.body) as TrendResult;
+        if (Array.isArray(data.points) && data.start === range.start && data.end === range.end)
+          setResult(previous => previous?.key === key ? previous : { ...data, key });
+      } catch { /* Ignore malformed cache data. */ }
+    });
     const read = async () => {
       if (busy || document.hidden) return;
       busy = true;
@@ -29,9 +46,14 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
         if (response.status === 401) { window.location.assign("/login"); return; }
         if (!response.ok) throw new Error("加载失败");
         const data = await response.json() as TrendResult;
-        if (!controller.signal.aborted) { setResult({...data,key}); setError(false); }
+        if (!controller.signal.aborted) {
+          trendResults.set(key, data);
+          if (trendResults.size > 16) trendResults.delete(trendResults.keys().next().value!);
+          setResult({...data,key}); setError(false);
+          void dashboardSession.save(`trend:${key}`, JSON.stringify(data), Date.now());
+        }
       } catch { if (!controller.signal.aborted) setError(true); }
-      finally { busy = false; }
+      finally { busy = false; completed = true; }
     };
     void read();
     const timer = setInterval(() => void read(), 60000);

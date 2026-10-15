@@ -719,6 +719,33 @@ test("dashboard authentication failure clears cached data and never retries", as
   assert.equal(requests,2);
 });
 
+test("tab cache displays the full inventory while a fresh read is pending and expires after fifteen minutes", async () => {
+  const oldBody=JSON.stringify({keywords:[{id:"old"}],topics:[]});
+  const newBody=JSON.stringify({keywords:[{id:"new"}],topics:[]});
+  let release,now=100000;
+  const persistence={load:async()=>({body:oldBody,savedAt:99000}),save:async()=>{},clear:()=>{}};
+  const store=createDashboardStore(async()=>{await new Promise(resolve=>{release=resolve;});return new Response(newBody);},()=>now,persistence);
+  const pending=store.read("all","combined");
+  const cached=await store.hydrate("all","combined");
+  assert.equal(cached.keywords[0].id,"old");
+  assert.equal(store.peek("all","combined"),cached);
+  release();await pending;
+  assert.equal(store.peek("all","combined").keywords[0].id,"new");
+  now+=16*60000;
+  const expired=createDashboardStore(fetch,()=>now,persistence);
+  assert.equal(await expired.hydrate("all","combined"),null);
+});
+
+test("logout during a pending cache restore cannot resurrect old data", async () => {
+  let release;
+  const persistence={load:async()=>{await new Promise(resolve=>{release=resolve;});return {body:JSON.stringify({keywords:[],topics:[]}),savedAt:Date.now()};},save:async()=>{},clear:()=>{}};
+  const store=createDashboardStore(fetch,Date.now,persistence);
+  const pending=store.hydrate("all","combined");
+  store.clear();release();
+  assert.equal(await pending,null);
+  assert.equal(store.peek("all","combined"),null);
+});
+
 const { databaseErrorCode, retryDatabaseRead, settleReads } = require("../src/lib/database-read.ts");
 test("Prisma initialization diagnostics preserve safe errorCode without leaking connection text", () => {
   assert.equal(databaseErrorCode({name:"PrismaClientInitializationError",errorCode:"P1001",message:"connection to private database failed"}),"P1001");

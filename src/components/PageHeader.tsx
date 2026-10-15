@@ -3,6 +3,7 @@ import { RegionSelect } from "@/components/RegionSelect";
 import { type SeoSelection } from "@/components/useSeoSelection";
 import Link from "next/link";
 import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
+import { dashboardStore } from "@/lib/dashboard-client";
 
 export function PageHeader({
   active, selection,
@@ -47,7 +48,7 @@ export function PageHeader({
           <Settings2 size={16} />
           数据管理
         </Link>
-        <form action="/api/auth/logout" method="post">
+        <form action="/api/auth/logout" method="post" onSubmit={() => dashboardStore.clear()}>
           <button className="iconButton" title="退出登录" aria-label="退出登录">
             <LogOut size={16} />
           </button>
