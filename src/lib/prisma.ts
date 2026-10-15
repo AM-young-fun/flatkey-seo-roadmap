@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { buildDatabaseUrl } from "@/lib/database-url.cjs";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
@@ -11,16 +12,7 @@ export const prisma =
       ? {
           datasources: {
             db: {
-              url: (() => {
-                const url = new URL(process.env.DATABASE_URL);
-                if (!url.searchParams.has("connection_limit"))
-                  url.searchParams.set("connection_limit", "3");
-                if (!url.searchParams.has("connect_timeout"))
-                  url.searchParams.set("connect_timeout", "20");
-                if (!url.searchParams.has("pool_timeout"))
-                  url.searchParams.set("pool_timeout", "20");
-                return url.toString();
-              })(),
+              url: buildDatabaseUrl(process.env.DATABASE_URL, process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV)),
             },
           },
         }

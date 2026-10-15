@@ -866,6 +866,9 @@ test("read diagnostics identify the failing phase without exposing database text
   assert.equal(databaseErrorCategory(failure), "RESULT_DESERIALIZATION");
   assert.equal(databaseErrorCategory({meta:{code:"42P10"}}), "SQLSTATE_42P10");
   assert.equal(databaseErrorCategory({meta:{code:"postgresql://secret@example.test/private"}}), null);
+  const capacity = Object.assign(new Error("FATAL: (EMAXCONNSESSION) max clients reached in session mode - pool_size: 15"), {name:"PrismaClientUnknownRequestError"});
+  assert.equal(databaseErrorCode(capacity), "CONNECTION_LIMIT");
+  assert.equal(databaseErrorCategory(capacity), "CONNECTION_LIMIT");
 });
 
 test("ranking filters preserve fractional boundaries and separate unknown from confirmed outside top100", () => {

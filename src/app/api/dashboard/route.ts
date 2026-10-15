@@ -3,18 +3,6 @@ import { databaseErrorCategory, databaseErrorCode, databaseReadPhase, retryDatab
 import { loadDashboard } from "@/lib/services/dashboard-data";
 import type { DashboardResponse } from "@/lib/types";
 import { REGION_CODES } from "@/lib/seo";
-import { isAuthEnabled } from "@/lib/auth";
-
-function sanitizedReadError(error: unknown): string | null {
-  if (!error || typeof error !== "object" || !("message" in error)) return null;
-  let message = String(error.message);
-  for (const key of ["DATABASE_URL", "LOGIN_PWD", "CRON_SECRET", "RANKING_IMPORT_SECRET", "SERPAPI_API_KEY", "AHREFS_API_TOKEN"]) {
-    const secret = process.env[key];
-    if (secret) message = message.replaceAll(secret, "[redacted]");
-  }
-  return message.replace(/(?:[a-z][a-z0-9+.-]*):\/\/[^\s"'`<>]+/gi, "[connection]")
-    .replace(/(?:password|token|secret)\s*[=:]\s*[^\s,;)]+/gi, "credential=[redacted]").slice(-1200);
-}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,8 +40,6 @@ export async function GET(request?: Request) {
     const readPhase = databaseReadPhase(error);
     const category = databaseErrorCategory(error);
     console.error("Dashboard read failed", { code, readPhase, category });
-    return NextResponse.json({ message: "数据暂时无法读取", code, readPhase, category,
-      ...(params.get("diagnostic") === "1" && isAuthEnabled() ? { diagnosis: sanitizedReadError(error) } : {}),
-    }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "2" } });
+    return NextResponse.json({ message: "数据暂时无法读取", code, readPhase, category }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "2" } });
   }
 }

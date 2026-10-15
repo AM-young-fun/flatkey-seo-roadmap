@@ -16,6 +16,7 @@ export function databaseErrorCategory(error: unknown): string | null {
   // Describe result/driver failures without returning query text, credentials,
   // connection strings or arbitrary provider messages to the browser/logs.
   for (const [pattern, category] of [
+    [/emaxconnsession|max client(?:s| connections)/, "CONNECTION_LIMIT"],
     [/deserializ/, "RESULT_DESERIALIZATION"], [/conver|cast/, "TYPE_CONVERSION"],
     [/serializ/, "RESULT_SERIALIZATION"], [/enum/, "ENUM_VALUE"],
     [/json/, "JSON_VALUE"], [/date|time value/, "DATE_VALUE"],
@@ -36,6 +37,7 @@ export function databaseErrorCode(error: unknown): string {
   if (code) return code;
   // Some engine/driver connection failures have no Prisma error code.
   const message = "message" in error ? String(error.message).toLowerCase() : "";
+  if (/emaxconnsession|max client(?:s| connections)/.test(message)) return "CONNECTION_LIMIT";
   if (/response from the engine was empty|query engine.*(closed|exit|empty)/.test(message)) return "ENGINE_EMPTY";
   if (/inconsistent query result/.test(message)) return "RELATION_INCONSISTENT";
   if (/prepared statement/.test(message)) return "PREPARED_STATEMENT_ERROR";
@@ -47,7 +49,7 @@ export function databaseErrorCode(error: unknown): string {
 
 export function isTransientDatabaseError(error: unknown) {
   const code = databaseErrorCode(error);
-  return TRANSIENT_ERRORS.has(code) || ["CONNECTION_INTERRUPTED", "ENGINE_EMPTY", "PrismaClientUnknownRequestError", "PrismaClientInitializationError"].includes(code);
+  return TRANSIENT_ERRORS.has(code) || ["CONNECTION_LIMIT", "CONNECTION_INTERRUPTED", "ENGINE_EMPTY", "PrismaClientUnknownRequestError", "PrismaClientInitializationError"].includes(code);
 }
 
 export async function retryDatabaseRead<T>(read: () => Promise<T>): Promise<T> {

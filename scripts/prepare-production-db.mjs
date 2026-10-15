@@ -1,7 +1,7 @@
 /* global process, console */
 import { spawnSync } from "node:child_process";
-import { URL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+import databaseUrl from "../src/lib/database-url.cjs";
 
 if (process.env.VERCEL_ENV !== "production") {
   console.log(
@@ -16,9 +16,9 @@ if (process.env.VERCEL_ENV !== "production") {
     );
   // The SQL is additive, transactional, and repeatable. Never use db push here:
   // an unrelated schema change must not drop production columns during a build.
-  const databaseUrl = new URL(process.env.DATABASE_URL);
-  if (!databaseUrl.searchParams.has("connect_timeout")) databaseUrl.searchParams.set("connect_timeout", "20");
-  const environment = { ...process.env, DATABASE_URL: databaseUrl.toString() };
+  // The SQL file uses one explicit transaction and transaction-scoped locks.
+  // It can share the serverless pool without reserving another session slot.
+  const environment = { ...process.env, DATABASE_URL: databaseUrl.buildDatabaseUrl(process.env.DATABASE_URL, true) };
   const execute = () => spawnSync(
     process.execPath,
     [
