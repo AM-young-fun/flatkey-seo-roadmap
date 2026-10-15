@@ -1735,3 +1735,6 @@ a:focus-visible {
 .reportNote summary { cursor:pointer; color:#637c9d; font-size:13px; }
 @media(max-width:760px) { .reportIntro { align-items:flex-start; flex-direction:column; } .weeklyKeywordCards { grid-template-columns:repeat(2,1fr); } .reportWeekSelect { width:290px; } }
 @media(max-width:760px) { .graphPanel .panelHeader { flex-direction:column; align-items:flex-start; } .graphTools { width:100%; justify-content:space-between; } .graphSearch { width:220px; } }
+
+.dailySnapshotHeading { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px 18px; margin:24px 0 18px; color:#70819a; font-size:13px; line-height:1.8; }
+.dailySnapshotHeading strong { color:#19283f; font-size:16px; }
