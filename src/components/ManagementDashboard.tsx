@@ -12,7 +12,6 @@ import {
   Upload,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { useSeoSelection } from "@/components/useSeoSelection";
 import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
 import { postImportBatch } from "@/lib/import-client";
@@ -29,8 +28,7 @@ type ImportKeywordsResponse = {
   errors?: Array<{ row: number; message: string }>;
 };
 export function ManagementDashboard() {
-  const selection = useSeoSelection();
-  const { data, refresh: loadDashboard, error } = useDashboard(selection.site, selection.source);
+  const { data, refresh: loadDashboard, error } = useDashboard("all", "dataforseo_serp");
   const [jsonText, setJsonText] = useState("");
   const [jsonFile, setJsonFile] = useState<File | null>(null);
   const [importProgress, setImportProgress] = useState("");
@@ -212,7 +210,7 @@ export function ManagementDashboard() {
 
   return (
     <main className="appShell">
-      <PageHeader active="manage" selection={selection} />
+      <PageHeader active="manage" />
       <div className="managementIntro">
         <div>
           <p className="eyebrow">WORKSPACE</p>

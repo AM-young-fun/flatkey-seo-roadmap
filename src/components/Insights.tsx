@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Select } from "antd";
 import { PageHeader } from "@/components/PageHeader";
-import { useSeoSelection } from "@/components/useSeoSelection";
 import { reportPeriods, weeklyPeriods } from "@/lib/weekly-traffic";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
@@ -80,7 +79,6 @@ function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
 }
 
 export function TrafficReport() {
-  const selection = useSeoSelection();
   const [week, setWeek] = useState("");
   const { data, error, retry } = useInsights(week);
   const periods = data?.periods ?? (week ? reportPeriods(week) : weeklyPeriods());
@@ -91,7 +89,7 @@ export function TrafficReport() {
     { label: "注册成功用户（去重）", key: "newRegistrations" as const, format: number, note:"成功注册事件的整周去重用户数，不是事件次数" },
     { label: "注册人数 / 新用户数", key: "registrationRate" as const, format: pct, note:"自定义比例，与 GA4「用户关键事件率」口径不同" },
   ];
-  return <main className="appShell"><PageHeader active="traffic" selection={selection} />
+  return <main className="appShell"><PageHeader active="traffic" />
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || weeklyPeriods().current.start} onChange={(start) => setWeek(start === weeklyPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === weeklyPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <div className="periodComparison"><span><i className="currentDot" />本期 {periods.current.start} — {periods.current.end}</span><span><i />上期 {periods.previous.start} — {periods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}

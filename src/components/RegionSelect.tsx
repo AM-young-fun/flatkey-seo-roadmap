@@ -8,7 +8,7 @@ export function RegionSelect({
   onChange: (region: SearchRegionCode) => void;
 }) {
   return (
-    <div className="regionSwitch" role="group" aria-label="选择地区">
+    <div className="regionSwitch" role="group" aria-label="选择国家">
       {REGION_CODES.map((region) => (
         <button
           key={region}

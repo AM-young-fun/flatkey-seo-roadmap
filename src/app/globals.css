@@ -1656,9 +1656,11 @@ a:focus-visible {
 .keywordReviewPanel { display:block; }
 .keywordReviewPanel .reviewToolbar { margin-top:16px; }
 .siteHeader { flex-wrap:wrap; gap:16px; padding:18px 0; }
-.headerFilters { display:flex; align-items:center; gap:8px; margin-left:auto; }
-.headerFilters select { border:1px solid var(--border); border-radius:8px; background:#fff; color:#526985; font-size:11px; height:36px; padding:0 9px; }
-.headerFilters .regionButton { padding:0 10px; min-height:30px; font-size:11px; }
+.rankingPageToolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; margin:26px 0 20px; }
+.rankingPageToolbar h1 { margin:0; font-size:24px; }
+.pageRegionFilter { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.pageRegionFilter > span { color:#718096; font-size:12px; }
+.keywordRegionToolbar { justify-content:flex-end; margin:18px 0; }
 .siteHeader nav { gap:2px; }
 .navLink { padding:9px 10px; font-size:12px; }
 .dailyPanel { background:#fff; border:1px solid var(--border); border-radius:14px; padding:22px 25px; margin:24px 0; }
@@ -1697,8 +1699,8 @@ a:focus-visible {
 .nativeTable table { width:100%; border-collapse:collapse; min-width:1000px; font-size:12px; }
 .nativeTable th,.nativeTable td { padding:16px 12px; border-bottom:1px solid #edf1f6; text-align:left; }
 .nativeTable th { color:#687b94; background:#fafbfd; font-weight:600; }
-@media(max-width:1150px) { .siteHeader nav { width:100%; justify-content:flex-end; } .headerFilters { margin-left:auto; } }
-@media(max-width:760px) { .headerFilters { width:100%; flex-wrap:wrap; margin:0; } .headerFilters .regionSwitch { width:auto; } .siteHeader nav { flex-wrap:wrap; justify-content:flex-start; } .trafficGrid { grid-template-columns:1fr; } .dailyNumbers { gap:20px; } .dailyHeading { align-items:flex-start; } }
+@media(max-width:1150px) { .siteHeader nav { width:100%; justify-content:flex-end; } }
+@media(max-width:760px) { .pageRegionFilter { width:100%; } .pageRegionFilter .regionSwitch { width:100%; } .siteHeader nav { flex-wrap:wrap; justify-content:flex-start; } .trafficGrid { grid-template-columns:1fr; } .dailyNumbers { gap:20px; } .dailyHeading { align-items:flex-start; } }
 
 .jsonImportPanel { display:flex; flex-wrap:wrap; align-items:center; gap:20px; padding:24px; margin-top:22px; background:#fff; border:1px solid var(--border); border-radius:14px; }
 .jsonImportPanel > div { flex:1; min-width:230px; }

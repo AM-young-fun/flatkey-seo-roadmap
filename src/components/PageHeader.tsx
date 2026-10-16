@@ -1,15 +1,12 @@
 "use client";
-import { RegionSelect } from "@/components/RegionSelect";
-import { type SeoSelection } from "@/components/useSeoSelection";
 import Link from "next/link";
 import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
 import { dashboardStore } from "@/lib/dashboard-client";
 
 export function PageHeader({
-  active, selection,
+  active,
 }: {
   active: "overview" | "keywords" | "manage" | "traffic";
-  selection?: SeoSelection;
 }) {
   return (
     <header className="siteHeader">
@@ -19,9 +16,6 @@ export function PageHeader({
         </span>
         Flatkey<span className="brandSub">SEO 洞察</span>
       </Link>
-      {selection && active !== "traffic" ? <div className="headerFilters">
-        <RegionSelect value={selection.region} onChange={selection.setRegion} />
-      </div> : null}
       <nav aria-label="主导航">
         <Link
           href="/"

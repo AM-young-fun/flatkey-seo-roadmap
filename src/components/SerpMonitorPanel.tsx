@@ -1,6 +1,5 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { SerpSamplePanel } from "@/components/SerpSamplePanel";
 import type { SerpMonitorPreview, SerpMonitorStatus } from "@/lib/serp-monitor-types";
 
 const money = (micros: number) => `$${(micros / 1_000_000).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
@@ -39,13 +38,12 @@ export function SerpMonitorPanel() {
     {!status && !error ? <p className="muted">正在读取连接与实测计划…</p> : null}
     {status ? <>
       <div className="dataforseoStats serpPlanStats"><div><span>监控目标</span><strong>{status.cohort.targetCount.toLocaleString()} 词</strong><small>全部正式目标，不含研究候选</small></div><div><span>更新周期</span><strong>每月1日、16日</strong><small>上海时间10:30 · 下一期：{time(status.config.nextDueAt)}</small></div><div><span>全量定时执行</span><strong>{status.gate.canSpend ? "已授权" : "已关闭"}</strong><small>API连接：{status.connection.configured ? "已配置" : "待配置"}</small><small>定时调度认证：{status.cronConfigured ? "已配置" : "待配置"}</small></div></div>
-      <p className="serpSimpleNotice">全量定时抓取未启用。小批验证单独核实余额与费用，不改变定时开关。</p>
+      <p className="serpSimpleNotice">保存计划和预览费用不会提交付费抓取任务。</p>
       <div className="dataforseoActions"><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void act("preview")}>{busy === "preview" ? "正在计算…" : "预览费用"}</button><button className="managePrimary" disabled={Boolean(busy) || !status} onClick={() => void act("configure")}>{busy === "configure" ? "正在保存…" : "保存计划"}</button></div>
-      <SerpSamplePanel latestRun={status.runs.find(run => run.scope === "SAMPLE") ?? null} onChanged={read} />
-      <p className="chartNote">全量四国每期预计 {money(status.quote.maxCostMicros)} · 每月两期预计 {money(status.quote.monthlyAverageMicros)}。</p>
-      <details className="simpleExplanation"><summary>查看范围与计费说明</summary><p>{Object.entries(status.cohort.bySite).map(([domain, count]) => `${domain} ${count}词`).join(" · ")}。去重后 {status.quote.queryCount.toLocaleString()} 次Google查询，同词的多个网站和页面共用结果。按当前目标库动态计算，首次采集另行授权。</p></details>
+      <p className="chartNote">全量四国每期预算上限 {money(status.quote.maxCostMicros)} · 每月两期上限 {money(status.quote.monthlyAverageMicros)}。</p>
+      <details className="simpleExplanation"><summary>查看范围与计费说明</summary><p>{Object.entries(status.cohort.bySite).map(([domain, count]) => `${domain} ${count}词`).join(" · ")}。去重后 {status.quote.queryCount.toLocaleString()} 次Google查询，同词的多个网站和页面共用结果。按当前目标库动态计算，付费执行需另行授权。</p></details>
     </> : null}
     {preview ? <div className="dataforseoPreview" aria-label="SERP费用预览"><h3>费用预览 · 未执行抓取</h3><p>{preview.quote.targetCount.toLocaleString()} 个站点目标词 · 去重后 {preview.quote.queryCount.toLocaleString()} 次Google查询 · 每词前100</p><p>单轮预算 <strong>{money(preview.quote.maxCostMicros)}</strong> · 每月两期，月度 <strong>{money(preview.quote.monthlyAverageMicros)}</strong> · 全年24期 <strong>{money(preview.quote.annual24RunsMicros)}</strong></p><a className="textLink" href={preview.quote.pricingUrl} target="_blank" rel="noreferrer">查看官方价格 →</a><p className="chartNote">报价基于每10条结果$0.0006、前100每次查询$0.006；仅含接口费用。此预览不会创建付费任务。</p></div> : null}
-    <details className="dataforseoRuns"><summary>SERP运行记录（{status?.runs.length ?? "—"}）</summary>{status?.runs.length ? status.runs.map(run => <article key={run.id}><strong>{run.scope === "SAMPLE" ? "小批验证 · " : "全量监控 · "}{run.periodLabel} · {stateLabels[run.status] ?? run.status}</strong><p>{run.targetCount} 个目标 · {run.queryCount} 次查询 · 开始于 {time(run.startedAt)} · 实际费用 {run.actualCostMicros == null ? "待确认" : money(run.actualCostMicros)}</p>{run.errorCode ? <p>状态代码：{run.errorCode}</p> : null}<small>{run.id}</small></article>) : <p className="muted">尚未执行SERP抓取，暂无运行记录。</p>}</details>
+    <details className="dataforseoRuns"><summary>排名采集记录（{status?.runs.length ?? "—"}）</summary>{status?.runs.length ? status.runs.map(run => <article key={run.id}><strong>{run.periodLabel.split(" · ")[0]} · {stateLabels[run.status] ?? run.status}</strong><p>{run.targetCount} 个目标 · {run.queryCount} 次查询 · 开始于 {time(run.startedAt)} · {run.status === "COMPLETED" ? "结算费用" : "当前费用（含未结算）"} {run.actualCostMicros == null ? "待确认" : money(run.actualCostMicros)}</p></article>) : <p className="muted">尚未执行SERP抓取，暂无采集记录。</p>}</details>
   </section>;
 }

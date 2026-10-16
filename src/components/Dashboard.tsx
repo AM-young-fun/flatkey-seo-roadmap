@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useDashboard } from "@/components/useDashboard";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { SerpOverview } from "@/components/SerpOverview";
+import { RegionSelect } from "@/components/RegionSelect";
 
 export function Dashboard() {
   const selection = useSeoSelection();
@@ -24,7 +25,8 @@ export function Dashboard() {
   }, [keywords, graphSearch]);
   return (
     <main className="appShell">
-      <PageHeader active="overview" selection={selection} />
+      <PageHeader active="overview" />
+      <div className="rankingPageToolbar"><h1>排名概览</h1><div className="pageRegionFilter"><span>查看国家</span><RegionSelect value={region} onChange={selection.setRegion} /></div></div>
       {refreshing ? <p className="cacheNotice" role="status">已显示上次加载的词库结果，正在获取最新数据…</p> : null}
       <SerpOverview site={selection.site} region={region} />
       <RankingTrend region={region} />

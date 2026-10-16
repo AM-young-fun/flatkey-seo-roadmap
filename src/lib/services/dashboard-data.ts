@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { settleReads } from "@/lib/database-read";
 import { isDatabaseConfigured } from "@/lib/env";
-import { getDemoDashboard } from "@/lib/demo-data";
 import { getRankBucket, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { buildRankingEvidence, labsReportingPeriod, latestQueryEvidence, rankingReportingPeriod, type RankingObservationRow, type RankingPageRow } from "@/lib/ranking-evidence";
 import { assessKeywordVolume, type VolumeReviewSample } from "@/lib/keyword-volume-review";
@@ -122,19 +121,11 @@ export function assembleDashboard(
 }
 
 export async function loadDashboard(site: string, source = "dataforseo_serp", period: "week" | "history" = "week", now = new Date(), includeResearch = false): Promise<DashboardResponse> {
+  if (!isDatabaseConfigured()) throw new Error("数据库未配置，暂时无法读取真实数据");
   const snapshotSource = ["dataforseo_labs", "dataforseo_serp"].includes(source);
   const week = snapshotSource ? { ...labsReportingPeriod(now), ...(source === "dataforseo_serp" ? { label: "最近有效 Google SERP 实测 · 每月1日、16日更新" } : {}) }
     : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
-  if (!isDatabaseConfigured()) {
-    const demo = getDemoDashboard();
-    // A mock rank cannot pass for a paid provider's verified observation.
-    if (source === "dataforseo_serp") for (const keyword of demo.keywords) {
-      keyword.latestRanks = Object.fromEntries(REGION_CODES.map(region => [region, null])) as DashboardKeyword["latestRanks"];
-      keyword.rankingEvidence = Object.fromEntries(REGION_CODES.map(region => [region, [] as RankingEvidence[]])) as NonNullable<DashboardKeyword["rankingEvidence"]>;
-    }
-    return { ...demo, ...(reportingPeriod ? { reportingPeriod } : {}) };
-  }
   const domains = Prisma.join(site === "all" ? SITES : [site]);
   const splitDaily = Prisma.raw(period === "week" && !snapshotSource ? "true" : "false");
   // Keyword details also need evidence for active research candidates, including
