@@ -14,7 +14,7 @@ export const dataForSeoMutationSchema = z.discriminatedUnion("action", [
 export type DataForSeoMutation = z.infer<typeof dataForSeoMutationSchema>;
 export type DataForSeoRunStatus = "PENDING" | "UNKNOWN" | "FAILED" | "RECEIVED" | "IMPORT_FAILED" | "COMPLETED";
 export type DataForSeoSummary = { returnedItems: number; normalizedRows: number; matchedExisting: number; matchedPages?: number; unknownCandidates: number; unrelatedFiltered: number;
-  missingFormal: number; importedObservations: number; truncated: boolean; totalMatchingCount: number };
+  missingFormal: number; missingResearch?: number; importedObservations: number; truncated: boolean; totalMatchingCount: number };
 export type DataForSeoRunDto = { requestId: string; status: DataForSeoRunStatus; startedAt: string; completedAt: string | null;
   errorCode: string | null; actualCostMicros: number | null; budgetCostMicros: number; summary: DataForSeoSummary | null };
 export type DataForSeoTrialBudget = { limitMicros: number; usedMicros: number; remainingMicros: number };

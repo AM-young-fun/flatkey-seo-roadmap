@@ -14,7 +14,7 @@ function preferObservation(row: DataForSeoObservation, prior: DataForSeoObservat
   return date > priorDate || (date === priorDate && (row.rank_group < prior.rank_group ||
     (row.rank_group === prior.rank_group && row.url.localeCompare(prior.url) < 0)));
 }
-export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, memberships: DataForSeoMembership[], requestId: string) {
+export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, memberships: DataForSeoMembership[], requestId: string, previousRankedKeywords: string[] = []) {
   if ((snapshot.returnedItems > 0 && snapshot.rows.length === 0) || (snapshot.returnedItems === 0 && snapshot.totalMatchingCount > 0)) {
     throw new ImportRequestError("供应商返回行未通过排名证据解析，已保留原始结果，不能将词库误写为无数据", 422);
   }
@@ -47,11 +47,16 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
   const pages: RankingImportPayload["pages"] = [...pageResults.values()].map(row => ({ keyword: groups.get(row.keyword)![0].keyword.text,
     region: "US", source: "dataforseo_labs", collectedAt: snapshot.collectedAt, rankStatus: "ranked", rank: row.rank_group, url: row.url,
     ...(row.sourceSerpUpdatedAt ? { dataUpdatedAt: row.sourceSerpUpdatedAt } : {}) }));
-  let missingFormal = 0;
+  const previouslyRanked = new Set(previousRankedKeywords.map(normalizeKeywordText));
+  let missingFormal = 0, missingResearch = 0;
   for (const row of eligible) {
-    if (row.pool !== "FORMAL" || matched.has(row.keywordId) || groups.get(normalizeKeywordText(row.keyword.text))!.length !== 1) continue;
+    const text = normalizeKeywordText(row.keyword.text);
+    // A lost research result must not retain its previous positive rank, while
+    // research that has never appeared receives no invented observations.
+    if (matched.has(row.keywordId) || groups.get(text)!.length !== 1 || (row.pool !== "FORMAL" && !previouslyRanked.has(text))) continue;
     observations.push({ keyword: row.keyword.text, region: "US", source: "dataforseo_labs", collectedAt: snapshot.collectedAt, rankStatus: "no_data", rank: null });
-    missingFormal++;
+    if (row.pool === "FORMAL") missingFormal++;
+    else missingResearch++;
   }
   const batches: RankingImportPayload[] = [];
   const captureDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(snapshot.collectedAt));
@@ -64,6 +69,6 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
   }
   const summary: DataForSeoSummary = { returnedItems: snapshot.returnedItems, normalizedRows: snapshot.rows.length, matchedExisting: matched.size,
     matchedPages: pages.length,
-    unknownCandidates: new Set(candidates.map(row => row.keyword)).size, unrelatedFiltered, missingFormal, importedObservations: 0, truncated: snapshot.truncated, totalMatchingCount: snapshot.totalMatchingCount };
+    unknownCandidates: new Set(candidates.map(row => row.keyword)).size, unrelatedFiltered, missingFormal, missingResearch, importedObservations: 0, truncated: snapshot.truncated, totalMatchingCount: snapshot.totalMatchingCount };
   return { batches, candidates, summary };
 }

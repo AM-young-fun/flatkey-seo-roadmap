@@ -85,7 +85,11 @@ async function saveImportPlan(requestId: string, normalized?: DataForSeoNormaliz
     if (!normalized) throw new ImportRequestError("原始采集结果尚未完整保存，不能重放或再次扣费", 409);
     const memberships = await tx.siteKeyword.findMany({ where: { siteDomain: SITE, active: true, pool: { in: ["FORMAL", "RESEARCH"] }, keyword: { active: true } },
       select: { keywordId: true, active: true, pool: true, keyword: { select: { text: true, active: true } } } });
-    const plan = buildDataForSeoImportPlan(normalized, memberships, requestId);
+    const previousRun = await tx.dataForSeoRun.findFirst({ where: { siteDomain: SITE, status: "COMPLETED", collectedAt: { not: null } },
+      orderBy: [{ collectedAt: "desc" }, { createdAt: "desc" }], select: { normalized: true } });
+    const previousSnapshot = previousRun?.normalized as unknown as Partial<DataForSeoNormalized> | undefined;
+    const previousRankedKeywords = Array.isArray(previousSnapshot?.rows) ? previousSnapshot.rows.filter(row => typeof row?.keyword === "string").map(row => row.keyword) : [];
+    const plan = buildDataForSeoImportPlan(normalized, memberships, requestId, previousRankedKeywords);
     return tx.dataForSeoRun.update({ where: { requestId }, data: { normalized: json(normalized), importPayload: json(plan.batches), candidates: json(plan.candidates), summary: json(plan.summary),
       actualCostMicros: normalized.actualCostMicros, budgetCostMicros: normalized.actualCostMicros ?? quote.maxCostMicros, status: "RECEIVED", errorCode: null } });
   }, { maxWait: 10000, timeout: 20000 });

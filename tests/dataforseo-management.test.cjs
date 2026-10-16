@@ -21,6 +21,7 @@ function matches(row, where = {}) {
     const actual = row?.[key];
     if (expected && typeof expected === "object" && !(expected instanceof Date)) {
       if (Object.hasOwn(expected, "in")) return expected.in.includes(actual);
+      if (Object.hasOwn(expected, "not")) return actual !== expected.not;
       return matches(actual, expected);
     }
     return actual === expected;
@@ -29,7 +30,7 @@ function matches(row, where = {}) {
 function seedRun(overrides = {}) {
   const run = { requestId: "previous-completed-run", siteDomain: "flatkey.ai", status: "COMPLETED", requestHash: "fictional-hash", requestJson: [],
     connectionVersion: 1, estimatedCostMicros: 132000, budgetCostMicros: 132000, actualCostMicros: null, rawResponse: null, normalized: null,
-    importPayload: null, importedBatches: 0, candidates: null, summary: null, errorCode: null, completedAt: null, createdAt: new Date(), ...overrides };
+    importPayload: null, importedBatches: 0, candidates: null, summary: null, collectedAt: null, errorCode: null, completedAt: null, createdAt: new Date(), ...overrides };
   state.runs.push(run);
   return run;
 }
@@ -72,7 +73,18 @@ const db = {
       if (!run) throw new Error("fictional missing ledger");
       return clone(run);
     },
-    findFirst: async ({ where }) => clone(state.runs.find(run => matches(run, where)) ?? null),
+    findFirst: async ({ where, orderBy = [] }) => {
+      const rows = state.runs.filter(run => matches(run, where));
+      rows.sort((a, b) => {
+        for (const order of Array.isArray(orderBy) ? orderBy : [orderBy]) {
+          const [key, direction] = Object.entries(order)[0], left = a[key], right = b[key];
+          const delta = left < right ? -1 : left > right ? 1 : 0;
+          if (delta) return direction === "desc" ? -delta : delta;
+        }
+        return 0;
+      });
+      return clone(rows[0] ?? null);
+    },
     findMany: async ({ where }) => state.runs.filter(run => matches(run, where)).map(clone),
     aggregate: async ({ where }) => ({ _sum: { budgetCostMicros: state.runs.filter(run => matches(run, where)).reduce((sum, run) => sum + run.budgetCostMicros, 0) } }),
     create: async ({ data }) => {
@@ -545,6 +557,77 @@ test("import planning uses existing business memberships only, preserves setting
   assert.equal(absent.rankStatus, "no_data"); assert.equal(absent.rank, null);
   assert.ok(!observations.some(row => row.rankStatus === "outside_top100"));
   assert.ok(plan.batches.every(batch => !batch.allowNewKeywords && batch.inventory.length === 0 && batch.topics.length === 0));
+});
+
+test("only previously captured active research terms receive no_data when absent, without deleting candidates or changing page associations", () => {
+  const formal = addMembership(), previous = addMembership("previous", "prior model api", { pool: "RESEARCH" });
+  addMembership("never", "never captured model api", { pool: "RESEARCH" });
+  addMembership("inactive", "inactive model api", { pool: "RESEARCH", active: false });
+  addMembership("global-inactive", "inactive global model api", { pool: "RESEARCH", keyword: { text: "inactive global model api", active: false } });
+  addMembership("archived", "archived model api", { pool: "ARCHIVED" });
+  const before = clone(state.memberships), snapshot = normalizeRankedKeywords(providerResponse([]), { runId: "missing-research", collectedAt: new Date().toISOString() });
+  const plan = buildDataForSeoImportPlan(snapshot, state.memberships, "missing-research", ["ＰＲＩＯＲ   MODEL API", "inactive model api", "inactive global model api", "archived model api"]);
+  const observations = plan.batches.flatMap(batch => batch.observations);
+  assert.deepEqual(observations.map(row => row.keyword).sort(), [formal.keyword.text, previous.keyword.text].sort());
+  assert.ok(observations.every(row => row.rankStatus === "no_data" && row.rank === null && row.url === undefined));
+  assert.equal(plan.summary.missingFormal, 1); assert.equal(plan.summary.missingResearch, 1);
+  assert.equal(plan.batches.flatMap(batch => batch.pages).length, 0);
+  assert.deepEqual(state.memberships, before);
+});
+
+test("cached planning compares only the latest completed snapshot and never an older or failed research capture", async () => {
+  addMembership(); addMembership("previous", "prior model api", { pool: "RESEARCH" });
+  addMembership("older", "older model api", { pool: "RESEARCH" });
+  addMembership("failed", "failed model api", { pool: "RESEARCH" });
+  addMembership("never", "never captured model api", { pool: "RESEARCH" });
+  const oldDate = "2026-10-14T12:00:00.000Z", priorDate = "2026-10-15T12:00:00.000Z", failedDate = "2026-10-16T00:00:00.000Z";
+  seedRun({ requestId: "older-completed", collectedAt: new Date(oldDate), normalized: normalizeRankedKeywords(providerResponse([providerItem("older model api")]), { runId: "older-completed", collectedAt: oldDate }) });
+  seedRun({ requestId: "latest-completed", collectedAt: new Date(priorDate), normalized: normalizeRankedKeywords(providerResponse([providerItem("prior model api")]), { runId: "latest-completed", collectedAt: priorDate }) });
+  seedRun({ requestId: "failed-later", status: "FAILED", collectedAt: new Date(failedDate), normalized: normalizeRankedKeywords(providerResponse([providerItem("failed model api")]), { runId: "failed-later", collectedAt: failedDate }) });
+  const collectedAt = new Date(), raw = JSON.stringify(providerResponse([]));
+  seedRun({ requestId: "next-empty-snapshot", status: "RECEIVED", collectedAt, rawResponse: raw });
+  const before = clone(state.memberships), result = await mutateDataForSeo({ action: "replay", requestId: "next-empty-snapshot" });
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.run.summary.missingResearch, 1);
+  assert.deepEqual(importAttempts.flatMap(batch => batch.observations).map(row => row.keyword).sort(), ["claude api", "prior model api"]);
+  assert.equal(fetched.length, 0);
+  assert.deepEqual(state.memberships, before);
+});
+
+test("an already frozen paid import plan never gains new research placeholders on replay", async (t) => {
+  addMembership(); addMembership("previous", "prior model api", { pool: "RESEARCH" });
+  const collectedAt = new Date(), current = normalizeRankedKeywords(providerResponse([]), { runId: "frozen-prior-contract", collectedAt: collectedAt.toISOString() });
+  const plan = buildDataForSeoImportPlan(current, state.memberships, "frozen-prior-contract");
+  const priorDate = "2026-10-15T12:00:00.000Z";
+  seedRun({ requestId: "prior-positive", collectedAt: new Date(priorDate), normalized: normalizeRankedKeywords(providerResponse([providerItem("prior model api")]), { runId: "prior-positive", collectedAt: priorDate }) });
+  seedRun({ requestId: "frozen-prior-contract", status: "RECEIVED", collectedAt, rawResponse: JSON.stringify(providerResponse([])), normalized: current, importPayload: clone(plan.batches), summary: clone(plan.summary) });
+  const memberships = t.mock.method(db.siteKeyword, "findMany");
+  const frozen = clone(plan.batches), result = await mutateDataForSeo({ action: "replay", requestId: "frozen-prior-contract" });
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(memberships.mock.calls.length, 0, "cached replay must not rebuild eligibility or the import plan");
+  assert.deepEqual(state.runs.find(run => run.requestId === "frozen-prior-contract").importPayload, frozen);
+  assert.deepEqual(importAttempts.flatMap(batch => batch.observations).map(row => row.keyword), ["claude api"]);
+  assert.equal(fetched.length, 0);
+});
+
+test("a full next snapshot with prior research misses stays within ten bounded import batches", () => {
+  for (let index = 0; index < 1512; index++) addMembership(`formal-${index}`, `formal model api ${index}`);
+  const previous = [];
+  for (let index = 0; index < 1000; index++) {
+    previous.push(`prior model api ${index}`);
+    addMembership(`prior-${index}`, previous[index], { pool: "RESEARCH" });
+    addMembership(`current-${index}`, `current model api ${index}`, { pool: "RESEARCH" });
+  }
+  const items = Array.from({ length: 1000 }, (_, index) => providerItem(`current model api ${index}`, index % 100 + 1, `https://flatkey.ai/models/current-${index}`));
+  const snapshot = normalizeRankedKeywords(providerResponse(items, 0.132), { runId: "maximum-next-snapshot", collectedAt: new Date().toISOString() });
+  const plan = buildDataForSeoImportPlan(snapshot, state.memberships, "maximum-next-snapshot", previous);
+  assert.equal(plan.summary.missingFormal, 1512); assert.equal(plan.summary.missingResearch, 1000);
+  assert.equal(plan.summary.matchedExisting, 1000); assert.equal(plan.summary.matchedPages, 1000);
+  assert.equal(plan.batches.length, 10);
+  assert.equal(plan.batches.reduce((sum, batch) => sum + batch.observations.length + batch.pages.length, 0), 4512);
+  assert.ok(plan.batches.every(batch => batch.observations.length + batch.pages.length <= 500));
+  assert.ok(plan.batches.slice(0, -1).every(batch => !batch.capture.complete));
+  assert.equal(plan.batches.at(-1).capture.complete, true);
 });
 
 test("one keyword retains both actual pages with their own source dates and ranks while its summary uses the latest dated result", () => {

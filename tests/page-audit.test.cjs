@@ -54,19 +54,31 @@ const db = {
     finally { release(); }
   },
   $executeRaw: async () => 0,
+  $queryRaw: async query => {
+    assert.match(query.text, /page-audit:update-memberships/);
+    const [json, siteDomain] = query.values;
+    const updates = JSON.parse(json);
+    state.membershipQueries.push(clone({ text: query.text, values: query.values }));
+    const changed = [];
+    for (const update of updates) {
+      const where = { siteDomain, keywordId: update.keywordId, active: update.beforeActive, pool: update.beforePool,
+        reviewStatus: update.beforeReviewStatus, curationId: update.beforeCurationId,
+        curatedAt: update.beforeCuratedAt === null ? null : new Date(update.beforeCuratedAt), mappingStatus: update.beforeMappingStatus,
+        targetUrls: { equals: update.beforeTargetUrls }, candidateUrls: { equals: update.beforeCandidateUrls }, topicId: update.beforeTopicId,
+        protected: update.beforeProtected, auditReason: update.beforeAuditReason, keyword: { active: true, text: update.keywordText } };
+      const data = { mappingStatus: update.mappingStatus, targetUrls: update.targetUrls, candidateUrls: update.candidateUrls, auditReason: update.auditReason };
+      for (const row of state.memberships.filter(row => matches(row, where))) {
+        state.membershipWrites.push(clone({ where, data }));
+        Object.assign(row, clone(data));
+        changed.push({ keywordId: row.keywordId });
+      }
+    }
+    if (changed.length) countWrite();
+    return changed;
+  },
   seoSite: { findUnique: async () => ({ domain: "flatkey.ai", active: state.siteActive }) },
   siteKeyword: {
     findMany: async ({ where, select }) => state.memberships.filter(row => matches(row, where)).map(row => selectFields(row, select)),
-    updateMany: async ({ where, data }) => {
-      if (state.beforeMembershipWrite) state.beforeMembershipWrite();
-      const rows = state.memberships.filter(row => matches(row, where));
-      if (rows.length) {
-        countWrite();
-        state.membershipWrites.push(clone({ where, data }));
-        for (const row of rows) Object.assign(row, clone(data));
-      }
-      return { count: rows.length };
-    },
   },
   keywordSourceRow: {
     findMany: async ({ where }) => state.sourceRows.filter(row => matches(row, where)).map(clone),
@@ -130,7 +142,7 @@ beforeEach(() => {
   process.env.RANKING_IMPORT_SECRET = "fictional-page-audit-import-token";
   sessionToken = null;
   queue = Promise.resolve();
-  state = { siteActive: true, memberships: [], sourceRows: [], membershipWrites: [], dataWrites: 0, failEvidenceWrite: false };
+  state = { siteActive: true, memberships: [], sourceRows: [], membershipWrites: [], membershipQueries: [], dataWrites: 0, failEvidenceWrite: false };
 });
 
 test("VERIFIED requires HTTP 200, same-page canonical and detailed keyword intent evidence", () => {
@@ -297,7 +309,7 @@ test("unknown normalized identities skip complete membership and prior evidence 
   assert.equal(state.dataWrites, 0);
 });
 
-test("thirty first-time snapshots use one bulk write after all guarded membership updates", async (t) => {
+test("thirty members and first-time snapshots use one guarded SQL update and one evidence insert", async (t) => {
   const rows = Array.from({ length: 30 }, (_, index) => {
     const keywordId = `new-${index}`;
     addMember(keywordId);
@@ -310,17 +322,93 @@ test("thirty first-time snapshots use one bulk write after all guarded membershi
   const result = await auditKeywordPages({ ...incoming, expectedStateHash: preview.stateHash });
   assert.equal(result.imported, 30);
   assert.equal(state.membershipWrites.length, 30, "each membership still has its independent optimistic guard");
+  assert.equal(state.membershipQueries.length, 1, "all thirty membership updates must share one database round trip");
+  assert.equal(JSON.parse(state.membershipQueries[0].values[0]).length, 30);
   assert.equal(createMany.mock.calls.length, 1);
   assert.equal(createMany.mock.calls[0].arguments[0].data.length, 30);
   assert.equal(createMany.mock.calls[0].arguments[0].skipDuplicates, undefined);
   assert.equal(upsert.mock.calls.length, 0);
   assert.equal(state.sourceRows.length, 30);
-  assert.equal(state.dataWrites, 31, "thirty membership writes plus one initial-evidence SQL write");
+  assert.equal(state.dataWrites, 2, "one membership UPDATE plus one initial-evidence SQL write");
   assert.ok(state.sourceRows.every(row => row.siteDomain === "flatkey.ai" && row.sourceId === "page_audit" && row.observedAt.toISOString() === "2026-10-15T10:00:00.000Z"));
   const afterFirst = clone(state);
   assert.equal((await auditKeywordPages({ ...incoming, expectedStateHash: preview.stateHash })).duplicate, true);
   assert.deepEqual(state, afterFirst);
   assert.equal(createMany.mock.calls.length, 1);
+});
+
+test("bulk SQL binds quoted JSON and retains every original optimistic predicate", async () => {
+  const keywordId = "quoted-'id\"-\\-'; DROP TABLE never_execute; --";
+  const member = addMember(keywordId, { curationId: null, curatedAt: null, topicId: null,
+    auditReason: "Manual's \"quoted\" decision\nwith a backslash \\ and '; SELECT never_execute; --",
+    targetUrls: ["https://flatkey.ai/quote?name=O'Reilly", "https://flatkey.ai/second"], candidateUrls: [] });
+  const before = clone(member);
+  await auditKeywordPages(payload([auditRow(member.keyword.text)]));
+  const query = state.membershipQueries[0];
+  assert.equal(query.values.length, 2, "only the JSON batch and fixed site are SQL bind values");
+  assert.equal(query.values[1], "flatkey.ai");
+  assert.ok(!query.text.includes("never_execute"), "quoted source values must never enter the SQL text");
+  const [update] = JSON.parse(query.values[0]);
+  assert.equal(update.keywordId, keywordId);
+  assert.equal(update.keywordText, before.keyword.text);
+  assert.equal(update.beforeAuditReason, before.auditReason);
+  assert.deepEqual(update.beforeTargetUrls, before.targetUrls);
+  for (const field of ["beforeCurationId", "beforeCuratedAt", "beforeTopicId"]) assert.equal(update[field], null, field);
+  assert.deepEqual(member.targetUrls, ["https://flatkey.ai/blog/verified-api"]);
+  for (const predicate of [
+    'm."siteDomain" = $2', 'm."keywordId" = d."keywordId"', 'm.active = d."beforeActive"', 'm.pool = d."beforePool"',
+    'm."reviewStatus" = d."beforeReviewStatus"', 'm."curationId" IS NOT DISTINCT FROM d."beforeCurationId"',
+    'm."curatedAt" IS NOT DISTINCT FROM d."beforeCuratedAt"', 'm."mappingStatus" = d."beforeMappingStatus"',
+    'm."targetUrls" = d."beforeTargetUrls"', 'm."candidateUrls" = d."beforeCandidateUrls"',
+    'm."topicId" IS NOT DISTINCT FROM d."beforeTopicId"', 'm.protected = d."beforeProtected"',
+    'm."auditReason" IS NOT DISTINCT FROM d."beforeAuditReason"', 'k.id = m."keywordId"', 'k.active = true', 'k.text = d."keywordText"',
+  ]) assert.ok(query.text.includes(predicate), `missing SQL predicate: ${predicate}`);
+  assert.match(query.text, /jsonb_to_recordset\(\$1::jsonb\)/);
+  assert.match(query.text, /RETURNING m\."keywordId"/);
+});
+
+for (const [field, mutate] of Object.entries({
+  siteDomain: row => { row.siteDomain = "other.example"; },
+  active: row => { row.active = false; },
+  pool: row => { row.pool = "RESEARCH"; },
+  reviewStatus: row => { row.reviewStatus = "MANUAL_REVIEW"; },
+  curationId: row => { row.curationId = null; },
+  curatedAt: row => { row.curatedAt = null; },
+  mappingStatus: row => { row.mappingStatus = "READY"; },
+  targetUrls: row => { row.targetUrls = ["https://flatkey.ai/new-manual-target"]; },
+  candidateUrls: row => { row.candidateUrls = ["https://flatkey.ai/new-manual-candidate"]; },
+  topicId: row => { row.topicId = null; },
+  protected: row => { row.protected = true; },
+  auditReason: row => { row.auditReason = null; },
+  keywordActive: row => { row.keyword.active = false; },
+  keywordText: row => { row.keyword.text = "renamed keyword api"; },
+})) test(`bulk guard rejects concurrent ${field} changes and rolls back the entire batch`, async (t) => {
+  addMember(); addMember("keyword-2");
+  const before = clone(state), original = db.$queryRaw;
+  t.mock.method(db, "$queryRaw", async query => {
+    mutate(state.memberships[1]);
+    return original(query);
+  });
+  await assert.rejects(auditKeywordPages(payload([auditRow(), auditRow("keyword-2 api")])), error => error.status === 409);
+  assert.deepEqual(state, before, "the other matched member and all new evidence must roll back too");
+});
+
+test("a single changed member cancels all thirty bulk updates before evidence insertion", async (t) => {
+  const rows = Array.from({ length: 30 }, (_, index) => {
+    addMember(`concurrent-${index}`);
+    return auditRow(`concurrent-${index} api`);
+  });
+  const before = clone(state), original = db.$queryRaw;
+  let matched;
+  t.mock.method(db, "$queryRaw", async query => {
+    state.memberships[29].protected = true;
+    const result = await original(query);
+    matched = result.length;
+    return result;
+  });
+  await assert.rejects(auditKeywordPages(payload(rows)), error => error.status === 409);
+  assert.equal(matched, 29, "the result count must expose the one conflicting member");
+  assert.deepEqual(state, before);
 });
 
 test("mixed first and later evidence bulk-inserts only missing snapshot identities and preserves existing updates", async (t) => {
@@ -480,9 +568,9 @@ test("source evidence failures roll back every member update and identical concu
 
 test("optimistic member guards cancel the batch if manual configuration changes during application", async (t) => {
   addMember();
-  const originalUpdate = db.siteKeyword.updateMany;
+  const originalUpdate = db.$queryRaw;
   let intercepted = false;
-  t.mock.method(db.siteKeyword, "updateMany", async args => {
+  t.mock.method(db, "$queryRaw", async args => {
     if (!intercepted) {
       intercepted = true;
       state.memberships[0].protected = true;
