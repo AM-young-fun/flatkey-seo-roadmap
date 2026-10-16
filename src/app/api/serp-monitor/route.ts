@@ -5,7 +5,7 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { serpSampleMutationSchema } from "@/lib/serp-sample";
-import { mutateSerpSample } from "@/lib/services/serp-sample";
+import { loadSerpSampleEvidence, mutateSerpSample } from "@/lib/services/serp-sample";
 import { serpMonitorMutationSchema } from "@/lib/dataforseo-serp";
 import { loadSerpMonitorStatus, mutateSerpMonitor } from "@/lib/services/serp-monitor";
 
@@ -23,9 +23,13 @@ function failure(error: unknown) {
   console.error("SERP monitor failed", { code });
   return NextResponse.json({ message: "SERP状态暂时无法确认，请保留原采集标识并查看账本，不要重复提交", code }, { status: 503, headers });
 }
-export async function GET() {
+export async function GET(request: Request) {
   const denied = await authorize(); if (denied) return denied;
-  try { return NextResponse.json(await retryDatabaseRead(loadSerpMonitorStatus), { headers }); }
+  try {
+    const evidence = request && new URL(request.url).searchParams.get("sampleEvidence") === "1";
+    const value = evidence ? await retryDatabaseRead(loadSerpSampleEvidence) : await retryDatabaseRead(loadSerpMonitorStatus);
+    return NextResponse.json(value, { headers });
+  }
   catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

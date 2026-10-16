@@ -147,3 +147,58 @@ export async function mutateSerpSample(input: SerpSampleMutation) {
   }
   return input.action === "previewSample" ? previewSerpSample() : startSerpSample(input);
 }
+
+// Read only the fixed authorization's saved advanced-result receipts. This
+// diagnostic never resumes a run, reads credentials or contacts DataForSEO.
+export async function loadSerpSampleEvidence() {
+  const run = await prisma.serpMonitorRun.findUnique({ where: { sampleAuthorizationHash: SERP_SAMPLE_AUTHORIZATION_HASH },
+    select: { id: true, scope: true, periodKey: true, periodLabel: true, targetCount: true, queryCount: true, status: true } });
+  if (!run || run.scope !== "SAMPLE") return { scope: "SAMPLE", run: null, taskCount: 0, tasks: [] };
+  const saved = await prisma.serpMonitorTask.findMany({ where: { runId: run.id }, orderBy: [{ region: "asc" }, { keyword: "asc" }], take: 200,
+    select: { keyword: true, region: true, state: true, errorCode: true, checkedAt: true, providerTaskId: true, rawResponse: true } });
+  const object = (value: unknown): Record<string, unknown> => value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const text = (value: unknown) => typeof value === "string" ? value : null;
+  const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+  const rank = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+  const safeUrl = (value: unknown) => {
+    if (typeof value !== "string") return null;
+    try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : null; }
+    catch { return null; }
+  };
+  const tasks = saved.map(row => {
+    let raw: Record<string, unknown> = {};
+    try { raw = object(row.rawResponse ? JSON.parse(row.rawResponse) : null); } catch { /* Corrupt cache remains a diagnostic gap. */ }
+    const cachedTasks = Array.isArray(raw.tasks) ? raw.tasks.map(object) : [];
+    const cached = cachedTasks.find(value => value.id === row.providerTaskId) ?? (cachedTasks.length === 1 ? cachedTasks[0] : {});
+    const result = object(Array.isArray(cached.result) ? cached.result[0] : null);
+    const items = Array.isArray(result.items) ? result.items.map(object) : [];
+    const organic = items.filter(item => item.type === "organic");
+    const ranks = new Set(organic.flatMap(item => { const position = rank(item.rank_group); return position == null ? [] : [position]; }));
+    const spell = object(result.spell);
+    const flatkeyPages = organic.flatMap(item => {
+      const url = safeUrl(item.url); if (!url) return [];
+      const host = new URL(url).hostname.toLowerCase();
+      return host === "flatkey.ai" || host.endsWith(".flatkey.ai") ? [{ rankGroup: rank(item.rank_group), url }] : [];
+    });
+    const relatedResults: Array<{ parentRankGroup: number | null; parentUrl: string | null; url: string }> = [];
+    for (const parent of organic) {
+      const addRelated = (value: unknown, depth = 0) => {
+        if (depth > 3 || relatedResults.length >= 500) return;
+        if (Array.isArray(value)) { value.forEach(item => addRelated(item, depth + 1)); return; }
+        const item = object(value), url = safeUrl(item.url);
+        if (url) relatedResults.push({ parentRankGroup: rank(parent.rank_group), parentUrl: safeUrl(parent.url), url });
+        for (const child of [item.items, item.related_result, item.related_results]) if (child) addRelated(child, depth + 1);
+      };
+      addRelated(parent.related_result); addRelated(parent.related_results);
+      if (Array.isArray(parent.items)) for (const child of parent.items) if (object(child).type === "related_result") addRelated(child);
+    }
+    return { keyword: row.keyword, region: row.region, state: row.state, errorCode: row.errorCode, checkedAt: row.checkedAt,
+      hasCachedResponse: row.rawResponse != null, cachedGetTaskCost: number(cached.cost),
+      resultKeyword: text(result.keyword), searchDomain: text(result.se_domain), pagesCount: number(result.pages_count), itemsCount: number(result.items_count),
+      spell: { type: text(spell.type), spell: text(spell.spell) }, organicCount: organic.length, maxOrganicRank: Math.max(0, ...ranks),
+      missingOrganicRanks: Array.from({ length: 100 }, (_, index) => index + 1).filter(position => !ranks.has(position)),
+      flatkeyPages, relatedResults };
+  });
+  return { scope: "SAMPLE", run: { id: run.id, scope: run.scope, periodKey: run.periodKey, periodLabel: run.periodLabel,
+    targetCount: run.targetCount, queryCount: run.queryCount, status: run.status }, taskCount: tasks.length, tasks };
+}

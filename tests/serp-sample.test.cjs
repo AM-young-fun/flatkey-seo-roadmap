@@ -46,7 +46,9 @@ const db = {
       const row = { startedAt: new Date(), actualCostMicros: null, ...clone(data) }; state.runs.push(row); return clone(row);
     },
   },
-  serpMonitorTask: { createMany: async ({ data }) => { assert.equal(inTransaction, true); state.tasks.push(...clone(data)); return { count: data.length }; } },
+  serpMonitorTask: { createMany: async ({ data }) => { assert.equal(inTransaction, true); state.tasks.push(...clone(data)); return { count: data.length }; },
+    findMany: async ({ where, take }) => clone(state.tasks.filter(row => matches(row, where)).slice(0, take)),
+  },
 };
 const key = target => `${target.siteDomain}:${target.keywordId}`;
 const target = (keyword, id = keyword.replaceAll(" ", "-")) => ({ keywordId: id, keyword, siteDomain: "flatkey.ai", targetUrls: ["https://flatkey.ai/models/example"] });
@@ -71,7 +73,7 @@ mockFile("src/lib/services/serp-monitor.ts", {
   },
   resumeSerpMonitorRun: async id => { resumes++; return dto(state.runs.find(row => row.id === id)); },
 });
-const { previewSerpSample, startSerpSample } = require("../src/lib/services/serp-sample.ts");
+const { previewSerpSample, startSerpSample, loadSerpSampleEvidence } = require("../src/lib/services/serp-sample.ts");
 const start = (preview, id = "fictional-sample-request-1") => startSerpSample({ action: "startSample", idempotencyKey: id,
   expectedSubsetHash: preview.subsetHash, authorizationToken: preview.authorizationToken, maxBudgetMicros: preview.maxBudgetMicros });
 beforeEach(t => {
@@ -176,4 +178,29 @@ test("an expired signed preview, insufficient balance or missing category cannot
   balance = 1; cohort.targets = cohort.targets.filter(target => target.keyword !== "flatkey");
   await assert.rejects(previewSerpSample(), /同时验证/);
   assert.equal(state.runs.length, 0); assert.equal(submits, 0);
+});
+
+test("sample evidence reads cached receipts only and exposes no secrets or unearned related-result ranks", async t => {
+  t.mock.method(globalThis, "fetch", async () => assert.fail("cached evidence must never contact a provider"));
+  const empty = await loadSerpSampleEvidence(); assert.equal(empty.run, null); assert.equal(empty.taskCount, 0);
+  state.runs.push({ id: "fixed-sample", sampleAuthorizationHash: sample.SERP_SAMPLE_AUTHORIZATION_HASH, scope: "SAMPLE",
+    periodKey: "2026-10-2", periodLabel: "2026年10月第2期", targetCount: 38, queryCount: 152, status: "PARTIAL",
+    configJson: { secret: "never-expose-run-config" } });
+  const cached = { account: "never-expose-account", headers: { Authorization: "never-expose-authorization" }, tasks: [{ id: "provider-cached", cost: 0,
+    result: [{ keyword: "flatkey ai", se_domain: "google.com", pages_count: 1, items_count: 4,
+      spell: { type: "showing_results_for", spell: "flat key ai", secret: "never-expose-spell-object" },
+      items: [{ type: "organic", rank_group: 1, url: "https://example.org/", related_result: [{ type: "related_result", rank_group: 77, url: "https://flatkey.ai/" }] },
+        { type: "organic", rank_group: 3, url: "https://flatkey.ai/models/example" }, { type: "paid", rank_group: 2, url: "https://flatkey.ai/ad" },
+        { type: "organic", rank_group: 4, url: "https://flatkey.ai.attacker.invalid/" }] }] }] };
+  state.tasks.push({ runId: "fixed-sample", keyword: "flatkey ai", region: "US", state: "INCOMPLETE", errorCode: "SHORT_SERP",
+    checkedAt: new Date("2026-10-16T03:00:00Z"), providerTaskId: "provider-cached", rawResponse: JSON.stringify(cached), submissionRaw: "never-expose-submission" });
+  const before = clone(state), result = await loadSerpSampleEvidence();
+  assert.equal(result.taskCount, 1); const row = result.tasks[0];
+  assert.equal(row.cachedGetTaskCost, 0); assert.equal(row.resultKeyword, "flatkey ai"); assert.equal(row.searchDomain, "google.com");
+  assert.equal(row.organicCount, 3); assert.equal(row.maxOrganicRank, 4); assert.deepEqual(row.missingOrganicRanks.slice(0, 3), [2, 5, 6]);
+  assert.deepEqual(row.spell, { type: "showing_results_for", spell: "flat key ai" });
+  assert.deepEqual(row.flatkeyPages, [{ rankGroup: 3, url: "https://flatkey.ai/models/example" }]);
+  assert.deepEqual(row.relatedResults, [{ parentRankGroup: 1, parentUrl: "https://example.org/", url: "https://flatkey.ai/" }]);
+  assert.ok(!JSON.stringify(result).includes("never-expose")); assert.ok(!JSON.stringify(result).includes("rawResponse"));
+  assert.deepEqual(state, before); assert.equal(calls.length, 0); assert.equal(submits, 0); assert.equal(commits, 0);
 });
