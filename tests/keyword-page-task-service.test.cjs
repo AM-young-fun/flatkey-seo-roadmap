@@ -88,6 +88,23 @@ test("a later reviewed page extends the plan through a new immutable audit paren
   assert.ok(state.tasks.every(task => state.audits.some(audit => audit.id === task.auditId)));
 });
 
+test("task preview uses direct reads, retries a connection interruption once, and reserves transactions only for apply", async t => {
+  const original = db.siteKeyword.findMany;
+  let attempts = 0;
+  t.mock.method(db.siteKeyword, "findMany", async args => {
+    if (!attempts++) throw Object.assign(new Error("private connection information"), { code: "P1001" });
+    return original(args);
+  });
+  const transaction = t.mock.method(db, "$transaction"), execute = t.mock.method(db, "$executeRaw");
+  const preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
+  assert.equal(transaction.mock.calls.length, 0);
+  assert.equal(execute.mock.calls.length, 0);
+  assert.equal(attempts, 2);
+  await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: preview.stateHash });
+  assert.equal(transaction.mock.calls.length, 1);
+  assert.deepEqual(transaction.mock.calls[0].arguments[1], { timeout: 40_000, maxWait: 15_000 });
+});
+
 test("preview is read-only; apply reuses the task and preserves manual fields; identical replay writes nothing", async () => {
   const before = structuredClone(state);
   const preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });

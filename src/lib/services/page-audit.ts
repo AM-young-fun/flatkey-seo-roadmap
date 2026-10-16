@@ -17,8 +17,8 @@ export async function auditKeywordPages(payload: PageAuditPayload): Promise<Page
 }
 
 async function runKeywordPageAudit(payload: PageAuditPayload): Promise<PageAuditResult> {
-  let stage = "OPEN_TRANSACTION";
-  try { return await prisma.$transaction(async transaction => {
+  let stage = payload.action === "preview" ? "READ_SITE" : "OPEN_TRANSACTION";
+  const execute = async (transaction: Prisma.TransactionClient) => {
     // A preview never writes, so it need not wait on the daily source-sync
     // writer. Apply re-reads everything under the site lock and verifies the
     // preview state hash before changing any membership or evidence.
@@ -42,7 +42,7 @@ async function runKeywordPageAudit(payload: PageAuditPayload): Promise<PageAudit
         curationId: true, curatedAt: true, targetUrls: true, candidateUrls: true, mappingStatus: true, topicId: true, protected: true, auditReason: true } }) : [];
     stage = "READ_EVIDENCE";
     const priorRows: PageAuditSourceState[] = relevant.length ? await transaction.keywordSourceRow.findMany({ where: { siteDomain: payload.targetDomain, sourceId: PAGE_AUDIT_SOURCE_ID,
-      rowKey: { in: relevant.map(link => `keyword:${link.keywordId}`) } }, select: { rowKey: true, snapshotHash: true, snapshot: true, observedAt: true } }) : [];
+      rowKey: { in: relevant.map(link => `keyword:${link.keywordId}`) } }, select: { rowKey: true, snapshotHash: true, observedAt: true } }) : [];
     stage = "PLAN";
     const plan = planKeywordPageAudit(payload, priorRows, relevant);
     if (payload.action === "preview" || plan.result.duplicate) return plan.result;
@@ -118,6 +118,14 @@ async function runKeywordPageAudit(payload: PageAuditPayload): Promise<PageAudit
     }
     stage = "COMMIT";
     return plan.result;
-  }, { timeout: payload.action === "preview" ? 20_000 : 50_000, maxWait: 5000 }); }
+  };
+  try {
+    // With a one-connection server pool an interactive read transaction can
+    // expire before its callback starts while ordinary dashboard reads queue.
+    // Preview needs no transaction: apply independently reads under the write
+    // lock and rejects any changed preview hash before writing.
+    return payload.action === "preview" ? await execute(prisma)
+      : await prisma.$transaction(execute, { timeout: 40_000, maxWait: 15_000 });
+  }
   catch (error) { if (error && typeof error === "object") failureStages.set(error, stage); throw error; }
 }

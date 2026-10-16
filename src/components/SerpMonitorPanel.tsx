@@ -20,7 +20,7 @@ export function SerpMonitorPanel() {
     if (!response.ok) throw new Error(result.message ?? "SERP计划读取失败");
     setStatus(result);
   }, []);
-  useEffect(() => { let active = true; const refresh = () => { void read().catch(error => { if (active) setError(error instanceof Error ? error.message : "读取失败"); }); }; refresh(); window.addEventListener("dataforseo-connection-updated", refresh); return () => { active = false; window.removeEventListener("dataforseo-connection-updated", refresh); }; }, [read]);
+  useEffect(() => { let active = true; const refresh = () => { void read().catch(error => { if (active) setError(error instanceof Error ? error.message : "读取失败"); }); }; refresh(); window.addEventListener("dataforseo-connection-updated", refresh); window.addEventListener("seo-rankings-updated", refresh); return () => { active = false; window.removeEventListener("dataforseo-connection-updated", refresh); window.removeEventListener("seo-rankings-updated", refresh); }; }, [read]);
   async function act(action: "preview" | "configure" | "refresh") {
     setBusy(action); setError(""); setNotice("");
     try {

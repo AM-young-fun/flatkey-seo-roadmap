@@ -5,7 +5,7 @@ import { normalizeAuditPageUrl, PAGE_AUDIT_SOURCE_ID, type PageAuditPayload, typ
 
 export type PageAuditMembership = { keywordId: string; keyword: { text: string; active: boolean }; active: boolean; pool: string; reviewStatus: string;
   curationId: string | null; curatedAt: Date | null; targetUrls: string[]; candidateUrls: string[]; mappingStatus: string; topicId: string | null; protected: boolean; auditReason: string | null };
-export type PageAuditSourceState = { rowKey: string; snapshotHash: string; snapshot: unknown; observedAt: Date | null };
+export type PageAuditSourceState = { rowKey: string; snapshotHash: string; snapshot?: unknown; observedAt: Date | null };
 export type PageAuditSnapshot = Omit<PageAuditPayload["rows"][number], "pageUrl" | "canonicalUrl"> & { version: 1; keywordId: string; pageUrl?: string; canonicalUrl?: string };
 export type PageAuditChange = { before: PageAuditMembership; after: Pick<PageAuditMembership, "mappingStatus" | "targetUrls" | "candidateUrls" | "auditReason">; fields: string[] };
 export type PageAuditPlan = { result: PageAuditResult; snapshots: Array<{ rowKey: string; snapshot: PageAuditSnapshot; hash: string }>; memberships: PageAuditChange[] };

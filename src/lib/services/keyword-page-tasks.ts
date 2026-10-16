@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
+import { retryDatabaseRead } from "@/lib/database-read";
 import { readPageAuditVerdict } from "@/lib/keyword-monitoring";
 import { isAuditPageForSite, keywordWorkPlanSchema, pageAuditDomainSchema, PAGE_AUDIT_SOURCE_ID, type PageAuditDomain } from "@/lib/page-audit";
 import { buildPageTaskMerge, PAGE_TASK_PLAN_ID, type PageTaskRow, type PageTaskWorkItem, type PageTaskMergeResult } from "@/lib/keyword-page-tasks";
@@ -15,10 +16,18 @@ export function pageTaskMergeFailureStage(error: unknown): string | null {
 
 export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<PageTaskMergeResult> {
   if (!pageAuditDomainSchema.safeParse(input.siteDomain).success) throw new ImportRequestError("页面任务网站无效", 400);
+  const inspect = () => runKeywordPageTaskMerge(input);
+  return input.action === "preview" ? retryDatabaseRead(inspect) : inspect();
+}
+
+async function runKeywordPageTaskMerge(input: PageTaskMergeInput): Promise<PageTaskMergeResult> {
   const planId = input.siteDomain === "flatkey.ai" ? PAGE_TASK_PLAN_ID : `${input.siteDomain}-page-work-plans-v1`;
-  let stage = "LOCK";
-  try { return await prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${input.siteDomain}`}))`;
+  let stage = input.action === "preview" ? "READ_SITE" : "OPEN_TRANSACTION";
+  const execute = async (tx: Prisma.TransactionClient): Promise<PageTaskMergeResult> => {
+    if (input.action === "apply") {
+      stage = "LOCK_SITE";
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${input.siteDomain}`}))`;
+    }
     stage = "READ_SITE";
     const site = await tx.seoSite.findUnique({ where: { domain: input.siteDomain } });
     if (!site?.active) throw new ImportRequestError("本次合并的网站未启用", 400);
@@ -103,6 +112,13 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
     }
     return { siteDomain: input.siteDomain, action: input.action, status: input.action === "preview" ? "PREVIEW" : "APPLIED",
       stateHash: plan.stateHash, summary: plan.summary, conflicts: plan.conflicts, tasks: plan.tasks };
-  }, { timeout: 55_000, maxWait: 5000 }); }
+  };
+  try {
+    // Preview never mutates data. Apply independently re-reads under the site
+    // lock and compares the preview hash, preserving the same concurrency
+    // guards without reserving an interactive pool connection for previews.
+    return input.action === "preview" ? await execute(prisma)
+      : await prisma.$transaction(execute, { timeout: 40_000, maxWait: 15_000 });
+  }
   catch (error) { if (error && typeof error === "object") failureStages.set(error, stage); throw error; }
 }

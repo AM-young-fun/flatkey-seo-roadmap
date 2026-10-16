@@ -35,16 +35,15 @@ function KeywordNetwork() {
         <article className="graphPanel">
           <div className="panelHeader">
             <div>
-              <p className="eyebrow">KEYWORD NETWORK</p>
               <h2>关键词关系图</h2>
-              <p>四国综合排名着色；缩放、拖动或悬停查看关键词与关联</p>
+              <p>按四国最佳排名着色，缩放或悬停查看关联</p>
             </div>
             <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
               查看明细
               <ArrowUpRight size={15} />
             </Link></div>
           </div>
-          <p className="chartNote">正式目标词库 · 图中显示 {ready ? graphKeywords.length : "—"} 条{graphSearch ? "匹配" : "关键词与网站"}记录。只展示当前正式业务目标，候选研究词在关键词明细中单独查看。</p>
+          <p className="chartNote">{ready ? graphKeywords.length.toLocaleString() : "—"} 个{graphSearch ? "匹配" : "业务"}关键词 · 已去重</p>
           <div className="rankLegend">
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>

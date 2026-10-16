@@ -23,29 +23,32 @@ export function PageAuditImportPanel() {
   async function submit(apply: boolean) {
     setBusy(true); setNotice("");
     const updated: Batch[] = [];
+    let pagesSaved = false;
     try {
       for (let index = 0; index < batches.length; index++) {
         const batch = batches[index];
         setNotice(`${apply ? "正在保存" : "正在预览"} ${index + 1} / ${batches.length} 批…`);
         const response = await fetch("/api/keywords/page-audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...batch, preview: undefined, action: apply ? "apply" : "preview", expectedStateHash: apply ? batch.preview?.stateHash : undefined }) });
         const result = await response.json();
-        if (!response.ok) throw new Error(`${batch.targetDomain}：${result.message ?? "保存失败"}${result.errors?.length ? `（${result.errors[0].message}）` : result.code ? `（${[result.stage, result.code, result.category].filter(Boolean).join(" / ")}）` : ""}`);
+        if (!response.ok) throw new Error(`${batch.targetDomain}：${result.message ?? "保存失败"}${result.errors?.length ? `（${result.errors[0].message}）` : result.code && !result.message?.includes(result.code) ? `（${[result.stage, result.code, result.category].filter(Boolean).join(" / ")}）` : ""}`);
         updated.push({ ...batch, preview: result });
       }
       if (apply) {
-        for (const siteDomain of [...new Set(batches.map(batch => batch.targetDomain))]) {
+        pagesSaved = true;
+        for (const siteDomain of [...new Set(batches.filter(batch => batch.rows.some(row => row.workPlan && row.workPlan.action !== "LINK")).map(batch => batch.targetDomain))]) {
           const preview = await fetch("/api/keywords/okr/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteDomain, action: "preview" }) });
           const planned = await preview.json();
           if (!preview.ok) throw new Error(`${siteDomain} 页面任务：${planned.message ?? "预览失败"}`);
+          if (planned.conflicts?.length) throw new Error(`${siteDomain} 页面任务：${planned.conflicts.join("；")}`);
           const response = await fetch("/api/keywords/okr/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteDomain, action: "apply", expectedStateHash: planned.stateHash }) });
           const result = await response.json();
           if (!response.ok) throw new Error(`${siteDomain} 页面任务：${result.message ?? "保存失败"}`);
+          if (result.status !== "APPLIED") throw new Error(`${siteDomain} 页面任务尚未确认保存，请刷新后核对。`);
         }
-        dashboardStore.clear(); window.dispatchEvent(new Event("seo-rankings-updated"));
         setBatches([]); setNotice(`已保存 ${batches.reduce((sum, batch) => sum + batch.rows.length, 0)} 条页面核实结果，并按页面合并任务。未执行排名抓取。`);
       } else { setBatches(updated); setNotice("预览完成，确认下方结果后保存。"); }
-    } catch (error) { setNotice(`${error instanceof Error ? error.message : "操作失败"}${apply ? "；已成功保存的批次会保留，可重新预览后继续。" : ""}`); }
-    finally { setBusy(false); }
+    } catch (error) { setNotice(`${pagesSaved ? "页面核实已全部保存，任务合并未完成。" : ""}${error instanceof Error ? error.message : "操作失败"}${apply ? "；已成功保存的批次会保留，可重新预览后继续。" : ""}`); }
+    finally { if (apply && updated.length) { dashboardStore.clear(); window.dispatchEvent(new Event("seo-rankings-updated")); } setBusy(false); }
   }
   const previewed = batches.length > 0 && batches.every(batch => batch.preview);
   const counts = batches.flatMap(batch => batch.rows).reduce((total, row) => ({ ...total, [row.verdict]: (total[row.verdict] ?? 0) + 1 }), {} as Record<string, number>);

@@ -711,7 +711,7 @@ test("held worklist export requires a real session and returns deduplicated coun
   assert.equal(state.dataWrites, 0);
 });
 
-test("preview avoids the writer lock, retries one transient read, and keeps a bounded read transaction", async t => {
+test("preview uses direct reads without an interactive transaction or writer lock and retries one transient read", async t => {
   addMember();
   const original = db.siteKeyword.findMany;
   let failures = 0;
@@ -723,8 +723,7 @@ test("preview avoids the writer lock, retries one transient read, and keeps a bo
   const transaction = t.mock.method(db, "$transaction");
   const result = await auditKeywordPages(payload(undefined, { action: "preview" }));
   assert.equal(result.action, "preview");
-  assert.equal(transaction.mock.calls.length, 2);
-  assert.equal(transaction.mock.calls[0].arguments[1].timeout, 20_000);
+  assert.equal(transaction.mock.calls.length, 0);
   assert.equal(lock.mock.calls.length, 0);
   assert.equal(state.dataWrites, 0);
 });
@@ -761,6 +760,8 @@ test("apply failures report only safe operation diagnostics and never retry a mu
   assert.equal(diagnostic.stage, "INSERT_EVIDENCE");
   assert.equal(diagnostic.code, "P1001");
   assert.equal(transaction.mock.calls.length, 1);
+  assert.equal(transaction.mock.calls[0].arguments[1].maxWait, 15_000);
+  assert.equal(transaction.mock.calls[0].arguments[1].timeout, 40_000);
   assert.ok(!JSON.stringify(diagnostic).includes("password"));
   assert.ok(!JSON.stringify(diagnostic).includes("private-host"));
   assert.equal(state.dataWrites, 0);
