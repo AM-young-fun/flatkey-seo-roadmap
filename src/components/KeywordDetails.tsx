@@ -127,8 +127,10 @@ export function KeywordDetails() {
     { title: "所属网站", key: "site", width: 110, render: (_, k) => k.siteName ?? "Flatkey" },
     { title: "目标页面 / 建设状态", key: "targets", width: 290, render: (_, k) => {
       const target = okrFor(k);
-      const urls = [...new Set(target?.targetUrls ?? k.targetUrls ?? [])];
-      return <div className="evidenceSummary">{urls.length ? urls.map(url => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>) : <span className="muted">未关联目标页面</span>}{target?.latestPageAuditCheckedAt ? <small>页面核验于 {new Date(target.latestPageAuditCheckedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}<small>目标关联不代表已获得排名</small></div>;
+      const matched = [...new Set(target?.targetUrls ?? k.targetUrls ?? [])];
+      const expansion = !matched.length && target?.workPlan?.action === "EXPAND";
+      const urls = expansion ? target.workPlan!.pageUrls : matched;
+      return <div className="evidenceSummary">{urls.length ? urls.map(url => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>) : <span className="muted">{target?.workPlan?.action === "BUILD" ? "暂无合适页面，待建设" : "未关联目标页面"}</span>}{expansion ? <small>已指定补充页面，内容待验收</small> : null}{target?.latestPageAuditCheckedAt ? <small>页面核验于 {new Date(target.latestPageAuditCheckedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}<small>页面关联不代表已获得排名</small></div>;
     } },
     { title: "DataForSEO 数据库名次", key: "rank", width: 180, sorter: (a, b) => (rankFor(a)?.rank ?? Infinity) - (rankFor(b)?.rank ?? Infinity), render: (_, k) => {
       const rank = rankFor(k);
