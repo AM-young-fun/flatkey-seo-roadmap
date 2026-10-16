@@ -292,4 +292,14 @@ CREATE TABLE IF NOT EXISTS "KeywordContentTask" (
 );
 CREATE INDEX IF NOT EXISTS "KeywordContentTask_siteDomain_status_idx" ON "KeywordContentTask"("siteDomain", "status");
 CREATE INDEX IF NOT EXISTS "KeywordContentTask_auditId_idx" ON "KeywordContentTask"("auditId");
+-- Additive, idempotent collaborative-sheet source state. No backfill,
+-- whole-inventory replacement, cleanup, or deletion is performed here.
+CREATE TABLE IF NOT EXISTS "KeywordSourceRow" (
+ "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"("domain"), "sourceId" TEXT NOT NULL,
+ "rowKey" TEXT NOT NULL, "snapshotHash" TEXT NOT NULL, "snapshot" JSONB NOT NULL,
+ "observedAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY ("siteDomain", "sourceId", "rowKey")
+);
+CREATE INDEX IF NOT EXISTS "KeywordSourceRow_siteDomain_sourceId_idx" ON "KeywordSourceRow"("siteDomain", "sourceId");
 COMMIT;

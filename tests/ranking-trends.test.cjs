@@ -125,11 +125,12 @@ test("recent dates exclude today and their endpoint report period equals the def
   assert.deepEqual(range, { start: "2026-10-09", end: "2026-10-15" });
 });
 
-let queryCalls = [];
+let queryCalls = [], reportPeriodRows = [], trendObservations = null;
 const db = { $queryRaw: async query => {
   queryCalls.push(query);
+  if (query.sql.includes("ranking-period:recent-query-reports")) return reportPeriodRows;
   if (query.sql.includes("weekly-trends:cohort")) return [keyword("formal"), keyword("research", { pool: "RESEARCH" })];
-  if (query.sql.includes("weekly-trends:bounded-observations")) return [observation("formal"), observation("research")];
+  if (query.sql.includes("weekly-trends:bounded-observations")) return trendObservations ?? [observation("formal"), observation("research")];
   throw new Error("unexpected SQL");
 } };
 const prismaPath = path.join(root, "src/lib/prisma.ts");
@@ -162,4 +163,31 @@ test("the trend API reads cohort and bounded query reports once, emits v2 metada
     const incomplete = await GET(new Request("http://localhost/api/seo/trends?region=US&end=2026-10-16"));
     assert.equal(incomplete.status, 400);
   } finally { global.Date = NativeDate; }
+});
+
+test("default trend shares the imported seven-day report endpoint while an explicit client endpoint is preserved", async () => {
+  const NativeDate = Date, fixed = NativeDate.parse("2026-10-16T04:00:00Z");
+  global.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [fixed])); } static now() { return fixed; } };
+  try {
+    queryCalls = [];
+    reportPeriodRows = [{ siteDomain: "flatkey.ai", text: "formal api", periodStart: new Date("2026-10-08"), periodEnd: new Date("2026-10-14") }];
+    trendObservations = [observation("formal", { region: "JP", periodStart: new Date("2026-10-08"), periodEnd: new Date("2026-10-14") })];
+    const response = await GET(new Request("http://localhost/api/seo/trends?region=JP"));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual([result.start, result.end], ["2026-10-08", "2026-10-14"]);
+    assert.equal(result.points.at(-1).periodStart, "2026-10-08");
+    assert.equal(result.points.at(-1).periodEnd, "2026-10-14");
+    assert.equal(result.points.at(-1).ranked, 1);
+    assert.equal(queryCalls.length, 3);
+    assert.ok(queryCalls[0].sql.includes("ranking-period:recent-query-reports"));
+    const dashboard = assembleDashboard("all", [], [{ ...keyword("formal"), id: "formal", type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", targetUrls: [], defaultVolume: 0, lastSyncedAt: null }], trendObservations, [], null, null, [], { ...trendPeriod(result.end), label: "最近已导入7天" });
+    assert.equal(result.points.at(-1).ranked, rankingStats(dashboard.keywords, "JP").ranked);
+    const explicit = await GET(new Request("http://localhost/api/seo/trends?region=JP&end=2026-10-15"));
+    assert.equal(explicit.status, 200);
+    const requested = await explicit.json();
+    assert.equal(requested.end, "2026-10-15");
+    assert.equal(requested.points.at(-1).ranked, 0);
+    assert.equal(requested.points.at(-1).pending, 1);
+  } finally { global.Date = NativeDate; reportPeriodRows = []; trendObservations = null; }
 });

@@ -1,0 +1,37 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { ImportRequestError } from "@/lib/ranking-import";
+import { normalizeKeywordText } from "@/lib/keyword-relevance";
+import { PAGE_AUDIT_SOURCE_ID, type PageAuditPayload, type PageAuditResult } from "@/lib/page-audit";
+import { planKeywordPageAudit, type PageAuditMembership, type PageAuditSourceState } from "@/lib/page-audit-plan";
+
+export async function auditKeywordPages(payload: PageAuditPayload): Promise<PageAuditResult> {
+  return prisma.$transaction(async transaction => {
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"seo-import:flatkey.ai"}))`;
+    const site = await transaction.seoSite.findUnique({ where: { domain: "flatkey.ai" } });
+    if (!site?.active) throw new ImportRequestError("Flatkey网站未启用", 400);
+    const memberships: PageAuditMembership[] = await transaction.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true } },
+      select: { keywordId: true, keyword: { select: { text: true, active: true } }, active: true, pool: true, reviewStatus: true,
+        curationId: true, curatedAt: true, targetUrls: true, candidateUrls: true, mappingStatus: true, topicId: true, protected: true, auditReason: true } });
+    const incoming = new Set(payload.rows.map(row => normalizeKeywordText(row.keyword)));
+    const relevant = memberships.filter(link => incoming.has(normalizeKeywordText(link.keyword.text)));
+    const priorRows: PageAuditSourceState[] = relevant.length ? await transaction.keywordSourceRow.findMany({ where: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID,
+      rowKey: { in: relevant.map(link => `keyword:${link.keywordId}`) } }, select: { rowKey: true, snapshotHash: true, snapshot: true, observedAt: true } }) : [];
+    const plan = planKeywordPageAudit(payload, priorRows, relevant);
+    if (payload.action === "preview" || plan.result.duplicate) return plan.result;
+    for (const { before, after } of plan.memberships) {
+      const changed = await transaction.siteKeyword.updateMany({ where: { siteDomain: "flatkey.ai", keywordId: before.keywordId, active: before.active, pool: before.pool,
+        reviewStatus: before.reviewStatus, curationId: before.curationId, curatedAt: before.curatedAt, mappingStatus: before.mappingStatus,
+        targetUrls: { equals: before.targetUrls }, candidateUrls: { equals: before.candidateUrls }, topicId: before.topicId,
+        protected: before.protected, auditReason: before.auditReason, keyword: { active: true, text: before.keyword.text },
+      }, data: after });
+      if (changed.count !== 1) throw new ImportRequestError("复核期间人工页面配置发生变化，本批事务已取消，请重新预览", 409);
+    }
+    for (const { rowKey, snapshot, hash } of plan.snapshots) {
+      const data = { snapshotHash: hash, snapshot: snapshot as unknown as Prisma.InputJsonValue, observedAt: new Date(snapshot.checkedAt) };
+      await transaction.keywordSourceRow.upsert({ where: { siteDomain_sourceId_rowKey: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey } },
+        create: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey, ...data }, update: data });
+    }
+    return plan.result;
+  }, { timeout: 55_000, maxWait: 5000 });
+}

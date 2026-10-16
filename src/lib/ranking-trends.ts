@@ -105,8 +105,8 @@ export function snapshotTrendPoints(rows: {date:string;rank:number|null;siteDoma
 
 type DailyReport = { date: Date; siteDomain: string; source: string; top10: number; top30: number; top50: number; top100: number };
 
-export function recentTrendRange(now = new Date()) {
-  const end = new Date(Date.parse(`${trendToday(now)}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+export function recentTrendRange(now = new Date(), reportEnd?: string) {
+  const end = reportEnd ?? new Date(Date.parse(`${trendToday(now)}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
   const start = new Date(`${end}T00:00:00Z`);
   start.setUTCDate(start.getUTCDate() - 6);
   return { start: start.toISOString().slice(0, 10) < EARLIEST_TREND_DATE ? EARLIEST_TREND_DATE : start.toISOString().slice(0, 10), end };

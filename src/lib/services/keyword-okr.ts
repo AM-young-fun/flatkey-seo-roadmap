@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { retryDatabaseRead } from "@/lib/database-read";
+import { loadLatestPageAudits } from "@/lib/services/keyword-page-audit-state";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordOkrMutation, type KeywordOkrMutationResponse, type KeywordOkrResponse, type KeywordOkrItem } from "@/lib/keyword-okr";
@@ -154,6 +155,7 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
   `);
   const initialized = audits.some(row => row.status === "APPLIED");
   const rows = initialized ? await readState(prisma) : [];
+  const pageAudits = await loadLatestPageAudits(rows.map(row => row.keywordId));
   const tasks = initialized ? await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { not: "RESTORED" } }, orderBy: { id: "asc" } }) : [];
   type PageRow = { keywordId: string; url: string; source: string; region: string; periodStart: Date | null; periodEnd: Date | null; collectedAt: Date; rank: number | null };
   const pages = initialized ? await prisma.$queryRaw<PageRow[]>(Prisma.sql`
@@ -180,6 +182,8 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
     keywords: rows.map(row => ({ id: row.keywordId, text: row.text, siteDomain, active: row.active, pool: row.pool,
       reviewStatus: row.reviewStatus, mappingStatus: row.mappingStatus, targetUrls: row.targetUrls, candidateUrls: row.candidateUrls,
       reason: row.auditReason ?? row.exclusionReason, protected: row.protected, auditedAt: row.curatedAt, auditId: row.curationId,
+      latestPageAuditVerdict: pageAudits.get(row.keywordId)?.verdict ?? null, latestPageAuditReason: pageAudits.get(row.keywordId)?.reason ?? null,
+      latestPageAuditCheckedAt: pageAudits.get(row.keywordId)?.checkedAt ?? null,
       actualPages: byKeyword.get(row.keywordId) ?? [],
     })),
     tasks: tasks.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, type: row.type as "NEW" | "EXPAND" | "REUSE", status: row.status,

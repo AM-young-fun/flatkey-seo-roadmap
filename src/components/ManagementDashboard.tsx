@@ -31,6 +31,7 @@ export function ManagementDashboard() {
   const [jsonText, setJsonText] = useState("");
   const [jsonFile, setJsonFile] = useState<File | null>(null);
   const [importProgress, setImportProgress] = useState("");
+  const [importReceipts, setImportReceipts] = useState<unknown[]>([]);
   const [credential, setCredential] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const [credentialStatus, setCredentialStatus] = useState<string | null>(null);
@@ -161,7 +162,7 @@ export function ManagementDashboard() {
   async function importJson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!jsonFile && !jsonText.trim()) return;
-    setImporting(true); setMessage(null);
+    setImporting(true); setMessage(null); setImportReceipts([]);
     try {
       if ((jsonFile?.size ?? new TextEncoder().encode(jsonText).length) > 4_000_000) throw new Error("文件不能超过 4 MB");
       const parsed = JSON.parse(jsonFile ? await jsonFile.text() : jsonText);
@@ -170,17 +171,36 @@ export function ManagementDashboard() {
       if (batches.some((batch: { targetDomain: string }) => !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(batch.targetDomain))) throw new Error("文件包含尚未启用的网站");
       let total = 0;
       let duplicateBatches = 0;
+      const sourceCounts = { changed: 0, skipped: 0, added: 0, promoted: 0, held: 0, blocked: 0, conflicts: 0 };
+      let sourceBatches = 0, previewBatches = 0;
+      const pageCounts = { changed: 0, unchanged: 0, verified: 0, missing: 0, mismatch: 0, review: 0 };
+      let pageBatches = 0, pagePreviews = 0;
       for (let index = 0; index < batches.length; index++) {
         setImportProgress(`正在导入 ${index + 1} / ${batches.length}`);
         try {
           const result = await postImportBatch(batches[index], {onRetry:attempt=>setImportProgress(`第 ${index+1} / ${batches.length} 批连接异常，正在原样重试 ${attempt} / 2`)});
+          setImportReceipts(previous => [...previous, result]);
           total += result.imported;
           if (result.duplicate) duplicateBatches++;
+          if (result.sourceSummary) {
+            sourceBatches++; if (result.action === "preview") previewBatches++;
+            const s = result.sourceSummary;
+            sourceCounts.changed += s.changedRows; sourceCounts.skipped += s.unchangedRows;
+            sourceCounts.added += s.newKeywords; sourceCounts.promoted += s.promotedFormal;
+            sourceCounts.held += s.heldResearch; sourceCounts.blocked += s.blocked; sourceCounts.conflicts += s.conflicts;
+          }
+          if (result.pageSummary) {
+            pageBatches++; if (result.action === "preview") pagePreviews++;
+            for (const key of Object.keys(pageCounts) as Array<keyof typeof pageCounts>) pageCounts[key] += result.pageSummary[key];
+          }
         } catch(error) {
           throw new Error(`第 ${index+1} 批未确认：${error instanceof Error ? error.message : "请重试"}。此前成功批次已保留，可重传同一文件。`);
         }
       }
-      setMessage(`导入完成：${batches.length} 批，共确认 ${total} 条记录；新增批次 ${batches.length-duplicateBatches}，重复跳过 ${duplicateBatches}（未重复写入）`);
+      const summaries: string[] = [];
+      if (sourceBatches) summaries.push(`协作表${previewBatches === sourceBatches ? "预览完成（未写入）" : "同步完成"}：变化 ${sourceCounts.changed} 行，未变化跳过 ${sourceCounts.skipped} 行；新增词 ${sourceCounts.added}，进入正式监控 ${sourceCounts.promoted}，保留候选 ${sourceCounts.held}；保护拦截 ${sourceCounts.blocked}，页面关联待核实 ${sourceCounts.conflicts}。`);
+      if (pageBatches) summaries.push(`页面复核${pagePreviews === pageBatches ? "预览完成（未写入）" : "完成"}：匹配 ${pageCounts.verified}，缺页 ${pageCounts.missing}，错配 ${pageCounts.mismatch}，待核实 ${pageCounts.review}；变化 ${pageCounts.changed}，未变化 ${pageCounts.unchanged}。关键词保留。`);
+      setMessage(summaries.length ? summaries.join("\n") : `导入完成：${batches.length} 批，共确认 ${total} 条记录；新增批次 ${batches.length-duplicateBatches}，重复跳过 ${duplicateBatches}（未重复写入）`);
       setJsonFile(null); setJsonText("");
       await loadDashboard();
     } catch (error) { setMessage(error instanceof Error ? error.message : "导入失败"); }
@@ -355,10 +375,11 @@ export function ManagementDashboard() {
         </div>
       </section>
       <form className="jsonImportPanel" onSubmit={importJson}>
-        <div><h2>采集结果与周报导入</h2><a className="textLink" href="/api/seo/worklist">下载每日采集清单</a><p>导入带网站标识的 JSON：支持关键词清单、排名页面、每日完整采集批次和 GA4 周报。</p><p>周报：周二至周一 · 注册成功去重人数 · GA4 原报告时区</p></div>
+        <div><h2>采集结果与周报导入</h2><a className="textLink" href="/api/seo/worklist">下载每日采集清单</a><p>支持三张协作表增量同步、页面复核、排名证据和 GA4 周报；未变化记录跳过，候选词持续保留。</p><p>周报：周二至周一 · 注册成功去重人数 · GA4 原报告时区</p></div>
         <label className="jsonFile"><span>选择 JSON 文件</span><input type="file" aria-label="选择采集或周报 JSON 文件" accept=".json,application/json" disabled={importing} onChange={(e) => setJsonFile(e.target.files?.[0] ?? null)} />{jsonFile?.name}</label>
         <details className="jsonPaste"><summary>或粘贴 JSON 数据</summary><textarea aria-label="粘贴采集 JSON 数据" placeholder="粘贴单个批次或 batches 文件内容" value={jsonText} disabled={importing} onChange={(event) => { setJsonText(event.target.value); setJsonFile(null); }} /></details>
         <button className="managePrimary" disabled={(!jsonFile && !jsonText.trim()) || importing}>{importProgress || "导入数据"}</button>
+        {importReceipts.length ? <details className="jsonPaste"><summary>查看本次导入回执（{importReceipts.length} 批）</summary><textarea aria-label="导入确认回执" readOnly value={JSON.stringify({ results: importReceipts }, null, 2)} /></details> : null}
       </form>
       <KeywordReviewPanel />
       <section className="collectorConnection">

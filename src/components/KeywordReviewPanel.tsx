@@ -29,13 +29,13 @@ export function KeywordReviewPanel() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.message ?? "恢复失败");
       dashboardStore.clear();
-      setMessage(`已恢复「${keyword.text}」，长期零声量词重新观察 60 天。明确无关词需调整筛检规则，否则下次采集仍会移除。`);
+      setMessage(`已恢复「${keyword.text}」。后续采集会保留该词；归档须重新核对业务意图及外部月度声量证据。`);
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : "恢复失败"); }
     finally { setLoading(false); }
   }
   return <section className="jsonImportPanel keywordReviewPanel">
-    <div><h2>动态清理与恢复</h2><p>每次采集导入后自动筛检：无关词移出；普通词只有足够的长期零声量证据且没有价值信号时才归档。新模型、新词、数据未知和历史不足的词保留。</p><p>仅移出业务词库和排名统计，保留原始记录及清理原因，可在这里恢复。</p></div>
+    <div><h2>动态清理与恢复</h2><p>每日导入筛检新增词，既有候选持续保留。成熟词只有外部月度历史证明连续两个月无搜索量，且没有新词、新模型或其他需求信号时才归档。</p><p>本期未检出排名不删除关键词。归档保留原始记录及原因，可在这里恢复。</p></div>
     <div className="reviewToolbar"><Select aria-label="清理记录所属网站" value={site} onChange={value => { setRows([]); setMessage(""); setSite(value); }} options={SITES.map(item => ({ value: item.domain, label: item.name }))} /><button type="button" disabled={loading} onClick={() => void load()}>刷新清理记录</button></div>
     {message ? <p className="notice" role="status">{message}</p> : null}
     <Table rowKey="id" loading={loading} dataSource={rows} size="small" pagination={{ defaultPageSize: 10 }} columns={[

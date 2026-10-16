@@ -102,7 +102,7 @@ const prismaPath = path.join(root, "src/lib/prisma.ts");
 require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: db } };
 const { rankingImportSchema } = require("../src/lib/ranking-import.ts");
 const { importSeo } = require("../src/lib/services/seo-import.ts");
-const { POST: review, GET: archivedKeywords } = require("../src/app/api/keywords/review/route.ts");
+const { POST: review } = require("../src/app/api/keywords/review/route.ts");
 const { POST: importCsv } = require("../src/app/api/keywords/import/route.ts");
 
 beforeEach(() => {
@@ -230,12 +230,12 @@ test("business relevance blocks standalone noise and currency/count queries befo
   assert.equal(result.excluded, 10);
   assert.equal(state.keywords.length, 3);
   assert.equal(state.observations.length, 0);
-  assert.equal(state.links.find((row) => row.siteDomain === "flatkey.ai" && row.keywordId === "noise").active, false);
+  assert.equal(state.links.find((row) => row.siteDomain === "flatkey.ai" && row.keywordId === "noise").active, true);
   assert.equal(state.links.find((row) => row.siteDomain === "rackrate.org" && row.keywordId === "noise").active, true);
   assert.equal(state.keywords.find((row) => row.id === "noise").active, true);
 });
 
-test("CSV relevance screening deactivates known noise only at the selected site and never creates new noise", async () => {
+test("CSV relevance screening skips noise without removing candidates or creating new noise", async () => {
   state.keywords.push({ id: "noise", text: "yes", active: true });
   state.links.push(link("flatkey.ai", "noise"), link("rackrate.org", "noise"));
   const response = await requestCsv("keyword,topic\nyes,LLM API Routing\ntrue,LLM API Routing\nture,LLM API Routing\n$10,LLM API Routing\n100,LLM API Routing\nclaude api,LLM API Routing\n");
@@ -245,7 +245,7 @@ test("CSV relevance screening deactivates known noise only at the selected site 
   assert.equal(result.updated, 1);
   assert.equal(result.created, 0);
   assert.equal(state.keywords.length, 3);
-  assert.equal(state.links.find((row) => row.siteDomain === "flatkey.ai" && row.keywordId === "noise").active, false);
+  assert.equal(state.links.find((row) => row.siteDomain === "flatkey.ai" && row.keywordId === "noise").active, true);
   assert.equal(state.links.find((row) => row.siteDomain === "rackrate.org" && row.keywordId === "noise").active, true);
 });
 
@@ -270,44 +270,31 @@ const addZeroHistory = (id, observed = true, repeat = false) => {
 };
 const volumeOnly = requestId => payload({ requestId, observations: [observation("claude api", { rank: undefined, volume: 10 })] });
 
-test("each successful import scans all site memberships and archives unrelated terms absent from the uploaded batch", async () => {
+test("each successful import screens all memberships without removing existing candidates", async () => {
   addTracked("noise", "yes");
   const result = await importSeo(volumeOnly("full-site-cleanup"));
   assert.equal(result.cleanup.unrelated, 1);
-  assert.equal(result.cleanup.archived, 1);
+  assert.equal(result.cleanup.archived, 0);
+  assert.equal(result.cleanup.recommended, 1);
   const archived = state.links.find(row => row.keywordId === "noise");
-  assert.equal(archived.active, false);
-  assert.match(archived.exclusionReason, /业务无关/);
-  assert.ok(archived.excludedAt instanceof Date);
+  assert.equal(archived.active, true);
+  assert.match(result.cleanup.records[0].reason, /业务无关/);
   assert.equal(state.keywords.find(row => row.id === "noise").active, true);
 });
 
-test("dated sustained zeros archive reversibly without deleting source history or sharing another site's age", async () => {
+test("dated sustained zeros remain candidates and preserve source history and other-site membership", async () => {
   addTracked("old", "legacy connector endpoint");
   state.links.push({ ...link("rackrate.org", "old"), createdAt: ago(5) });
   addZeroHistory("old");
   const result = await importSeo(volumeOnly("old-zero-cleanup"));
   assert.equal(result.cleanup.sustainedZero, 1);
-  assert.equal(state.links.find(row => row.keywordId === "old" && row.siteDomain === "flatkey.ai").active, false);
+  assert.equal(result.cleanup.archived, 0);
+  assert.equal(state.links.find(row => row.keywordId === "old" && row.siteDomain === "flatkey.ai").active, true);
   assert.equal(state.links.find(row => row.keywordId === "old" && row.siteDomain === "rackrate.org").active, true);
   assert.equal(state.volumes.filter(row => row.keywordId === "old").length, 12);
-  const response = await archivedKeywords(new Request("http://localhost/api/keywords/review?siteDomain=flatkey.ai&pageSize=1&page=2"));
-  const archived = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(archived.total, 2);
-  assert.equal(archived.keywords.length, 1);
-  assert.equal(archived.keywords[0].siteDomain, "flatkey.ai");
-  assert.ok(archived.keywords[0].exclusionReason);
-  const originalCreatedAt = state.links.find(row => row.keywordId === "old" && row.siteDomain === "flatkey.ai").createdAt.getTime();
-  const restored = await requestReview({ siteDomain: "flatkey.ai", action: "restore", keywordIds: ["old"] });
-  assert.equal((await restored.json()).changed, 1);
-  const membership = state.links.find(row => row.keywordId === "old" && row.siteDomain === "flatkey.ai");
-  assert.equal(membership.exclusionReason, null);
-  assert.ok(membership.restoredAt instanceof Date);
-  assert.equal(membership.createdAt.getTime(), originalCreatedAt);
-  const next = await importSeo(volumeOnly("restored-cooldown"));
-  assert.equal(next.cleanup.sustainedZero, 0);
-  assert.equal(membership.active, true);
+  const next = await importSeo(volumeOnly("repeat-zero-review"));
+  assert.equal(next.cleanup.archived, 0);
+  assert.equal(state.links.find(row => row.keywordId === "old" && row.siteDomain === "flatkey.ai").active, true);
 });
 
 test("models, recent site tracking, real activity, valid pages and positive demand protect against automatic zero-volume cleanup", async () => {
@@ -370,14 +357,15 @@ test("repeated uploads of the same dated zero CSV do not manufacture a sixty-day
   assert.equal(state.links.find(row => row.keywordId === "repeat").active, true);
 });
 
-test("archive failures roll back the imported observations and preserve active site membership", async () => {
+test("daily screening never calls the archive writer or removes a zero-volume candidate", async () => {
   addTracked("old", "legacy connector endpoint");
   addZeroHistory("old");
   state.failArchive = true;
-  await assert.rejects(importSeo(volumeOnly("archive-failure")), /simulated archive failure/);
+  const result = await importSeo(volumeOnly("no-auto-archive"));
+  assert.equal(result.cleanup.archived, 0);
   assert.equal(state.links.find(row => row.keywordId === "old").active, true);
-  assert.equal(state.observations.length, 0);
-  assert.equal(state.batches.length, 0);
+  assert.equal(state.observations.length, 1);
+  assert.equal(state.batches.length, 1);
 });
 
 test("later JSON inventory preserves curated target URLs and topic while still accepting query evidence", async () => {

@@ -33,7 +33,7 @@ const {
 const { displayBucket, rankingStats, matchesRanking } = require("../src/lib/rank-display.ts");
 const { compareRankingObservations, matchesWeeklyRanking, isDailyRanking } = require("../src/lib/ranking-evidence.ts");
 const { Prisma } = require("@prisma/client");
-let batches, observations, pageObservations, failWrite, captures, trafficRows, dailyRows;
+let batches, observations, pageObservations, failWrite, captures, trafficRows, dailyRows, pageAuditSnapshots;
 const keywords = [
   {
     id: "keyword-1",
@@ -55,6 +55,7 @@ const keywords = [
 const db = {
   seoSite: { findUnique: async ({ where }) => ["flatkey.ai", "rackrate.org"].includes(where.domain) ? { domain: where.domain, active: true, ga4PropertyId: null } : null },
   keywordCurationAudit: { findFirst: async () => null },
+  keywordSourceRow: { findMany: async ({where}) => pageAuditSnapshots.filter(row => row.siteDomain === where.siteDomain && row.sourceId === where.sourceId && where.rowKey.in.includes(row.rowKey)) },
   siteKeyword: { findMany: async ({where}) => where.siteDomain === "flatkey.ai" ? keywords.map(keyword => ({ keyword, keywordId: keyword.id, topic: keyword.topic, origin: "PLANNED", targetUrls: [], active: true, topicId: "topic-1", sourceUrl: null })) : [] },
   keyword: { findMany: async ({where}) => ["rackrate.org", "modelfit.cc"].includes(where.siteLinks?.some?.siteDomain) ? [] : keywords.filter(keyword => !where.id?.in || where.id.in.includes(keyword.id)) },
   rankingImport: {
@@ -83,6 +84,9 @@ const db = {
   $queryRaw: async (query, ...args) => {
     const sql = Array.isArray(query) ? query.join("") : query.sql;
     const values = query.values ?? args;
+    if (sql.includes("ranking-period:recent-query-reports")) return observations.filter(row => row.source === "gsc" && row.rankReported && row.periodStart && row.periodEnd
+      && row.periodEnd.getTime() - row.periodStart.getTime() === 6 * 86400000 && row.periodEnd.toISOString().slice(0,10) >= values[0] && row.periodEnd.toISOString().slice(0,10) <= values[1])
+      .map(row => ({siteDomain:row.siteDomain,text:keywords.find(keyword=>keyword.id === row.keywordId)?.text ?? "",periodStart:row.periodStart,periodEnd:row.periodEnd}));
     if (sql.includes("dashboard:topics")) return values.includes("flatkey.ai") ? [{siteDomain:"flatkey.ai",id:"topic-1",text:"Claude",type:"MAIN",parentId:null,parentIds:[]}] : [];
     if (sql.includes("dashboard:keywords")) return values.includes("flatkey.ai") ? keywords.map(k=>({...k,siteDomain:"flatkey.ai",parentIds:[],topicText:k.topic.text,topicTexts:[],origin:"PLANNED",targetUrls:[]})) : [];
     if (sql.includes("dashboard:ranks")) {
@@ -219,6 +223,7 @@ const request = (body, token = "test-import-key") =>
     body: JSON.stringify(body),
   });
 beforeEach(() => {
+  pageAuditSnapshots = [];
   batches = [];
   observations = [];
   pageObservations = [];
@@ -374,9 +379,26 @@ test("work-list GET requires the import key", async () => {
     }),
   );
   assert.equal(response.status, 200);
-  assert.deepEqual((await response.json()).keywords, [
-    { id: "keyword-1", keyword: "claude api", topic: "Claude", origin: "PLANNED", targetUrls: [] },
+  const worklist = await response.json();
+  assert.deepEqual(worklist.keywords, []);
+  assert.deepEqual(worklist.candidates, [
+    { id: "keyword-1", keyword: "claude api", topic: "Claude", origin: "PLANNED", targetUrls: [], latestPageAuditVerdict: null },
   ]);
+});
+
+test("collector worklist returns latest page verdict and holds an old READY target after an inconclusive audit", async (t) => {
+  t.mock.method(db.siteKeyword,"findMany",async()=>[{siteDomain:"flatkey.ai",keywordId:"keyword-1",keyword:keywords[0],topic:{text:"Claude"},origin:"PLANNED",pool:"FORMAL",mappingStatus:"READY",targetUrls:["https://flatkey.ai/claude"]}]);
+  pageAuditSnapshots = [{siteDomain:"flatkey.ai",sourceId:"page_audit",rowKey:"keyword:keyword-1",snapshot:{keywordId:"keyword-1",verdict:"REVIEW",reason:"HTTP403暂时无法核验正文",checkedAt:"2026-10-16T06:00:00Z"}}];
+  const url="https://flatkey.test/api/rankings/import?site=flatkey.ai";
+  let result=await (await route.GET(new Request(url,{headers:{Authorization:"Bearer test-import-key"}}))).json();
+  assert.deepEqual(result.keywords,[]);
+  assert.equal(result.candidates[0].latestPageAuditVerdict,"REVIEW");
+  assert.equal(result.candidates[0].mappingStatus,"READY");
+  pageAuditSnapshots[0].snapshot.verdict="VERIFIED";
+  result=await (await route.GET(new Request(url,{headers:{Authorization:"Bearer test-import-key"}}))).json();
+  assert.equal(result.keywords.length,1);
+  assert.equal(result.keywords[0].latestPageAuditVerdict,"VERIFIED");
+  assert.deepEqual(result.candidates,[]);
 });
 test("body size is bounded even without Content-Length", async () => {
   await assert.rejects(
@@ -689,21 +711,24 @@ test("dashboard joins exact-period page evidence while pages-only imports cannot
   assert.equal(data.keywords[0].rankingEvidence.JP[0].pages[0].rank,4.8);
 });
 
-test("default dashboard filters the rolling week before choosing latest source reports", async () => {
+test("default dashboard uses the recent imported seven-day report despite publication delay and rejects longer or daily substitutes", async () => {
   observations.push(
     {...gsc,keywordId:"keyword-1",siteDomain:"flatkey.ai",rankReported:true,rankStatus:"ranked",periodStart:new Date("2026-10-08"),periodEnd:new Date("2026-10-14"),collectedAt:new Date("2026-10-15T01:30:00Z"),importedAt:new Date("2026-10-15T01:31:00Z")},
     {...gsc,keywordId:"keyword-1",siteDomain:"flatkey.ai",rank:1,rankReported:true,rankStatus:"ranked",periodStart:new Date("2026-09-17"),periodEnd:new Date("2026-10-14"),collectedAt:new Date("2026-10-15T02:30:00Z"),importedAt:new Date("2026-10-15T02:31:00Z")},
     {...gsc,keywordId:"keyword-1",siteDomain:"flatkey.ai",rank:5,rankReported:true,rankStatus:"ranked",periodStart:new Date("2026-10-12"),periodEnd:new Date("2026-10-12"),collectedAt:new Date("2026-10-15T02:30:00Z"),importedAt:new Date("2026-10-15T02:31:00Z")},
   );
-  const data = await loadDashboard("flatkey.ai","gsc","week",new Date("2026-10-15T06:30:00Z"));
+  const data = await loadDashboard("flatkey.ai","gsc","week",new Date("2026-10-16T06:30:00Z"));
   assert.equal(data.reportingPeriod.start,"2026-10-08");
   assert.equal(data.reportingPeriod.end,"2026-10-14");
+  assert.match(data.reportingPeriod.label,/最近已导入7天/);
   assert.equal(data.keywords[0].latestRanks.US.rank,12.4);
   assert.equal(data.keywords[0].rankingEvidence.US[0].daily[0].rank,5);
   const history = await loadDashboard("flatkey.ai","gsc","history");
   assert.equal(history.keywords[0].latestRanks.US.rank,1);
   observations.splice(0,1);
-  const noWeeklyReport = await loadDashboard("flatkey.ai","gsc","week",new Date("2026-10-15T06:30:00Z"));
+  const noWeeklyReport = await loadDashboard("flatkey.ai","gsc","week",new Date("2026-10-16T06:30:00Z"));
+  assert.equal(noWeeklyReport.reportingPeriod.start,"2026-10-09");
+  assert.equal(noWeeklyReport.reportingPeriod.end,"2026-10-15");
   assert.equal(noWeeklyReport.keywords[0].latestRanks.US,null);
   assert.equal(noWeeklyReport.keywords[0].rankingEvidence.US[0].scope,"daily");
 });
@@ -794,7 +819,7 @@ test("summary bulk read does not repeat queries per site or retrieve a legacy sy
   t.mock.method(db.syncRun,"findFirst",async()=>{throw new Error("unneeded sync read");});
   const value=await loadDashboard("all","combined");
   assert.equal(value.keywords.length,1);
-  assert.equal(reads,5);
+  assert.equal(reads,6);
 });
 
 const { createDashboardStore } = require("../src/lib/dashboard-client.ts");
@@ -965,6 +990,17 @@ test("weekly keyword publication is separate from daily imports and only accepts
 });
 
 const { postImportBatch } = require("../src/lib/import-client.ts");
+test("source and page audit imports use their own endpoints and preserve preview receipts", async () => {
+  for (const [kind, endpoint, summary] of [["source-sync", "/api/keywords/source-sync", {sourceSummary:{changedRows:1}}], ["page-audit", "/api/keywords/page-audit", {pageSummary:{verified:1}}]]) {
+    const batch = {kind, requestId:`${kind}-preview`, targetDomain:"flatkey.ai", action:"preview", rows:[]};
+    const response = {imported:1,duplicate:false,stateHash:"a".repeat(64),action:"preview",...summary};
+    const result = await postImportBatch(batch,{fetch:async(url, options)=>{
+      assert.equal(url,endpoint); assert.deepEqual(JSON.parse(options.body),batch);
+      return new Response(JSON.stringify(response),{status:200});
+    }});
+    assert.deepEqual(result,response);
+  }
+});
 test("import replays the exact batch after a lost commit response and confirms a duplicate without a second write", async () => {
   const bodies=[];let writes=0;
   const result=await postImportBatch({requestId:"lost-response",targetDomain:"flatkey.ai",observations:[]},{delay:async()=>{},fetch:async(_url,options)=>{

@@ -408,3 +408,18 @@ model KeywordContentTask {
   @@index([siteDomain, status])
   @@index([auditId])
 }
+
+// Latest accepted source row, keyed by document source and stable business ID.
+// Absent rows and removed source keywords never delete tracked inventory.
+model KeywordSourceRow {
+  siteDomain String
+  sourceId String
+  rowKey String
+  snapshotHash String
+  snapshot Json
+  observedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@id([siteDomain, sourceId, rowKey])
+  @@index([siteDomain, sourceId])
+}

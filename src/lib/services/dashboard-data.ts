@@ -7,6 +7,7 @@ import { getRankBucket, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { buildRankingEvidence, latestQueryEvidence, rankingReportingPeriod, type RankingObservationRow, type RankingPageRow } from "@/lib/ranking-evidence";
 import { assessKeywordVolume, type VolumeReviewSample } from "@/lib/keyword-volume-review";
 import { keywordRelevance } from "@/lib/keyword-relevance";
+import { loadRecentRankingReportPeriod } from "@/lib/services/ranking-report-period";
 import type { DashboardKeyword, DashboardResponse, DashboardTopic, RankingEvidence, RankingReportingPeriod, SyncRunSummary } from "@/lib/types";
 
 const SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
@@ -112,7 +113,7 @@ export function assembleDashboard(
 }
 
 export async function loadDashboard(site: string, source: string, period: "week" | "history" = "week", now = new Date()): Promise<DashboardResponse> {
-  const week = rankingReportingPeriod(now);
+  const week = period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
   if (!isDatabaseConfigured()) return { ...getDemoDashboard(), ...(reportingPeriod ? { reportingPeriod } : {}) };
   const domains = Prisma.join(site === "all" ? SITES : [site]);

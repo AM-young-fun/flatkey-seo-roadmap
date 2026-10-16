@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { IMPORT_API_PATH } from "@/lib/ranking-import";
+import { SOURCE_SYNC_API_PATH } from "@/lib/source-sync";
 
 function isPublicPath(pathname: string): boolean {
   return pathname === "/login" || pathname.startsWith("/api/auth/");
@@ -20,7 +21,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 export async function proxy(request: NextRequest) {
   // This endpoint always checks its own dedicated Bearer credential, even
   // when page login is disabled. That credential cannot access other routes.
-  if (request.nextUrl.pathname === IMPORT_API_PATH) return NextResponse.next();
+  if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH) return NextResponse.next();
   if (!isAuthEnabled() || isPublicPath(request.nextUrl.pathname) || isAuthorizedCron(request)) {
     return NextResponse.next();
   }

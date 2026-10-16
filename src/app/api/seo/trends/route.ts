@@ -5,6 +5,7 @@ import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { eligibleTrendKeywords, recentTrendRange, trendPeriod, trendRange, weeklyEvidenceTrendPoints, type TrendKeyword, type TrendResult } from "@/lib/ranking-trends";
 import type { RankingObservationRow } from "@/lib/ranking-evidence";
+import { loadRecentRankingReportPeriod } from "@/lib/services/ranking-report-period";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,13 +16,17 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const region = (params.get("region") ?? "US") as SearchRegionCode;
   if (!REGION_CODES.includes(region)) return NextResponse.json({ message: "地区无效" }, { status: 400 });
-  const now = new Date(), recent = recentTrendRange(now);
+  const now = new Date(), calendar = recentTrendRange(now);
+  let reportEnd: string;
+  try { reportEnd = params.get("end") ?? (await retryDatabaseRead(() => loadRecentRankingReportPeriod(now))).end; }
+  catch (error) { return NextResponse.json({ message: "趋势数据暂时无法读取", code: databaseErrorCode(error) }, { status: 503 }); }
   let range: ReturnType<typeof trendRange>;
   try {
+    const recent = recentTrendRange(now, reportEnd);
     range = trendRange(params.get("start") ?? recent.start, params.get("end") ?? recent.end, now);
-    if (range.end > recent.end) throw new Error("尚未结束的自然日");
+    if (range.end > calendar.end) throw new Error("尚未结束的自然日");
   } catch { return NextResponse.json({ message: "日期范围无效，最早为 2026-10-08，最晚为昨天" }, { status: 400 }); }
-  const key = `weekly-evidence:v2:${region}:${range.start}:${range.end}`;
+  const key = `weekly-evidence:published-window-v3:${region}:${range.start}:${range.end}`;
   try {
     const saved = cache.get(key);
     if (saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });

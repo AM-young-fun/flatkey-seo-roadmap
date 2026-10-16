@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { isDatabaseConfigured } from "@/lib/env";
 import { normalizeDomain } from "@/lib/seo";
 import { getRankingImportSecret } from "@/lib/import-credential";
+import { canMonitorKeyword } from "@/lib/keyword-monitoring";
+import { loadLatestPageAudits } from "@/lib/services/keyword-page-audit-state";
 import {
   importSecretMatches,
   ImportRequestError,
@@ -42,11 +44,14 @@ export async function GET(request: Request) {
   if (!site?.active) return NextResponse.json({ message: "网站未启用" }, { status: 400 });
   const curationApplied = targetDomain === "flatkey.ai" && Boolean(await prisma.keywordCurationAudit.findFirst({ where: { siteDomain: targetDomain, status: "APPLIED" }, select: { id: true } }));
   const keywords = await prisma.siteKeyword.findMany({
-    where: { siteDomain: targetDomain, active: true, keyword: { active: true }, topicId: { not: null }, ...(curationApplied ? { pool: "FORMAL" } : {}) }, include: { keyword: true, topic: true },
+    where: { siteDomain: targetDomain, active: true, keyword: { active: true } }, include: { keyword: true, topic: true },
   });
+  const audits = await loadLatestPageAudits(targetDomain === "flatkey.ai" ? keywords.map(link => link.keywordId) : []);
+  const audited = keywords.map(link => ({ ...link, latestPageAuditVerdict: targetDomain === "flatkey.ai" ? audits.get(link.keywordId)?.verdict ?? null : null }));
   return NextResponse.json({ targetDomain, curationApplied, ga4PropertyId: site.ga4PropertyId,
     regions: ["US", "JP", "ES", "BR"],
-    keywords: keywords.map((link) => ({ id: link.keywordId, keyword: link.keyword.text, topic: link.topic?.text ?? null, origin: link.origin, targetUrls: link.targetUrls })),
+    keywords: audited.filter(canMonitorKeyword).map((link) => ({ id: link.keywordId, keyword: link.keyword.text, topic: link.topic?.text ?? null, origin: link.origin, targetUrls: link.targetUrls, latestPageAuditVerdict: link.latestPageAuditVerdict })),
+    candidates: audited.filter(link => !canMonitorKeyword(link)).map((link) => ({ id: link.keywordId, keyword: link.keyword.text, topic: link.topic?.text ?? null, origin: link.origin, pool: link.pool, mappingStatus: link.mappingStatus, targetUrls: link.targetUrls, latestPageAuditVerdict: link.latestPageAuditVerdict })),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 

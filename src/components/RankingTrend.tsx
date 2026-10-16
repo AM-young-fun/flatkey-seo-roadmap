@@ -4,13 +4,18 @@ import type * as echarts from "echarts";
 import Link from "next/link";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { recentTrendRange, type TrendResult } from "@/lib/ranking-trends";
+import { EARLIEST_TREND_DATE, recentTrendRange, type TrendResult } from "@/lib/ranking-trends";
 import { dashboardSession } from "@/lib/dashboard-session";
 
 const trendResults = new Map<string, TrendResult>();
+function reportRange(reportEnd?: string) {
+  if (!reportEnd) return recentTrendRange();
+  const start = new Date(Date.parse(`${reportEnd}T00:00:00Z`) - 6 * 86400000).toISOString().slice(0, 10);
+  return { start: start < EARLIEST_TREND_DATE ? EARLIEST_TREND_DATE : start, end: reportEnd };
+}
 
-export function RankingTrend({ region }: { region: SearchRegionCode }) {
-  const [range, setRange] = useState(() => recentTrendRange());
+export function RankingTrend({ region, reportEnd }: { region: SearchRegionCode; reportEnd?: string }) {
+  const [range, setRange] = useState(() => reportRange(reportEnd));
   const key = `weekly-v2:${region}:${range.start}:${range.end}`;
   const [result, setResult] = useState<(TrendResult & {key:string}) | null>(() => {
     const saved = trendResults.get(key);
@@ -40,7 +45,7 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     const read = async () => {
       if (busy || document.hidden) return;
       busy = true;
-      setRange(previous => { const next = recentTrendRange(); return next.start === previous.start && next.end === previous.end ? previous : next; });
+      setRange(previous => { const next = reportRange(reportEnd); return next.start === previous.start && next.end === previous.end ? previous : next; });
       try {
         const response = await fetch(`/api/seo/trends?region=${region}&start=${range.start}&end=${range.end}`, { signal: controller.signal, cache: "no-store" });
         if (response.status === 401) { window.location.assign("/login"); return; }
@@ -61,7 +66,7 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     document.addEventListener("visibilitychange", read);
     window.addEventListener("focus", read);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); };
-  }, [region, key, range.start, range.end, version]);
+  }, [region, key, range.start, range.end, reportEnd, version]);
   useEffect(() => {
     if (!element.current || !points?.length) return;
     const target = element.current;

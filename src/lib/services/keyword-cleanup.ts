@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { keywordRelevance } from "@/lib/keyword-relevance";
 import { assessKeywordVolume, validSitePage, type VolumeReviewSample } from "@/lib/keyword-volume-review";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
@@ -19,6 +19,7 @@ type CleanupCandidate = {
 export type KeywordCleanupResult = {
   checked: number;
   archived: number;
+  recommended: number;
   unrelated: number;
   sustainedZero: number;
   kept: number;
@@ -26,9 +27,8 @@ export type KeywordCleanupResult = {
   recordsTruncated: boolean;
 };
 
-// The caller holds the site's seo-import advisory transaction lock. Evaluate
-// the whole active site inventory so an unrelated word needn't reappear in a
-// new upload before it is removed. Raw histories remain available for recovery.
+// Daily imports screen the inventory without removing candidates or targets.
+// A missing report, zero demand or changed rank is never permission to archive.
 export async function cleanupSiteKeywords(transaction: Prisma.TransactionClient, siteDomain: string, now = new Date()): Promise<KeywordCleanupResult> {
   const candidates = await transaction.$queryRaw<CleanupCandidate[]>`
     /* keyword-cleanup:candidates */
@@ -84,17 +84,9 @@ export async function cleanupSiteKeywords(transaction: Prisma.TransactionClient,
     if (review.isCandidate) archived.push({ id: row.keywordId, text: row.text,
       reason: `持续零声量：${review.reasons.join("；")}`, kind: "sustained_zero" });
   }
-  // Preserve the reason per membership; global keywords and all source rows stay
-  // intact. Recovery explicitly clears this reason and the exclusion timestamp.
-  if (archived.length) await transaction.$executeRaw(Prisma.sql`
-    /* keyword-cleanup:archive */
-    UPDATE "SiteKeyword" AS sk SET active = false, pool = 'ARCHIVED', "reviewStatus" = 'AUTO_ARCHIVED', "excludedAt" = ${now}, "exclusionReason" = reviewed.reason
-    FROM (VALUES ${Prisma.join(archived.map(row => Prisma.sql`(${row.id}::text, ${row.reason}::text)`))}) AS reviewed(id, reason)
-    WHERE sk."siteDomain" = ${siteDomain} AND sk."keywordId" = reviewed.id AND sk.active = true
-  `);
   return {
-    checked: candidates.length, archived: archived.length, unrelated: archived.filter(row => row.kind === "unrelated").length,
-    sustainedZero: archived.filter(row => row.kind === "sustained_zero").length, kept: candidates.length - archived.length,
+    checked: candidates.length, archived: 0, recommended: archived.length, unrelated: archived.filter(row => row.kind === "unrelated").length,
+    sustainedZero: archived.filter(row => row.kind === "sustained_zero").length, kept: candidates.length,
     records: archived.slice(0, 500), recordsTruncated: archived.length > 500,
   };
 }

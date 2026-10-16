@@ -1,16 +1,20 @@
-type BatchResult = { imported: number; duplicate: boolean; importId?: string };
+import type { SourceSyncSummary } from "./source-sync";
+import type { PageAuditSummary } from "./page-audit";
+
+type BatchResult = { imported: number; duplicate: boolean; importId?: string; action?: "preview" | "apply"; sourceSummary?: SourceSyncSummary; pageSummary?: PageAuditSummary };
 type Dependencies = { fetch?: typeof fetch; delay?: (milliseconds:number)=>Promise<void>; onRetry?: (attempt:number)=>void };
 
 // Retry the exact serialized batch: its durable requestId makes a lost response
 // safe to replay even when the first transaction already committed.
-export async function postImportBatch(batch: {requestId?:string}, dependencies: Dependencies = {}): Promise<BatchResult> {
+export async function postImportBatch(batch: {requestId?:string;kind?:string}, dependencies: Dependencies = {}): Promise<BatchResult> {
   if (!batch.requestId?.trim()) throw new Error("每批数据必须包含固定的 requestId，才能安全重试");
   const body = JSON.stringify(batch);
   const send = dependencies.fetch ?? fetch;
   const delay = dependencies.delay ?? (milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds)));
   for (let attempt=0; attempt<3; attempt++) {
     try {
-      const response = await send("/api/seo/import", {method:"POST",headers:{"Content-Type":"application/json"},body});
+      const endpoint = batch.kind === "source-sync" ? "/api/keywords/source-sync" : batch.kind === "page-audit" ? "/api/keywords/page-audit" : "/api/seo/import";
+      const response = await send(endpoint, {method:"POST",headers:{"Content-Type":"application/json"},body});
       const result = await response.json().catch(()=>null) as (BatchResult & {message?:string;retryable?:boolean}) | null;
       if (!response.ok) {
         const retryable = response.status >= 500 && (result?.retryable ?? [502,503,504].includes(response.status));

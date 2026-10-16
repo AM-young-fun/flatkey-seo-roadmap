@@ -32,7 +32,7 @@ export function Dashboard() {
       <PageHeader active="overview" selection={selection} />
       {refreshing ? <p className="cacheNotice" role="status">已显示上次加载的词库结果，正在获取最新数据…</p> : null}
       <section className="overviewSummaryGrid">
-        <RankingTrend region={region} />
+        <RankingTrend region={region} reportEnd={data?.reportingPeriod?.end} />
         <aside className="analyticsColumn">
           <article className="analyticsCard">
             <p className="eyebrow">RANKING COVERAGE</p>

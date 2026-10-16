@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { retryDatabaseRead } from "@/lib/database-read";
+import { canMonitorKeyword } from "@/lib/keyword-monitoring";
+import { loadLatestPageAudits } from "@/lib/services/keyword-page-audit-state";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,13 +17,20 @@ export async function GET() {
       const sites = await prisma.seoSite.findMany({ where: { active: true }, select: { domain: true, name: true, ga4PropertyId: true } });
       const curationApplied = Boolean(await prisma.keywordCurationAudit.findFirst({ where: { siteDomain: "flatkey.ai", status: "APPLIED" }, select: { id: true } }));
       const links = await prisma.siteKeyword.findMany({
-        where: { active: true, keyword: { active: true }, topicId: { not: null }, ...(curationApplied ? { OR: [{ siteDomain: { not: "flatkey.ai" } }, { pool: "FORMAL" }] } : {}) },
-        select: { siteDomain: true, origin: true, targetUrls: true, keyword: { select: { text: true } }, topic: { select: { text: true } } },
+        where: { active: true, keyword: { active: true } },
+        select: { keywordId: true, siteDomain: true, origin: true, pool: true, mappingStatus: true, targetUrls: true, keyword: { select: { text: true } }, topic: { select: { text: true } } },
       });
+      const audits = await loadLatestPageAudits(links.filter(link => link.siteDomain === "flatkey.ai").map(link => link.keywordId));
+      const auditedLinks = links.map(link => ({ ...link, latestPageAuditVerdict: link.siteDomain === "flatkey.ai" ? audits.get(link.keywordId)?.verdict ?? null : null }));
       const recentImports = await prisma.rankingImport.findMany({ orderBy: { importedAt: "desc" }, take: 1000, select: { requestId: true, count: true, siteDomain: true, importedAt: true } });
-      return { sites, links, recentImports, curationApplied };
+      return { sites, links: auditedLinks, recentImports, curationApplied };
     });
-    return new NextResponse(JSON.stringify({ recentImports, generatedAt: new Date().toISOString(), regions: ["US", "JP", "ES", "BR"], sites: sites.map((site) => ({ ...site, curationApplied: site.domain === "flatkey.ai" && curationApplied, keywords: links.filter((link) => link.siteDomain === site.domain).map((link) => ({ keyword: link.keyword.text, topic: link.topic?.text ?? "", origin: link.origin, targetUrls: link.targetUrls })) })) }), {
+    const entry = (link: typeof links[number]) => ({ keyword: link.keyword.text, topic: link.topic?.text ?? "", origin: link.origin, pool: link.pool, mappingStatus: link.mappingStatus, targetUrls: link.targetUrls,
+      latestPageAuditVerdict: link.latestPageAuditVerdict, monitoringEligible: canMonitorKeyword(link) });
+    return new NextResponse(JSON.stringify({ recentImports, generatedAt: new Date().toISOString(), regions: ["US", "JP", "ES", "BR"], sites: sites.map((site) => ({ ...site, curationApplied: site.domain === "flatkey.ai" && curationApplied,
+      keywords: links.filter(link => link.siteDomain === site.domain && canMonitorKeyword(link)).map(entry),
+      candidates: links.filter(link => link.siteDomain === site.domain && !canMonitorKeyword(link)).map(entry),
+    })) }), {
       headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": "attachment; filename=seo-daily-worklist.json", "Cache-Control": "private, no-store" },
     });
   } catch (error) {

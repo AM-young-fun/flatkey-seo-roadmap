@@ -39,6 +39,7 @@ const db = {
     return query.sql.includes("observed-pages") ? state.pages : state.keywords;
   },
   seoSite: { findUnique: async ({ where }) => where.domain === "flatkey.ai" ? { active: true } : null },
+  keywordSourceRow: { findMany: async ({ where }) => { state.pageAuditReadCount = (state.pageAuditReadCount ?? 0) + 1; return (state.pageAudits ?? []).filter(row => where.rowKey.in.includes(row.rowKey)); } },
   keywordCurationAudit: {
     findUnique: async ({ where }) => state.audits.find(row => row.id === where.id) ?? null,
     findMany: async () => { throw new Error("must not fetch full audit snapshots on a read"); },
@@ -220,6 +221,7 @@ test("OKR reads summarize multiple large audits in PostgreSQL and retry a transi
   await mutateKeywordOkr(input("apply"));
   state.audits.push({ id: "older-restored-audit", status: "RESTORED", appliedAt: new Date("2026-10-14T00:00:00Z"), restoredAt: new Date(), after: new Array(5321).fill({}) });
   state.auditTransientFailures = 1;
+  state.pageAudits = [{ rowKey: "keyword:kept", snapshot: { keywordId: "kept", verdict: "REVIEW", reason: "本轮正文未能明确回答这个关键词，需要人工核对", checkedAt: "2026-10-16T06:00:00Z" } }];
   const response = await loadKeywordOkr("flatkey.ai");
   assert.equal(state.auditReadCount, 2);
   assert.equal(response.initialized, true);
@@ -228,4 +230,10 @@ test("OKR reads summarize multiple large audits in PostgreSQL and retry a transi
   assert.equal(response.audits.find(row => row.id === "older-restored-audit").changed, 5321);
   assert.match(state.auditReadSql, /jsonb_array_length\("after"\)/);
   assert.ok(!response.audits.some(row => "after" in row || "before" in row));
+  const current = response.keywords.find(row => row.id === "kept");
+  assert.equal(current.mappingStatus, "READY");
+  assert.equal(current.latestPageAuditVerdict, "REVIEW");
+  assert.equal(current.latestPageAuditReason, state.pageAudits[0].snapshot.reason);
+  assert.equal(current.latestPageAuditCheckedAt, "2026-10-16T06:00:00.000Z");
+  assert.equal(state.pageAuditReadCount, 1);
 });
