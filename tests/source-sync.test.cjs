@@ -92,6 +92,9 @@ test("preview writes nothing; identical apply including new collection time and 
   assert.equal(findWord("new model api").pool, "FORMAL");
   assert.equal(findWord("new model api").mappingStatus, "READY");
   const beforeReplay = structuredClone(state);
+  const lostResponseReplay = await syncKeywordSources({ ...incoming, expectedStateHash: preview.stateHash });
+  assert.equal(lostResponseReplay.duplicate, true);
+  assert.deepEqual(state, beforeReplay);
   const replay = await syncKeywordSources({ ...incoming, requestId: "new-daily-check", collectedAt: "2026-10-15T10:00:00Z" });
   assert.equal(replay.duplicate, true);
   assert.equal(replay.imported, 0);

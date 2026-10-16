@@ -63,12 +63,14 @@ export function planSourceSync(payload: SourceSyncPayload, priorRows: SourceStat
     rows: normalized.map(row => ({ rowKey: row.rowKey, snapshotHash: priorByKey.get(row.rowKey)?.snapshotHash ?? null })),
     keywords: [...grouped].sort(([a], [b]) => a.localeCompare(b)).map(([text, values]) => ({ text, values: values.map(keyword => ({ ...keyword, membership: linkById.get(keyword.id) ?? null })).sort((a, b) => a.id.localeCompare(b.id)) })),
   });
-  if (payload.expectedStateHash && payload.expectedStateHash !== stateHash) throw new ImportRequestError("预览后来源或人工审核状态已变化，请重新预览", 409);
   const result: SourceSyncResult = { kind: "source-sync", requestId: payload.requestId, targetDomain: "flatkey.ai", sourceId: payload.sourceId, action: payload.action,
     imported: snapshots.length, duplicate: snapshots.length === 0, stateHash,
     sourceSummary: { changedRows: snapshots.length, unchangedRows: normalized.length - snapshots.length, newKeywords: 0, newMemberships: 0, promotedFormal: 0, heldResearch: 0, blocked: 0, conflicts: 0, updatedMemberships: 0 }, changes: [] };
   const newKeywords: SourceSyncPlan["newKeywords"] = [], memberships: SyncMembershipChange[] = [];
   if (!snapshots.length) return { result, snapshots, newKeywords, memberships };
+  // A lost response may be replayed with the original preview token. Identical
+  // stored source rows are already committed and must remain a read-only retry.
+  if (payload.expectedStateHash && payload.expectedStateHash !== stateHash) throw new ImportRequestError("预览后来源或人工审核状态已变化，请重新预览", 409);
   for (const { row } of snapshots) {
     const before = priorByKey.get(row.rowKey)?.snapshot as Record<string, unknown> | undefined;
     const fields = before ? Object.keys(row).filter(key => JSON.stringify(before[key]) !== JSON.stringify(row[key as keyof SourceSnapshot])) : ["sourceSnapshot"];
