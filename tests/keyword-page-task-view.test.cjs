@@ -41,3 +41,12 @@ test("existing tasks display and export the verified target instead of an unbuil
   assert.ok(csv.includes('"Agent 工具市场","https://flatkey.ai/tools","复用现有页面"'));
   assert.ok(csv.includes(`"${reused.plannedUrl}"`));
 });
+
+test("combined site task exports retain the site and support searching its display name", () => {
+  const rackrate = { ...task, siteDomain: "rackrate.org" };
+  assert.equal(matchesPageTask(rackrate, "RackRate"), true);
+  assert.equal(matchesPageTask(rackrate, "modelfit.cc"), false);
+  const csv = pageTasksCsv([rackrate]);
+  assert.ok(csv.split("\r\n")[0].endsWith('"网站"'));
+  assert.ok(csv.endsWith('"rackrate.org"'));
+});

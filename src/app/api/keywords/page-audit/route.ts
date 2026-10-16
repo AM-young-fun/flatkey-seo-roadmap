@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { isDatabaseConfigured } from "@/lib/env";
-import { databaseErrorCode } from "@/lib/database-read";
+import { databaseErrorCategory, databaseErrorCode } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { pageAuditSchema } from "@/lib/page-audit";
-import { auditKeywordPages } from "@/lib/services/page-audit";
+import { auditKeywordPages, pageAuditFailureStage } from "@/lib/services/page-audit";
 import { exportHeldPageAuditWorklist } from "@/lib/services/page-audit-export";
 
 export const runtime = "nodejs";
@@ -35,8 +35,8 @@ export async function POST(request: Request) {
     return NextResponse.json(await auditKeywordPages(parsed.data), { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
-    const code = databaseErrorCode(error);
-    console.error("Keyword page audit failed", code);
-    return NextResponse.json({ message: "页面复核保存失败，请保留原请求重试", code }, { status: 503, headers });
+    const code = databaseErrorCode(error), category = databaseErrorCategory(error), stage = pageAuditFailureStage(error);
+    console.error("Keyword page audit failed", { code, category, stage });
+    return NextResponse.json({ message: `页面复核未完成，请保留原请求重试（${[stage, code, category].filter(Boolean).join(" / ")}）`, code, category, stage }, { status: 503, headers });
   }
 }

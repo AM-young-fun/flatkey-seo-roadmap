@@ -9,7 +9,7 @@ import { useKeywordOkr } from "@/components/useKeywordOkr";
 import { PageAuditImportPanel } from "@/components/PageAuditImportPanel";
 
 function KeywordTasks() {
-  const okr = useKeywordOkr();
+  const okr = useKeywordOkr({ allSiteTasks: true });
   return <KeywordOkrWorkspace okr={okr} section="tasks" />;
 }
 function KeywordAuditHistory() {

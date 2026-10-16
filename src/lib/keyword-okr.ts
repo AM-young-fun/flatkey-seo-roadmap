@@ -13,6 +13,7 @@ export type KeywordOkrItem = {
   actualPages: Array<{ url: string; source: string; region: string; periodStart: string | null; periodEnd: string | null; collectedAt: string; rank: number | null }>;
 };
 export type KeywordContentTask = {
+  siteDomain?: string;
   id: string; plannedUrl: string; type: "NEW" | "EXPAND" | "REUSE"; status: string;
   title: string; reason: string; keywords: string[]; targetUrls: string[]; owner: string | null; dueAt: string | null;
   workPlans?: PageTaskWorkItem[]; requirements?: string[]; acceptance?: string[];

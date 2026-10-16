@@ -29,7 +29,7 @@ export function PageAuditImportPanel() {
         setNotice(`${apply ? "正在保存" : "正在预览"} ${index + 1} / ${batches.length} 批…`);
         const response = await fetch("/api/keywords/page-audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...batch, preview: undefined, action: apply ? "apply" : "preview", expectedStateHash: apply ? batch.preview?.stateHash : undefined }) });
         const result = await response.json();
-        if (!response.ok) throw new Error(`${batch.targetDomain}：${result.message ?? "保存失败"}${result.errors?.length ? `（${result.errors[0].message}）` : ""}`);
+        if (!response.ok) throw new Error(`${batch.targetDomain}：${result.message ?? "保存失败"}${result.errors?.length ? `（${result.errors[0].message}）` : result.code ? `（${[result.stage, result.code, result.category].filter(Boolean).join(" / ")}）` : ""}`);
         updated.push({ ...batch, preview: result });
       }
       if (apply) {

@@ -19,9 +19,12 @@ export async function exportHeldPageAuditWorklist() {
   ]) : [[], []];
   const membership = new Map(members.map(row => [`${row.siteDomain}:${row.keywordId}`, row]));
   const evidence = new Map(audits.map(row => [`${row.siteDomain}:${row.rowKey.slice("keyword:".length)}`, row]));
+  const eligibleKeywords = new Set(monitoring.targets.map(row => normalizeKeywordText(row.keyword)));
+  const heldKeywords = new Set(held.map(row => normalizeKeywordText(row.keyword)));
   return { kind: "page-audit-worklist" as const, generatedAt: new Date().toISOString(), cohortHash: cohort.hash,
     summary: { allSiteTargets: cohort.targets.length, heldSiteTargets: held.length,
-      heldKeywords: new Set(held.map(row => normalizeKeywordText(row.keyword))).size,
+      heldKeywords: [...heldKeywords].filter(keyword => !eligibleKeywords.has(keyword)).length,
+      heldSiteKeywords: heldKeywords.size,
       sites: Object.fromEntries(domains.map(domain => [domain, held.filter(row => row.siteDomain === domain).length])) },
     rows: held.map(row => { const key = `${row.siteDomain}:${row.keywordId}`;
       return { ...row, membership: membership.get(key) ?? null, latestAudit: evidence.get(key)?.snapshot ?? null,

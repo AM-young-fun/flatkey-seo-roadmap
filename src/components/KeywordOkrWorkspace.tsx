@@ -6,8 +6,8 @@ import type { ColumnsType } from "antd/es/table";
 import type { useKeywordOkr } from "@/components/useKeywordOkr";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordContentTask, type KeywordOkrMutation, type KeywordOkrMutationResponse } from "@/lib/keyword-okr";
-import type { PageTaskMergeResult } from "@/lib/keyword-page-tasks";
-import { matchesPageTask, pageTaskChecklist, PAGE_TASK_LABELS, PAGE_TASK_STATUS_LABELS, pageTasksCsv, primaryPageTaskUrl } from "@/lib/keyword-page-task-view";
+import type { PageTaskMergeResult, PageTaskMergeSummary } from "@/lib/keyword-page-tasks";
+import { matchesPageTask, pageTaskChecklist, PAGE_TASK_LABELS, PAGE_TASK_SITE_LABELS, PAGE_TASK_STATUS_LABELS, pageTasksCsv, primaryPageTaskUrl } from "@/lib/keyword-page-task-view";
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "—";
 
@@ -18,9 +18,10 @@ function UrlList({ urls }: { urls: string[] }) {
 export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof useKeywordOkr>; section: "tasks" | "audit" }) {
   const { data, loading, refresh } = okr;
   const [taskType, setTaskType] = useState("ALL");
+  const [taskSite, setTaskSite] = useState("all");
   const [taskSearch, setTaskSearch] = useState("");
   const [taskMergeBusy, setTaskMergeBusy] = useState<"preview" | "apply" | null>(null);
-  const [taskMergePreview, setTaskMergePreview] = useState<PageTaskMergeResult | null>(null);
+  const [taskMergePreviews, setTaskMergePreviews] = useState<PageTaskMergeResult[]>([]);
   const [taskMergeNotice, setTaskMergeNotice] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,35 +29,52 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
   const [preview, setPreview] = useState<KeywordOkrMutationResponse | null>(null);
   const [applicationConfirmed, setApplicationConfirmed] = useState(false);
   const initialized = data?.initialized === true;
-  const tasks = data?.tasks ?? [];
+  const tasksInitialized = Boolean(okr.pageTasks) || initialized;
+  const allTasks: KeywordContentTask[] = okr.pageTasks?.tasks ?? (data?.tasks ?? []).map(task => ({ ...task, siteDomain: "flatkey.ai" }));
+  const tasks = allTasks.filter(task => taskSite === "all" || task.siteDomain === taskSite);
   const visibleTasks = tasks.filter(task => (taskType === "ALL" || task.type === taskType) && matchesPageTask(task, taskSearch));
   const pendingWords = new Set((data?.keywords ?? []).filter(item => item.active && item.pool === "FORMAL" && item.workPlan && item.workPlan.action !== "LINK").map(item => item.text.normalize("NFKC").toLocaleLowerCase()));
   const assignedWords = new Set(tasks.flatMap(task => (task.workPlans ?? []).map(plan => plan.keyword.normalize("NFKC").toLocaleLowerCase())));
+  const selectedSites = okr.pageTasks?.sites.filter(site => taskSite === "all" || site.siteDomain === taskSite);
+  const pendingCount = selectedSites ? selectedSites.reduce((sum, site) => sum + site.pendingKeywords, 0) : pendingWords.size;
+  const assignedCount = selectedSites ? selectedSites.reduce((sum, site) => sum + site.assignedKeywords, 0) : [...pendingWords].filter(word => assignedWords.has(word)).length;
+  const taskMergePreview = taskMergePreviews.length ? {
+    summary: Object.fromEntries(Object.keys(taskMergePreviews[0].summary).map(key => [key, taskMergePreviews.reduce((sum, plan) => sum + plan.summary[key as keyof PageTaskMergeSummary], 0)])) as PageTaskMergeSummary,
+    conflicts: taskMergePreviews.flatMap(plan => plan.conflicts.map(conflict => `${PAGE_TASK_SITE_LABELS[plan.siteDomain]}：${conflict}`)),
+    tasks: taskMergePreviews.flatMap(plan => plan.tasks.map(task => ({ ...task, siteDomain: plan.siteDomain }))),
+  } : null;
 
   async function mergePageTasks(action: "preview" | "apply") {
-    if (taskMergeBusy || !initialized || (action === "apply" && (!taskMergePreview || taskMergePreview.conflicts.length))) return;
+    if (taskMergeBusy || !tasksInitialized || (action === "apply" && (!taskMergePreview || taskMergePreview.conflicts.length))) return;
     setTaskMergeBusy(action); setTaskMergeNotice("");
+    const completed: PageTaskMergeResult[] = [];
     try {
-      const response = await fetch("/api/keywords/okr/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteDomain: "flatkey.ai", action, ...(action === "apply" ? { expectedStateHash: taskMergePreview!.stateHash } : {}) }) });
-      const result = await response.json() as PageTaskMergeResult & { message?: string };
-      if (!response.ok) throw new Error(result.message ?? "页面任务合并未完成，请重新预览");
-      if (result.siteDomain !== "flatkey.ai" || result.action !== action || !/^[a-f0-9]{64}$/.test(result.stateHash) || !result.summary || !Array.isArray(result.conflicts) || !Array.isArray(result.tasks)) throw new Error("服务端返回的页面任务结果不完整，请刷新后重试");
-      if (action === "preview" && result.status === "PREVIEW") setTaskMergePreview(result);
-      else if (action === "apply" && result.status === "APPLIED" && !result.conflicts.length) {
-        setTaskMergePreview(null);
-        setTaskMergeNotice(`已将 ${result.summary.keywords} 个待处理词归入 ${result.summary.pageTasks} 个页面任务，复用 ${result.summary.reused} 个旧任务、新增 ${result.summary.created} 个，归并 ${result.summary.retired} 个重复或已转移的旧任务。合并结果已保存。`);
+      const sites = action === "apply" ? taskMergePreviews.map(plan => plan.siteDomain) : selectedSites ? selectedSites.filter(site => site.pendingKeywords > 0).map(site => site.siteDomain) : ["flatkey.ai"];
+      for (const siteDomain of sites) {
+        const response = await fetch("/api/keywords/okr/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siteDomain, action, ...(action === "apply" ? { expectedStateHash: taskMergePreviews.find(plan => plan.siteDomain === siteDomain)!.stateHash } : {}) }) });
+        const result = await response.json() as PageTaskMergeResult & { message?: string };
+        if (!response.ok) throw new Error(`${PAGE_TASK_SITE_LABELS[siteDomain]}：${result.message ?? "页面任务合并未完成，请重新预览"}`);
+        if (result.siteDomain !== siteDomain || result.action !== action || !/^[a-f0-9]{64}$/.test(result.stateHash) || !result.summary || !Array.isArray(result.conflicts) || !Array.isArray(result.tasks)) throw new Error("服务端返回的页面任务结果不完整，请刷新后重试");
+        if (result.status !== (action === "preview" ? "PREVIEW" : "APPLIED") || (action === "apply" && result.conflicts.length)) throw new Error("服务端尚未确认本次合并状态，请重新预览核对");
+        completed.push(result);
+      }
+      if (action === "preview") setTaskMergePreviews(completed);
+      else {
+        setTaskMergePreviews([]);
+        setTaskMergeNotice(`已保存 ${completed.length} 个网站的页面任务合并：新增 ${completed.reduce((sum, plan) => sum + plan.summary.created, 0)} 个任务，复用 ${completed.reduce((sum, plan) => sum + plan.summary.reused, 0)} 个。`);
         refresh();
-      } else throw new Error("服务端尚未确认本次合并状态，请重新预览核对");
+      }
     } catch (failure) {
-      setTaskMergePreview(null);
-      setTaskMergeNotice(failure instanceof Error ? failure.message : "页面任务合并失败，请重试");
+      setTaskMergePreviews([]);
+      setTaskMergeNotice(`${action === "apply" && completed.length ? `已保存 ${completed.map(plan => PAGE_TASK_SITE_LABELS[plan.siteDomain]).join("、")} 的任务；` : ""}${failure instanceof Error ? failure.message : "页面任务合并失败，请重试"}`);
+      if (action === "apply" && completed.length) refresh();
     } finally { setTaskMergeBusy(null); }
   }
 
   function downloadPageTasks() {
     const url = URL.createObjectURL(new Blob([pageTasksCsv(visibleTasks)], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a"); link.href = url; link.download = "Flatkey-按页面内容任务.csv"; link.click();
+    const link = document.createElement("a"); link.href = url; link.download = "按页面内容任务.csv"; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
@@ -104,7 +122,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
   }
 
   const taskColumns: ColumnsType<KeywordContentTask> = [
-    { title: "页面任务", key: "title", width: 310, render: (_, task) => <div className="evidenceSummary"><strong>{task.title}</strong>{task.type === "NEW" ? <small>规划地址：{primaryPageTaskUrl(task)}</small> : <UrlList urls={[primaryPageTaskUrl(task)]} />}{primaryPageTaskUrl(task) !== task.plannedUrl ? <small>原规划地址：{task.plannedUrl}</small> : null}</div> },
+    { title: "页面任务", key: "title", width: 310, render: (_, task) => <div className="evidenceSummary"><small>{PAGE_TASK_SITE_LABELS[task.siteDomain ?? "flatkey.ai"] ?? task.siteDomain}</small><strong>{task.title}</strong>{task.type === "NEW" ? <small>规划地址：{primaryPageTaskUrl(task)}</small> : <UrlList urls={[primaryPageTaskUrl(task)]} />}{primaryPageTaskUrl(task) !== task.plannedUrl ? <small>原规划地址：{task.plannedUrl}</small> : null}</div> },
     { title: "关联关键词", key: "keywords", width: 270, render: (_, task) => <div className="evidenceSummary"><div>{task.keywords.slice(0, 4).map(word => <Tag key={word}>{word}</Tag>)}</div><small>共 {task.keywords.length} 个词{task.keywords.length > 4 ? "，展开查看全部" : ""}</small></div> },
     { title: "处理方式 / 状态", key: "type", width: 160, render: (_, task) => <div className="evidenceSummary"><Tag color={task.type === "NEW" ? "blue" : task.type === "EXPAND" ? "orange" : "green"}>{PAGE_TASK_LABELS[task.type]}</Tag><small>{PAGE_TASK_STATUS_LABELS[task.status] ?? task.status}</small></div> },
     { title: "内容要求", key: "requirements", width: 360, render: (_, task) => {
@@ -114,14 +132,15 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
     { title: "负责人 / 截止", key: "owner", width: 140, render: (_, task) => <div className="evidenceSummary"><span>{task.owner ?? "待安排负责人"}</span><small>{task.dueAt ? `截止 ${task.dueAt.slice(0, 10)}` : "截止时间待安排"}</small></div> },
   ];
 
+  if (section === "tasks" && okr.error) return <div className="loadError" role="alert"><span>{okr.error}</span><button onClick={refresh}>重新加载</button></div>;
   if (section === "tasks") return <section className="okrSection" id="content-tasks">
-    <div className="okrSectionHeading"><div><h2>页面任务 <span>{initialized ? tasks.length : "—"}</span></h2><p>同一页面的多个关键词合为一个任务，具体补充要求和验收标准放在任务内；已有负责人、进度和截止时间继续保留。</p></div><button className="okrRefresh" type="button" disabled={loading || !visibleTasks.length} onClick={downloadPageTasks}>下载按页面任务 CSV</button></div>
-    {initialized ? <div className="contentPlanSummary"><span>待处理关键词 <strong>{pendingWords.size}</strong></span><span>已关联任务 <strong>{[...pendingWords].filter(word => assignedWords.has(word)).length}</strong></span><span>页面任务 <strong>{tasks.length}</strong></span></div> : null}
-    {initialized ? <div className="okrUninitialized"><strong>合并已核实的内容清单</strong><p>把补充现有页面和待建设词归入页面任务。已有页面复用原任务，重复任务归并后保留记录；本次操作只整理任务数据。</p><div className="okrApplyActions"><button type="button" disabled={Boolean(taskMergeBusy) || loading || !pendingWords.size} onClick={() => void mergePageTasks("preview")}>{taskMergeBusy === "preview" ? "正在读取合并预览…" : taskMergePreview ? "重新预览页面合并" : "预览页面任务合并"}</button><button type="button" disabled={Boolean(taskMergeBusy) || loading} onClick={() => { setTaskMergePreview(null); refresh(); }}>刷新任务</button></div>
+    <div className="okrSectionHeading"><div><h2>页面任务 <span>{tasksInitialized ? tasks.length : "—"}</span></h2><p>三个网站的建设与优化任务统一展示。同一页面的关键词合为一个任务，保留负责人、进度和截止时间。</p></div><button className="okrRefresh" type="button" disabled={loading || !visibleTasks.length} onClick={downloadPageTasks}>下载按页面任务 CSV</button></div>
+    {tasksInitialized ? <div className="contentPlanSummary"><span>待处理关键词 <strong>{pendingCount}</strong></span><span>已关联任务 <strong>{assignedCount}</strong></span><span>页面任务 <strong>{tasks.length}</strong></span></div> : null}
+    {tasksInitialized ? <div className="okrUninitialized"><strong>合并已核实的内容清单</strong><p>把优化现有页面和待建设词归入页面任务。相同页面复用原任务，重复任务合并后保留记录。</p><div className="okrApplyActions"><button type="button" disabled={Boolean(taskMergeBusy) || loading || !pendingCount} onClick={() => void mergePageTasks("preview")}>{taskMergeBusy === "preview" ? "正在读取合并预览…" : taskMergePreview ? "重新预览页面合并" : "预览页面任务合并"}</button><button type="button" disabled={Boolean(taskMergeBusy) || loading} onClick={() => { setTaskMergePreviews([]); refresh(); }}>刷新任务</button></div>
       {taskMergePreview ? <section className="okrPreview" aria-label="页面任务合并预览"><h2>合并前预览</h2><p>{taskMergePreview.summary.expandKeywords} 个补充词、{taskMergePreview.summary.buildKeywords} 个待建设词，将归入 {taskMergePreview.summary.pageTasks} 个页面任务（补充 {taskMergePreview.summary.expandPages} 页、建设 {taskMergePreview.summary.buildPages} 页）。</p><dl><div><dt>新增任务</dt><dd>{taskMergePreview.summary.created}</dd></div><div><dt>复用旧任务</dt><dd>{taskMergePreview.summary.reused}</dd></div><div><dt>归并旧任务</dt><dd>{taskMergePreview.summary.retired}</dd></div><div><dt>其他保留任务</dt><dd>{taskMergePreview.summary.retained}</dd></div></dl>
         {taskMergePreview.conflicts.length ? <div role="alert"><strong>以下冲突需解决后才能应用：</strong><ul>{taskMergePreview.conflicts.map((conflict, index) => <li key={index}>{conflict}</li>)}</ul></div> : <p>合并会保留各关键词的具体要求，页面规划地址不会因此被标记为已上线。</p>}
         <details><summary>查看全部页面与关键词分组</summary><Table size="small" rowKey="id" dataSource={taskMergePreview.tasks} pagination={{ defaultPageSize: 5, showTotal: total => `共 ${total} 个分组` }} scroll={{ x: 700 }} columns={[
-          { title: "页面 / 规划地址", key: "page", width: 340, render: (_, task) => <div className="evidenceSummary"><strong>{task.title}</strong><small>{task.plannedUrl}</small></div> },
+          { title: "页面 / 规划地址", key: "page", width: 340, render: (_, task) => <div className="evidenceSummary"><small>{PAGE_TASK_SITE_LABELS[task.siteDomain]}</small><strong>{task.title}</strong><small>{task.plannedUrl}</small></div> },
           { title: "关联关键词", key: "keywords", render: (_, task) => task.keywords.join("；") },
           { title: "合并方式", key: "disposition", width: 110, render: (_, task) => task.disposition === "CREATE" ? "新增" : task.disposition === "UPDATE" ? "复用并更新" : "保持现状" },
         ]} /></details>
@@ -129,8 +148,8 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
       </section> : null}
     </div> : null}
     {taskMergeNotice ? <p className="cacheNotice" role="status">{taskMergeNotice}</p> : null}
-    <div className="okrSectionHeading"><Input aria-label="搜索页面任务" placeholder="搜索页面、关键词或具体要求" value={taskSearch} onChange={event => setTaskSearch(event.target.value)} allowClear style={{ maxWidth: 400 }} /><Select aria-label="内容任务类型" value={taskType} onChange={setTaskType} options={[{ value: "ALL", label: `全部任务${initialized ? `（${tasks.length}）` : ""}` }, ...Object.entries(PAGE_TASK_LABELS).map(([value, label]) => ({ value, label: `${label}${initialized ? `（${tasks.filter(task => task.type === value).length}）` : ""}` }))]} style={{ minWidth: 180 }} /></div>
-    <Table columns={taskColumns} dataSource={visibleTasks} rowKey="id" loading={loading} scroll={{ x: 1300 }} size="middle" pagination={{ defaultPageSize: 10, showTotal: total => `共 ${total} 个页面任务` }} locale={{ emptyText: initialized ? "当前没有匹配的页面任务" : "尚未登记页面任务" }} expandable={{ columnTitle: "详情", expandedRowRender: task => {
+    <div className="okrSectionHeading"><Input aria-label="搜索页面任务" placeholder="搜索页面、关键词或具体要求" value={taskSearch} onChange={event => setTaskSearch(event.target.value)} allowClear style={{ maxWidth: 400 }} /><div className="okrApplyActions">{okr.pageTasks ? <Select aria-label="页面任务网站" value={taskSite} onChange={value => { setTaskSite(value); setTaskMergePreviews([]); }} options={[{ value: "all", label: `全部网站（${allTasks.length}）` }, ...okr.pageTasks.sites.map(site => ({ value: site.siteDomain, label: `${PAGE_TASK_SITE_LABELS[site.siteDomain]}（${site.taskCount}）` }))]} style={{ minWidth: 180 }} /> : null}<Select aria-label="内容任务类型" value={taskType} onChange={setTaskType} options={[{ value: "ALL", label: `全部任务${tasksInitialized ? `（${tasks.length}）` : ""}` }, ...Object.entries(PAGE_TASK_LABELS).map(([value, label]) => ({ value, label: `${label}${tasksInitialized ? `（${tasks.filter(task => task.type === value).length}）` : ""}` }))]} style={{ minWidth: 180 }} /></div></div>
+    <Table columns={taskColumns} dataSource={visibleTasks} rowKey="id" loading={loading} scroll={{ x: 1300 }} size="middle" pagination={{ defaultPageSize: 10, showTotal: total => `共 ${total} 个页面任务` }} locale={{ emptyText: tasksInitialized ? "当前没有匹配的页面任务" : "尚未登记页面任务" }} expandable={{ columnTitle: "详情", expandedRowRender: task => {
       const checklist = pageTaskChecklist(task);
       return <div className="keywordEvidenceDetails"><p><strong>核实结论：</strong>{task.reason}</p><p><strong>关联目标词（{task.keywords.length}）：</strong>{task.keywords.join("；") || "暂无"}</p><p><strong>{task.type === "NEW" ? "规划地址（页面待建设）" : "主要处理页面"}：</strong>{primaryPageTaskUrl(task)}</p>{primaryPageTaskUrl(task) !== task.plannedUrl ? <p className="chartNote">原规划地址：{task.plannedUrl}，当前任务复用上述已核实页面。</p> : null}
         {task.type === "REUSE" ? <p className="chartNote">已有页面承接主意图；辅助词是否完整覆盖，按以下要求验收。</p> : null}

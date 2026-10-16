@@ -53,7 +53,21 @@ const db = {
     catch (error) { state = before; throw error; }
     finally { release(); }
   },
-  $executeRaw: async () => 0,
+  $executeRaw: async query => {
+    if (!query.text?.includes("page-audit:update-evidence")) return 0;
+    if (state.failEvidenceWrite) throw new Error("simulated page evidence write failure");
+    state.evidenceQueries.push(clone({ text: query.text, values: query.values }));
+    const [json, siteDomain, sourceId] = query.values;
+    let count = 0;
+    for (const row of JSON.parse(json)) {
+      const existing = state.sourceRows.find(prior => prior.siteDomain === siteDomain && prior.sourceId === sourceId && prior.rowKey === row.rowKey && prior.snapshotHash === row.previousHash);
+      if (!existing) continue;
+      Object.assign(existing, { snapshotHash: row.snapshotHash, snapshot: row.snapshot, observedAt: new Date(row.observedAt) });
+      count++;
+    }
+    if (count) countWrite();
+    return count;
+  },
   $queryRaw: async query => {
     assert.match(query.text, /page-audit:update-memberships/);
     const [json, siteDomain] = query.values;
@@ -142,7 +156,7 @@ beforeEach(() => {
   process.env.RANKING_IMPORT_SECRET = "fictional-page-audit-import-token";
   sessionToken = null;
   queue = Promise.resolve();
-  state = { siteActive: true, memberships: [], sourceRows: [], membershipWrites: [], membershipQueries: [], dataWrites: 0, failEvidenceWrite: false };
+  state = { siteActive: true, memberships: [], sourceRows: [], membershipWrites: [], membershipQueries: [], evidenceQueries: [], dataWrites: 0, failEvidenceWrite: false };
 });
 
 test("VERIFIED requires HTTP 200, same-page canonical and detailed keyword intent evidence", () => {
@@ -442,8 +456,9 @@ test("mixed first and later evidence bulk-inserts only missing snapshot identiti
   assert.equal(result.imported, 2);
   assert.equal(createMany.mock.calls.length, 1);
   assert.deepEqual(createMany.mock.calls[0].arguments[0].data.map(row => row.rowKey), ["keyword:keyword-2"]);
-  assert.equal(upsert.mock.calls.length, 1);
-  assert.equal(upsert.mock.calls[0].arguments[0].where.siteDomain_sourceId_rowKey.rowKey, "keyword:keyword-1");
+  assert.equal(upsert.mock.calls.length, 0);
+  assert.equal(state.evidenceQueries.length, 1);
+  assert.equal(JSON.parse(state.evidenceQueries[0].values[0])[0].rowKey, "keyword:keyword-1");
   assert.equal(state.sourceRows.length, 2);
   assert.ok(state.sourceRows.every(row => row.observedAt.toISOString() === "2026-10-15T11:00:00.000Z"));
 });
@@ -685,7 +700,7 @@ test("held worklist export requires a real session and returns deduplicated coun
     { keywordId: "shared", keyword: "shared api", siteDomain: "modelfit.cc", targetUrls: [], reason: "NO_VERIFIED_PAGE", reasonLabel: "缺少页面核实证据" },
   ];
   t.mock.method(targets, "loadSerpTargetCohort", async () => ({ targets: held, hash: "a".repeat(64) }));
-  t.mock.method(targets, "loadSerpMonitoringCohort", async () => ({ heldTargets: held }));
+  t.mock.method(targets, "loadSerpMonitoringCohort", async () => ({ heldTargets: held, targets: [] }));
   const response = await GET();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("Content-Disposition"), /attachment/);
@@ -693,5 +708,60 @@ test("held worklist export requires a real session and returns deduplicated coun
   assert.equal(exported.summary.heldSiteTargets, 2);
   assert.equal(exported.summary.heldKeywords, 1);
   assert.equal(exported.rows.length, 2);
+  assert.equal(state.dataWrites, 0);
+});
+
+test("preview avoids the writer lock, retries one transient read, and keeps a bounded read transaction", async t => {
+  addMember();
+  const original = db.siteKeyword.findMany;
+  let failures = 0;
+  t.mock.method(db.siteKeyword, "findMany", async args => {
+    if (!failures++) throw Object.assign(new Error("private transient connection information"), { code: "P1001" });
+    return original(args);
+  });
+  const lock = t.mock.method(db, "$executeRaw");
+  const transaction = t.mock.method(db, "$transaction");
+  const result = await auditKeywordPages(payload(undefined, { action: "preview" }));
+  assert.equal(result.action, "preview");
+  assert.equal(transaction.mock.calls.length, 2);
+  assert.equal(transaction.mock.calls[0].arguments[1].timeout, 20_000);
+  assert.equal(lock.mock.calls.length, 0);
+  assert.equal(state.dataWrites, 0);
+});
+
+test("thirty existing snapshots update in one guarded query and a concurrent evidence change rolls back all member writes", async t => {
+  const initial = Array.from({ length: 30 }, (_, index) => { addMember(`existing-${index}`); return auditRow(`existing-${index} api`); });
+  await auditKeywordPages(payload(initial));
+  const later = initial.map(row => ({ ...row, checkedAt: "2026-10-15T11:00:00Z" }));
+  const upsert = t.mock.method(db.keywordSourceRow, "upsert");
+  await auditKeywordPages(payload(later));
+  assert.equal(upsert.mock.calls.length, 0);
+  assert.equal(state.evidenceQueries.length, 1);
+  const query = state.evidenceQueries[0];
+  assert.equal(JSON.parse(query.values[0]).length, 30);
+  assert.deepEqual(query.values.slice(1), ["flatkey.ai", "page_audit"]);
+  assert.match(query.text, /s\."snapshotHash" = d\."previousHash"/);
+  assert.ok(state.sourceRows.every(row => row.observedAt.toISOString() === "2026-10-15T11:00:00.000Z"));
+  const before = clone(state), execute = db.$executeRaw;
+  t.mock.method(db, "$executeRaw", async query => {
+    if (query.text?.includes("page-audit:update-evidence")) state.sourceRows[29].snapshotHash = "concurrent-evidence";
+    return execute(query);
+  });
+  await assert.rejects(auditKeywordPages(payload(later.map(row => ({ ...row, checkedAt: "2026-10-15T12:00:00Z" })))), error => error.status === 409);
+  assert.deepEqual(state, before);
+});
+
+test("apply failures report only safe operation diagnostics and never retry a mutation", async t => {
+  addMember(); sessionToken = await getAuthToken();
+  const transaction = t.mock.method(db, "$transaction");
+  t.mock.method(db.keywordSourceRow, "createMany", async () => { throw Object.assign(new Error("private connection postgres://user:password@private-host"), { code: "P1001" }); });
+  const response = await POST(request(payload()));
+  const diagnostic = await response.json();
+  assert.equal(response.status, 503);
+  assert.equal(diagnostic.stage, "INSERT_EVIDENCE");
+  assert.equal(diagnostic.code, "P1001");
+  assert.equal(transaction.mock.calls.length, 1);
+  assert.ok(!JSON.stringify(diagnostic).includes("password"));
+  assert.ok(!JSON.stringify(diagnostic).includes("private-host"));
   assert.equal(state.dataWrites, 0);
 });
