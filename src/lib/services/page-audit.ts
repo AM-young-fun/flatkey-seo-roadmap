@@ -29,10 +29,17 @@ export async function auditKeywordPages(payload: PageAuditPayload): Promise<Page
       }, data: after });
       if (changed.count !== 1) throw new ImportRequestError("复核期间人工页面配置发生变化，本批事务已取消，请重新预览", 409);
     }
-    for (const { rowKey, snapshot, hash } of plan.snapshots) {
-      const data = { snapshotHash: hash, snapshot: snapshot as unknown as Prisma.InputJsonValue, observedAt: new Date(snapshot.checkedAt) };
-      await transaction.keywordSourceRow.upsert({ where: { siteDomain_sourceId_rowKey: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey } },
-        create: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey, ...data }, update: data });
+    const priorKeys = new Set(priorRows.map(row => row.rowKey));
+    const snapshots = plan.snapshots.map(({ rowKey, snapshot, hash }) => ({ siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey,
+      snapshotHash: hash, snapshot: snapshot as unknown as Prisma.InputJsonValue, observedAt: new Date(snapshot.checkedAt) }));
+    const initialSnapshots = snapshots.filter(row => !priorKeys.has(row.rowKey));
+    // All writers for this site share the transaction lock. Do not skip a
+    // uniqueness conflict: it must roll back the member changes for re-preview.
+    if (initialSnapshots.length) await transaction.keywordSourceRow.createMany({ data: initialSnapshots });
+    for (const row of snapshots.filter(row => priorKeys.has(row.rowKey))) {
+      const { siteDomain, sourceId, rowKey, ...data } = row;
+      await transaction.keywordSourceRow.upsert({ where: { siteDomain_sourceId_rowKey: { siteDomain, sourceId, rowKey } },
+        create: row, update: data });
     }
     return plan.result;
   }, { timeout: 55_000, maxWait: 5000 });

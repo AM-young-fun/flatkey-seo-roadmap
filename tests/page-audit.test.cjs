@@ -70,6 +70,16 @@ const db = {
   },
   keywordSourceRow: {
     findMany: async ({ where }) => state.sourceRows.filter(row => matches(row, where)).map(clone),
+    createMany: async ({ data, skipDuplicates }) => {
+      if (state.failEvidenceWrite) throw new Error("simulated page evidence write failure");
+      assert.notEqual(skipDuplicates, true, "a new-snapshot conflict must cancel the entire audit transaction");
+      if (data.some(row => state.sourceRows.some(existing => matches(existing, { siteDomain: row.siteDomain, sourceId: row.sourceId, rowKey: row.rowKey })))) {
+        throw new Error("simulated snapshot uniqueness conflict");
+      }
+      countWrite();
+      state.sourceRows.push(...clone(data));
+      return { count: data.length };
+    },
     upsert: async ({ where, create, update }) => {
       if (state.failEvidenceWrite) throw new Error("simulated page evidence write failure");
       const identity = where.siteDomain_sourceId_rowKey;
@@ -285,6 +295,59 @@ test("unknown normalized identities skip complete membership and prior evidence 
   assert.equal(memberships.mock.calls[0].arguments[0].select.auditReason, undefined);
   assert.equal(evidence.mock.calls.length, 0);
   assert.equal(state.dataWrites, 0);
+});
+
+test("thirty first-time snapshots use one bulk write after all guarded membership updates", async (t) => {
+  const rows = Array.from({ length: 30 }, (_, index) => {
+    const keywordId = `new-${index}`;
+    addMember(keywordId);
+    return auditRow(`${keywordId} api`);
+  });
+  const createMany = t.mock.method(db.keywordSourceRow, "createMany"), upsert = t.mock.method(db.keywordSourceRow, "upsert");
+  const incoming = payload(rows), preview = await auditKeywordPages({ ...incoming, action: "preview" });
+  assert.equal(createMany.mock.calls.length, 0);
+  assert.equal(upsert.mock.calls.length, 0);
+  const result = await auditKeywordPages({ ...incoming, expectedStateHash: preview.stateHash });
+  assert.equal(result.imported, 30);
+  assert.equal(state.membershipWrites.length, 30, "each membership still has its independent optimistic guard");
+  assert.equal(createMany.mock.calls.length, 1);
+  assert.equal(createMany.mock.calls[0].arguments[0].data.length, 30);
+  assert.equal(createMany.mock.calls[0].arguments[0].skipDuplicates, undefined);
+  assert.equal(upsert.mock.calls.length, 0);
+  assert.equal(state.sourceRows.length, 30);
+  assert.equal(state.dataWrites, 31, "thirty membership writes plus one initial-evidence SQL write");
+  assert.ok(state.sourceRows.every(row => row.siteDomain === "flatkey.ai" && row.sourceId === "page_audit" && row.observedAt.toISOString() === "2026-10-15T10:00:00.000Z"));
+  const afterFirst = clone(state);
+  assert.equal((await auditKeywordPages({ ...incoming, expectedStateHash: preview.stateHash })).duplicate, true);
+  assert.deepEqual(state, afterFirst);
+  assert.equal(createMany.mock.calls.length, 1);
+});
+
+test("mixed first and later evidence bulk-inserts only missing snapshot identities and preserves existing updates", async (t) => {
+  addMember();
+  await auditKeywordPages(payload());
+  addMember("keyword-2");
+  const createMany = t.mock.method(db.keywordSourceRow, "createMany"), upsert = t.mock.method(db.keywordSourceRow, "upsert");
+  const rows = [auditRow(undefined, { checkedAt: "2026-10-15T11:00:00Z" }), auditRow("keyword-2 api", { checkedAt: "2026-10-15T11:00:00Z" })];
+  const result = await auditKeywordPages(payload(rows, { requestId: "mixed-evidence" }));
+  assert.equal(result.imported, 2);
+  assert.equal(createMany.mock.calls.length, 1);
+  assert.deepEqual(createMany.mock.calls[0].arguments[0].data.map(row => row.rowKey), ["keyword:keyword-2"]);
+  assert.equal(upsert.mock.calls.length, 1);
+  assert.equal(upsert.mock.calls[0].arguments[0].where.siteDomain_sourceId_rowKey.rowKey, "keyword:keyword-1");
+  assert.equal(state.sourceRows.length, 2);
+  assert.ok(state.sourceRows.every(row => row.observedAt.toISOString() === "2026-10-15T11:00:00.000Z"));
+});
+
+test("a conflicting initial snapshot rolls back every optimistic member write instead of silently skipping evidence", async (t) => {
+  addMember(); addMember("keyword-2");
+  const before = clone(state);
+  t.mock.method(db.keywordSourceRow, "createMany", async args => {
+    assert.notEqual(args.skipDuplicates, true);
+    throw new Error("simulated snapshot uniqueness conflict");
+  });
+  await assert.rejects(auditKeywordPages(payload([auditRow(), auditRow("keyword-2 api")])), /snapshot uniqueness conflict/);
+  assert.deepEqual(state, before);
 });
 
 test("missing 404 or 410 clears every target for the completed keyword audit and retains old evidence candidates", async () => {
