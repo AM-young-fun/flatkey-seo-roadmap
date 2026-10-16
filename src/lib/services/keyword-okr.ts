@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { retryDatabaseRead } from "@/lib/database-read";
 import { loadLatestPageAudits } from "@/lib/services/keyword-page-audit-state";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
+import { pageTaskWorkDetails, type PageTaskWorkItem } from "@/lib/keyword-page-tasks";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordOkrMutation, type KeywordOkrMutationResponse, type KeywordOkrResponse, type KeywordOkrItem } from "@/lib/keyword-okr";
 import { OKR_SITE, okrAudit, buildCurationPlan, restoredCuration, summarizeCuration, type CurationState, type CurationKeyword } from "@/lib/keyword-okr-curation";
@@ -156,7 +157,11 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
   const initialized = audits.some(row => row.status === "APPLIED");
   const rows = initialized ? await readState(prisma) : [];
   const pageAudits = await loadLatestPageAudits(rows.map(row => row.keywordId));
-  const tasks = initialized ? await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { not: "RESTORED" } }, orderBy: { id: "asc" } }) : [];
+  const tasks = initialized ? (await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { notIn: ["RESTORED", "MERGED"] } }, orderBy: { id: "asc" } })).filter(row => !["RESTORED", "MERGED"].includes(row.status)) : [];
+  const workItems: PageTaskWorkItem[] = rows.flatMap(row => {
+    const plan = pageAudits.get(row.keywordId)?.workPlan;
+    return row.active && row.pool === "FORMAL" && plan ? [{ ...plan, keyword: row.text, keywordId: row.keywordId }] : [];
+  });
   type PageRow = { keywordId: string; url: string; source: string; region: string; periodStart: Date | null; periodEnd: Date | null; collectedAt: Date; rank: number | null };
   const pages = initialized ? await prisma.$queryRaw<PageRow[]>(Prisma.sql`
     /* keyword-okr:observed-pages */
@@ -188,7 +193,8 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
       actualPages: byKeyword.get(row.keywordId) ?? [],
     })),
     tasks: tasks.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, type: row.type as "NEW" | "EXPAND" | "REUSE", status: row.status,
-      title: row.title, reason: row.reason, keywords: row.keywords, targetUrls: row.targetUrls, owner: row.owner, dueAt: iso(row.dueAt) })),
+      title: row.title, reason: row.reason, keywords: row.keywords, targetUrls: row.targetUrls, owner: row.owner, dueAt: iso(row.dueAt),
+      ...pageTaskWorkDetails(row, workItems) })),
     audits: audits.map(row => ({ id: row.id, status: row.status, appliedAt: iso(row.appliedAt)!, restoredAt: iso(row.restoredAt), changed: row.changed })),
   };
 }

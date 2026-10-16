@@ -1,4 +1,5 @@
 import type { KeywordWorkPlan, PageAuditVerdict } from "./page-audit";
+import type { PageTaskWorkItem } from "./keyword-page-tasks";
 
 export const KEYWORD_OKR_AUDIT_ID = "flatkey-keyword-curation-2026-10-15-v2";
 export type KeywordPool = "FORMAL" | "RESEARCH" | "ARCHIVED" | "MERGED";
@@ -14,6 +15,7 @@ export type KeywordOkrItem = {
 export type KeywordContentTask = {
   id: string; plannedUrl: string; type: "NEW" | "EXPAND" | "REUSE"; status: string;
   title: string; reason: string; keywords: string[]; targetUrls: string[]; owner: string | null; dueAt: string | null;
+  workPlans?: PageTaskWorkItem[]; requirements?: string[]; acceptance?: string[];
 };
 export type KeywordOkrResponse = {
   siteDomain: string; initialized: boolean; rankingCaptureEnabled: false;

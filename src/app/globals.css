@@ -1817,6 +1817,23 @@ a:focus-visible {
 .contentPlanWorkspace .originSelectField .ant-select { min-width:180px; }
 .contentPlanChecklist { margin:0; padding-left:20px; line-height:1.85; color:#42546e; }
 .contentPlanChecklist li + li { margin-top:6px; }
+.discoveryPanel { margin:24px 0 18px; padding:26px 30px; background:white; border:1px solid #e1e8f2; border-radius:18px; }
+.discoveryMetrics { display:grid; grid-template-columns:1.5fr repeat(4,1fr); gap:24px; padding:24px 0; }
+.discoveryMetrics > div, .targetMonitoringStrip > div { display:flex; flex-direction:column; gap:10px; }
+.discoveryMetrics span, .targetMonitoringStrip span { color:#71839d; font-size:13px; }
+.discoveryMetrics i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:8px; }
+.discoveryMetrics strong { color:#1b2c45; font-size:34px; }
+.discoveryMetrics small, .targetMonitoringStrip small { margin-left:7px; color:#8a9bb0; font-size:13px; font-weight:400; }
+.discoveryMissing { margin-top:18px; padding:14px 18px; background:#fff8ea; border-radius:10px; color:#79613a; font-size:13px; line-height:1.8; }
+.discoveryMissing p { margin:4px 0 0; }
+.targetMonitoringStrip { display:flex; flex-wrap:wrap; gap:24px 50px; padding:22px 28px; margin:0 0 18px; border:1px solid #e1e8f2; background:#fff; border-radius:14px; }
+.targetMonitoringStrip strong { color:#1b2c45; font-size:24px; }
+.targetMonitoringStrip p { flex-basis:100%; margin:0; color:#8394aa; font-size:12px; line-height:1.8; }
+.formalTrendDetails { margin-bottom:24px; color:#71839d; font-size:13px; }
+.formalTrendDetails > summary { cursor:pointer; padding:12px 2px; }
+.formalTrendDetails .rankingTrend { min-height:300px; }
+.discoveryWorkspace .detailFilters .ant-select { min-width:155px; }
+@media (max-width:700px) { .discoveryMetrics { grid-template-columns:repeat(2,1fr); } .discoveryPanel { padding:20px; } .discoveryMetrics strong { font-size:28px; } }
 .contentPlanTable .ant-table-cell { vertical-align:top; }
 @media (max-width:700px) { .contentPlanIntro { flex-direction:column; } }
 .okrSection .ant-tag { white-space:normal; line-height:1.8; }
