@@ -45,7 +45,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
       if (action === "preview" && result.status === "PREVIEW") setTaskMergePreview(result);
       else if (action === "apply" && result.status === "APPLIED" && !result.conflicts.length) {
         setTaskMergePreview(null);
-        setTaskMergeNotice(`已将 ${result.summary.keywords} 个待处理词归入 ${result.summary.pageTasks} 个页面任务，复用 ${result.summary.reused} 个旧任务、新增 ${result.summary.created} 个，归并 ${result.summary.retired} 个重复或已转移的旧任务。正在读取已保存结果。`);
+        setTaskMergeNotice(`已将 ${result.summary.keywords} 个待处理词归入 ${result.summary.pageTasks} 个页面任务，复用 ${result.summary.reused} 个旧任务、新增 ${result.summary.created} 个，归并 ${result.summary.retired} 个重复或已转移的旧任务。合并结果已保存。`);
         refresh();
       } else throw new Error("服务端尚未确认本次合并状态，请重新预览核对");
     } catch (failure) {
