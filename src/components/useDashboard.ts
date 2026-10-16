@@ -2,16 +2,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { dashboardStore, DashboardReadError } from "@/lib/dashboard-client";
 
-export function useDashboard(site = "all", source = "dataforseo_labs") {
-  const key = `${site}:${source}`;
-  const [state, setState] = useState(() => ({ key, data: dashboardStore.peek(site, source), error: null as string | null, cached: false }));
+export function useDashboard(site = "all", source = "dataforseo_labs", includeResearch = false) {
+  const key = `${site}:${source}:${includeResearch ? "library" : "formal"}`;
+  const [state, setState] = useState(() => ({ key, data: dashboardStore.peek(site, source, includeResearch), error: null as string | null, cached: false }));
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
     let active = true;
     const update = async (force = false) => {
       try {
-        const data = await dashboardStore.read(site, source, force);
+        const data = await dashboardStore.read(site, source, force, includeResearch);
         if (active) setState(previous => previous.key === key && previous.data === data && !previous.error && !previous.cached ? previous : { key, data, error: null, cached: false });
       } catch (error) {
         if (!active) return;
@@ -20,11 +20,11 @@ export function useDashboard(site = "all", source = "dataforseo_labs") {
           window.location.assign("/login");
           return;
         }
-        setState(previous => ({ key, data: previous.key === key ? previous.data : dashboardStore.peek(site, source), error: error instanceof Error ? error.message : "加载失败", cached: previous.cached }));
+        setState(previous => ({ key, data: previous.key === key ? previous.data : dashboardStore.peek(site, source, includeResearch), error: error instanceof Error ? error.message : "加载失败", cached: previous.cached }));
       }
     };
     let completed = false;
-    void dashboardStore.hydrate(site, source).then(data => {
+    void dashboardStore.hydrate(site, source, includeResearch).then(data => {
       if (active && data && !completed) setState(previous => previous.data ? previous : { key, data, error: null, cached: true });
     });
     void update(version > 0).finally(() => { completed = true; });
@@ -38,8 +38,8 @@ export function useDashboard(site = "all", source = "dataforseo_labs") {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [key, site, source, version]);
-  const data = state.key === key ? state.data : dashboardStore.peek(site, source);
+  }, [key, site, source, includeResearch, version]);
+  const data = state.key === key ? state.data : dashboardStore.peek(site, source, includeResearch);
   const error = state.key === key ? state.error : null;
   return { data, error, loading: !data && !error, refreshing: state.key === key && state.cached && !error, refresh };
 }

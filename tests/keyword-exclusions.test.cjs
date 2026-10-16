@@ -163,6 +163,52 @@ test("a site's exclusion does not suppress the same keyword's observations at an
   assert.equal(state.links.find((row) => row.siteDomain === "flatkey.ai" && row.keywordId === "remove").active, false);
 });
 
+test("active formal canonical words retain Labs query and page ranks beside inactive merged case variants", async () => {
+  state.keywords.push({ id: "canonical", text: "AI API Gateway", active: true }, { id: "merged", text: "ai api gateway", active: true });
+  state.links.push({ ...link("flatkey.ai", "canonical"), pool: "FORMAL", curationId: "audit-1" },
+    { ...link("flatkey.ai", "merged", false), pool: "MERGED", curationId: "audit-1" });
+  const before = structuredClone(state.links);
+  const row = observation("ai api gateway", { source: "dataforseo_labs", rank: 35, rankStatus: "ranked", url: "https://flatkey.ai/blog/ai-api-gateway", dataUpdatedAt: "2026-10-01T00:00:00Z" });
+  const batch = payload({ requestId: "canonical-labs", observations: [row], pages: [row] });
+  const result = await importSeo(batch);
+  assert.equal(result.imported, 2);
+  assert.equal(result.excluded, 0);
+  assert.deepEqual(state.observations.map(row => [row.keywordId, row.rank]), [["canonical", 35]]);
+  assert.deepEqual(state.pages.map(row => [row.keywordId, row.rank]), [["canonical", 35]]);
+  assert.deepEqual(state.links, before);
+  assert.equal((await importSeo(batch)).duplicate, true);
+  assert.equal(state.observations.length, 1);
+  assert.equal(state.pages.length, 1);
+});
+
+test("an active research identity without a topic wins over an exact inactive merged spelling", async () => {
+  state.keywords.push({ id: "candidate", text: "AI Gateway Pricing", active: true }, { id: "merged", text: "ai gateway pricing", active: true });
+  state.links.push({ ...link("flatkey.ai", "candidate"), topicId: null, pool: "RESEARCH", curationId: "audit-1" },
+    { ...link("flatkey.ai", "merged", false), pool: "MERGED", curationId: "audit-1" });
+  const result = await importSeo(payload({ observations: [observation("ai gateway pricing")] }));
+  assert.equal(result.imported, 1);
+  assert.equal(result.excluded, 0);
+  assert.equal(state.observations[0].keywordId, "candidate");
+  assert.equal(state.links.find(row => row.keywordId === "candidate").pool, "RESEARCH");
+  assert.equal(state.links.find(row => row.keywordId === "merged").active, false);
+});
+
+test("only inactive site identities remain excluded even when an unlinked global case variant is active", async () => {
+  state.keywords.push({ id: "archived", text: "DeepSeek API Pricing", active: true }, { id: "unlinked", text: "deepseek api pricing", active: true });
+  state.links.push({ ...link("flatkey.ai", "archived", false), pool: "ARCHIVED" });
+  const before = structuredClone(state.links);
+  const result = await importSeo(payload({ allowNewKeywords: true,
+    inventory: [{ keyword: "deepseek api pricing", topic: "LLM API Routing" }],
+    observations: [observation("deepseek api pricing")],
+    pages: [observation("deepseek api pricing", { url: "https://flatkey.ai/blog/deepseek-api-pricing" })],
+  }));
+  assert.equal(result.imported, 0);
+  assert.equal(result.excluded, 3);
+  assert.equal(state.observations.length, 0);
+  assert.equal(state.pages.length, 0);
+  assert.deepEqual(state.links, before);
+});
+
 test("bulk review matches IDs and case-insensitive texts once, reports missing selectors and is reversible per site", async () => {
   const response = await requestReview({ siteDomain: "flatkey.ai", action: "exclude", keywordIds: ["keep", "keep", "unknown"], keywords: ["CLAUDE API", "not imported"] });
   assert.equal(response.status, 200);

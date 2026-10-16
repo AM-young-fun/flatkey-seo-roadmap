@@ -42,7 +42,7 @@ function ObservedPages({ pages }: { pages: RankingPageEvidence[] }) {
 export function KeywordDetails() {
   const selection = useSeoSelection();
   const { region } = selection;
-  const { data, error, loading, refreshing, refresh } = useDashboard(selection.site, selection.source);
+  const { data, error, loading, refreshing, refresh } = useDashboard(selection.site, selection.source, true);
   const okr = useKeywordOkr();
   const [search, setSearch] = useState("");
   const [origin, setOrigin] = useState("ALL");

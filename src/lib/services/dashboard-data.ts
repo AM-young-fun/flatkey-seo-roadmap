@@ -119,12 +119,17 @@ export function assembleDashboard(
     ...(reportingPeriod ? { reportingPeriod } : {}) };
 }
 
-export async function loadDashboard(site: string, source = "dataforseo_labs", period: "week" | "history" = "week", now = new Date()): Promise<DashboardResponse> {
+export async function loadDashboard(site: string, source = "dataforseo_labs", period: "week" | "history" = "week", now = new Date(), includeResearch = false): Promise<DashboardResponse> {
   const week = source === "dataforseo_labs" ? labsReportingPeriod(now) : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
   if (!isDatabaseConfigured()) return { ...getDemoDashboard(), ...(reportingPeriod ? { reportingPeriod } : {}) };
   const domains = Prisma.join(site === "all" ? SITES : [site]);
   const splitDaily = Prisma.raw(period === "week" && source !== "dataforseo_labs" ? "true" : "false");
+  // Keyword details also need evidence for active research candidates, including
+  // those without a topic. The overview keeps its formal-target cohort.
+  const membershipScope = includeResearch
+    ? Prisma.sql`((sk."siteDomain" = 'flatkey.ai' AND sk.pool IN ('FORMAL','RESEARCH')) OR (sk."siteDomain" <> 'flatkey.ai' AND sk."topicId" IS NOT NULL))`
+    : Prisma.sql`(sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL`;
   const latestQueries = Prisma.sql`
     ${Prisma.raw(period === "week" ? "/* dashboard:weekly */" : "/* dashboard:history */")}
     SELECT DISTINCT ON (o."siteDomain", o."keywordId", o.region, o.source,
@@ -145,7 +150,7 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
           OR (o."periodStart" = o."periodEnd" AND o."periodEnd" BETWEEN ${week.start}::date AND ${week.end}::date)))
         OR (o.source = 'ahrefs' AND o."dataUpdatedAt" IS NOT NULL AND
           (o."dataUpdatedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date BETWEEN ${week.start}::date AND ${week.end}::date))
-      AND k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL
+      AND k.active = true AND sk.active = true AND ${membershipScope}
     ORDER BY o."siteDomain", o."keywordId", o.region, o.source,
       CASE WHEN ${splitDaily} AND o.source = 'gsc' AND o."periodStart" = o."periodEnd" THEN o."periodEnd" END,
       CASE WHEN o.source = 'dataforseo_labs' THEN o."collectedAt"
@@ -182,7 +187,7 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
           WHERE s."siteDomain" = sk."siteDomain" AND s."keywordId" = k.id ORDER BY a.text) AS "topicTexts"
       FROM "SiteKeyword" sk JOIN "Keyword" k ON k.id = sk."keywordId"
       LEFT JOIN "Topic" t ON t.id = sk."topicId"
-      WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL AND k.active = true
+      WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND ${membershipScope} AND k.active = true
       ORDER BY sk."siteDomain", k.type, k.text
     `),
     prisma.$queryRaw<RankRow[]>(Prisma.sql`
@@ -193,7 +198,7 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
       /* dashboard:volumes */
       WITH eligible AS (
         SELECT DISTINCT k.id FROM "Keyword" k JOIN "SiteKeyword" sk ON sk."keywordId" = k.id
-        WHERE k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL AND sk."siteDomain" IN (${domains})
+        WHERE k.active = true AND sk.active = true AND ${membershipScope} AND sk."siteDomain" IN (${domains})
       ), candidates AS (
         SELECT v."keywordId", v.region, v.volume, v.source, v."fetchedAt", NULL::timestamp AS "importedAt", 1 AS preference,
           v."observedAt" AS "sourceDataDate"
@@ -231,7 +236,7 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
         SELECT p.*, CASE WHEN p.source = 'dataforseo_labs' THEN 'COMPLETE' END AS "captureStatus" FROM "KeywordPageObservation" p
         JOIN "Keyword" k ON k.id = p."keywordId"
         JOIN "SiteKeyword" sk ON sk."siteDomain" = p."siteDomain" AND sk."keywordId" = p."keywordId"
-        WHERE p."siteDomain" IN (${domains}) AND k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL
+        WHERE p."siteDomain" IN (${domains}) AND k.active = true AND sk.active = true AND ${membershipScope}
           AND (p.source <> 'dataforseo_labs' OR EXISTS(SELECT 1 FROM "KeywordObservation" owner
             JOIN "RankingCapture" capture ON capture.id = owner."captureId"
             WHERE owner."siteDomain" = p."siteDomain" AND owner."keywordId" = p."keywordId" AND owner.region = p.region AND owner.source = p.source

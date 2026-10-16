@@ -50,9 +50,11 @@ export async function importSeo(payload: RankingImportPayload) {
       const priorLinks = incomingTexts.length ? await tx.siteKeyword.findMany({ where: { siteDomain, keywordId: { in: keywords.map((row) => row.id) } } }) : [];
       const linksById = new Map(priorLinks.map((row) => [row.keywordId, row]));
       const unrelatedTexts = new Set(incomingTexts.filter((text) => keywordRelevance(siteDomain, text).status === "unrelated"));
-      // An inactive site membership is an explicit exclusion. Neither a fresh
-      // discovery nor an inventory upload may undo that review decision.
-      const excludedTexts = new Set([...unrelatedTexts, ...keywords.filter((keyword) => linksById.get(keyword.id)?.active === false).map((keyword) => keyword.text.toLowerCase())]);
+      // A retained canonical membership can have inactive, merged case variants.
+      // Only exclude the text when no active identity remains at this site;
+      // imports still cannot restore a word whose memberships are all inactive.
+      const activeTexts = new Set(keywords.filter((keyword) => keyword.active && linksById.get(keyword.id)?.active).map((keyword) => keyword.text.toLowerCase()));
+      const excludedTexts = new Set([...unrelatedTexts, ...keywords.filter((keyword) => linksById.get(keyword.id)?.active === false && !activeTexts.has(keyword.text.toLowerCase())).map((keyword) => keyword.text.toLowerCase())]);
       const inventory = payload.inventory.filter((row) => !excludedTexts.has(row.keyword.toLowerCase()));
       const observations = payload.observations.filter((row) => !excludedTexts.has(row.keyword.toLowerCase()));
       const pages = payload.pages.filter((row) => !excludedTexts.has(row.keyword.toLowerCase()));
@@ -80,8 +82,9 @@ export async function importSeo(payload: RankingImportPayload) {
       for (const keyword of keywords) if (!excludedTexts.has(keyword.text.toLowerCase())) groups.set(keyword.text.toLowerCase(), [...(groups.get(keyword.text.toLowerCase()) ?? []), keyword]);
       const keywordByText = new Map<string, Keyword>();
       for (const [key, group] of groups) {
-        const tracked = group.filter((keyword) => linksById.get(keyword.id)?.active && linksById.get(keyword.id)?.topicId);
-        const candidates = tracked.length ? tracked : group;
+        const active = group.filter((keyword) => keyword.active && linksById.get(keyword.id)?.active);
+        const tracked = active.filter((keyword) => linksById.get(keyword.id)?.topicId);
+        const candidates = tracked.length ? tracked : active.length ? active : group;
         const requested = [...inventory, ...observations, ...pages].find((row) => row.keyword.toLowerCase() === key)!.keyword;
         const selected = candidates.find((keyword) => keyword.text === requested) ?? candidates.find((keyword) => keyword.text === key) ?? (candidates.length === 1 ? candidates[0] : null);
         if (!selected) throw new ImportRequestError(`关键词大小写匹配不唯一：${requested}`, 422);

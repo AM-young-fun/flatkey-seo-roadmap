@@ -9,15 +9,15 @@ export class DashboardReadError extends Error {
 // another full database read whenever a dashboard component mounts.
 export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.now, persistence?: DashboardPersistence) {
   const entries = new Map<string, { value?: DashboardResponse; updatedAt: number; body?: string; pending?: Promise<DashboardResponse> }>();
-  const keyFor = (site: string, source: string) => `labs-rankings-v1:${site}:${source}`;
+  const keyFor = (site: string, source: string, includeResearch = false) => `labs-rankings-v2:${site}:${source}:${includeResearch ? "library" : "formal"}`;
   let generation = 0;
   const clear = () => { generation++; entries.clear(); persistence?.clear(); };
   return {
     revision: () => generation,
-    peek: (site: string, source: string) => entries.get(keyFor(site, source))?.value ?? null,
+    peek: (site: string, source: string, includeResearch = false) => entries.get(keyFor(site, source, includeResearch))?.value ?? null,
     clear,
-    async hydrate(site: string, source: string): Promise<DashboardResponse | null> {
-      const key = keyFor(site, source);
+    async hydrate(site: string, source: string, includeResearch = false): Promise<DashboardResponse | null> {
+      const key = keyFor(site, source, includeResearch);
       const started = generation;
       if (entries.get(key)?.value) return entries.get(key)!.value!;
       try {
@@ -31,8 +31,8 @@ export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.n
         return entry.value;
       } catch { return null; }
     },
-    read(site: string, source: string, force = false): Promise<DashboardResponse> {
-      const key = keyFor(site, source);
+    read(site: string, source: string, force = false, includeResearch = false): Promise<DashboardResponse> {
+      const key = keyFor(site, source, includeResearch);
       const entry = entries.get(key) ?? { updatedAt: 0 };
       if (entry.pending) return entry.pending;
       if (!force && entry.value && now() - entry.updatedAt < 30000) return Promise.resolve(entry.value);
@@ -42,7 +42,7 @@ export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.n
         let payload: DashboardResponse | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const response = await fetcher(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
+            const response = await fetcher(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}${includeResearch ? "&includeResearch=1" : ""}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
             if (!response.ok) {
               if (response.status === 401) clear();
               const failure = await response.json().catch(() => ({})) as { code?: string };
