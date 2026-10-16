@@ -7,17 +7,19 @@ import { planKeywordPageAudit, type PageAuditMembership, type PageAuditSourceSta
 
 export async function auditKeywordPages(payload: PageAuditPayload): Promise<PageAuditResult> {
   return prisma.$transaction(async transaction => {
-    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"seo-import:flatkey.ai"}))`;
-    const site = await transaction.seoSite.findUnique({ where: { domain: "flatkey.ai" } });
-    if (!site?.active) throw new ImportRequestError("Flatkey网站未启用", 400);
-    const identities = await transaction.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true } },
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${payload.targetDomain}`}))`;
+    const site = await transaction.seoSite.findUnique({ where: { domain: payload.targetDomain } });
+    if (!site?.active) throw new ImportRequestError("本次审核的网站未启用", 400);
+    const membershipWhere = { siteDomain: payload.targetDomain, active: true, keyword: { active: true },
+      ...(payload.targetDomain === "flatkey.ai" ? { pool: "FORMAL" } : { topicId: { not: null } }) };
+    const identities = await transaction.siteKeyword.findMany({ where: membershipWhere,
       select: { keywordId: true, keyword: { select: { text: true, active: true } } } });
     const incoming = new Set(payload.rows.map(row => normalizeKeywordText(row.keyword)));
     const keywordIds = identities.filter(link => incoming.has(normalizeKeywordText(link.keyword.text))).map(link => link.keywordId);
-    const relevant: PageAuditMembership[] = keywordIds.length ? await transaction.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true }, keywordId: { in: keywordIds } },
+    const relevant: PageAuditMembership[] = keywordIds.length ? await transaction.siteKeyword.findMany({ where: { ...membershipWhere, keywordId: { in: keywordIds } },
       select: { keywordId: true, keyword: { select: { text: true, active: true } }, active: true, pool: true, reviewStatus: true,
         curationId: true, curatedAt: true, targetUrls: true, candidateUrls: true, mappingStatus: true, topicId: true, protected: true, auditReason: true } }) : [];
-    const priorRows: PageAuditSourceState[] = relevant.length ? await transaction.keywordSourceRow.findMany({ where: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID,
+    const priorRows: PageAuditSourceState[] = relevant.length ? await transaction.keywordSourceRow.findMany({ where: { siteDomain: payload.targetDomain, sourceId: PAGE_AUDIT_SOURCE_ID,
       rowKey: { in: relevant.map(link => `keyword:${link.keywordId}`) } }, select: { rowKey: true, snapshotHash: true, snapshot: true, observedAt: true } }) : [];
     const plan = planKeywordPageAudit(payload, priorRows, relevant);
     if (payload.action === "preview" || plan.result.duplicate) return plan.result;
@@ -47,7 +49,7 @@ export async function auditKeywordPages(payload: PageAuditPayload): Promise<Page
         SET "mappingStatus" = d."mappingStatus", "targetUrls" = d."targetUrls",
           "candidateUrls" = d."candidateUrls", "auditReason" = d."auditReason"
         FROM changes AS d, "Keyword" AS k
-        WHERE m."siteDomain" = ${"flatkey.ai"} AND m."keywordId" = d."keywordId"
+        WHERE m."siteDomain" = ${payload.targetDomain} AND m."keywordId" = d."keywordId"
           AND m.active = d."beforeActive" AND m.pool = d."beforePool"
           AND m."reviewStatus" = d."beforeReviewStatus"
           AND m."curationId" IS NOT DISTINCT FROM d."beforeCurationId"
@@ -63,7 +65,7 @@ export async function auditKeywordPages(payload: PageAuditPayload): Promise<Page
       if (changed.length !== plan.memberships.length) throw new ImportRequestError("复核期间人工页面配置发生变化，本批事务已取消，请重新预览", 409);
     }
     const priorKeys = new Set(priorRows.map(row => row.rowKey));
-    const snapshots = plan.snapshots.map(({ rowKey, snapshot, hash }) => ({ siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey,
+    const snapshots = plan.snapshots.map(({ rowKey, snapshot, hash }) => ({ siteDomain: payload.targetDomain, sourceId: PAGE_AUDIT_SOURCE_ID, rowKey,
       snapshotHash: hash, snapshot: snapshot as unknown as Prisma.InputJsonValue, observedAt: new Date(snapshot.checkedAt) }));
     const initialSnapshots = snapshots.filter(row => !priorKeys.has(row.rowKey));
     // All writers for this site share the transaction lock. Do not skip a

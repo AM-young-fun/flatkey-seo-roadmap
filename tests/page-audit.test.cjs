@@ -114,7 +114,7 @@ require.cache[headersPath] = { id: headersPath, filename: headersPath, loaded: t
 const { pageAuditSchema } = require("../src/lib/page-audit.ts");
 const { planKeywordPageAudit } = require("../src/lib/page-audit-plan.ts");
 const { auditKeywordPages } = require("../src/lib/services/page-audit.ts");
-const { POST } = require("../src/app/api/keywords/page-audit/route.ts");
+const { GET, POST } = require("../src/app/api/keywords/page-audit/route.ts");
 const { getAuthToken } = require("../src/lib/auth.ts");
 
 const auditRow = (keyword = "keyword-1 api", overrides = {}) => ({
@@ -635,4 +635,63 @@ test("route rejects invalid evidence and returns safe failure details without ex
   assert.ok(!JSON.stringify(result).includes("simulated page evidence write failure"));
   assert.equal(state.sourceRows.length, 0);
   assert.equal(state.membershipWrites.length, 0);
+});
+
+for (const targetDomain of ["rackrate.org", "modelfit.cc"]) test(`${targetDomain} audit updates only that site's complete formal scope and independent proof`, async () => {
+  addMember("shared");
+  const member = addMember("shared", { siteDomain: targetDomain, pool: "RESEARCH", targetUrls: [`https://${targetDomain}/old`] });
+  const page = `https://${targetDomain}/blog/verified-api`;
+  const row = auditRow(member.keyword.text, { pageUrl: page, canonicalUrl: page });
+  const incoming = payload([row], { targetDomain });
+  const preview = await auditKeywordPages({ ...incoming, action: "preview" });
+  assert.equal(state.dataWrites, 0);
+  assert.equal(preview.targetDomain, targetDomain);
+  await auditKeywordPages({ ...incoming, expectedStateHash: preview.stateHash });
+  assert.deepEqual(state.memberships[0].targetUrls, ["https://flatkey.ai/old-page"]);
+  assert.deepEqual(member.targetUrls, [page]);
+  assert.equal(member.pool, "RESEARCH", "the existing non-Flatkey target scope does not change pool membership");
+  assert.equal(state.sourceRows[0].siteDomain, targetDomain);
+  assert.equal(state.membershipQueries[0].values[1], targetDomain);
+  assert.equal((await auditKeywordPages(incoming)).duplicate, true);
+  const flatkey = payload([auditRow(member.keyword.text)]);
+  assert.notEqual(planKeywordPageAudit(flatkey, [], [state.memberships[0]]).result.stateHash, preview.stateHash);
+});
+
+test("every evidence and planned URL is isolated to the selected owned site", () => {
+  const domain = "rackrate.org", page = `https://${domain}/guide`;
+  const base = payload([auditRow(undefined, { pageUrl: page, canonicalUrl: page })], { targetDomain: domain });
+  assert.equal(pageAuditSchema.safeParse(base).success, true);
+  const workPlan = { originalVerdict: "MISMATCH", action: "LINK", pageUrls: [page], previousPageUrl: null,
+    proposedTitle: "Reviewed API guide", requirements: ["Explain the requested API intent.", "Include verified product examples.", "Link to dated primary sources."],
+    acceptance: ["The requested query is directly answered.", "The final canonical page remains HTTP 200."] };
+  for (const patch of [
+    { pageUrl: "https://flatkey.ai/guide" }, { canonicalUrl: "https://modelfit.cc/guide" },
+    { inventory: { sourceUrl: "https://flatkey.ai/sitemap.xml", pageCount: 12, checkedAt: base.rows[0].checkedAt } },
+    { workPlan: { ...workPlan, pageUrls: ["https://flatkey.ai/guide"] } },
+    { workPlan: { ...workPlan, previousPageUrl: "https://modelfit.cc/old" } },
+    { workPlan: { ...workPlan, plannedPageUrl: "https://modelfit.cc/new" } },
+  ]) assert.equal(pageAuditSchema.safeParse({ ...base, rows: [{ ...base.rows[0], ...patch }] }).success, false);
+  for (const value of ["https://rackrate.org.evil.example/x", "http://rackrate.org/x", "https://user:pass@rackrate.org/x", "https://rackrate.org:8443/x"]) {
+    assert.equal(pageAuditSchema.safeParse({ ...base, rows: [{ ...base.rows[0], pageUrl: value, canonicalUrl: value }] }).success, false);
+  }
+});
+
+test("held worklist export requires a real session and returns deduplicated counts without any writes", async t => {
+  assert.equal((await GET()).status, 401);
+  sessionToken = await getAuthToken();
+  const targets = require("../src/lib/services/serp-targets.ts");
+  const held = [
+    { keywordId: "shared", keyword: "shared api", siteDomain: "rackrate.org", targetUrls: [], reason: "NO_VERIFIED_PAGE", reasonLabel: "缺少页面核实证据" },
+    { keywordId: "shared", keyword: "shared api", siteDomain: "modelfit.cc", targetUrls: [], reason: "NO_VERIFIED_PAGE", reasonLabel: "缺少页面核实证据" },
+  ];
+  t.mock.method(targets, "loadSerpTargetCohort", async () => ({ targets: held, hash: "a".repeat(64) }));
+  t.mock.method(targets, "loadSerpMonitoringCohort", async () => ({ heldTargets: held }));
+  const response = await GET();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("Content-Disposition"), /attachment/);
+  const exported = await response.json();
+  assert.equal(exported.summary.heldSiteTargets, 2);
+  assert.equal(exported.summary.heldKeywords, 1);
+  assert.equal(exported.rows.length, 2);
+  assert.equal(state.dataWrites, 0);
 });

@@ -4,12 +4,13 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { databaseErrorCategory, databaseErrorCode } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { mergeKeywordPageTasks, pageTaskMergeFailureStage } from "@/lib/services/keyword-page-tasks";
+import { pageAuditDomainSchema } from "@/lib/page-audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
-const schema = z.object({ siteDomain: z.literal("flatkey.ai"), action: z.enum(["preview", "apply"]), expectedStateHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict();
+const schema = z.object({ siteDomain: pageAuditDomainSchema, action: z.enum(["preview", "apply"]), expectedStateHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict();
 
 // Session authentication is enforced by the existing proxy. A collector token
 // cannot merge editorial tasks, and there is no arbitrary task-list input.

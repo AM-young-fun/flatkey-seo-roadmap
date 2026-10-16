@@ -16,7 +16,8 @@ export function planKeywordPageAudit(payload: PageAuditPayload, priorRows: PageA
   const priorByKey = new Map(priorRows.map(row => [row.rowKey, row]));
   const proposed = payload.rows.map(row => {
     const keyword = normalizeKeywordText(row.keyword);
-    const matches = memberships.filter(link => normalizeKeywordText(link.keyword.text) === keyword && link.active && link.pool === "FORMAL" && link.keyword.active);
+    const matches = memberships.filter(link => normalizeKeywordText(link.keyword.text) === keyword && link.active && link.keyword.active
+      && (payload.targetDomain === "flatkey.ai" ? link.pool === "FORMAL" : link.topicId !== null));
     if (matches.length !== 1) throw new ImportRequestError(matches.length ? `关键词 ${keyword} 有多个正式身份，请人工核对` : `关键词 ${keyword} 不是已启用的本站正式目标`, matches.length ? 409 : 400);
     const before = matches[0], rowKey = `keyword:${before.keywordId}`;
     const snapshot: PageAuditSnapshot = { version: 1, keywordId: before.keywordId, keyword, verdict: row.verdict,
@@ -26,6 +27,7 @@ export function planKeywordPageAudit(payload: PageAuditPayload, priorRows: PageA
     if (row.inventory) snapshot.inventory = { ...row.inventory, checkedAt: new Date(row.inventory.checkedAt).toISOString() };
     if (row.workPlan) snapshot.workPlan = { ...row.workPlan,
       pageUrls: row.workPlan.pageUrls.map(normalizeAuditPageUrl),
+      ...(row.workPlan.plannedPageUrl ? { plannedPageUrl: normalizeAuditPageUrl(row.workPlan.plannedPageUrl) } : {}),
       previousPageUrl: row.workPlan.previousPageUrl ? normalizeAuditPageUrl(row.workPlan.previousPageUrl) : null,
       proposedTitle: tidy(row.workPlan.proposedTitle), requirements: row.workPlan.requirements.map(tidy), acceptance: row.workPlan.acceptance.map(tidy) };
     if (row.additionalPages?.length) snapshot.additionalPages = row.additionalPages.map(page => ({ ...page,
@@ -35,9 +37,9 @@ export function planKeywordPageAudit(payload: PageAuditPayload, priorRows: PageA
     return { before, rowKey, snapshot, hash: hash(snapshot) };
   }).sort((a, b) => a.rowKey.localeCompare(b.rowKey));
   if (new Set(proposed.map(row => row.rowKey)).size !== proposed.length) throw new ImportRequestError("每个正式关键词每批只能复核一次", 400);
-  const stateHash = hash({ sourceId: PAGE_AUDIT_SOURCE_ID, proposed: proposed.map(({ snapshot, before, rowKey }) => ({ snapshot, before, previousHash: priorByKey.get(rowKey)?.snapshotHash ?? null })) });
+  const stateHash = hash({ siteDomain: payload.targetDomain, sourceId: PAGE_AUDIT_SOURCE_ID, proposed: proposed.map(({ snapshot, before, rowKey }) => ({ snapshot, before, previousHash: priorByKey.get(rowKey)?.snapshotHash ?? null })) });
   const changed = proposed.filter(row => priorByKey.get(row.rowKey)?.snapshotHash !== row.hash);
-  const result: PageAuditResult = { kind: "page-audit", requestId: payload.requestId, targetDomain: "flatkey.ai", action: payload.action,
+  const result: PageAuditResult = { kind: "page-audit", requestId: payload.requestId, targetDomain: payload.targetDomain, action: payload.action,
     imported: changed.length, duplicate: changed.length === 0, stateHash,
     pageSummary: { changed: changed.length, unchanged: proposed.length - changed.length, verified: 0, missing: 0, mismatch: 0, review: 0, noMatch: 0, contentGap: 0 }, changes: [] };
   // A committed request may be replayed with its original preview hash. Stored

@@ -71,6 +71,23 @@ test("a task-plan parent must retain its site, dedicated status and approved pay
   assert.equal(state.tasks.length, 0);
 });
 
+test("a later reviewed page extends the plan through a new immutable audit parent", async () => {
+  state.tasks = [];
+  let preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
+  await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: preview.stateHash });
+  const firstAudit = structuredClone(state.audits[0]);
+  state.members.push({ keywordId: "second", keyword: { text: "another model API pricing" } });
+  state.snapshots.push({ rowKey: "keyword:second", snapshot: { keywordId: "second", keyword: "another model API pricing", verdict: "CONTENT_GAP",
+    workPlan: { ...state.snapshots[0].snapshot.workPlan, pageUrls: ["https://flatkey.ai/second-current"] } } });
+  preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
+  await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: preview.stateHash });
+  assert.equal(state.tasks.length, 2);
+  assert.equal(state.audits.length, 2);
+  assert.deepEqual(state.audits[0], firstAudit);
+  assert.notEqual(state.audits[1].id, firstAudit.id);
+  assert.ok(state.tasks.every(task => state.audits.some(audit => audit.id === task.auditId)));
+});
+
 test("preview is read-only; apply reuses the task and preserves manual fields; identical replay writes nothing", async () => {
   const before = structuredClone(state);
   const preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
@@ -120,7 +137,7 @@ test("failure writing the recovery snapshot rolls back task mutations", async ()
 test("invalid identities, mismatched verdicts and arbitrary task payloads cannot change tasks", async () => {
   state.snapshots[0].snapshot.verdict = "VERIFIED";
   await assert.rejects(mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" }), /核验和工作清单不一致/);
-  for (const body of [{ siteDomain: "rackrate.org", action: "apply" }, { siteDomain: "flatkey.ai", action: "apply", tasks: [{ title: "unreviewed" }] }]) {
+  for (const body of [{ siteDomain: "foreign.example", action: "apply" }, { siteDomain: "flatkey.ai", action: "apply", tasks: [{ title: "unreviewed" }] }]) {
     const result = await POST(new Request("http://localhost/api/keywords/okr/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
     assert.equal(result.status, 400);
   }

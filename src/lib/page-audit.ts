@@ -3,12 +3,18 @@ import { normalizeKeywordText } from "@/lib/keyword-relevance";
 
 export const PAGE_AUDIT_API_PATH = "/api/keywords/page-audit";
 export const PAGE_AUDIT_SOURCE_ID = "page_audit";
-const localPage = z.url().max(2000).refine(value => {
+export const PAGE_AUDIT_DOMAINS = ["flatkey.ai", "rackrate.org", "modelfit.cc"] as const;
+export const pageAuditDomainSchema = z.enum(PAGE_AUDIT_DOMAINS);
+export type PageAuditDomain = z.infer<typeof pageAuditDomainSchema>;
+export function isAuditPageForSite(value: string, domain: PageAuditDomain): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password && !url.port
-      && (url.hostname === "flatkey.ai" || url.hostname.endsWith(".flatkey.ai"));
+      && (url.hostname === domain || url.hostname.endsWith(`.${domain}`));
   } catch { return false; }
+}
+const localPage = z.url().max(2000).refine(value => {
+  return PAGE_AUDIT_DOMAINS.some(domain => isAuditPageForSite(value, domain));
 }, "页面必须是本站HTTPS地址且不含账号、密码或自定义端口");
 export function normalizeAuditPageUrl(value: string): string {
   const url = new URL(value);
@@ -28,6 +34,8 @@ export const keywordWorkPlanSchema = z.object({
   originalVerdict: z.enum(["CONTENT_GAP", "MISMATCH"]),
   action: z.enum(["EXPAND", "LINK", "BUILD"]),
   pageUrls: z.array(localPage).max(21),
+  // A reviewed editorial destination is a plan, never proof of an existing page.
+  plannedPageUrl: localPage.optional(),
   previousPageUrl: localPage.nullable(),
   proposedTitle: z.string().trim().min(4).max(500),
   requirements: z.array(z.string().trim().min(8).max(1000)).min(3).max(8),
@@ -36,7 +44,7 @@ export const keywordWorkPlanSchema = z.object({
 export type KeywordWorkPlan = z.infer<typeof keywordWorkPlanSchema>;
 export const pageAuditSchema = z.object({
   kind: z.literal("page-audit"), requestId: z.string().trim().min(1).max(160).regex(/^[\w.:-]+$/),
-  targetDomain: z.literal("flatkey.ai"), action: z.enum(["preview", "apply"]),
+  targetDomain: pageAuditDomainSchema, action: z.enum(["preview", "apply"]),
   expectedStateHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   rows: z.array(z.object({
     keyword: z.string().trim().min(1).max(2000).refine(value => new TextEncoder().encode(value).length <= 2000, "关键词过长"),
@@ -52,6 +60,10 @@ export const pageAuditSchema = z.object({
   const seen = new Set<string>();
   input.rows.forEach((row, index) => {
     const issue = (message: string) => context.addIssue({ code: "custom", path: ["rows", index], message });
+    const urls = [row.pageUrl, row.canonicalUrl, row.inventory?.sourceUrl,
+      ...(row.additionalPages ?? []).flatMap(page => [page.pageUrl, page.canonicalUrl]),
+      ...(row.workPlan?.pageUrls ?? []), row.workPlan?.previousPageUrl, row.workPlan?.plannedPageUrl];
+    if (urls.some(url => typeof url === "string" && !isAuditPageForSite(url, input.targetDomain))) issue("所有页面、目录及规划地址必须属于本次审核的网站");
     const keyword = normalizeKeywordText(row.keyword);
     if (seen.has(keyword)) issue("每个关键词每批只能有一个复核结论");
     seen.add(keyword);
@@ -90,7 +102,7 @@ export const pageAuditSchema = z.object({
 export type PageAuditPayload = z.infer<typeof pageAuditSchema>;
 export type PageAuditVerdict = PageAuditPayload["rows"][number]["verdict"];
 export type PageAuditSummary = { changed: number; unchanged: number; verified: number; missing: number; mismatch: number; review: number; noMatch: number; contentGap: number };
-export type PageAuditResult = { kind: "page-audit"; requestId: string; targetDomain: "flatkey.ai"; action: "preview" | "apply";
+export type PageAuditResult = { kind: "page-audit"; requestId: string; targetDomain: PageAuditDomain; action: "preview" | "apply";
   imported: number; duplicate: boolean; stateHash: string; pageSummary: PageAuditSummary;
   changes: Array<{ keyword: string; verdict: PageAuditPayload["rows"][number]["verdict"]; mappingStatusBefore: string; mappingStatusAfter: string;
     targetUrlsBefore: string[]; targetUrlsAfter: string[]; candidateUrlsBefore: string[]; candidateUrlsAfter: string[]; fields: string[]; reason: string }>;

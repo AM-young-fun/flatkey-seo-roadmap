@@ -4,25 +4,27 @@ import { prisma } from "@/lib/prisma";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { readPageAuditVerdict } from "@/lib/keyword-monitoring";
-import { keywordWorkPlanSchema, PAGE_AUDIT_SOURCE_ID } from "@/lib/page-audit";
+import { isAuditPageForSite, keywordWorkPlanSchema, pageAuditDomainSchema, PAGE_AUDIT_SOURCE_ID, type PageAuditDomain } from "@/lib/page-audit";
 import { buildPageTaskMerge, PAGE_TASK_PLAN_ID, type PageTaskRow, type PageTaskWorkItem, type PageTaskMergeResult } from "@/lib/keyword-page-tasks";
 
-export type PageTaskMergeInput = { siteDomain: "flatkey.ai"; action: "preview" | "apply"; expectedStateHash?: string };
+export type PageTaskMergeInput = { siteDomain: PageAuditDomain; action: "preview" | "apply"; expectedStateHash?: string };
 const failureStages = new WeakMap<object, string>();
 export function pageTaskMergeFailureStage(error: unknown): string | null {
   return error && typeof error === "object" ? failureStages.get(error) ?? null : null;
 }
 
 export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<PageTaskMergeResult> {
-  if (input.siteDomain !== "flatkey.ai") throw new ImportRequestError("页面任务合并仅适用于已审核的 Flatkey 清单", 400);
+  if (!pageAuditDomainSchema.safeParse(input.siteDomain).success) throw new ImportRequestError("页面任务网站无效", 400);
+  const planId = input.siteDomain === "flatkey.ai" ? PAGE_TASK_PLAN_ID : `${input.siteDomain}-page-work-plans-v1`;
   let stage = "LOCK";
   try { return await prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"seo-import:flatkey.ai"}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${input.siteDomain}`}))`;
     stage = "READ_SITE";
     const site = await tx.seoSite.findUnique({ where: { domain: input.siteDomain } });
-    if (!site?.active) throw new ImportRequestError("Flatkey 网站未启用", 400);
+    if (!site?.active) throw new ImportRequestError("本次合并的网站未启用", 400);
     stage = "READ_MEMBERS";
-    const members = await tx.siteKeyword.findMany({ where: { siteDomain: input.siteDomain, pool: "FORMAL", active: true },
+    const members = await tx.siteKeyword.findMany({ where: { siteDomain: input.siteDomain, active: true,
+      ...(input.siteDomain === "flatkey.ai" ? { pool: "FORMAL" } : { topicId: { not: null }, keyword: { active: true } }) },
       select: { keywordId: true, keyword: { select: { text: true } } }, orderBy: { keywordId: "asc" } });
     const memberMap = new Map(members.map(row => [row.keywordId, row.keyword.text]));
     stage = "READ_WORK_PLANS";
@@ -35,6 +37,8 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
       if (!keyword || (snapshot.keywordId !== undefined && snapshot.keywordId !== keywordId)) continue;
       const plan = keywordWorkPlanSchema.safeParse(snapshot.workPlan);
       if (!plan.success || plan.data.action === "LINK") continue;
+      const urls = [...plan.data.pageUrls, plan.data.previousPageUrl, plan.data.plannedPageUrl].filter((url): url is string => typeof url === "string");
+      if (urls.some(url => !isAuditPageForSite(url, input.siteDomain)) || (input.siteDomain !== "flatkey.ai" && plan.data.action === "BUILD" && !plan.data.plannedPageUrl)) throw new ImportRequestError(`关键词“${keyword}”的规划页面不属于本站或尚未明确，请先复核`, 409);
       const expected = { EXPAND: "CONTENT_GAP", BUILD: "NO_MATCH" } as const;
       if (readPageAuditVerdict(snapshot) !== expected[plan.data.action]) throw new ImportRequestError(`关键词“${keyword}”的页面核验和工作清单不一致，请先复核`, 409);
       if (typeof snapshot.keyword === "string" && normalizeKeywordText(snapshot.keyword) !== normalizeKeywordText(keyword)) throw new ImportRequestError("页面任务的关键词身份发生变化，请重新核对", 409);
@@ -46,7 +50,7 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
     const before: PageTaskRow[] = stored.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, type: row.type, status: row.status, title: row.title,
       reason: row.reason, keywords: row.keywords, targetUrls: row.targetUrls, owner: row.owner, dueAt: row.dueAt?.toISOString() ?? null }));
     stage = "PLAN";
-    const plan = buildPageTaskMerge(before, items);
+    const plan = buildPageTaskMerge(before, items, planId);
     if (input.action === "apply") {
       if (plan.conflicts.length) throw new ImportRequestError(`页面任务尚有冲突：${plan.conflicts.slice(0, 3).join("；")}`, 409);
       if (plan.changes.length && input.expectedStateHash !== plan.stateHash) throw new ImportRequestError("页面任务或关键词清单已变化，请重新预览后合并", 409);
@@ -58,14 +62,19 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
           // current Prisma model has no relation field. Create its dedicated
           // audit parent inside the same transaction before inserting tasks.
           stage = "CREATE_TASK_AUDIT";
-          const parent = await tx.keywordCurationAudit.findUnique({ where: { id: PAGE_TASK_PLAN_ID } });
-          const taskPayloadHash = createHash("sha256").update(JSON.stringify({ version: PAGE_TASK_PLAN_ID, items: [...items].sort((a, b) => a.keywordId.localeCompare(b.keywordId)) })).digest("hex");
+          const originalParent = await tx.keywordCurationAudit.findUnique({ where: { id: planId } });
+          const taskPayloadHash = createHash("sha256").update(JSON.stringify({ version: planId, items: [...items].sort((a, b) => a.keywordId.localeCompare(b.keywordId)) })).digest("hex");
+          if (originalParent && (originalParent.siteDomain !== input.siteDomain || originalParent.status !== "PAGE_TASK_PLAN" || !/^[a-f0-9]{64}$/.test(originalParent.payloadHash))) throw new ImportRequestError("页面任务审计编号或已审核清单发生冲突，未保存任务", 409);
+          // New reviewed work can extend a previous plan. Preserve its audit
+          // parent and record a new batch instead of refusing future pages.
+          const auditId = originalParent && originalParent.payloadHash !== taskPayloadHash ? `${planId}:${taskPayloadHash.slice(0, 20)}` : planId;
+          const parent = auditId === planId ? originalParent : await tx.keywordCurationAudit.findUnique({ where: { id: auditId } });
           if (parent && (parent.siteDomain !== input.siteDomain || parent.status !== "PAGE_TASK_PLAN" || parent.payloadHash !== taskPayloadHash)) throw new ImportRequestError("页面任务审计编号或已审核清单发生冲突，未保存任务", 409);
-          if (!parent) await tx.keywordCurationAudit.create({ data: { id: PAGE_TASK_PLAN_ID, siteDomain: input.siteDomain, status: "PAGE_TASK_PLAN",
+          if (!parent) await tx.keywordCurationAudit.create({ data: { id: auditId, siteDomain: input.siteDomain, status: "PAGE_TASK_PLAN",
             payloadHash: taskPayloadHash, before: [], after: [],
             summary: { kind: "page-task-plan", ...plan.summary } as unknown as Prisma.InputJsonValue } });
           stage = "CREATE_TASKS";
-          await tx.keywordContentTask.createMany({ data: create.map(row => ({ ...row, dueAt: row.dueAt ? new Date(row.dueAt) : null, siteDomain: input.siteDomain, auditId: PAGE_TASK_PLAN_ID })) });
+          await tx.keywordContentTask.createMany({ data: create.map(row => ({ ...row, dueAt: row.dueAt ? new Date(row.dueAt) : null, siteDomain: input.siteDomain, auditId })) });
         }
         const update = plan.changes.filter(row => existing.has(row.id));
         if (update.length) {
@@ -85,10 +94,10 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
         }
         // Keep the exact prior task fields, including owners and progress, in
         // an append-only source snapshot. No keyword or page audit is mutated.
-        const rowKey = `${PAGE_TASK_PLAN_ID}:${plan.stateHash}`;
+        const rowKey = `${planId}:${plan.stateHash}`;
         stage = "WRITE_RECOVERY";
         await tx.keywordSourceRow.create({ data: { siteDomain: input.siteDomain, sourceId: "page_task_merge", rowKey,
-          snapshotHash: plan.stateHash, snapshot: { version: PAGE_TASK_PLAN_ID, summary: plan.summary, before,
+          snapshotHash: plan.stateHash, snapshot: { version: planId, summary: plan.summary, before,
             after: plan.after, assignments: plan.tasks.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, keywords: row.workPlans.map(item => item.keyword) })) } as unknown as Prisma.InputJsonValue } });
       }
     }

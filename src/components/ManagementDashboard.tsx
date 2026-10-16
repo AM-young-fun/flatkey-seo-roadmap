@@ -6,6 +6,7 @@ import { SourceSyncStatus } from "@/components/SourceSyncStatus";
 import { DataforSeoConnection } from "@/components/DataforSeoConnection";
 import { KeywordOkrWorkspace } from "@/components/KeywordOkrWorkspace";
 import { useKeywordOkr } from "@/components/useKeywordOkr";
+import { PageAuditImportPanel } from "@/components/PageAuditImportPanel";
 
 function KeywordTasks() {
   const okr = useKeywordOkr();
@@ -35,6 +36,7 @@ export function ManagementDashboard() {
     <div className="pageIntro"><h1>数据管理</h1><p>管理排名更新、协作表同步与接口连接。</p></div>
     <SerpMonitorPanel />
     <SourceSyncStatus />
+    <details className="managementDisclosure"><summary>页面关联维护<span>核实页面后更新关键词</span></summary><div className="managementDisclosureBody"><PageAuditImportPanel /></div></details>
     <details className="managementDisclosure" open={connectionOpen} onToggle={event => setConnectionOpen(event.currentTarget.open)}><summary>DataForSEO 连接设置<span>查看或更新 API 凭据</span></summary><div className="managementDisclosureBody">{connectionOpen ? <DataforSeoConnection onChanged={() => window.dispatchEvent(new Event("seo-rankings-updated"))} /> : null}</div></details>
     <details className="managementDisclosure" id="keyword-tasks" open={tasksOpen} onToggle={event => setTasksOpen(event.currentTarget.open)}><summary>页面任务<span>按页面合并的建设与优化任务</span></summary><div className="managementDisclosureBody">{tasksOpen ? <KeywordTasks /> : null}</div></details>
     <details className="managementDisclosure" id="keyword-audit" open={auditOpen} onToggle={event => setAuditOpen(event.currentTarget.open)}><summary>筛检记录<span>查看已完成的词库变更</span></summary><div className="managementDisclosureBody">{auditOpen ? <KeywordAuditHistory /> : null}</div></details>

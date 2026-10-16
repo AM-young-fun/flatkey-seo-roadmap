@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { normalizeKeywordText } from "./keyword-relevance";
-import { normalizeAuditPageUrl, type KeywordWorkPlan } from "./page-audit";
+import { normalizeAuditPageUrl, type KeywordWorkPlan, type PageAuditDomain } from "./page-audit";
 
 export const PAGE_TASK_PLAN_ID = "flatkey-page-work-plans-2026-10-16-v1";
 export type PageTaskWorkItem = KeywordWorkPlan & { keyword: string; keywordId: string };
@@ -14,7 +14,7 @@ export type PageTaskMergeSummary = {
   retired: number; retained: number; unchanged: number;
 };
 export type PageTaskMergeResult = {
-  siteDomain: "flatkey.ai"; action: "preview" | "apply"; status: "PREVIEW" | "APPLIED";
+  siteDomain: PageAuditDomain; action: "preview" | "apply"; status: "PREVIEW" | "APPLIED";
   stateHash: string; summary: PageTaskMergeSummary; conflicts: string[];
   tasks: Array<PageTaskRow & { workPlans: PageTaskWorkItem[]; disposition: "CREATE" | "UPDATE" | "UNCHANGED" }>;
 };
@@ -59,6 +59,7 @@ const buildDestinations: Record<string, string> = {
 export function pageTaskDestination(item: PageTaskWorkItem): string | null {
   if (item.action === "LINK") return null;
   if (item.action === "EXPAND") return item.pageUrls[0] ? normalizeAuditPageUrl(item.pageUrls[0]) : null;
+  if (item.plannedPageUrl) return normalizeAuditPageUrl(item.plannedPageUrl);
   const slug = buildDestinations[normalizeKeywordText(item.keyword)];
   return slug ? `https://flatkey.ai/blog/${slug}` : null;
 }
@@ -83,7 +84,7 @@ function mergeManualFields(primary: PageTaskRow, others: PageTaskRow[]): PageTas
   return { ...primary, owner: owners[0] ?? null, dueAt: dates[0] ?? null, status: progress[0] ?? "TODO", reason: reasons.join("\n\n") };
 }
 
-export function buildPageTaskMerge(before: PageTaskRow[], allItems: PageTaskWorkItem[]) {
+export function buildPageTaskMerge(before: PageTaskRow[], allItems: PageTaskWorkItem[], planId = PAGE_TASK_PLAN_ID) {
   const items = allItems.filter(item => item.action !== "LINK").sort((a, b) => normalizeKeywordText(a.keyword).localeCompare(normalizeKeywordText(b.keyword)));
   const pending = new Set(items.map(item => normalizeKeywordText(item.keyword)));
   const conflicts: string[] = [];
@@ -110,7 +111,7 @@ export function buildPageTaskMerge(before: PageTaskRow[], allItems: PageTaskWork
     const overlap = samePage.length ? [] : active.filter(row => !claimed.has(row.id) && after.get(row.id)?.keywords.length === 0 && row.keywords.some(word => oldWords.has(normalizeKeywordText(word))));
     const candidates = (samePage.length ? samePage : overlap).sort((a, b) => Number(manual(b)) - Number(manual(a)) || a.id.localeCompare(b.id));
     const old = candidates[0];
-    const id = old?.id ?? `${PAGE_TASK_PLAN_ID}:page:${createHash("sha256").update(destination).digest("hex").slice(0, 20)}`;
+    const id = old?.id ?? `${planId}:page:${createHash("sha256").update(destination).digest("hex").slice(0, 20)}`;
     const base = old ? after.get(old.id)! : { id, plannedUrl: destination, type: action === "BUILD" ? "NEW" : "EXPAND", status: "TODO", title: workPlans[0].proposedTitle,
       reason: "按逐词页面核验合并到同一页面任务；各关键词的补充要求与验收标准分别保留。", keywords: [], targetUrls: [], owner: null, dueAt: null };
     const duplicateTasks = samePage.filter(row => row.id !== id);
