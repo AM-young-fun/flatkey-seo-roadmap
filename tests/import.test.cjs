@@ -431,11 +431,27 @@ test("display tiers handle all boundaries and cumulative statistics", () => {
   );
   assert.equal(stats.ranked, 4);
   assert.equal(stats.unranked, 2);
+  assert.equal(stats.pending, 1);
   assert.equal(
     stats.buckets.reduce((sum, row) => sum + row.count, 0),
     6,
   );
   assert.equal(rankingStats([], "US").percent(0), 0);
+});
+
+test("overview pending includes missing and no-data evidence while confirmed outside remains separate", () => {
+  const stats = rankingStats([
+    { latestRanks: { US: null } },
+    { latestRanks: { US: { rank: null, rankStatus: "no_data" } } },
+    { latestRanks: { US: { rank: null, rankStatus: "outside_top100" } } },
+    { latestRanks: { US: { rank: 110, rankStatus: "outside_top100" } } },
+    { latestRanks: { US: { rank: 15, rankStatus: "ranked" } } },
+  ], "US");
+  assert.equal(stats.total, 5);
+  assert.equal(stats.ranked, 1);
+  assert.equal(stats.pending, 2);
+  assert.equal(stats.outside, 2);
+  assert.equal(stats.unranked, 4);
 });
 
 test("dashboard preserves GSC fractions, keeps zero volume and selects latest source data including no_data", async (t) => {
@@ -905,8 +921,8 @@ test("daily series keeps corrections, uses a stable source, and leaves missing s
   assert.equal(points.length,1); assert.equal(points[0].counts[0],5);
 });
 test("overview week rolls at Shanghai midnight and always contains at most seven days", () => {
-  assert.deepEqual(recentTrendRange(new Date("2026-10-14T15:59:00Z")), {start:"2026-10-08",end:"2026-10-14"});
-  assert.deepEqual(recentTrendRange(new Date("2026-10-14T16:00:00Z")), {start:"2026-10-09",end:"2026-10-15"});
+  assert.deepEqual(recentTrendRange(new Date("2026-10-14T15:59:00Z")), {start:"2026-10-08",end:"2026-10-13"});
+  assert.deepEqual(recentTrendRange(new Date("2026-10-14T16:00:00Z")), {start:"2026-10-08",end:"2026-10-14"});
 });
 test("full snapshot trends count confirmed ranks, retain explicit outside results, and leave unobserved days absent", () => {
   const rows=[{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:10.5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:101}];

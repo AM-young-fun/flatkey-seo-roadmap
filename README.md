@@ -11,7 +11,7 @@ Next.js + PostgreSQL + Prisma + ECharts 的关键词排名监控面板。
 - `GET /api/rankings/import`：定时采集任务读取当前关键词列表。
 - `POST /api/rankings/import`：批量导入 GSC / Ahrefs 浏览器采集结果，支持密钥认证、事务写入和幂等重试。
 
-上线准备与请求格式见 [导入接口文档](docs/ranking-import.md)。Vercel 生产构建会自动应用幂等增量 SQL；导入密钥可从登录后的「数据管理」复制，无需额外配置 Vercel 环境变量。每天北京时间 10:30 的采集在独立会话中另行配置；网页在可见时每 15 秒更新。旧 SerpApi Cron 已移除。
+上线准备与请求格式见 [导入接口文档](docs/ranking-import.md)。Vercel 生产构建会自动应用幂等增量 SQL；导入密钥可从登录后的「数据管理」复制，无需额外配置 Vercel 环境变量。每天北京时间 10:30 的采集在独立会话中另行配置；网页在可见时每 60 秒更新。旧 SerpApi Cron 已移除。
 
 ## 功能
 

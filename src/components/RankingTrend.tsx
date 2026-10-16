@@ -11,7 +11,7 @@ const trendResults = new Map<string, TrendResult>();
 
 export function RankingTrend({ region }: { region: SearchRegionCode }) {
   const [range, setRange] = useState(() => recentTrendRange());
-  const key = `${region}:${range.start}:${range.end}`;
+  const key = `weekly-v2:${region}:${range.start}:${range.end}`;
   const [result, setResult] = useState<(TrendResult & {key:string}) | null>(() => {
     const saved = trendResults.get(key);
     return saved ? { ...saved, key } : null;
@@ -33,7 +33,7 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
       if (!saved || completed || controller.signal.aborted) return;
       try {
         const data = JSON.parse(saved.body) as TrendResult;
-        if (Array.isArray(data.points) && data.start === range.start && data.end === range.end)
+        if (data.schemaVersion === 2 && data.mode === "weekly-evidence" && Array.isArray(data.points) && data.start === range.start && data.end === range.end)
           setResult(previous => previous?.key === key ? previous : { ...data, key });
       } catch { /* Ignore malformed cache data. */ }
     });
@@ -46,6 +46,7 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
         if (response.status === 401) { window.location.assign("/login"); return; }
         if (!response.ok) throw new Error("加载失败");
         const data = await response.json() as TrendResult;
+        if (data.schemaVersion !== 2 || data.mode !== "weekly-evidence") throw new Error("统计口径已更新，请重新加载");
         if (!controller.signal.aborted) {
           trendResults.set(key, data);
           if (trendResults.size > 16) trendResults.delete(trendResults.keys().next().value!);
@@ -73,14 +74,14 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
       tooltip: { trigger: "axis", renderMode:"richText", confine:true, formatter:(raw:unknown)=> {
         const values = raw as {axisValue:string;seriesName:string;value:number|null}[];
         const point = byDate.get(String(values[0]?.axisValue));
-        if (!point) return "尚未建立词库基线";
-        return [`截至 ${point.date} 已采集的报告记录`, ...values.filter(row=>row.value != null).map(row=>`${row.seriesName}：${Number(row.value).toLocaleString()} 个`), `排名记录更新于 ${point.asOf ?? point.date}`, point.asOf && point.asOf < point.date ? "沿用最近报告，未在当天重新检测" : "已纳入截至该日采集的来源报告"].join("\n");
+        if (!point) return "暂无周排名证据";
+        return [`统计期 ${point.periodStart} 至 ${point.periodEnd}`, `业务目标：${point.total.toLocaleString()} 词`, ...values.filter(row=>row.value != null).map(row=>`${row.seriesName}：${Number(row.value).toLocaleString()} 词`), `明确前 100 外：${point.outside} 词`, `待核验：${point.pending} 词`, "按当前已导入的真实报告回算，非当天搜索结果"].join("\n");
       } },
       legend: { top: 0, textStyle: {color:"#70819a",fontSize:11} },
       grid: { left: 45, right: 25, top: 45, bottom: 40 },
       xAxis: { type:"category", data:dates, boundaryGap:true, axisLabel:{formatter:(value:string)=>value.slice(5),color:"#8795a9"}, axisLine:{lineStyle:{color:"#e5eaf2"}} },
       yAxis: { type:"value", minInterval:1, axisLabel:{color:"#8795a9"},splitLine:{lineStyle:{color:"#eef2f7"}} },
-      series: [{ name:"前 100 合计", type:"line" as const, lineStyle:{width:3}, itemStyle:{color:"#19283f"}, symbolSize:6, connectNulls:false, data:dates.map(date=> { const point=byDate.get(date); return point ? point.counts.reduce((sum,count)=>sum+count,0) : null; }) }, ...DISPLAY_BUCKETS.slice(0,4).map((bucket,index)=>({ name:`${bucket.range} 名`, type:"line" as const, itemStyle:{color:bucket.color}, lineStyle:{color:bucket.color}, smooth:false, showSymbol:true, symbolSize:points.length===1?10:5, connectNulls:false, data:dates.map(date=>byDate.get(date)?.counts[index] ?? null) }))],
+      series: [{ name:"前 100 合计", type:"line" as const, lineStyle:{width:3}, itemStyle:{color:"#19283f"}, symbolSize:6, connectNulls:false, data:dates.map(date=> { const point=byDate.get(date); return point && point.pending < point.total ? point.ranked : null; }) }, ...DISPLAY_BUCKETS.slice(0,4).map((bucket,index)=>({ name:`${bucket.range} 名`, type:"line" as const, itemStyle:{color:bucket.color}, lineStyle:{color:bucket.color}, smooth:false, showSymbol:true, symbolSize:points.length===1?10:5, connectNulls:false, data:dates.map(date=>{ const point=byDate.get(date); return point && point.pending < point.total ? point.counts[index] : null; }) }))],
     };
     void import("@/lib/charts").then(({ init }) => {
       if (disposed) return;
@@ -92,9 +93,9 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [points, range.start, range.end]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近 7 天 · 来源报告中的前 100 记录（非实时名次）</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>
-    {latest ? <p className="inventoryTrendTotal">截至 {latest.date}，报告前 100 记录 <strong>{latest.counts.reduce((sum,count)=>sum+count,0).toLocaleString()}</strong> 个{latest.asOf && latest.asOf < latest.date ? ` · 沿用 ${latest.asOf} 最近报告` : ""}</p> : null}
+    <div className="dailyHeading"><div><h2>关键词排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 业务词库的周排名证据 · 非实时名次</p></div><Link href="/traffic" className="textLink">查看周报 →</Link></div>
+    {latest ? <><p className="inventoryTrendTotal">业务目标共 <strong>{latest.total.toLocaleString()}</strong> 词 · 本期前 100 记录 <strong>{latest.total > 0 && latest.pending === latest.total ? "暂无周证据" : `${latest.ranked.toLocaleString()} 词`}</strong></p><p className="chartNote">{latest.periodStart} 至 {latest.periodEnd} · 明确前 100 外 {latest.outside.toLocaleString()} 词 · 待核验 {latest.pending.toLocaleString()} 词</p>{latest.total > 0 && latest.pending === latest.total ? <p className="chartNote" role="status">本期暂无有效周排名证据，待核验词不能视为已确认未排名。</p> : null}</> : null}
     {error ? <div className="loadError"><span>趋势暂时无法读取</span><button onClick={()=>retry(value=>value+1)}>重新加载</button></div> : null}
-    {!points ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !points.length ? <p className="muted">尚未建立词库排名基线，暂时无法展示总量趋势。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}最近7天关键词排名数量趋势，${displayStart}至${displayEnd}，${points.length}个有数据日期`} /><p className="chartNote">{displayStart} 至 {displayEnd} · 按当时已采集的来源报告统计；没有新报告的日期沿用上次结果，不代表当天搜索可复现。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">前 100 合计为四个排名区间之和，同一网站同一关键词只计一次。每个关键词按截至该日可用报告的实际数据日期选取；更新的无数据报告会替代旧排名，但无数据不代表确认前 100 外。未重新采集时沿用上次报告，悬停可查看采集更新日期。GSC 单日曝光词数量不作为词库总量，也不向首次有效采集之前反推历史排名。GSC 排名保留其原统计区间。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。</p></details></>}
+    {!points ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !points.length ? <p className="muted">当前没有可统计的业务目标词。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label}业务词库周排名证据趋势，统计期末${displayStart}至${displayEnd}；缺少证据的日期留空`} /><p className="chartNote">每点为截至标注日期的连续 7 个完整自然日，按当前已导入报告回算。缺少有效周证据时留空，不沿用过期排名。</p><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">业务目标总数与关键词明细使用相同词库：Flatkey 只计正式目标，其他网站保留有效业务词。同一网站同一关键词只计一次，前 100 是其中有有效排名证据的子集。GSC 只使用精确匹配该 7 天的查询平均排名；Ahrefs 要求来源更新日期在该统计期内。单日 GSC、28 天或 90 天均值不填充周排名。没有记录和来源明确报告前 100 外分别统计，页面均位不当作查询排名，当前 Google 搜索未核验。覆盖网站：{[...new Set(points.flatMap(point=>point.sites))].join("、")}。</p></details></>}
   </section>;
 }

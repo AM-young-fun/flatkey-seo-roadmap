@@ -72,7 +72,7 @@ export function rankingStats(
     (rank) => rank != null && rank >= 1 && rank <= 100,
   ).length;
   const pending = keywords.filter(
-    (keyword) => !keyword.latestRanks[region],
+    (keyword) => matchesRanking(keyword.latestRanks[region], "UNKNOWN"),
   ).length;
   const percent = (count: number) => (total ? (count / total) * 100 : 0);
   return {
@@ -80,6 +80,7 @@ export function rankingStats(
     ranked,
     unranked: total - ranked,
     pending,
+    outside: total - ranked - pending,
     percent,
     buckets: DISPLAY_BUCKETS.map((bucket) => ({
       ...bucket,
