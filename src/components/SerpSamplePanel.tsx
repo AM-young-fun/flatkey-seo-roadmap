@@ -5,6 +5,7 @@ import type { SerpSamplePreview, SerpSampleResult } from "@/lib/serp-sample";
 import type { SerpMonitorRunDto } from "@/lib/serp-monitor-types";
 import type { SerpResultsResponse, SerpKeywordResult } from "@/lib/serp-results";
 import { dashboardStore } from "@/lib/dashboard-client";
+import type { loadSerpSampleEvidence } from "@/lib/services/serp-sample";
 
 const money = (micros: number) => `$${(micros / 1_000_000).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
 const markets = [{ code: "US", label: "美国" }, { code: "JP", label: "日本" }, { code: "ES", label: "西班牙" }, { code: "BR", label: "巴西" }] as const;
@@ -18,6 +19,7 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
   const [error, setError] = useState("");
   const [attempted, setAttempted] = useState(false);
   const [balance, setBalance] = useState<{balanceMicros: number; checkedAt: string} | null>(null);
+  const [evidence, setEvidence] = useState<Awaited<ReturnType<typeof loadSerpSampleEvidence>> | null>(null);
   const [results, setResults] = useState<Record<string, SerpResultsResponse>>({});
   useEffect(() => { if (latestRun) setRun(latestRun); }, [latestRun]);
   const readResults = useCallback(async () => {
@@ -46,6 +48,15 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
     setBusy("balance"); setError("");
     try { setBalance(await post({ action: "sampleBalance" })); }
     catch (error) { setError(error instanceof Error ? error.message : "余额核实失败"); }
+    finally { setBusy(""); }
+  }
+  async function readEvidence() {
+    setBusy("evidence"); setError("");
+    try {
+      const response = await fetch("/api/serp-monitor?sampleEvidence=1", { cache: "no-store" });
+      if (!response.ok) throw new Error("核验说明暂时无法读取");
+      setEvidence(await response.json());
+    } catch (error) { setError(error instanceof Error ? error.message : "读取失败"); }
     finally { setBusy(""); }
   }
   async function start() {
@@ -93,5 +104,6 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
     {!run ? <button className="okrRefresh" disabled={Boolean(busy) || attempted} onClick={() => void prepare()}>{busy === "preview" ? "正在核实余额…" : "核实余额与测试名单"}</button> : null}
     {preview ? <div className="dataforseoPreview"><p>{run ? "提交前余额" : "账户实时余额"} <strong>{money(preview.liveBalanceMicros)}</strong> · 本次 {preview.targets.length} 词 / {preview.quote.queryCount} 次查询 · 最高 <strong>{money(preview.maxBudgetMicros)}</strong></p><p className="chartNote">提交前再次核对余额，并预留 {money(preview.safetyMarginMicros)}。只在已保存的这一批任务中取回结果，不重复付费。</p><details><summary>查看测试词</summary><p>{preview.targets.map(target => target.keyword).join("、")}</p></details>{!run ? <button className="managePrimary" disabled={Boolean(busy) || attempted || Date.parse(preview.expiresAt) <= Date.now()} onClick={() => void start()}>{busy === "start" ? "正在提交这一批…" : attempted ? "已提交，请核对原记录" : `抓取这一批（最高 ${money(preview.maxBudgetMicros)}）`}</button> : null}</div> : null}
     {run ? <><p><strong>{states[run.status] ?? run.status}</strong> · {run.targetCount} 词 / {run.queryCount} 次查询 · {run.status === "RUNNING" || run.status === "PLANNED" ? "结算中" : "回执费用"} {run.actualCostMicros == null ? "待确认" : money(run.actualCostMicros)}</p><p className="chartNote">已返回 {(run.taskCounts.COMPLETE ?? 0) + (run.taskCounts.INCOMPLETE ?? 0)} / {run.queryCount} · 等待 {run.taskCounts.QUEUED ?? 0} · 失败 {run.taskCounts.FAILED ?? 0}</p><div className="dataforseoActions"><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void collect()}>{busy === "collect" ? "正在获取结果…" : "获取已提交结果（不再次计费）"}</button><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void readBalance()}>{busy === "balance" ? "正在核实余额…" : "刷新账户余额"}</button><Link className="textLink" href="/keywords?sample=1">查看本次关键词与页面 →</Link>{rows.size ? <button className="okrRefresh" onClick={exportCsv}>下载四国测试结果</button> : null}</div>{balance ? <p className="chartNote">账户余额 {money(balance.balanceMicros)} · {new Date(balance.checkedAt).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai"})} 核实；供应商结算退差额后可能增加。</p> : null}{rows.size ? <details className="simpleExplanation" open><summary>四国实测对比（{rows.size} 词）</summary><div className="serpPeriodTable"><table><thead><tr><th>关键词</th>{markets.map(market => <th key={market.code}>{market.label}</th>)}</tr></thead><tbody>{[...rows.entries()].map(([key, row]) => <tr key={key}><td>{row.keyword}</td>{markets.map(market => { const item = row.byMarket[market.code]; return <td key={market.code}>{item?.url ? <a href={item.url} target="_blank" rel="noreferrer">{resultLabel(item)} ↗</a> : resultLabel(item)}</td>; })}</tr>)}</tbody></table></div><p className="chartNote">名次已匹配实际页面；未取满100条且未命中的记录保留为“待核验”，不算作“前100外”。</p></details> : null}</> : null}
+    {run ? <details className="simpleExplanation"><summary>待核验原因</summary><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void readEvidence()}>{busy === "evidence" ? "正在读取说明…" : "读取已保存的核验说明"}</button>{evidence ? <div className="serpPeriodTable" aria-label="本批返回数据核验"><table><thead><tr><th>关键词</th><th>国家</th><th>返回自然结果</th><th>Google纠词</th><th>缓存命中页面</th></tr></thead><tbody>{evidence.tasks.map(item => <tr key={`${item.region}:${item.keyword}`}><td>{item.keyword}</td><td>{markets.find(market => market.code === item.region)?.label ?? item.region}</td><td>{item.organicCount} 条 · 至第 {item.maxOrganicRank} 名</td><td>{item.spell.type ? `${item.spell.type === "showing_results_for" ? "改搜" : item.spell.type === "no_results_found_for" ? "原词未返回，改搜" : "拼写提示"} ${item.spell.spell ?? ""}` : "无"}</td><td>{item.flatkeyPages.map(page => <span key={`${page.rankGroup}:${page.url}`}>#{page.rankGroup} <a href={page.url} target="_blank" rel="noreferrer">{page.url}</a><br /></span>)}</td></tr>)}</tbody></table></div> : null}</details> : null}
   </section>;
 }
