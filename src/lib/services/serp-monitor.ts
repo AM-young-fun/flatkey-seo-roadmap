@@ -236,14 +236,51 @@ async function markUnknown(runId: string, ids: string[], errorCode: string) {
 }
 async function replayTask(task: SerpMonitorTask, config: SerpMonitorConfiguration) {
   if (!task.rawResponse || !task.providerTaskId) return;
+  let finalCost: number | null = null;
   try {
+    const raw = JSON.parse(task.rawResponse), receipt = providerTaskEnvelope(raw, task.providerTaskId);
+    finalCost = receipt.status_code === 20000 ? providerCostMicros(receipt.cost) : null;
+    // Above-default-depth tasks are prepaid at POST time. A completed GET
+    // reports the settled fee after unused-page refunds, including zero. Keep
+    // the original submissionRaw for the reservation/safety audit, but do not
+    // keep reporting its larger prepayment as actual spend.
     const taskConfig = configForSerpRegion((task.region ?? config.region) as SerpMonitorConfiguration["region"], config);
-    const normalized = normalizeSerpAdvanced(JSON.parse(task.rawResponse), { providerTaskId: task.providerTaskId, keyword: task.keyword, config: taskConfig });
-    await prisma.serpMonitorTask.updateMany({ where: { id: task.id, state: { in: ["RECEIVED", "INCOMPLETE"] } }, data: { normalizedJson: json(normalized), checkedAt: new Date(normalized.checkedAt),
-      state: normalized.completeDepth ? "COMPLETE" : "INCOMPLETE", errorCode: normalized.completeDepth ? null : "ORGANIC_DEPTH_NOT_VERIFIED" } });
+    const normalized = normalizeSerpAdvanced(raw, { providerTaskId: task.providerTaskId, keyword: task.keyword, config: taskConfig });
+    await prisma.serpMonitorTask.updateMany({ where: { id: task.id, state: { in: ["RECEIVED", "INCOMPLETE", "COMPLETE"] } }, data: { normalizedJson: json(normalized), checkedAt: new Date(normalized.checkedAt),
+      ...(finalCost !== null ? { costMicros: finalCost } : {}), state: normalized.completeDepth ? "COMPLETE" : "INCOMPLETE", errorCode: normalized.completeDepth ? null : "ORGANIC_DEPTH_NOT_VERIFIED" } });
   } catch {
-    await prisma.serpMonitorTask.updateMany({ where: { id: task.id, state: "RECEIVED" }, data: { state: "INCOMPLETE", errorCode: "RESULT_VALIDATION_FAILED" } });
+    await prisma.serpMonitorTask.updateMany({ where: { id: task.id, state: "RECEIVED" }, data: { state: "INCOMPLETE", errorCode: "RESULT_VALIDATION_FAILED",
+      ...(finalCost !== null ? { costMicros: finalCost } : {}) } });
   }
+  if (finalCost !== null && finalCost > SERP_PRICE_PER_QUERY_MICROS) await enforceCostBounds(task.runId);
+}
+
+async function settleCachedSampleCosts(run: SerpMonitorRun) {
+  if (run.scope !== "SAMPLE") return;
+  // Only the small first trial predates settled-fee storage. Cover its entire
+  // bounded ledger in one read/write instead of repeatedly fixing the first
+  // 40 rows or re-fetching any provider results. Full runs use the corrected
+  // polling path and never load thousands of cached response bodies here.
+  const cached = await prisma.serpMonitorTask.findMany({ where: { runId: run.id, state: { in: ["INCOMPLETE", "COMPLETE"] },
+    rawResponse: { not: null }, providerTaskId: { not: null } }, take: SERP_SAMPLE_MAX_QUERIES });
+  const changes: Array<{ id: string; cost: number }> = [];
+  for (const task of cached) {
+    try {
+      const receipt = providerTaskEnvelope(JSON.parse(task.rawResponse!), task.providerTaskId!);
+      const cost = receipt.status_code === 20000 ? providerCostMicros(receipt.cost) : null;
+      if (cost !== null && cost !== task.costMicros) changes.push({ id: task.id, cost });
+    } catch { /* Preserve the reservation when the cached settlement is invalid. */ }
+  }
+  if (!changes.length) return;
+  const values = Prisma.join(changes.map(change => Prisma.sql`(${change.id}::text, ${change.cost}::integer)`));
+  await prisma.$executeRaw(Prisma.sql`
+    /* serp-monitor:settle-cached-sample-costs */
+    UPDATE "SerpMonitorTask" AS task SET "costMicros" = settled.cost, "updatedAt" = CURRENT_TIMESTAMP
+    FROM (VALUES ${values}) AS settled(id, cost)
+    WHERE task.id = settled.id AND task."runId" = ${run.id}
+      AND task.state IN ('INCOMPLETE', 'COMPLETE') AND task."costMicros" IS DISTINCT FROM settled.cost
+  `);
+  if (changes.some(change => change.cost > SERP_PRICE_PER_QUERY_MICROS)) await enforceCostBounds(run.id);
 }
 async function pollTask(task: SerpMonitorTask, config: SerpMonitorConfiguration, authorization: string) {
   if (!providerIdIsSafe(task.providerTaskId)) return;
@@ -265,10 +302,9 @@ async function pollTask(task: SerpMonitorTask, config: SerpMonitorConfiguration,
   // Cache the complete free GET before parsing. A parser/database interruption
   // can replay this receipt locally without submitting another paid task.
   const persisted = await prisma.serpMonitorTask.updateMany({ where: { id: task.id, state: "QUEUED" }, data: { state: "RECEIVED", rawResponse: raw,
-    lastPolledAt: new Date(), costMicros: Math.max(task.costMicros ?? 0, providerCostMicros(received.cost) ?? 0), errorCode: null } });
+    lastPolledAt: new Date(), costMicros: providerCostMicros(received.cost) ?? task.costMicros, errorCode: null } });
   if (persisted.count) {
     await replayTask({ ...task, rawResponse: raw }, config);
-    if ((providerCostMicros(received.cost) ?? 0) > SERP_PRICE_PER_QUERY_MICROS) await enforceCostBounds(task.runId);
   }
 }
 async function finalizeRun(runId: string) {
@@ -283,15 +319,15 @@ async function finalizeRun(runId: string) {
       return run;
     }
     const reported = (await tx.serpMonitorTask.aggregate({ where: { runId }, _sum: { costMicros: true } }))._sum.costMicros;
-    const actual = reported == null && run.actualCostMicros == null ? null : Math.max(reported ?? 0, run.actualCostMicros ?? 0);
+    const actual = reported ?? run.actualCostMicros;
     if (run.errorCode?.startsWith("COST_")) return tx.serpMonitorRun.update({ where: { id: runId }, data: { status: "UNKNOWN",
-      actualCostMicros: actual, reservedCostMicros: Math.max(run.reservedCostMicros, actual ?? 0) } });
+      actualCostMicros: Math.max(actual ?? 0, run.actualCostMicros ?? 0), reservedCostMicros: Math.max(run.reservedCostMicros, actual ?? 0, run.actualCostMicros ?? 0) } });
     if (counts.some(group => !TERMINAL_TASKS.includes(group.state))) return tx.serpMonitorRun.update({ where: { id: runId }, data: { actualCostMicros: actual } });
     const complete = counts.every(group => group.state === "COMPLETE"), anyResult = counts.some(group => ["COMPLETE", "INCOMPLETE"].includes(group.state));
     const status = complete ? "COMPLETED" : anyResult ? "PARTIAL" : "FAILED";
     // Replaying a repaired parser may resolve a formerly partial run. Correct
     // its status while preserving the original completion time and cadence.
-    if (run.completedAt) return run.status === status ? run : tx.serpMonitorRun.update({ where: { id: runId }, data: {
+    if (run.completedAt) return run.status === status && run.actualCostMicros === actual ? run : tx.serpMonitorRun.update({ where: { id: runId }, data: {
       status, actualCostMicros: actual, errorCode: complete ? null : "SOME_TASKS_NOT_VERIFIED" } });
     const completedAt = new Date();
     const finished = await tx.serpMonitorRun.update({ where: { id: runId }, data: { status, actualCostMicros: actual, completedAt,
@@ -334,6 +370,7 @@ export async function resumeSerpMonitorRun(runId: string, options: { allowSubmit
   await expireStaleSubmissions(runId);
   const run = await prisma.serpMonitorRun.findUnique({ where: { id: runId } });
   if (!run) throw new ImportRequestError("未找到SERP采集账本", 404);
+  await settleCachedSampleCosts(run);
   if (options.allowSubmit && (run.scope ?? "SCHEDULED") === "SCHEDULED" && isSerpPaidEnvironmentEnabled() && run.status !== "UNKNOWN") await submitOneBatch(runId);
   const config = run.configJson as unknown as SerpMonitorConfiguration;
   const cached = await prisma.serpMonitorTask.findMany({ where: { runId, state: "RECEIVED", rawResponse: { not: null } }, take: 40 });
@@ -353,7 +390,8 @@ export async function mutateSerpMonitor(input: SerpMonitorMutation) {
   if (input.action === "replay") {
     const run = await prisma.serpMonitorRun.findUnique({ where: { id: input.runId } });
     if (!run) throw new ImportRequestError("未找到SERP采集账本", 404);
-    const tasks = await prisma.serpMonitorTask.findMany({ where: { runId: input.runId, state: { in: ["RECEIVED", "INCOMPLETE"] }, rawResponse: { not: null } }, take: 100 });
+    const tasks = await prisma.serpMonitorTask.findMany({ where: { runId: input.runId, state: { in: ["RECEIVED", "INCOMPLETE", "COMPLETE"] }, rawResponse: { not: null } },
+      orderBy: { updatedAt: "asc" }, take: run.scope === "SAMPLE" ? SERP_SAMPLE_MAX_QUERIES : 100 });
     for (const task of tasks) await replayTask(task, run.configJson as unknown as SerpMonitorConfiguration);
     return { action: "replay", run: await runDto(await finalizeRun(input.runId)) };
   }

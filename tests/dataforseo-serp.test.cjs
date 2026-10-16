@@ -87,7 +87,15 @@ const db = {
     catch (error) { state = before; throw error; }
     finally { inTransaction = false; release(); }
   },
-  $executeRaw: async () => 0,
+  $executeRaw: async query => {
+    if (!query?.sql?.includes("serp-monitor:settle-cached-sample-costs")) return 0;
+    const values = query.values, runId = values.at(-1); let count = 0;
+    for (let index = 0; index < values.length - 1; index += 2) {
+      const task = state.tasks.find(task => task.id === values[index] && task.runId === runId && ["INCOMPLETE", "COMPLETE"].includes(task.state));
+      if (task && task.costMicros !== values[index + 1]) { task.costMicros = values[index + 1]; count++; }
+    }
+    events.push("settle:cached"); return count;
+  },
   serpMonitorConfig: model("config", { revision: 1, nextDueAt: null }), serpMonitorRun: model("runs", { scope: "SCHEDULED", sampleAuthorizationHash: null }), serpMonitorTask: model("tasks"),
   dataForSeoConnection: { findUnique: async () => state.connection ? { loginMasked: "f***", encryptedCredentials: "fictional-ciphertext", connectionVersion: 1 } : null },
 };
@@ -428,6 +436,61 @@ test("four-market quote and parser bind each independent country, language and G
     assert.throws(() => normalizeSerpAdvanced(advanced(task, 100, { language_code: "invalid" }), expected), /SCOPE_MISMATCH/);
     assert.throws(() => normalizeSerpAdvanced(advanced(task, 100, { se_domain: "wrong.invalid" }), expected), /SCOPE_MISMATCH/);
   }
+});
+
+test("completed GET settles a lower fee after unused-depth refunds without changing the original reservation", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
+  const created = await start(); assert.equal(created.run.actualCostMicros, 48000);
+  respond = async url => {
+    const result = advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)), 10);
+    result.tasks[0].cost = 0.0012; return new Response(JSON.stringify(result));
+  };
+  const result = await mutateSerpMonitor({ action: "resume", runId: created.run.id });
+  assert.equal(result.run.actualCostMicros, 9600); assert.equal(result.run.reservedCostMicros, 48000);
+  assert.ok(state.tasks.every(task => task.costMicros === 1200));
+  assert.ok(state.tasks.every(task => JSON.parse(task.submissionRaw).tasks.every(receipt => receipt.cost === 0.006)), "original prepayment receipts remain unchanged");
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+});
+
+test("free resume repairs all 152 cached legacy sample settlements once, including COMPLETE and INCOMPLETE, without any provider call", async () => {
+  const run = await seedAuthorizedSample(38), completedAt = new Date("2026-10-16T03:00:00Z");
+  run.status = "PARTIAL"; run.completedAt = completedAt; run.actualCostMicros = run.reservedCostMicros;
+  for (const [index, task] of state.tasks.entries()) {
+    task.providerTaskId = `fictional-settled-${index}`; task.costMicros = 6000; task.state = index % 2 ? "COMPLETE" : "INCOMPLETE";
+    const raw = advanced(task, index % 2 ? 100 : 10); raw.tasks[0].cost = 0.0012;
+    task.rawResponse = JSON.stringify(raw); task.submissionRaw = "original-prepayment-receipt";
+  }
+  const result = await mutateSerpMonitor({ action: "resume", runId: run.id });
+  assert.equal(result.run.actualCostMicros, 182400); assert.equal(result.run.reservedCostMicros, 912000);
+  assert.ok(state.tasks.every(task => task.costMicros === 1200)); assert.equal(events.filter(event => event === "settle:cached").length, 1);
+  assert.equal(result.run.completedAt, completedAt.toISOString()); assert.equal(fetches.length, 0); assert.equal(state.config.nextDueAt, null);
+  await mutateSerpMonitor({ action: "resume", runId: run.id });
+  assert.equal(events.filter(event => event === "settle:cached").length, 1, "unchanged cached rows produce no repeated settlement write");
+  assert.ok(state.tasks.every(task => task.submissionRaw === "original-prepayment-receipt")); assert.equal(fetches.length, 0);
+});
+
+test("local replay lowers an already completed run's stale actual total even when its ranking status is unchanged", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
+  const created = await start(); await mutateSerpMonitor({ action: "resume", runId: created.run.id });
+  const completedAt = state.runs[0].completedAt, dueAt = state.config.nextDueAt;
+  for (const task of state.tasks) { const raw = JSON.parse(task.rawResponse); raw.tasks[0].cost = 0.0012; task.rawResponse = JSON.stringify(raw); }
+  const before = fetches.length, result = await mutateSerpMonitor({ action: "replay", runId: created.run.id });
+  assert.equal(result.run.status, "COMPLETED"); assert.equal(result.run.actualCostMicros, 9600); assert.equal(result.run.reservedCostMicros, 48000);
+  assert.equal(result.run.completedAt, completedAt.toISOString()); assert.equal(state.config.nextDueAt.toISOString(), dueAt.toISOString()); assert.equal(fetches.length, before);
+});
+
+test("settlement refunds cannot clear a prior COST guard or lower the anomalous amount held for review", async () => {
+  const run = await seedAuthorizedSample(); run.status = "UNKNOWN"; run.errorCode = "COST_LIMIT_EXCEEDED";
+  run.actualCostMicros = 60000; run.reservedCostMicros = 60000;
+  for (const [index, task] of state.tasks.entries()) {
+    task.providerTaskId = `fictional-cost-review-${index}`; task.state = "INCOMPLETE"; task.costMicros = 6000;
+    const raw = advanced(task, 10); raw.tasks[0].cost = 0.0012; task.rawResponse = JSON.stringify(raw);
+  }
+  const result = await mutateSerpMonitor({ action: "resume", runId: run.id });
+  assert.equal(result.run.status, "UNKNOWN"); assert.equal(result.run.errorCode, "COST_LIMIT_EXCEEDED");
+  assert.equal(result.run.actualCostMicros, 60000); assert.equal(result.run.reservedCostMicros, 60000);
+  await assert.rejects(submitSerpSampleBatch(run.id, SERP_SAMPLE_AUTHORIZATION_HASH), error => error.status === 409);
+  assert.equal(fetches.length, 0);
 });
 
 test("sample helper rejects wrong scope, authorization, count, cap, balance, expiry, connection or paid request extras before POST", async () => {

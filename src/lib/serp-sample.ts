@@ -32,6 +32,7 @@ export type SerpSampleStartResult = {
 export type SerpSampleResult = SerpSampleStartResult;
 
 export const serpSampleMutationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("sampleBalance") }).strict(),
   z.object({ action: z.literal("previewSample") }).strict(),
   z.object({ action: z.literal("startSample"), idempotencyKey: z.string().regex(/^[a-zA-Z0-9-]{8,100}$/),
     expectedSubsetHash: z.string().regex(/^[a-f0-9]{64}$/), authorizationToken: z.string().min(30).max(6000),

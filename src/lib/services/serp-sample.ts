@@ -140,5 +140,10 @@ export async function startSerpSample(input: Extract<SerpSampleMutation, { actio
 }
 
 export async function mutateSerpSample(input: SerpSampleMutation) {
+  if (input.action === "sampleBalance") {
+    await requireScheduledPaused();
+    const balanceMicros = await fetchBalance(await connection());
+    return { action: "sampleBalance", balanceMicros, checkedAt: new Date().toISOString(), scheduledPaidEnabled: false };
+  }
   return input.action === "previewSample" ? previewSerpSample() : startSerpSample(input);
 }

@@ -17,6 +17,7 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [attempted, setAttempted] = useState(false);
+  const [balance, setBalance] = useState<{balanceMicros: number; checkedAt: string} | null>(null);
   const [results, setResults] = useState<Record<string, SerpResultsResponse>>({});
   useEffect(() => { if (latestRun) setRun(latestRun); }, [latestRun]);
   const readResults = useCallback(async () => {
@@ -39,6 +40,12 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
     setBusy("preview"); setError("");
     try { const value = await post({ action: "previewSample" }) as SerpSamplePreview; setPreview(value); if (value.existingRun) setRun(value.existingRun); }
     catch (error) { setError(error instanceof Error ? error.message : "无法确认余额"); }
+    finally { setBusy(""); }
+  }
+  async function readBalance() {
+    setBusy("balance"); setError("");
+    try { setBalance(await post({ action: "sampleBalance" })); }
+    catch (error) { setError(error instanceof Error ? error.message : "余额核实失败"); }
     finally { setBusy(""); }
   }
   async function start() {
@@ -85,6 +92,6 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
     {error ? <p role="alert" className="loadError">{error}</p> : null}
     {!run ? <button className="okrRefresh" disabled={Boolean(busy) || attempted} onClick={() => void prepare()}>{busy === "preview" ? "正在核实余额…" : "核实余额与测试名单"}</button> : null}
     {preview ? <div className="dataforseoPreview"><p>{run ? "提交前余额" : "账户实时余额"} <strong>{money(preview.liveBalanceMicros)}</strong> · 本次 {preview.targets.length} 词 / {preview.quote.queryCount} 次查询 · 最高 <strong>{money(preview.maxBudgetMicros)}</strong></p><p className="chartNote">提交前再次核对余额，并预留 {money(preview.safetyMarginMicros)}。只在已保存的这一批任务中取回结果，不重复付费。</p><details><summary>查看测试词</summary><p>{preview.targets.map(target => target.keyword).join("、")}</p></details>{!run ? <button className="managePrimary" disabled={Boolean(busy) || attempted || Date.parse(preview.expiresAt) <= Date.now()} onClick={() => void start()}>{busy === "start" ? "正在提交这一批…" : attempted ? "已提交，请核对原记录" : `抓取这一批（最高 ${money(preview.maxBudgetMicros)}）`}</button> : null}</div> : null}
-    {run ? <><p><strong>{states[run.status] ?? run.status}</strong> · {run.targetCount} 词 / {run.queryCount} 次查询 · 回执费用 {run.actualCostMicros == null ? "待确认" : money(run.actualCostMicros)}</p><p className="chartNote">已返回 {(run.taskCounts.COMPLETE ?? 0) + (run.taskCounts.INCOMPLETE ?? 0)} / {run.queryCount} · 等待 {run.taskCounts.QUEUED ?? 0} · 失败 {run.taskCounts.FAILED ?? 0}</p><div className="dataforseoActions"><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void collect()}>{busy === "collect" ? "正在获取结果…" : "获取已提交结果（不再次计费）"}</button><Link className="textLink" href="/keywords?sample=1">查看本次关键词与页面 →</Link>{rows.size ? <button className="okrRefresh" onClick={exportCsv}>下载四国测试结果</button> : null}</div>{rows.size ? <details className="simpleExplanation" open><summary>四国实测对比（{rows.size} 词）</summary><div className="serpPeriodTable"><table><thead><tr><th>关键词</th>{markets.map(market => <th key={market.code}>{market.label}</th>)}</tr></thead><tbody>{[...rows.entries()].map(([key, row]) => <tr key={key}><td>{row.keyword}</td>{markets.map(market => { const item = row.byMarket[market.code]; return <td key={market.code}>{item?.url ? <a href={item.url} target="_blank" rel="noreferrer">{resultLabel(item)} ↗</a> : resultLabel(item)}</td>; })}</tr>)}</tbody></table></div><p className="chartNote">名次已匹配实际页面；未取满100条且未命中的记录保留为“待核验”，不算作“前100外”。</p></details> : null}</> : null}
+    {run ? <><p><strong>{states[run.status] ?? run.status}</strong> · {run.targetCount} 词 / {run.queryCount} 次查询 · {run.status === "RUNNING" || run.status === "PLANNED" ? "结算中" : "回执费用"} {run.actualCostMicros == null ? "待确认" : money(run.actualCostMicros)}</p><p className="chartNote">已返回 {(run.taskCounts.COMPLETE ?? 0) + (run.taskCounts.INCOMPLETE ?? 0)} / {run.queryCount} · 等待 {run.taskCounts.QUEUED ?? 0} · 失败 {run.taskCounts.FAILED ?? 0}</p><div className="dataforseoActions"><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void collect()}>{busy === "collect" ? "正在获取结果…" : "获取已提交结果（不再次计费）"}</button><button className="okrRefresh" disabled={Boolean(busy)} onClick={() => void readBalance()}>{busy === "balance" ? "正在核实余额…" : "刷新账户余额"}</button><Link className="textLink" href="/keywords?sample=1">查看本次关键词与页面 →</Link>{rows.size ? <button className="okrRefresh" onClick={exportCsv}>下载四国测试结果</button> : null}</div>{balance ? <p className="chartNote">账户余额 {money(balance.balanceMicros)} · {new Date(balance.checkedAt).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai"})} 核实；供应商结算退差额后可能增加。</p> : null}{rows.size ? <details className="simpleExplanation" open><summary>四国实测对比（{rows.size} 词）</summary><div className="serpPeriodTable"><table><thead><tr><th>关键词</th>{markets.map(market => <th key={market.code}>{market.label}</th>)}</tr></thead><tbody>{[...rows.entries()].map(([key, row]) => <tr key={key}><td>{row.keyword}</td>{markets.map(market => { const item = row.byMarket[market.code]; return <td key={market.code}>{item?.url ? <a href={item.url} target="_blank" rel="noreferrer">{resultLabel(item)} ↗</a> : resultLabel(item)}</td>; })}</tr>)}</tbody></table></div><p className="chartNote">名次已匹配实际页面；未取满100条且未命中的记录保留为“待核验”，不算作“前100外”。</p></details> : null}</> : null}
   </section>;
 }
