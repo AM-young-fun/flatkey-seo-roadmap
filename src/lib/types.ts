@@ -2,7 +2,7 @@ import type { RankBucket, SearchRegionCode } from "@/lib/seo";
 
 export type KeywordType = "MAIN" | "LONG_TAIL";
 export type TopicType = "MAIN" | "SUB_TOPIC";
-export type RankingSource = "gsc" | "ahrefs";
+export type RankingSource = "gsc" | "ahrefs" | "dataforseo_labs";
 export type RankingStatus = "ranked" | "outside_top100" | "no_data";
 export type RankingReportingPeriod = { start: string; end: string; label: string };
 
@@ -14,7 +14,7 @@ export type RankingPageEvidence = {
   ctr: number | null;
   periodStart: string | null;
   periodEnd: string | null;
-  dataDate: string;
+  dataDate: string | null;
   checkedAt: string;
   importedAt: string | null;
   dataUpdatedAt: string | null;
@@ -33,7 +33,7 @@ export type RankingEvidence = {
   url: string | null;
   periodStart: string | null;
   periodEnd: string | null;
-  dataDate: string;
+  dataDate: string | null;
   checkedAt: string;
   importedAt: string | null;
   dataUpdatedAt: string | null;
@@ -76,13 +76,13 @@ export type KeywordVolumeReview = {
 
 export type RankSummary = {
   dataUpdatedAt?: string | null;
-  dataDate?: string;
+  dataDate?: string | null;
   serpVerification?: "unverified";
   clicks?: number | null;
   impressions?: number | null;
   ctr?: number | null;
   rankStatus?: string;
-  source?: "gsc" | "ahrefs" | "serpapi";
+  source?: RankingSource | "serpapi";
   periodStart?: string | null;
   periodEnd?: string | null;
   rank: number | null;

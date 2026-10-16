@@ -16,6 +16,6 @@ export function useSeoSelection() {
     localStorage.setItem("seo-selection", JSON.stringify({ region, ...next }));
     if (next.region) setRegion(next.region);
   }
-  return { site: "all", source: "combined", region, setRegion: (region: SearchRegionCode) => remember({ region }) };
+  return { site: "all", source: "dataforseo_labs", region, setRegion: (region: SearchRegionCode) => remember({ region }) };
 }
 export type SeoSelection = ReturnType<typeof useSeoSelection>;

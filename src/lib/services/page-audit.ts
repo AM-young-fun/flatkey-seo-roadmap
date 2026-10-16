@@ -10,11 +10,13 @@ export async function auditKeywordPages(payload: PageAuditPayload): Promise<Page
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"seo-import:flatkey.ai"}))`;
     const site = await transaction.seoSite.findUnique({ where: { domain: "flatkey.ai" } });
     if (!site?.active) throw new ImportRequestError("Flatkey网站未启用", 400);
-    const memberships: PageAuditMembership[] = await transaction.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true } },
-      select: { keywordId: true, keyword: { select: { text: true, active: true } }, active: true, pool: true, reviewStatus: true,
-        curationId: true, curatedAt: true, targetUrls: true, candidateUrls: true, mappingStatus: true, topicId: true, protected: true, auditReason: true } });
+    const identities = await transaction.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true } },
+      select: { keywordId: true, keyword: { select: { text: true, active: true } } } });
     const incoming = new Set(payload.rows.map(row => normalizeKeywordText(row.keyword)));
-    const relevant = memberships.filter(link => incoming.has(normalizeKeywordText(link.keyword.text)));
+    const keywordIds = identities.filter(link => incoming.has(normalizeKeywordText(link.keyword.text))).map(link => link.keywordId);
+    const relevant: PageAuditMembership[] = keywordIds.length ? await transaction.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true }, keywordId: { in: keywordIds } },
+      select: { keywordId: true, keyword: { select: { text: true, active: true } }, active: true, pool: true, reviewStatus: true,
+        curationId: true, curatedAt: true, targetUrls: true, candidateUrls: true, mappingStatus: true, topicId: true, protected: true, auditReason: true } }) : [];
     const priorRows: PageAuditSourceState[] = relevant.length ? await transaction.keywordSourceRow.findMany({ where: { siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID,
       rowKey: { in: relevant.map(link => `keyword:${link.keywordId}`) } }, select: { rowKey: true, snapshotHash: true, snapshot: true, observedAt: true } }) : [];
     const plan = planKeywordPageAudit(payload, priorRows, relevant);

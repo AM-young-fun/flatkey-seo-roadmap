@@ -5,7 +5,7 @@ export type DashboardPersistence = {
   save(key: string, body: string, savedAt: number): Promise<void>;
   clear(): void;
 };
-const PREFIX = "seo-dashboard-v1:";
+const PREFIX = "seo-dashboard-labs-v2:";
 let epoch = 0;
 
 export const dashboardSession: DashboardPersistence = {

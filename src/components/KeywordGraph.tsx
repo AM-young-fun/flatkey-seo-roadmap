@@ -87,7 +87,11 @@ export function KeywordGraph({
           ).data;
           if (!node?.keyword) return "同话题或父子关键词关联";
           const keyword = node.keyword;
-          return `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${REGIONS[selectedRegion].label}排名：${displayRank(keyword.latestRanks[selectedRegion])}\n${rankDescription(keyword.latestRanks[selectedRegion])}\n声量：${node.volume?.toLocaleString() ?? "—"}`;
+          const rank = keyword.latestRanks[selectedRegion];
+          const description = rank?.source === "dataforseo_labs"
+            ? `DataForSEO Labs 数据库名次\n来源 SERP 更新：${rank.dataUpdatedAt ?? rank.dataDate ?? "来源日期未提供"}\n实际排名页：${rank.url ?? "未提供"}\n非实时搜索结果`
+            : rankDescription(rank);
+          return `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${REGIONS[selectedRegion].label}排名：${displayRank(rank)}\n${description}\n声量：${node.volume?.toLocaleString() ?? "—"}`;
         },
       },
       series: [

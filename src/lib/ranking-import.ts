@@ -25,7 +25,7 @@ export const observationSchema = z
   .object({
     keyword: importedKeyword,
     region: z.enum(["US", "JP", "ES", "BR"]),
-    source: z.enum(["gsc", "ahrefs"]),
+    source: z.enum(["gsc", "ahrefs", "dataforseo_labs"]),
     collectedAt: z.iso.datetime({ offset: true }),
     url: z.url().max(2000).optional(),
     dataUpdatedAt: z.iso.datetime({ offset: true }).optional(),
@@ -51,6 +51,15 @@ export const observationSchema = z
         issue("GSC 必须提供 rank；没有数据时显式传 null");
       if (!row.periodStart || !row.periodEnd) issue("GSC 必须提供统计区间");
       if (row.volume !== undefined) issue("GSC 曝光量不能作为关键词声量");
+    } else if (row.source === "dataforseo_labs") {
+      if (row.rank === undefined) issue("DataForSEO Labs 必须提供 rank；未检出时显式传 null");
+      if (!row.rankStatus) issue("DataForSEO Labs 必须明确排名状态");
+      if (row.rank != null && !Number.isInteger(row.rank)) issue("DataForSEO Labs 数据库排名必须是整数");
+      if (row.rankStatus === "outside_top100" && !(row.rank != null && row.rank > 100)) issue("DataForSEO Labs 只有明确大于100的数据库名次才能标前100外；未检出应为no_data");
+      if (row.periodStart || row.periodEnd) issue("DataForSEO Labs 为采集快照，不能冒用 GSC 统计区间");
+      if (row.clicks !== undefined || row.impressions !== undefined || row.ctr !== undefined) issue("点击、曝光、CTR 仅适用于 GSC");
+      if (row.rankStatus === "ranked" && !row.url) issue("DataForSEO Labs 已检出排名必须提供实际排名页面");
+      if (row.rankStatus === "no_data" && row.url) issue("DataForSEO Labs 未检出不能提供虚构排名页面");
     } else {
       if (row.rank === undefined && row.volume === undefined)
         issue("Ahrefs 必须提供 rank 或 volume");
@@ -109,7 +118,7 @@ export const rankingImportSchema = z
     capture: z.object({
       id: z.string().regex(/^[\w.:-]+$/).max(160),
       date: dateOnly,
-      source: z.enum(["gsc", "ahrefs"]),
+      source: z.enum(["gsc", "ahrefs", "dataforseo_labs"]),
       region: z.enum(["US", "JP", "ES", "BR"]),
       coverage: z.enum(["tracked", "site_top100"]).default("tracked"),
       complete: z.boolean().default(false),

@@ -19,10 +19,12 @@ export type RankingObservationRow = {
   dataUpdatedAt?: Date | null;
   collectedAt: Date;
   importedAt?: Date | null;
+  captureId?: string | null;
+  captureStatus?: string | null;
 };
 export type RankingPageRow = RankingObservationRow & { url: string };
 
-const sources: RankingSource[] = ["gsc", "ahrefs"];
+const sources: RankingSource[] = ["dataforseo_labs", "gsc", "ahrefs"];
 const iso = (date: Date | null | undefined) => date?.toISOString() ?? null;
 const day = (date: Date | null | undefined) => iso(date)?.slice(0, 10) ?? null;
 const timestamp = (date: Date | null | undefined) => date?.getTime() ?? -Infinity;
@@ -35,7 +37,18 @@ export function rankingReportingPeriod(now = new Date()): RankingReportingPeriod
   return { start, end, label: `最近一周 · ${start} 至 ${end}` };
 }
 
+// Labs is a database snapshot collected now, not a seven-day GSC average.
+export function labsReportingPeriod(now = new Date()): RankingReportingPeriod {
+  const end = shanghaiDay(now);
+  const start = new Date(Date.parse(`${end}T00:00:00Z`) - 6 * 86400000).toISOString().slice(0, 10);
+  return { start, end, label: `最新已存数据库记录 · 趋势近7天 ${start} 至 ${end}` };
+}
+
 export function matchesWeeklyRanking(row: RankingObservationRow, period: RankingReportingPeriod): boolean {
+  if (row.source === "dataforseo_labs") {
+    const date = shanghaiDay(row.collectedAt);
+    return date >= period.start && date <= period.end;
+  }
   if (row.source === "gsc") return day(row.periodStart) === period.start && day(row.periodEnd) === period.end;
   if (row.source !== "ahrefs" || !row.dataUpdatedAt) return false;
   const date = shanghaiDay(row.dataUpdatedAt);
@@ -49,13 +62,14 @@ export function isDailyRanking(row: RankingObservationRow, period: RankingReport
 
 // Reading an old report today does not make its data newer. The report's end
 // date wins; upstream update time is used for snapshots without a period.
-export function rankingDataDate(row: RankingObservationRow): string {
+export function rankingDataDate(row: RankingObservationRow): string | null {
+  if (row.source === "dataforseo_labs") return iso(row.dataUpdatedAt);
   if (row.source === "ahrefs" && row.dataUpdatedAt) return row.dataUpdatedAt.toISOString();
   return day(row.periodEnd) ?? iso(row.dataUpdatedAt) ?? row.collectedAt.toISOString();
 }
 
 export function compareRankingObservations(a: RankingObservationRow, b: RankingObservationRow): number {
-  const effective = (row: RankingObservationRow) => timestamp(row.source === "ahrefs"
+  const effective = (row: RankingObservationRow) => timestamp(row.source === "dataforseo_labs" ? row.collectedAt : row.source === "ahrefs"
     ? row.dataUpdatedAt ?? row.periodEnd ?? row.collectedAt : row.periodEnd ?? row.dataUpdatedAt ?? row.collectedAt);
   return effective(a) - effective(b) || timestamp(a.dataUpdatedAt) - timestamp(b.dataUpdatedAt) ||
     timestamp(a.collectedAt) - timestamp(b.collectedAt) || timestamp(a.importedAt) - timestamp(b.importedAt) ||
@@ -92,9 +106,10 @@ function matchedPages(rows: RankingPageRow[], report: RankingObservationRow) {
   const byUrl = new Map<string, RankingPageRow>();
   for (const row of rows) {
     if (!samePeriod(row, report)) continue;
+    if (row.source === "dataforseo_labs" && timestamp(row.collectedAt) !== timestamp(report.collectedAt)) continue;
     // Without a period (Ahrefs snapshots), also require the same data date.
-    if ((row.source === "ahrefs" || (!row.periodStart && !row.periodEnd)) &&
-        rankingDataDate(row).slice(0, 10) !== rankingDataDate(report).slice(0, 10)) continue;
+    if (row.source !== "dataforseo_labs" && (row.source === "ahrefs" || (!row.periodStart && !row.periodEnd)) &&
+        rankingDataDate(row)?.slice(0, 10) !== rankingDataDate(report)?.slice(0, 10)) continue;
     const prior = byUrl.get(row.url);
     if (!prior || compareRankingObservations(row, prior) > 0) byUrl.set(row.url, row);
   }
@@ -104,6 +119,8 @@ function matchedPages(rows: RankingPageRow[], report: RankingObservationRow) {
 // Call with rows for one site + keyword + region. Source-local selection keeps
 // a newer no_data report instead of silently resurrecting an older rank.
 export function buildRankingEvidence(queries: RankingObservationRow[], pages: RankingPageRow[], period: RankingReportingPeriod | null = null): RankingEvidence[] {
+  queries = queries.filter(row => row.source !== "dataforseo_labs" || row.captureStatus === "COMPLETE");
+  pages = pages.filter(row => row.source !== "dataforseo_labs" || row.captureStatus === "COMPLETE");
   const result: RankingEvidence[] = [];
   for (const source of sources) {
     const query = latest(queries.filter(row => row.source === source && row.rankReported !== false && (!period || matchesWeeklyRanking(row, period))));
@@ -113,7 +130,9 @@ export function buildRankingEvidence(queries: RankingObservationRow[], pages: Ra
       rankStatus: status(query), clicks: query.clicks ?? null, impressions: query.impressions ?? null,
       ctr: query.ctr ?? null, url: query.url ?? null, pages: matchedPages(sourcePages, query) });
     const pageIsAttached = Boolean(query && page && samePeriod(page, query) &&
-      ((source !== "ahrefs" && query.periodEnd) || rankingDataDate(page).slice(0, 10) === rankingDataDate(query).slice(0, 10)));
+      (source === "dataforseo_labs"
+        ? timestamp(page.collectedAt) === timestamp(query.collectedAt)
+        : ((source !== "ahrefs" && query.periodEnd) || rankingDataDate(page)?.slice(0, 10) === rankingDataDate(query)?.slice(0, 10))));
     if (page && !pageIsAttached && (!query || compareRankingObservations(page, query) > 0)) {
       result.push({ ...context(page), source, scope: "pages", rank: null, rankStatus: "no_data",
         clicks: null, impressions: null, ctr: null, url: null, pages: matchedPages(sourcePages, page) });
@@ -149,8 +168,9 @@ export function buildRankingEvidence(queries: RankingObservationRow[], pages: Ra
 // A page's average can never become a query ranking. Cross-source selection is
 // only for legacy consumers; evidence retains each source separately.
 export function latestQueryEvidence(evidence: RankingEvidence[]): RankingEvidence | undefined {
+  const effective = (row: RankingEvidence) => row.source === "dataforseo_labs" ? row.checkedAt : row.dataDate ?? row.checkedAt;
   return evidence.filter(row => row.scope === "query").sort((a, b) =>
-    Date.parse(b.dataDate) - Date.parse(a.dataDate) ||
+    Date.parse(effective(b)) - Date.parse(effective(a)) ||
     Date.parse(b.dataUpdatedAt ?? b.checkedAt) - Date.parse(a.dataUpdatedAt ?? a.checkedAt) ||
     Date.parse(b.checkedAt) - Date.parse(a.checkedAt) ||
     Date.parse(b.importedAt ?? b.checkedAt) - Date.parse(a.importedAt ?? a.checkedAt) ||

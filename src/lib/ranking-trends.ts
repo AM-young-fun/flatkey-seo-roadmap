@@ -19,8 +19,10 @@ export type TrendPoint = {
   date: string; counts: number[]; sites: string[]; sources: string[];
   total: number; ranked: number; pending: number; outside: number;
   periodStart: string; periodEnd: string;
+  snapshotAt?: string;
+  dataDates?: string[];
 };
-export type TrendResult = { schemaVersion: 2; points: TrendPoint[]; mode: "weekly-evidence"; start: string; end: string; snapshot: null; asOf: string };
+export type TrendResult = { schemaVersion: 3; points: TrendPoint[]; mode: "labs-snapshots"; start: string; end: string; snapshot: null; asOf: string };
 export type TrendKeyword = {
   keywordId: string; text: string; siteDomain: string; active: boolean; keywordActive: boolean;
   siteActive: boolean; topicId: string | null; pool: string;
@@ -75,6 +77,42 @@ export function weeklyEvidenceTrendPoints(keywords: TrendKeyword[], observations
   return points;
 }
 
+// Emit actual Labs collection days only. Earlier dates and uncollected regions
+// are gaps, not zero rankings or a copy of a different provider's report.
+export function labsSnapshotTrendPoints(keywords: TrendKeyword[], observations: RankingObservationRow[], region: SearchRegionCode, start: string, end: string): TrendPoint[] {
+  const eligible = eligibleTrendKeywords(keywords);
+  const wanted = new Set(eligible.map(row => `${row.siteDomain}:${row.keywordId}`));
+  const days = new Map<string, RankingObservationRow[]>();
+  for (const row of observations) {
+    if (row.source !== "dataforseo_labs" || row.captureStatus !== "COMPLETE" || row.region !== region || row.rankReported === false || !wanted.has(`${row.siteDomain}:${row.keywordId}`)) continue;
+    const date = trendToday(row.collectedAt);
+    if (date < start || date > end) continue;
+    days.set(date, [...(days.get(date) ?? []), row]);
+  }
+  const sites = [...new Set(eligible.map(row => row.siteDomain))].sort();
+  return [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, rows]) => {
+    const period = { start: date, end: date, label: date };
+    const point: TrendPoint = { date, counts: [0, 0, 0, 0], sites, sources: ["dataforseo_labs"], total: eligible.length,
+      ranked: 0, pending: 0, outside: 0, periodStart: date, periodEnd: date,
+      snapshotAt: rows.map(row => row.collectedAt.toISOString()).sort().at(-1),
+      dataDates: [...new Set(rows.flatMap(row => row.dataUpdatedAt ? [row.dataUpdatedAt.toISOString()] : []))].sort() };
+    const byKeyword = new Map<string, RankingObservationRow[]>();
+    for (const row of rows) {
+      const key = `${row.siteDomain}:${row.keywordId}`;
+      byKeyword.set(key, [...(byKeyword.get(key) ?? []), row]);
+    }
+    for (const keyword of eligible) {
+      const evidence = latestQueryEvidence(buildRankingEvidence(byKeyword.get(`${keyword.siteDomain}:${keyword.keywordId}`) ?? [], [], period));
+      if (evidence?.rankStatus === "outside_top100") point.outside++;
+      else if (evidence?.rank != null && evidence.rank >= 1 && evidence.rank <= 100) {
+        point.counts[evidence.rank <= 10 ? 0 : evidence.rank <= 30 ? 1 : evidence.rank <= 50 ? 2 : 3]++;
+        point.ranked++;
+      } else point.pending++;
+    }
+    return point;
+  });
+}
+
 // A point is the known inventory at the end of a date, not that date's intake.
 // Carry the last known state forward while retaining its actual update date.
 export function inventoryTrendByDay(updates: LegacyTrendPoint[], start: string, end: string): LegacyTrendPoint[] {
@@ -106,7 +144,7 @@ export function snapshotTrendPoints(rows: {date:string;rank:number|null;siteDoma
 type DailyReport = { date: Date; siteDomain: string; source: string; top10: number; top30: number; top50: number; top100: number };
 
 export function recentTrendRange(now = new Date(), reportEnd?: string) {
-  const end = reportEnd ?? new Date(Date.parse(`${trendToday(now)}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+  const end = reportEnd ?? trendToday(now);
   const start = new Date(`${end}T00:00:00Z`);
   start.setUTCDate(start.getUTCDate() - 6);
   return { start: start.toISOString().slice(0, 10) < EARLIEST_TREND_DATE ? EARLIEST_TREND_DATE : start.toISOString().slice(0, 10), end };

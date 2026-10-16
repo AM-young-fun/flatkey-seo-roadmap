@@ -56,6 +56,8 @@ export function rankDescription(summary: RankSummary | null | undefined) {
   const source =
     summary.source === "gsc"
       ? "GSC 平均排名"
+      : summary.source === "dataforseo_labs"
+        ? "DataForSEO 数据库名次"
       : summary.source === "ahrefs"
         ? "Ahrefs 排名"
         : "Google 排名";

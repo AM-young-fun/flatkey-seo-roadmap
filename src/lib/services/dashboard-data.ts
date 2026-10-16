@@ -4,7 +4,7 @@ import { settleReads } from "@/lib/database-read";
 import { isDatabaseConfigured } from "@/lib/env";
 import { getDemoDashboard } from "@/lib/demo-data";
 import { getRankBucket, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { buildRankingEvidence, latestQueryEvidence, rankingReportingPeriod, type RankingObservationRow, type RankingPageRow } from "@/lib/ranking-evidence";
+import { buildRankingEvidence, labsReportingPeriod, latestQueryEvidence, rankingReportingPeriod, type RankingObservationRow, type RankingPageRow } from "@/lib/ranking-evidence";
 import { assessKeywordVolume, type VolumeReviewSample } from "@/lib/keyword-volume-review";
 import { keywordRelevance } from "@/lib/keyword-relevance";
 import { loadRecentRankingReportPeriod } from "@/lib/services/ranking-report-period";
@@ -27,6 +27,7 @@ export function assembleDashboard(
   latestRun: DashboardResponse["latestRun"] = null,
   pages: RankingPageRow[] = [],
   reportingPeriod: RankingReportingPeriod | null = null,
+  rankingSource = "dataforseo_labs",
 ): DashboardResponse {
   const all = site === "all";
   const scoped = (domain: string, id: string) => all ? `${domain}:${id}` : id;
@@ -60,11 +61,17 @@ export function assembleDashboard(
       marketVolumes[region] = volume?.volume ?? (region === "US" && row.defaultVolume > 0 ? row.defaultVolume : null);
       if (volume) updated.push(volume.fetchedAt.toISOString());
       const key = `${row.siteDomain}:${row.id}:${region}`;
-      rankingEvidence[region] = buildRankingEvidence(ranksByKey.get(key) ?? [], pagesByKey.get(key) ?? [], reportingPeriod);
+      const queryRows = ranksByKey.get(key) ?? [], pageRows = pagesByKey.get(key) ?? [];
+      rankingEvidence[region] = rankingSource === "dataforseo_labs" ? [
+        ...buildRankingEvidence(queryRows.filter(row => row.source === "dataforseo_labs"), pageRows.filter(row => row.source === "dataforseo_labs")),
+        // Keep raw legacy reports in the historical drawer, even a 28-day
+        // report outside the current Labs collection window.
+        ...buildRankingEvidence(queryRows.filter(row => row.source !== "dataforseo_labs"), pageRows.filter(row => row.source !== "dataforseo_labs")),
+      ] : buildRankingEvidence(queryRows, pageRows, reportingPeriod);
       for (const evidence of rankingEvidence[region]) {
         updated.push(evidence.checkedAt, ...evidence.pages.map(page => page.checkedAt));
       }
-      const rank = latestQueryEvidence(rankingEvidence[region]);
+      const rank = latestQueryEvidence(rankingEvidence[region].filter(row => rankingSource === "combined" || row.source === rankingSource));
       if (rank) {
         latestRanks[region] = {
           rank: rank.rank, bucket: getRankBucket(rank.rank), source: rank.source,
@@ -112,23 +119,28 @@ export function assembleDashboard(
     ...(reportingPeriod ? { reportingPeriod } : {}) };
 }
 
-export async function loadDashboard(site: string, source: string, period: "week" | "history" = "week", now = new Date()): Promise<DashboardResponse> {
-  const week = period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
+export async function loadDashboard(site: string, source = "dataforseo_labs", period: "week" | "history" = "week", now = new Date()): Promise<DashboardResponse> {
+  const week = source === "dataforseo_labs" ? labsReportingPeriod(now) : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
   if (!isDatabaseConfigured()) return { ...getDemoDashboard(), ...(reportingPeriod ? { reportingPeriod } : {}) };
   const domains = Prisma.join(site === "all" ? SITES : [site]);
-  const splitDaily = Prisma.raw(period === "week" ? "true" : "false");
+  const splitDaily = Prisma.raw(period === "week" && source !== "dataforseo_labs" ? "true" : "false");
   const latestQueries = Prisma.sql`
     ${Prisma.raw(period === "week" ? "/* dashboard:weekly */" : "/* dashboard:history */")}
     SELECT DISTINCT ON (o."siteDomain", o."keywordId", o.region, o.source,
       CASE WHEN ${splitDaily} AND o.source = 'gsc' AND o."periodStart" = o."periodEnd" THEN o."periodEnd" END)
       o.id, o."siteDomain", o."keywordId", o.region, o.rank, o.source, o."periodStart", o."periodEnd",
-      o.url, o.clicks, o.impressions, o.ctr, o."collectedAt", o."dataUpdatedAt", o."rankStatus", o."importedAt"
+      o.url, o.clicks, o.impressions, o.ctr, o."collectedAt", o."dataUpdatedAt", o."rankStatus", o."importedAt", o."captureId", capture.status AS "captureStatus"
     FROM "KeywordObservation" o JOIN "Keyword" k ON k.id = o."keywordId"
     JOIN "SiteKeyword" sk ON sk."siteDomain" = o."siteDomain" AND sk."keywordId" = o."keywordId"
+    LEFT JOIN "RankingCapture" capture ON capture.id = o."captureId" AND capture."siteDomain" = o."siteDomain" AND capture.region = o.region AND capture.source = o.source
     WHERE o."siteDomain" IN (${domains}) AND o."rankReported" = true
-      AND (o.source = ${source} OR (${source} = 'combined' AND o.source IN ('gsc','ahrefs')))
+      AND (o.source <> 'dataforseo_labs' OR capture.status = 'COMPLETE')
+      AND (o.source = ${source} OR (${source} = 'dataforseo_labs' AND o.source IN ('gsc','ahrefs'))
+        OR (${source} = 'combined' AND o.source IN ('gsc','ahrefs','dataforseo_labs')))
       AND (${period === "history"} OR
+        (${source} = 'dataforseo_labs' AND o.source IN ('gsc','ahrefs')) OR
+        o.source = 'dataforseo_labs' OR
         (o.source = 'gsc' AND ((o."periodStart" = ${week.start}::date AND o."periodEnd" = ${week.end}::date)
           OR (o."periodStart" = o."periodEnd" AND o."periodEnd" BETWEEN ${week.start}::date AND ${week.end}::date)))
         OR (o.source = 'ahrefs' AND o."dataUpdatedAt" IS NOT NULL AND
@@ -136,7 +148,8 @@ export async function loadDashboard(site: string, source: string, period: "week"
       AND k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL
     ORDER BY o."siteDomain", o."keywordId", o.region, o.source,
       CASE WHEN ${splitDaily} AND o.source = 'gsc' AND o."periodStart" = o."periodEnd" THEN o."periodEnd" END,
-      CASE WHEN o.source = 'ahrefs' THEN COALESCE(o."dataUpdatedAt", o."periodEnd"::timestamp, o."collectedAt")
+      CASE WHEN o.source = 'dataforseo_labs' THEN o."collectedAt"
+        WHEN o.source = 'ahrefs' THEN COALESCE(o."dataUpdatedAt", o."periodEnd"::timestamp, o."collectedAt")
         ELSE COALESCE(o."periodEnd"::timestamp, o."dataUpdatedAt", o."collectedAt") END DESC,
       o."dataUpdatedAt" DESC NULLS LAST, o."collectedAt" DESC, o."importedAt" DESC, o.id DESC
   `;
@@ -161,9 +174,9 @@ export async function loadDashboard(site: string, source: string, period: "week"
           OR EXISTS(SELECT 1 FROM "KeywordPageObservation" p WHERE p."siteDomain" = sk."siteDomain" AND p."keywordId" = k.id
             AND p.source IN ('gsc','ahrefs') AND (p.clicks > 0 OR p.impressions > 0))) AS "hasSearchActivity",
         (EXISTS(SELECT 1 FROM "KeywordObservation" o WHERE o."siteDomain" = sk."siteDomain" AND o."keywordId" = k.id
-            AND o.source IN ('gsc','ahrefs') AND o.rank >= 1 AND o.url ~* '^https?://')
+            AND o.source IN ('gsc','ahrefs','dataforseo_labs') AND o.rank >= 1 AND o.url ~* '^https?://')
           OR EXISTS(SELECT 1 FROM "KeywordPageObservation" p WHERE p."siteDomain" = sk."siteDomain" AND p."keywordId" = k.id
-            AND p.source IN ('gsc','ahrefs') AND p.rank >= 1 AND p.url ~* '^https?://')) AS "hasObservedPage",
+            AND p.source IN ('gsc','ahrefs','dataforseo_labs') AND p.rank >= 1 AND p.url ~* '^https?://')) AS "hasObservedPage",
         ARRAY(SELECT e."parentId" FROM "KeywordRelation" e WHERE e."childId" = k.id) AS "parentIds",
         ARRAY(SELECT DISTINCT a.text FROM "SiteKeywordTopic" s JOIN "Topic" a ON a.id = s."topicId"
           WHERE s."siteDomain" = sk."siteDomain" AND s."keywordId" = k.id ORDER BY a.text) AS "topicTexts"
@@ -188,13 +201,15 @@ export async function loadDashboard(site: string, source: string, period: "week"
         WHERE v.source IN ('ahrefs','csv') AND v.region IS NOT NULL
         UNION ALL
         SELECT o."keywordId", o.region, o.volume, o.source, o."collectedAt", o."importedAt", 0 AS preference,
-          o."dataUpdatedAt" AS "sourceDataDate"
+          CASE WHEN o.source = 'dataforseo_labs' THEN NULL::timestamp ELSE o."dataUpdatedAt" END AS "sourceDataDate"
         FROM "KeywordObservation" o JOIN eligible k ON k.id = o."keywordId"
-        WHERE o.source = 'ahrefs' AND o.volume IS NOT NULL
+        WHERE o.source IN ('ahrefs','dataforseo_labs') AND o.volume IS NOT NULL
+          AND (o.source <> 'dataforseo_labs' OR EXISTS(SELECT 1 FROM "RankingCapture" capture
+            WHERE capture.id = o."captureId" AND capture.status = 'COMPLETE' AND capture."siteDomain" = o."siteDomain" AND capture.source = o.source AND capture.region = o.region))
       ), current_values AS (
         SELECT DISTINCT ON ("keywordId", region) "keywordId", region, volume, "fetchedAt" FROM candidates
-        ORDER BY "keywordId", region, CASE WHEN source = 'ahrefs' THEN 0 ELSE 1 END,
-          COALESCE("sourceDataDate", "fetchedAt") DESC, preference, "importedAt" DESC NULLS LAST
+        ORDER BY "keywordId", region, COALESCE("sourceDataDate", "fetchedAt") DESC,
+          CASE WHEN source = 'dataforseo_labs' THEN 0 WHEN source = 'ahrefs' THEN 1 ELSE 2 END, preference, "importedAt" DESC NULLS LAST
       ), daily_samples AS (
         -- Reimports of the same source data day count once. Positive demand
         -- wins over a conflicting zero; undated Ahrefs zeros prove no age.
@@ -213,12 +228,20 @@ export async function loadDashboard(site: string, source: string, period: "week"
     prisma.$queryRaw<RankingPageRow[]>(Prisma.sql`
       /* dashboard:pages */
       WITH latest_queries AS (${latestQueries}), eligible_pages AS (
-        SELECT p.* FROM "KeywordPageObservation" p
+        SELECT p.*, CASE WHEN p.source = 'dataforseo_labs' THEN 'COMPLETE' END AS "captureStatus" FROM "KeywordPageObservation" p
         JOIN "Keyword" k ON k.id = p."keywordId"
         JOIN "SiteKeyword" sk ON sk."siteDomain" = p."siteDomain" AND sk."keywordId" = p."keywordId"
         WHERE p."siteDomain" IN (${domains}) AND k.active = true AND sk.active = true AND (sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL
-          AND (p.source = ${source} OR (${source} = 'combined' AND p.source IN ('gsc','ahrefs')))
+          AND (p.source <> 'dataforseo_labs' OR EXISTS(SELECT 1 FROM "KeywordObservation" owner
+            JOIN "RankingCapture" capture ON capture.id = owner."captureId"
+            WHERE owner."siteDomain" = p."siteDomain" AND owner."keywordId" = p."keywordId" AND owner.region = p.region AND owner.source = p.source
+              AND owner."collectedAt" = p."collectedAt" AND capture.status = 'COMPLETE'
+              AND capture."siteDomain" = owner."siteDomain" AND capture.region = owner.region AND capture.source = owner.source))
+          AND (p.source = ${source} OR (${source} = 'dataforseo_labs' AND p.source IN ('gsc','ahrefs'))
+            OR (${source} = 'combined' AND p.source IN ('gsc','ahrefs','dataforseo_labs')))
           AND (${period === "history"} OR
+            (${source} = 'dataforseo_labs' AND p.source IN ('gsc','ahrefs')) OR
+            p.source = 'dataforseo_labs' OR
             (p.source = 'gsc' AND ((p."periodStart" = ${week.start}::date AND p."periodEnd" = ${week.end}::date)
               OR (p."periodStart" = p."periodEnd" AND p."periodEnd" BETWEEN ${week.start}::date AND ${week.end}::date)))
             OR (p.source = 'ahrefs' AND p."dataUpdatedAt" IS NOT NULL AND
@@ -229,7 +252,8 @@ export async function loadDashboard(site: string, source: string, period: "week"
         FROM eligible_pages p
         ORDER BY p."siteDomain", p."keywordId", p.region, p.source,
           CASE WHEN ${splitDaily} AND p.source = 'gsc' AND p."periodStart" = p."periodEnd" THEN p."periodEnd" END,
-          CASE WHEN p.source = 'ahrefs' THEN COALESCE(p."dataUpdatedAt", p."periodEnd"::timestamp, p."collectedAt")
+          CASE WHEN p.source = 'dataforseo_labs' THEN p."collectedAt"
+            WHEN p.source = 'ahrefs' THEN COALESCE(p."dataUpdatedAt", p."periodEnd"::timestamp, p."collectedAt")
             ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
           p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
       ), reports AS (
@@ -241,12 +265,13 @@ export async function loadDashboard(site: string, source: string, period: "week"
         AND r.region = p.region AND r.source = p.source
         AND r."periodStart" IS NOT DISTINCT FROM p."periodStart" AND r."periodEnd" IS NOT DISTINCT FROM p."periodEnd"
       ORDER BY p."siteDomain", p."keywordId", p.region, p.source, p."periodStart", p."periodEnd", p.url,
-        CASE WHEN p.source = 'ahrefs' THEN COALESCE(p."dataUpdatedAt", p."periodEnd"::timestamp, p."collectedAt")
+        CASE WHEN p.source = 'dataforseo_labs' THEN p."collectedAt"
+          WHEN p.source = 'ahrefs' THEN COALESCE(p."dataUpdatedAt", p."periodEnd"::timestamp, p."collectedAt")
           ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
         p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
     `),
   ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages"]);
   return assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
     latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null,
-    pages, reportingPeriod);
+    pages, reportingPeriod, source);
 }

@@ -28,7 +28,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
   async function refreshAppliedData() {
     dashboardStore.clear();
     refresh();
-    try { await dashboardStore.read("all", "combined", true); }
+    try { await dashboardStore.read("all", "dataforseo_labs", true); }
     catch { setNotice(previous => `${previous} 搜索证据刷新失败，正式目标应用已获服务端确认；请重新加载证据。`); }
   }
 
@@ -43,7 +43,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
       if (result.auditId !== KEYWORD_OKR_AUDIT_ID || result.rankingCaptureEnabled !== false) throw new Error("审计响应不完整，尚未确认应用状态，请刷新核对");
       if (result.status === "APPLIED") {
         setApplicationConfirmed(true); setPreview(null);
-        setNotice(`${result.unchanged ? "本审计已应用，未重复写入。" : "清洁目标、页面关联与内容任务已应用。"}排名抓取保持关闭，正在读取数据库结果。`);
+        setNotice(`${result.unchanged ? "本审计已应用，未重复写入。" : "清洁目标、页面关联与内容任务已应用。"}正在读取词库结果；DataForSEO 排名需在数据管理中手动更新。`);
         await refreshAppliedData();
       } else if (action === "preview" && result.status === "PREVIEW") { setPreview(result); }
       else { throw new Error("服务端未确认本次操作，请刷新应用状态后核对"); }
@@ -63,7 +63,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
       if (!response.ok) throw new Error(result.message ?? "恢复失败，现有状态未被确认更改");
       if (result.status !== "RESTORED") throw new Error("服务端尚未确认恢复，请刷新后核对");
       dashboardStore.clear(); setApplicationConfirmed(false); setPreview(null);
-      setNotice(`已恢复本批次之前的状态，变更 ${result.changed} 条；排名抓取继续关闭。`); refresh();
+      setNotice(`已恢复本批次之前的状态，变更 ${result.changed} 条；本次不会触发 DataForSEO 排名更新。`); refresh();
     } catch (failure) { setNotice(failure instanceof Error ? failure.message : "恢复失败，请重试"); }
     finally { setBusy(false); }
   }
@@ -84,7 +84,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
 
   return <div>
     {!loading && data && !initialized && !applicationConfirmed ? <div className="okrUninitialized"><strong>清洁名单尚未应用到数据库</strong><p>可用审计日期 {data.availableAudit.asOf}，计划包含 {data.availableAudit.formalKeywords.toLocaleString("zh-CN")} 个正式目标、{data.availableAudit.tasks} 个页面任务。先预览数据库中的预计变更，再应用固定审核批次。</p><div className="okrApplyActions"><button type="button" disabled={busy} onClick={() => void applyAudit("preview")}>{pendingAction === "preview" ? "读取清理预览…" : preview ? "重新预览变更" : "预览词库清理"}</button><button type="button" disabled={busy} onClick={refresh}>刷新应用状态</button></div>
-      {preview ? <section className="okrPreview" aria-label="清理变更预览"><h2>应用前预览</h2><p>以下为服务端根据当前数据库计算的预计结果，尚未写入词库。</p><dl><div><dt>正式目标</dt><dd>{preview.summary.formal.toLocaleString("zh-CN")}</dd></div><div><dt>隔离研究</dt><dd>{preview.summary.research.toLocaleString("zh-CN")}</dd></div><div><dt>归档记录</dt><dd>{preview.summary.archived.toLocaleString("zh-CN")}</dd></div><div><dt>归并记录</dt><dd>{preview.summary.merged.toLocaleString("zh-CN")}</dd></div></dl><p>研究池包含原词库中尚未纳入本轮正式目标的历史词；它们不会被当作确定无关词删除。</p><ul><li>页面关联：{preview.summary.mapping.READY ?? 0} 个已有匹配正文的词；{preview.summary.protectedModels} 个模型保护词。</li><li>内容任务：新建 {preview.summary.tasks.NEW ?? 0} 个、补强 {preview.summary.tasks.EXPAND ?? 0} 个、复用主意图 {preview.summary.tasks.REUSE ?? 0} 个；负责人和截止时间保持待安排。</li><li>涉及 {preview.changed.toLocaleString("zh-CN")} 条站点词审计记录。未逐页复核的历史目标保留“待核实”，候选页面不计为完成覆盖。</li></ul><p>应用会调整 Flatkey 词池、目标页面关联并登记内容任务，保留原始来源记录和筛检理由；应用后可在下方恢复本批次之前的状态。排名抓取保持关闭。</p><button className="okrApplyPrimary" type="button" disabled={busy} onClick={() => void applyAudit("apply")}>{pendingAction === "apply" ? "正在应用清理与任务…" : "应用清理并登记任务"}</button><small>固定审计：{preview.auditId}</small></section> : null}
+      {preview ? <section className="okrPreview" aria-label="清理变更预览"><h2>应用前预览</h2><p>以下为服务端根据当前数据库计算的预计结果，尚未写入词库。</p><dl><div><dt>正式目标</dt><dd>{preview.summary.formal.toLocaleString("zh-CN")}</dd></div><div><dt>隔离研究</dt><dd>{preview.summary.research.toLocaleString("zh-CN")}</dd></div><div><dt>归档记录</dt><dd>{preview.summary.archived.toLocaleString("zh-CN")}</dd></div><div><dt>归并记录</dt><dd>{preview.summary.merged.toLocaleString("zh-CN")}</dd></div></dl><p>研究池包含原词库中尚未纳入本轮正式目标的历史词；它们不会被当作确定无关词删除。</p><ul><li>页面关联：{preview.summary.mapping.READY ?? 0} 个已有匹配正文的词；{preview.summary.protectedModels} 个模型保护词。</li><li>内容任务：新建 {preview.summary.tasks.NEW ?? 0} 个、补强 {preview.summary.tasks.EXPAND ?? 0} 个、复用主意图 {preview.summary.tasks.REUSE ?? 0} 个；负责人和截止时间保持待安排。</li><li>涉及 {preview.changed.toLocaleString("zh-CN")} 条站点词审计记录。未逐页复核的历史目标保留“待核实”，候选页面不计为完成覆盖。</li></ul><p>应用会调整 Flatkey 词池、目标页面关联并登记内容任务，保留原始来源记录和筛检理由；应用后可在下方恢复本批次之前的状态。本次不会触发 DataForSEO 排名更新。</p><button className="okrApplyPrimary" type="button" disabled={busy} onClick={() => void applyAudit("apply")}>{pendingAction === "apply" ? "正在应用清理与任务…" : "应用清理并登记任务"}</button><small>固定审计：{preview.auditId}</small></section> : null}
     </div> : null}
     {applicationConfirmed && !initialized ? <p className="cacheNotice" role="status">服务端已确认审计应用，正在核对数据库读取结果。<button className="okrRefresh" type="button" onClick={refresh}>重新读取</button></p> : null}
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}

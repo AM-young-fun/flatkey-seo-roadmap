@@ -13,7 +13,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
 
-const { buildRankingEvidence, latestQueryEvidence, rankingDataDate, rankingReportingPeriod } = require("../src/lib/ranking-evidence.ts");
+const { buildRankingEvidence, latestQueryEvidence, rankingDataDate, rankingReportingPeriod, labsReportingPeriod } = require("../src/lib/ranking-evidence.ts");
 const row = (overrides = {}) => ({
   keywordId: "claude", siteDomain: "flatkey.ai", region: "US", source: "gsc", rank: 12.4,
   rankStatus: "ranked", rankReported: true, clicks: 3, impressions: 120, ctr: 0.025,
@@ -106,9 +106,10 @@ test("Ahrefs pages without periods require the same snapshot data day", () => {
   assert.deepEqual(evidence[0].pages.map(value => value.url), ["https://flatkey.ai/current"]);
 });
 
+const prismaMock = {};
 const prismaPath = path.join(root, "src/lib/prisma.ts");
-require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: {} } };
-const { assembleDashboard } = require("../src/lib/services/dashboard-data.ts");
+require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: prismaMock } };
+const { assembleDashboard, loadDashboard } = require("../src/lib/services/dashboard-data.ts");
 const inventory = (siteDomain = "flatkey.ai") => ({
   id: "claude", text: "claude api", type: "MAIN", siteDomain, topicId: "topic", topicText: "Claude",
   topicTexts: [], parentId: null, parentIds: [], origin: "DISCOVERED", targetUrls: [], defaultVolume: 0, lastSyncedAt: null,
@@ -118,7 +119,7 @@ test("dashboard assembly returns source evidence per site and region with raw GS
   const data = assembleDashboard("all", [], [inventory(), inventory("rackrate.org")], [
     row(), row({ source: "ahrefs", rank: 45 }),
     row({ siteDomain: "rackrate.org", region: "JP", rank: null, rankStatus: "no_data" }),
-  ], [], null, null, [row({ url: "https://flatkey.ai/claude", rank: 18.2 })]);
+  ], [], null, null, [row({ url: "https://flatkey.ai/claude", rank: 18.2 })], null, "combined");
   const flatkey = data.keywords[0];
   assert.equal(flatkey.rankingEvidence.US.length, 2);
   assert.equal(flatkey.rankingEvidence.US.find(value => value.source === "gsc").impressions, 120);
@@ -193,4 +194,60 @@ test("an Ahrefs page from a later upstream snapshot stays separate even if repor
   const page = {...query,url:"https://flatkey.ai/claude",rank:20,dataUpdatedAt:new Date("2026-10-13T02:00:00Z")};
   const evidence = buildRankingEvidence([query],[page],week);
   assert.deepEqual(evidence.map(value=>[value.scope,value.pages.length]),[["query",0],["pages",1]]);
+});
+
+const labsRow = (overrides = {}) => row({ source:"dataforseo_labs", captureId:"labs-capture", captureStatus:"COMPLETE", rank:12, rankStatus:"ranked", periodStart:null, periodEnd:null,
+  url:"https://flatkey.ai/models/claude", clicks:null, impressions:null, ctr:null,
+  collectedAt:new Date("2026-10-16T02:00:00Z"),dataUpdatedAt:new Date("2026-10-01T00:00:00Z"),...overrides });
+test("Labs collection window includes today without rewriting its older real SERP date", () => {
+  const period=labsReportingPeriod(new Date("2026-10-16T04:00:00Z"));
+  assert.deepEqual([period.start,period.end],["2026-10-10","2026-10-16"]);
+  const evidence=buildRankingEvidence([labsRow()],[],period)[0];
+  assert.equal(evidence.rank,12);assert.equal(evidence.dataDate,"2026-10-01T00:00:00.000Z");
+  assert.equal(evidence.checkedAt,"2026-10-16T02:00:00.000Z");assert.equal(evidence.serpVerification,"unverified");
+  assert.equal(rankingDataDate(labsRow({dataUpdatedAt:null})),null);
+});
+test("a newer Labs no_data snapshot supersedes an old hit despite missing SERP date and never becomes outside", () => {
+  const evidence=buildRankingEvidence([labsRow(),labsRow({rank:null,rankStatus:"no_data",url:null,dataUpdatedAt:null,collectedAt:new Date("2026-10-16T03:00:00Z")})],[]);
+  assert.equal(evidence[0].rank,null);assert.equal(evidence[0].rankStatus,"no_data");assert.equal(evidence[0].dataDate,null);
+});
+test("default dashboard ranks only Labs while retaining raw GSC and Ahrefs history outside its collection week", async () => {
+  const originalUrl=process.env.DATABASE_URL;process.env.DATABASE_URL="postgresql://unused.invalid/labs-test";
+  const history=row({periodStart:new Date("2026-09-01"),periodEnd:new Date("2026-09-28"),rank:1.4});
+  const jp=row({region:"JP",rank:2.6});let sql=[];
+  Object.assign(prismaMock,{$queryRaw:async query=>{sql.push(query);if(query.sql.includes("dashboard:keywords"))return[inventory()];if(query.sql.includes("dashboard:ranks"))return[labsRow(),history,jp];return[];},rankingImport:{findFirst:async()=>null},syncRun:{findFirst:async()=>null}});
+  try {
+    const data=await loadDashboard("flatkey.ai",undefined,"week",new Date("2026-10-16T04:00:00Z"));const keyword=data.keywords[0];
+    assert.equal(keyword.latestRanks.US.source,"dataforseo_labs");assert.equal(keyword.latestRanks.US.rank,12);
+    assert.equal(keyword.latestRanks.JP,null);assert.equal(keyword.rankingEvidence.JP[0].source,"gsc");
+    assert.equal(keyword.rankingEvidence.US.find(value=>value.source==="gsc").rank,1.4);
+    assert.equal(keyword.rankingEvidence.US.find(value=>value.source==="gsc").periodEnd,"2026-09-28");
+    assert.deepEqual([data.reportingPeriod.start,data.reportingPeriod.end],["2026-10-10","2026-10-16"]);
+    const ranks=sql.find(query=>query.sql.includes("dashboard:ranks"));assert.ok(ranks.values.includes("dataforseo_labs"));
+    assert.ok(ranks.sql.includes("o.source IN ('gsc','ahrefs')"));assert.ok(ranks.sql.includes('THEN o."collectedAt"'));
+    assert.ok(ranks.sql.includes("capture.status = 'COMPLETE'"));
+    assert.ok(!ranks.sql.includes('o.source = \'dataforseo_labs\' AND (o."collectedAt"'));
+    const volumes=sql.find(query=>query.sql.includes("dashboard:volumes"));assert.ok(volumes.sql.includes("THEN NULL::timestamp"));assert.ok(volumes.sql.includes("capture.status = 'COMPLETE'"));
+    assert.ok(!sql.some(query=>query.sql.includes("ranking-period:recent-query-reports")));
+  } finally {if(originalUrl===undefined)delete process.env.DATABASE_URL;else process.env.DATABASE_URL=originalUrl;}
+});
+
+test("latest published Labs snapshot remains on days 8 and 13; the trend window never expires the main table", () => {
+  for(const age of [8,13]) {
+    const now=new Date(Date.parse("2026-10-16T04:00:00Z")+age*86400000),period=labsReportingPeriod(now);
+    const data=assembleDashboard("flatkey.ai",[],[inventory()],[labsRow()],[],null,null,[],period);
+    assert.equal(data.keywords[0].latestRanks.US.rank,12);
+    assert.equal(data.keywords[0].latestRanks.US.checkedAt,"2026-10-16T02:00:00.000Z");
+    const updated=labsRow({rank:null,rankStatus:"no_data",url:null,dataUpdatedAt:null,collectedAt:new Date("2026-10-17T02:00:00Z")});
+    const changed=assembleDashboard("flatkey.ai",[],[inventory()],[labsRow(),updated],[],null,null,[],period);
+    assert.equal(changed.keywords[0].latestRanks.US.rank,null);assert.equal(changed.keywords[0].latestRanks.US.rankStatus,"no_data");
+  }
+});
+test("partial Labs captures stay invisible and complete multi-page evidence retains each page's real SERP date", () => {
+  const query=labsRow();const sameBatch=[labsRow({url:"https://flatkey.ai/one",rank:12}),labsRow({url:"https://flatkey.ai/two",rank:25,dataUpdatedAt:new Date("2026-09-29T00:00:00Z")})];
+  const pending=labsRow({captureStatus:"PARTIAL",rank:1,collectedAt:new Date("2026-10-17T02:00:00Z")});
+  const evidence=buildRankingEvidence([query,pending],[...sameBatch,{...pending,url:"https://flatkey.ai/partial"}]);
+  assert.equal(evidence[0].rank,12);assert.equal(evidence[0].pages.length,2);
+  assert.deepEqual(evidence[0].pages.map(page=>page.dataUpdatedAt),["2026-10-01T00:00:00.000Z","2026-09-29T00:00:00.000Z"]);
+  assert.deepEqual(buildRankingEvidence([{...pending,captureStatus:null}],[]),[]);
 });

@@ -35,6 +35,13 @@ function matches(value, where) {
   });
 }
 
+function selectFields(value, select) {
+  if (!select) return clone(value);
+  return Object.fromEntries(Object.entries(select).map(([key, selection]) => [key,
+    selection === true ? clone(value[key]) : selectFields(value[key], selection.select),
+  ]));
+}
+
 const db = {
   $transaction: async callback => {
     const previous = queue;
@@ -49,7 +56,7 @@ const db = {
   $executeRaw: async () => 0,
   seoSite: { findUnique: async () => ({ domain: "flatkey.ai", active: state.siteActive }) },
   siteKeyword: {
-    findMany: async ({ where }) => state.memberships.filter(row => matches(row, where)).map(clone),
+    findMany: async ({ where, select }) => state.memberships.filter(row => matches(row, where)).map(row => selectFields(row, select)),
     updateMany: async ({ where, data }) => {
       if (state.beforeMembershipWrite) state.beforeMembershipWrite();
       const rows = state.memberships.filter(row => matches(row, where));
@@ -146,6 +153,60 @@ test("schema rejects foreign or unsafe URLs, duplicate normalized words, ranking
   assert.equal(pageAuditSchema.safeParse({ ...valid, rows: [auditRow(undefined, { checkedAt: new Date(Date.now() + 600_000).toISOString() })] }).success, false);
 });
 
+test("a searched inventory can conclude no matching page without inventing a missing HTTP response", () => {
+  const row = auditRow(undefined, { verdict: "NO_MATCH", pageUrl: undefined, canonicalUrl: undefined, httpStatus: undefined,
+    reason: "Checked the full public sitemap and existing model and article inventory; no page addresses this keyword's requested integration.",
+    evidence: { excerpt: "The model catalog and published integration articles contain no matching integration for this keyword." },
+    inventory: { sourceUrl: "https://flatkey.ai/sitemap.xml", pageCount: 2997, checkedAt: "2026-10-15T10:00:00Z" } });
+  assert.equal(pageAuditSchema.safeParse({ ...payload(), rows: [row] }).success, true);
+  for (const patch of [{ inventory: undefined }, { evidence: {} }, { reason: "Not found" }, { inventory: { ...row.inventory, pageCount: 0 } }]) {
+    assert.equal(pageAuditSchema.safeParse({ ...payload(), rows: [{ ...row, ...patch }] }).success, false);
+  }
+  const member = addMember("keyword-1", { protected: true });
+  const plan = planKeywordPageAudit(payload([row]), [], [member]);
+  assert.equal(plan.result.pageSummary.noMatch, 1);
+  assert.equal(plan.memberships[0].after.mappingStatus, "NEEDS_BUILD");
+  assert.deepEqual(plan.memberships[0].after.targetUrls, []);
+  assert.deepEqual(plan.memberships[0].after.candidateUrls, member.targetUrls);
+  assert.equal(member.protected, true);
+  assert.equal(member.pool, "FORMAL");
+});
+
+test("content gaps require a checked canonical page and remain candidates for expansion", () => {
+  const row = auditRow(undefined, { verdict: "CONTENT_GAP",
+    reason: "This article explains the API but contains no request limits or rate-limit policy required by this keyword.",
+    evidence: { excerpt: "The full article covers authentication and a basic request; the required rate-limit details are absent." } });
+  for (const patch of [{ httpStatus: 404 }, { canonicalUrl: undefined }, { canonicalUrl: "https://flatkey.ai/other" }, { evidence: {} }]) {
+    assert.equal(pageAuditSchema.safeParse({ ...payload(), rows: [{ ...row, ...patch }] }).success, false);
+  }
+  const member = addMember();
+  const plan = planKeywordPageAudit(payload([row]), [], [member]);
+  assert.equal(plan.result.pageSummary.contentGap, 1);
+  assert.equal(plan.memberships[0].after.mappingStatus, "NEEDS_EXPANSION");
+  assert.deepEqual(plan.memberships[0].after.targetUrls, []);
+  assert.deepEqual(new Set(plan.memberships[0].after.candidateUrls), new Set([...member.targetUrls, row.pageUrl]));
+});
+
+test("one keyword retains multiple independently verified pages without duplicate URLs", async () => {
+  const extra = { pageUrl: "https://flatkey.ai/models/verified-api", canonicalUrl: "https://flatkey.ai/models/verified-api",
+    httpStatus: 200, checkedAt: "2026-10-15T10:00:00Z", reason: "The model detail page independently documents the matching API model, request input and service availability.",
+    evidence: { title: "Verified model API", excerpt: "Model-specific API inputs and supported request format are documented on this model detail page." } };
+  const row = auditRow(undefined, { additionalPages: [extra] });
+  const valid = payload([row]);
+  for (const patch of [{ canonicalUrl: "https://flatkey.ai/other" }, { evidence: {} }, { checkedAt: new Date(Date.now() + 600000).toISOString() },
+    { pageUrl: row.pageUrl + "/#copy", canonicalUrl: row.pageUrl }]) {
+    assert.equal(pageAuditSchema.safeParse({ ...valid, rows: [{ ...row, additionalPages: [{ ...extra, ...patch }] }] }).success, false);
+  }
+  const member = addMember("keyword-1", { candidateUrls: [extra.pageUrl] });
+  const preview = await auditKeywordPages({ ...valid, action: "preview" });
+  assert.deepEqual(member.targetUrls, ["https://flatkey.ai/old-page"]);
+  await auditKeywordPages({ ...valid, expectedStateHash: preview.stateHash });
+  assert.deepEqual(member.targetUrls, [row.pageUrl, extra.pageUrl]);
+  assert.deepEqual(member.candidateUrls, ["https://flatkey.ai/old-page"]);
+  assert.equal(state.sourceRows[0].snapshot.additionalPages[0].evidence.excerpt, extra.evidence.excerpt);
+  assert.equal(state.membershipWrites.length, 1);
+});
+
 test("plan preview changes mappings only in its result and preserves old targets as candidates", () => {
   const member = addMember("keyword-1", { protected: true, candidateUrls: ["https://flatkey.ai/earlier-proposal"] });
   const original = clone(member);
@@ -180,6 +241,52 @@ test("service preview is read-only, and verified remapping preserves protected a
   assert.match(current.auditReason, /VERIFIED/);
 });
 
+test("service bulk-loads only identities for the full pool and limits complete evidence reads to this batch", async (t) => {
+  const first = addMember("keyword-1", { keyword: { text: "ＫＥＹＷＯＲＤ-1 API", active: true } });
+  const second = addMember("keyword-2");
+  for (let index = 0; index < 100; index++) addMember(`unrelated-${index}`, {
+    auditReason: "Large prior page audit evidence ".repeat(100),
+    targetUrls: [`https://flatkey.ai/unrelated-page-${index}`],
+  });
+  addMember("research-alias", { pool: "RESEARCH", keyword: { text: "keyword-1 api", active: true } });
+  addMember("inactive-alias", { keyword: { text: "keyword-2 api", active: false } });
+  const reads = [], originalFindMany = db.siteKeyword.findMany;
+  t.mock.method(db.siteKeyword, "findMany", async args => {
+    reads.push(clone(args));
+    return originalFindMany(args);
+  });
+  const incoming = payload([auditRow(), auditRow("keyword-2 api")], { action: "preview" });
+  const before = clone(state);
+  const result = await auditKeywordPages(incoming);
+  assert.deepEqual(state, before);
+  assert.equal(reads.length, 2, "batch membership reads must not grow with the keyword count");
+  assert.deepEqual(reads[0], {
+    where: { siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true } },
+    select: { keywordId: true, keyword: { select: { text: true, active: true } } },
+  });
+  assert.deepEqual(reads[1].where, {
+    siteDomain: "flatkey.ai", active: true, pool: "FORMAL", keyword: { active: true }, keywordId: { in: ["keyword-1", "keyword-2"] },
+  });
+  assert.equal(reads[1].select.auditReason, true);
+  assert.equal(reads[1].select.targetUrls, true);
+  assert.equal(reads[1].select.candidateUrls, true);
+  const previousFullProjection = { keywordId: true, keyword: { select: { text: true, active: true } }, active: true, pool: true, reviewStatus: true,
+    curationId: true, curatedAt: true, targetUrls: true, candidateUrls: true, mappingStatus: true, topicId: true, protected: true, auditReason: true };
+  const expected = planKeywordPageAudit(incoming, [], [first, second].map(row => selectFields(row, previousFullProjection)));
+  assert.equal(result.stateHash, expected.result.stateHash, "batch-scoped reads preserve the existing preview hash");
+});
+
+test("unknown normalized identities skip complete membership and prior evidence reads", async (t) => {
+  addMember("unrelated");
+  const memberships = t.mock.method(db.siteKeyword, "findMany");
+  const evidence = t.mock.method(db.keywordSourceRow, "findMany");
+  await assert.rejects(auditKeywordPages(payload()), error => error.status === 400);
+  assert.equal(memberships.mock.calls.length, 1);
+  assert.equal(memberships.mock.calls[0].arguments[0].select.auditReason, undefined);
+  assert.equal(evidence.mock.calls.length, 0);
+  assert.equal(state.dataWrites, 0);
+});
+
 test("missing 404 or 410 clears every target for the completed keyword audit and retains old evidence candidates", async () => {
   addMember("missing-404", { targetUrls: ["https://flatkey.ai/one", "https://flatkey.ai/two"], protected: true });
   addMember("missing-410");
@@ -190,7 +297,7 @@ test("missing 404 or 410 clears every target for the completed keyword audit and
   assert.equal(result.pageSummary.missing, 2);
   assert.equal(state.memberships[0].mappingStatus, "NEEDS_BUILD");
   assert.deepEqual(state.memberships[0].targetUrls, []);
-  assert.deepEqual(new Set(state.memberships[0].candidateUrls), new Set(["https://flatkey.ai/one", "https://flatkey.ai/two"]));
+  assert.deepEqual(new Set(state.memberships[0].candidateUrls), new Set(["https://flatkey.ai/one", "https://flatkey.ai/two", "https://flatkey.ai/blog/verified-api"]));
   assert.equal(state.memberships[0].protected, true);
   assert.equal(state.memberships[1].mappingStatus, "NEEDS_BUILD");
   assert.deepEqual(state.memberships[1].targetUrls, []);
@@ -202,7 +309,7 @@ test("HTTP 200 intent mismatch clears targets into candidates without changing f
   assert.equal(result.pageSummary.mismatch, 1);
   assert.equal(state.memberships[0].mappingStatus, "NEEDS_REMAP");
   assert.deepEqual(state.memberships[0].targetUrls, []);
-  assert.deepEqual(state.memberships[0].candidateUrls, original.targetUrls);
+  assert.deepEqual(new Set(state.memberships[0].candidateUrls), new Set([...original.targetUrls, "https://flatkey.ai/blog/verified-api"]));
   assert.equal(state.memberships[0].pool, "FORMAL");
   assert.equal(state.memberships[0].active, true);
   assert.equal(state.memberships[0].reviewStatus, "CONFIRMED");

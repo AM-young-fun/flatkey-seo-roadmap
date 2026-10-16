@@ -14,10 +14,10 @@ export async function GET(request?: Request) {
   const started = performance.now();
   const params = request ? new URL(request.url).searchParams : new URLSearchParams();
   const site = params.get("site") ?? "all";
-  const source = params.get("source") ?? "combined";
+  const source = params.get("source") ?? "dataforseo_labs";
   const period = params.get("period") ?? "week";
   if (period !== "week" && period !== "history") return NextResponse.json({ message: "统计区间无效" }, { status: 400 });
-  if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site) || !["gsc", "ahrefs", "combined"].includes(source))
+  if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site) || !["gsc", "ahrefs", "dataforseo_labs", "combined"].includes(source))
     return NextResponse.json({ message: "参数无效" }, { status: 400 });
   if (!REGION_CODES.includes((params.get("region") ?? "US") as typeof REGION_CODES[number]))
     return NextResponse.json({ message: "地区无效" }, { status: 400 });

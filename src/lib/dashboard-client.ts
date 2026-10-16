@@ -9,10 +9,11 @@ export class DashboardReadError extends Error {
 // another full database read whenever a dashboard component mounts.
 export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.now, persistence?: DashboardPersistence) {
   const entries = new Map<string, { value?: DashboardResponse; updatedAt: number; body?: string; pending?: Promise<DashboardResponse> }>();
-  const keyFor = (site: string, source: string) => `weekly-evidence-v1:${site}:${source}`;
+  const keyFor = (site: string, source: string) => `labs-rankings-v1:${site}:${source}`;
   let generation = 0;
   const clear = () => { generation++; entries.clear(); persistence?.clear(); };
   return {
+    revision: () => generation,
     peek: (site: string, source: string) => entries.get(keyFor(site, source))?.value ?? null,
     clear,
     async hydrate(site: string, source: string): Promise<DashboardResponse | null> {

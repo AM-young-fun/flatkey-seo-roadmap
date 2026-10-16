@@ -72,7 +72,7 @@ function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
     { label: "净变化", value: comparable && weekly.net != null ? `${weekly.net > 0 ? "+" : ""}${weekly.net}` : "待比较" },
   ];
   return <section className="dailyPanel weeklyKeywords">
-    <div className="dailyHeading"><div><h2>关键词环比变化</h2><p className="chartNote">每周二更新 · 上期期末与本期期末相比 · 四个地区汇总 · 只统计有搜索量的前 100 关键词</p></div></div>
+    <div className="dailyHeading"><div><h2>历史报告关键词环比</h2><p className="chartNote">GSC / Ahrefs 历史原始报告 · 不参与首页与明细的 DataForSEO 主排名 · 四个地区汇总 · 只统计有搜索量的前 100 关键词</p></div></div>
     <div className="weeklyKeywordCards">{cards.map(card=><div key={card.label}><span>{card.label}</span><strong>{card.value}</strong></div>)}</div>
     <p className="chartNote">{data ? `上期期末 ${data.periods.previous.end} → 本期期末 ${data.periods.current.end}。` : ""}{!weekly || weekly.baseline ? "待周二发布环比；缺少任一期末的完整数据时不计算。" : `新增 ${weekly.entered.length} 个，减少 ${weekly.detectedReduction} 个；已比较 ${weekly.siteCaptures?.length ?? 0}/12 个网站与地区组合。`}</p>
     <details className="movementDetails"><summary>数据说明与关键词列表</summary><p className="chartNote">以两个相邻周期的最后一天（周一）为准，日期必须精确匹配，不使用附近日期代替。同一网站、地区、来源比较后汇总；跨网站、跨国家分别计数。无声量和声量未知的词不计入。{weekly?.pendingMarkets?.length ? `待补齐：${weekly.pendingMarkets.join("、")}。` : ""}减少中，确认排名外 {weekly?.lost.length ?? 0} 个、未检出待核实 {weekly?.missing.length ?? 0} 个。</p>{weekly?.siteCaptures?.map(site=><p className="chartNote" key={site.site}>{site.site} · {site.source.toUpperCase()} · 上期期末 {site.previousDate} · 本期期末 {site.date}</p>)}{comparable ? [["新增进入前 100", weekly.entered], ["确认排名外", weekly.lost], ["未检出待核实", weekly.missing]].map(([label, ids])=><p key={label as string}><b>{label as string}：</b>{(ids as string[]).map(name).join("、") || "无"}</p>) : null}</details>

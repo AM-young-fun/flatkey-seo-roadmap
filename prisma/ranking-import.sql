@@ -302,4 +302,27 @@ CREATE TABLE IF NOT EXISTS "KeywordSourceRow" (
  PRIMARY KEY ("siteDomain", "sourceId", "rowKey")
 );
 CREATE INDEX IF NOT EXISTS "KeywordSourceRow_siteDomain_sourceId_idx" ON "KeywordSourceRow"("siteDomain", "sourceId");
+-- Server-side encrypted API connection and durable paid-request ledger. No
+-- scheduled paid calls are enabled by this migration.
+CREATE TABLE IF NOT EXISTS "DataForSeoConnection" (
+ "siteDomain" TEXT PRIMARY KEY REFERENCES "SeoSite"("domain"),
+ "encryptedCredentials" TEXT NOT NULL, "loginMasked" TEXT NOT NULL,
+ "connectionVersion" INTEGER NOT NULL DEFAULT 1, "scheduleEnabled" BOOLEAN NOT NULL DEFAULT false,
+ "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "DataForSeoRun" (
+ "requestId" TEXT PRIMARY KEY, "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"("domain"),
+ status TEXT NOT NULL DEFAULT 'PENDING', "requestHash" TEXT NOT NULL, "requestJson" JSONB NOT NULL,
+ "connectionVersion" INTEGER NOT NULL, "estimatedCostMicros" INTEGER NOT NULL,
+ "budgetCostMicros" INTEGER NOT NULL, "actualCostMicros" INTEGER,
+ "rawResponse" TEXT, normalized JSONB, "importPayload" JSONB, candidates JSONB, summary JSONB,
+ "collectedAt" TIMESTAMP(3), "errorCode" TEXT, "completedAt" TIMESTAMP(3),
+ "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CHECK ("estimatedCostMicros" >= 0 AND "budgetCostMicros" >= 0)
+);
+CREATE INDEX IF NOT EXISTS "DataForSeoRun_siteDomain_createdAt_idx" ON "DataForSeoRun"("siteDomain", "createdAt" DESC);
+ALTER TABLE "DataForSeoRun" ADD COLUMN IF NOT EXISTS "importPayload" JSONB;
+ALTER TABLE "DataForSeoRun" ADD COLUMN IF NOT EXISTS "importedBatches" INTEGER NOT NULL DEFAULT 0;
 COMMIT;

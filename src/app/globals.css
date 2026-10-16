@@ -1688,6 +1688,11 @@ a:focus-visible {
 .reportNote h2 { font-size:14px; }
 .reportNote p { font-size:12px; color:#8290a5; line-height:1.9; margin:12px 0; }
 .observedUrl { display:block; color:#6283ac; font-size:11px; overflow-wrap:anywhere; max-width:300px; text-decoration:none; }
+.rankingPageList { display:flex; flex-direction:column; gap:12px; overflow-wrap:anywhere; }
+.rankingPageRecord { display:flex; flex-direction:column; gap:4px; }
+.rankingPageRecord + .rankingPageRecord { border-top:1px solid #e6edf5; padding-top:10px; }
+.rankingPageRecord strong { color:#324764; font-size:12px; font-weight:600; }
+.rankingPageRecord small { color:#70819a; font-size:11px; }
 .nativeTable { overflow:auto; }
 .nativeTable table { width:100%; border-collapse:collapse; min-width:1000px; font-size:12px; }
 .nativeTable th,.nativeTable td { padding:16px 12px; border-bottom:1px solid #edf1f6; text-align:left; }
@@ -1810,6 +1815,35 @@ a:focus-visible {
 .okrSection .keywordEvidenceDetails .observedUrl { max-width:100%; }
 .okrRestore { padding:6px 10px; color:#a05f36; border:1px solid #eddccd; border-radius:7px; background:#fffaf6; cursor:pointer; font-size:11px; }
 .okrRestore:disabled,.okrRefresh:disabled { opacity:.5; cursor:default; }
+.dataforseoPanel { padding:24px; margin:0 0 24px; border:1px solid var(--border); border-radius:14px; background:#fff; }
+.dataforseoHeading,.dataforseoRunHeading { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.dataforseoHeading > button { display:inline-flex; align-items:center; gap:6px; }
+.dataforseoStats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:22px 0; }
+.dataforseoStats > div { display:grid; align-content:start; gap:8px; padding:16px; border:1px solid #e8edf4; border-radius:10px; background:#f8fafd; }
+.dataforseoStats span,.dataforseoStats small { color:#7d8ca1; font-size:11px; line-height:1.7; }
+.dataforseoStats strong { color:#2d4564; font-size:17px; }
+.dataforseoCredentials { display:flex; flex-wrap:wrap; align-items:end; gap:12px; margin-bottom:12px; }
+.dataforseoCredentials label { flex:1 1 220px; }
+.dataforseoCredentials button { padding:0 16px; min-height:40px; }
+.dataforseoActions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:20px 0; }
+.dataforseoPreview { margin:18px 0; padding:20px; border:1px solid #cfdced; border-radius:10px; background:#f4f8fd; font-size:13px; line-height:1.9; }
+.dataforseoPreview h3 { margin:0 0 10px; font-size:14px; }
+.dataforseoPreview > button { padding:0 18px; margin-top:12px; }
+.dataforseoUnknown { background:#fff9ef; border:1px solid #ecd9b2; border-radius:8px; padding:14px 16px; color:#8b6a30; font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+.dataforseoRuns { margin-top:22px; border-top:1px solid var(--border); padding-top:18px; font-size:12px; color:#62748d; }
+.dataforseoRuns summary,.historicalEvidence summary { cursor:pointer; font-weight:600; color:#3c5475; }
+.dataforseoRunList { display:grid; gap:12px; margin-top:14px; }
+.dataforseoRunList article { background:#fafbfd; border:1px solid #e7edf5; padding:16px; border-radius:9px; line-height:1.8; }
+.dataforseoRunHeading { margin-bottom:8px; }
+.dataforseoRunHeading strong { color:#364f70; }
+.dataforseoRunHeading span { font-size:11px; color:#7b8da5; }
+.dataforseoRunWarning { color:#9b7432; }
+.dataforseoRequestId { display:block; margin-top:8px; color:#8a9bb0; overflow-wrap:anywhere; }
+.historicalEvidence { border:1px solid #e0e7f0; border-radius:9px; padding:15px 18px; margin:20px 0; }
+.keywordStatusTags { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 3px; }
+.keywordStatusTags .ant-tag { margin:0; font-size:11px; line-height:21px; }
+@media(max-width:900px) { .dataforseoStats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .dataforseoPanel { padding:18px 14px; } .dataforseoHeading,.dataforseoRunHeading { align-items:flex-start; flex-direction:column; } .dataforseoStats { grid-template-columns:1fr; } }
 @media(max-width:600px) { .okrSection { padding:18px 14px; } .okrPreview dl { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:1050px) {
   .overviewSummaryGrid { grid-template-columns:minmax(0,1fr) 310px; gap:16px; }

@@ -423,3 +423,37 @@ model KeywordSourceRow {
   @@id([siteDomain, sourceId, rowKey])
   @@index([siteDomain, sourceId])
 }
+
+model DataForSeoConnection {
+  siteDomain String @id
+  encryptedCredentials String
+  loginMasked String
+  connectionVersion Int @default(1)
+  scheduleEnabled Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DataForSeoRun {
+  requestId String @id
+  siteDomain String
+  status String @default("PENDING")
+  requestHash String
+  requestJson Json
+  connectionVersion Int
+  estimatedCostMicros Int
+  budgetCostMicros Int
+  actualCostMicros Int?
+  rawResponse String?
+  normalized Json?
+  importPayload Json?
+  importedBatches Int @default(0)
+  candidates Json?
+  summary Json?
+  collectedAt DateTime?
+  errorCode String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([siteDomain, createdAt(sort: Desc)])
+}

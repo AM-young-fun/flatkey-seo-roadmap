@@ -799,7 +799,7 @@ test("bulk dashboard keeps shared keywords and topics separate across sites and 
   const topic = {id:"topic",text:"Shared topic",type:"MAIN",parentId:null,parentIds:[]};
   const keyword = {id:"shared",text:"shared keyword",type:"MAIN",topicId:"topic",topicText:"Shared topic",topicTexts:["Second topic"],parentId:null,parentIds:[],origin:"DISCOVERED",targetUrls:[],defaultVolume:100,lastSyncedAt:null};
   const rank = {keywordId:"shared",region:"US",rank:5,source:"gsc",periodStart:new Date("2026-10-01"),periodEnd:new Date("2026-10-14"),url:"https://flatkey.ai/",collectedAt:new Date(collectedAt),dataUpdatedAt:null,rankStatus:"ranked"};
-  const value=assembleDashboard("all",["flatkey.ai","rackrate.org"].map(siteDomain=>({...topic,siteDomain})),["flatkey.ai","rackrate.org"].map(siteDomain=>({...keyword,siteDomain})),[{...rank,siteDomain:"flatkey.ai"},{...rank,siteDomain:"rackrate.org",rank:101,rankStatus:"outside_top100",url:"https://rackrate.org/"}],[{keywordId:"shared",region:"US",volume:0,fetchedAt:new Date(collectedAt)},{keywordId:"shared",region:"JP",volume:12,fetchedAt:new Date(collectedAt)}],null);
+  const value=assembleDashboard("all",["flatkey.ai","rackrate.org"].map(siteDomain=>({...topic,siteDomain})),["flatkey.ai","rackrate.org"].map(siteDomain=>({...keyword,siteDomain})),[{...rank,siteDomain:"flatkey.ai"},{...rank,siteDomain:"rackrate.org",rank:101,rankStatus:"outside_top100",url:"https://rackrate.org/"}],[{keywordId:"shared",region:"US",volume:0,fetchedAt:new Date(collectedAt)},{keywordId:"shared",region:"JP",volume:12,fetchedAt:new Date(collectedAt)}],null,null,[],null,"combined");
   assert.equal(value.keywords.length,2);
   assert.equal(new Set(value.keywords.map(row=>row.id)).size,2);
   assert.equal(value.keywords[0].latestRanks.US.rank,5);
@@ -946,8 +946,8 @@ test("daily series keeps corrections, uses a stable source, and leaves missing s
   assert.equal(points.length,1); assert.equal(points[0].counts[0],5);
 });
 test("overview week rolls at Shanghai midnight and always contains at most seven days", () => {
-  assert.deepEqual(recentTrendRange(new Date("2026-10-14T15:59:00Z")), {start:"2026-10-08",end:"2026-10-13"});
-  assert.deepEqual(recentTrendRange(new Date("2026-10-14T16:00:00Z")), {start:"2026-10-08",end:"2026-10-14"});
+  assert.deepEqual(recentTrendRange(new Date("2026-10-14T15:59:00Z")), {start:"2026-10-08",end:"2026-10-14"});
+  assert.deepEqual(recentTrendRange(new Date("2026-10-14T16:00:00Z")), {start:"2026-10-09",end:"2026-10-15"});
 });
 test("full snapshot trends count confirmed ranks, retain explicit outside results, and leave unobserved days absent", () => {
   const rows=[{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:10.5},{date:"2026-10-14",siteDomain:"flatkey.ai",source:"gsc",rank:101}];
@@ -1027,4 +1027,18 @@ test("import API exposes safe transient diagnostics and preserves the original r
     assert.equal(response.headers.get("Retry-After"),"2");assert.ok(!JSON.stringify(body).includes("private connection"));assert.ok(!body.message.includes("整批未写入"));
     assert.equal(batches.length,0);
   } finally {db.seoSite.findUnique=original;}
+});
+
+test("Labs import requires explicit status, integer rank and true hit URL without GSC period or metrics", () => {
+  const labs={keyword:"claude api",source:"dataforseo_labs",region:"US",rank:12,rankStatus:"ranked",url:"https://flatkey.ai/claude",collectedAt:"2026-10-15T02:30:00Z",dataUpdatedAt:"2026-10-01T00:00:00Z"};
+  assert.equal(rankingImportSchema.safeParse(batch([labs])).success,true);
+  assert.equal(rankingImportSchema.safeParse(batch([{...labs,rank:null,rankStatus:"no_data",url:undefined,dataUpdatedAt:undefined}])).success,true);
+  for(const patch of [{rank:12.4},{rankStatus:undefined},{url:undefined},{periodStart:"2026-10-01",periodEnd:"2026-10-14"},{clicks:1},{rank:null,rankStatus:"outside_top100"},{rank:null,rankStatus:"no_data"}])
+    assert.equal(rankingImportSchema.safeParse(batch([{...labs,...patch}])).success,false,JSON.stringify(patch));
+});
+test("Labs observations round-trip through the existing importer with real SERP date and idempotent request identity", async () => {
+  const payload=rankingImportSchema.parse(batch([{keyword:"claude api",source:"dataforseo_labs",region:"US",rank:12,rankStatus:"ranked",url:"https://flatkey.ai/claude",collectedAt:"2026-10-15T02:30:00Z",dataUpdatedAt:"2026-10-01T00:00:00Z"}]));
+  const firstResponse=await route.POST(request(payload));assert.equal(firstResponse.status,201);const first=await firstResponse.json();assert.equal(first.duplicate,false);assert.equal(observations[0].source,"dataforseo_labs");
+  assert.equal(observations[0].dataUpdatedAt.toISOString(),"2026-10-01T00:00:00.000Z");assert.equal(observations[0].periodStart,null);
+  assert.equal((await (await route.POST(request(payload))).json()).duplicate,true);assert.equal(observations.length,1);
 });

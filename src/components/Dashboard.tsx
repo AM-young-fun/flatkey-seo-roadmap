@@ -24,23 +24,20 @@ export function Dashboard() {
   const awaitingEvidence = stats.total > 0 && stats.pending === stats.total;
   const formatPercent = (count: number) =>
     ready ? `${stats.percent(count).toFixed(1)}%` : "—";
-  const hasGsc = keywords.some(
-    (keyword) => keyword.latestRanks[region]?.source === "gsc",
-  );
   return (
     <main className="appShell">
       <PageHeader active="overview" selection={selection} />
       {refreshing ? <p className="cacheNotice" role="status">已显示上次加载的词库结果，正在获取最新数据…</p> : null}
       <section className="overviewSummaryGrid">
-        <RankingTrend region={region} reportEnd={data?.reportingPeriod?.end} />
+        <RankingTrend region={region} reportEnd={data?.reportingPeriod?.end} hasSavedSnapshot={keywords.some(keyword => keyword.latestRanks[region]?.source === "dataforseo_labs")} />
         <aside className="analyticsColumn">
           <article className="analyticsCard">
             <p className="eyebrow">RANKING COVERAGE</p>
-            <h2>来源报告排名覆盖率</h2>
+            <h2>DataForSEO 排名覆盖率</h2>
             <div
               className="coverageDonut"
               role="img"
-              aria-label={`业务目标${stats.total}词，前100记录${stats.ranked}词，明确前100外${stats.outside}词，待核验${stats.pending}词`}
+              aria-label={`业务目标${stats.total}词，DataForSEO数据库前100记录${stats.ranked}词，来源明确前100外${stats.outside}词，未取得记录${stats.pending}词`}
               style={{
                 background: stats.total
                   ? `conic-gradient(#10b981 0% ${stats.percent(stats.ranked)}%, #e8edf3 ${stats.percent(stats.ranked)}% 100%)`
@@ -48,25 +45,25 @@ export function Dashboard() {
               }}
             >
               <div>
-                <strong>{awaitingEvidence ? "待核验" : formatPercent(stats.ranked)}</strong>
-                <span>报告前 100 记录</span>
+                <strong>{awaitingEvidence ? "暂无记录" : formatPercent(stats.ranked)}</strong>
+                <span>数据库前 100 记录</span>
               </div>
             </div>
             <div className="coverageRows">
               <p>
                 <span>
                   <i style={{ background: "#10b981" }} />
-                  报告前 100 记录
+                  数据库前 100 记录
                 </span>
                 <b>
-                  {ready ? awaitingEvidence ? "暂无周证据" : stats.ranked : "—"}
+                  {ready ? awaitingEvidence ? "暂无数据库记录" : stats.ranked : "—"}
                   <small>{awaitingEvidence ? "—" : formatPercent(stats.ranked)}</small>
                 </b>
               </p>
               <p>
                 <span>
                   <i style={{ background: "#94a3b8" }} />
-                  无本周前 100 证据
+                  无前 100 数据库记录
                 </span>
                 <b>
                   {ready ? stats.unranked : "—"}
@@ -75,7 +72,7 @@ export function Dashboard() {
               </p>
             </div>
             <p className="chartNote">
-              业务目标共 {ready ? stats.total : "—"} 词；明确前 100 外 {ready ? stats.outside : "—"} 词，待核验 {ready ? stats.pending : "—"} 词。缺少本周证据不代表排名下降或网页未收录。
+              业务目标共 {ready ? stats.total : "—"} 词；来源明确前 100 外 {ready ? stats.outside : "—"} 词，未取得记录 {ready ? stats.pending : "—"} 词。未取得记录不能确认为前 100 外，也不代表网页未收录。
             </p>
           </article>
           <article className="analyticsCard">
@@ -87,7 +84,7 @@ export function Dashboard() {
                   <div className="distributionLabel">
                     <span>
                       <i style={{ background: bucket.color }} />
-                      {bucket.key === "NOT_FOUND" ? "无本周前 100 证据" : bucket.range}
+                      {bucket.key === "NOT_FOUND" ? "无前 100 数据库记录" : bucket.range}
                     </span>
                     <b>
                       {ready ? bucket.count : "—"}
@@ -106,12 +103,12 @@ export function Dashboard() {
               ))}
             </div>
             <p className="chartNote">
-              各区间互不重叠，只使用本周有效来源记录；包含 GSC 周均值，不代表实时搜索名次。
+              各区间互不重叠，按各关键词最新已存的 DataForSEO 数据库名次统计。真实来源日期详见明细，数据库名次不代表实时搜索结果。
             </p>
           </article>
         </aside>
       </section>
-      <div className="dailySnapshotHeading"><strong>业务词库来源记录</strong><span>按真实统计期或来源更新日期选取报告；本期无数据不沿用同来源旧排名。查看明细可分别核对 GSC、Ahrefs 和实际页面。</span></div>
+      <div className="dailySnapshotHeading"><strong>业务词库数据库排名</strong><span>核心排名使用最新已存的 DataForSEO 数据库记录，明细展示真实来源日期与实际排名页面；GSC、Ahrefs 仅保留为历史参考。</span></div>
       {error ? (
         <div className="loadError" role="alert">
           <span>{error}</span>
@@ -138,7 +135,7 @@ export function Dashboard() {
             {DISPLAY_BUCKETS.map((bucket) => (
               <span key={bucket.key}>
                 <i style={{ background: bucket.color }} />
-                {bucket.key === "NOT_FOUND" ? "无本周前 100 证据" : bucket.range}
+                {bucket.key === "NOT_FOUND" ? "无前 100 数据库记录" : bucket.range}
               </span>
             ))}
           </div>
@@ -152,12 +149,8 @@ export function Dashboard() {
         </article>
       </section>
       <footer className="overviewFooter">
-        <span>
-          {hasGsc
-            ? "包含 GSC 区间平均排名，悬停可查看来源、统计区间和采集日期"
-            : "每个关键词以最新数据日期的来源报告为准；当前 Google 搜索未核验"}
-        </span>
-        <span>每日 10:30 采集 · 来源日期以报告为准</span>
+        <span>排名来自已存 DataForSEO 数据库记录；GSC、Ahrefs 仅供历史参考，当前 Google 搜索未核验。</span>
+        <span>真实来源日期与实际排名页面详见明细</span>
       </footer>
     </main>
   );

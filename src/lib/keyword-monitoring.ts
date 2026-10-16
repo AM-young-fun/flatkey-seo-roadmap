@@ -5,7 +5,7 @@ export type MonitoringTarget = { siteDomain: string; pool?: string; mappingStatu
 
 export function readPageAuditVerdict(snapshot: unknown): PageAuditVerdict {
   const verdict = snapshot && typeof snapshot === "object" && "verdict" in snapshot ? snapshot.verdict : null;
-  return verdict === "VERIFIED" || verdict === "MISSING" || verdict === "MISMATCH" || verdict === "REVIEW" ? verdict : "REVIEW";
+  return verdict === "VERIFIED" || verdict === "MISSING" || verdict === "MISMATCH" || verdict === "REVIEW" || verdict === "NO_MATCH" || verdict === "CONTENT_GAP" ? verdict : "REVIEW";
 }
 
 // A planned URL does not prove that the page exists or matches this query.

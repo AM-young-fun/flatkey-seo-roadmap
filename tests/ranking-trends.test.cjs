@@ -12,8 +12,8 @@ Module._resolveFilename = function (name, parent, ...rest) {
 require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
-const { eligibleTrendKeywords, trendPeriod, weeklyEvidenceTrendPoints, recentTrendRange } = require("../src/lib/ranking-trends.ts");
-const { rankingReportingPeriod } = require("../src/lib/ranking-evidence.ts");
+const { eligibleTrendKeywords, trendPeriod, weeklyEvidenceTrendPoints, labsSnapshotTrendPoints, recentTrendRange } = require("../src/lib/ranking-trends.ts");
+const { labsReportingPeriod } = require("../src/lib/ranking-evidence.ts");
 const { rankingStats } = require("../src/lib/rank-display.ts");
 const keyword = (id, overrides = {}) => ({ keywordId: id, text: `${id} api`, siteDomain: "flatkey.ai", active: true, keywordActive: true, siteActive: true, topicId: "topic", pool: "FORMAL", ...overrides });
 const observation = (id, overrides = {}) => ({ id: `report-${id}`, keywordId: id, siteDomain: "flatkey.ai", region: "US", source: "gsc", rank: 7, rankStatus: "ranked", rankReported: true,
@@ -90,7 +90,7 @@ test("source selection, corrections and no_data exactly follow the dashboard evi
   ];
   const result = point(keys, reports);
   const dashboardRows = keys.map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", targetUrls: [], defaultVolume: 0, lastSyncedAt: null }));
-  const dashboard = assembleDashboard("all", [], dashboardRows, reports, [], null, null, [], { ...trendPeriod("2026-10-15"), label: "test" });
+  const dashboard = assembleDashboard("all", [], dashboardRows, reports, [], null, null, [], { ...trendPeriod("2026-10-15"), label: "test" }, "combined");
   const ranked = dashboard.keywords.filter(row => row.latestRanks.US?.rank >= 1 && row.latestRanks.US?.rank <= 100).length;
   const stats = rankingStats(dashboard.keywords, "US");
   assert.equal(result.ranked, ranked);
@@ -115,79 +115,64 @@ test("deduplication is by site and keyword, including source duplicates, while c
   assert.equal(result.counts.reduce((sum, value) => sum + value, 0), 2);
 });
 
-test("recent dates exclude today and their endpoint report period equals the default dashboard week", () => {
+test("Labs recent dates include today and match the default collection window", () => {
   const before = new Date("2026-10-14T15:59:00Z"), after = new Date("2026-10-14T16:00:00Z");
-  assert.deepEqual(recentTrendRange(before), { start: "2026-10-08", end: "2026-10-13" });
-  assert.deepEqual(recentTrendRange(after), { start: "2026-10-08", end: "2026-10-14" });
-  const now = new Date("2026-10-16T03:00:00Z"), range = recentTrendRange(now), period = trendPeriod(range.end), dashboardWeek = rankingReportingPeriod(now);
-  assert.equal(period.start, dashboardWeek.start);
-  assert.equal(period.end, dashboardWeek.end);
-  assert.deepEqual(range, { start: "2026-10-09", end: "2026-10-15" });
+  assert.deepEqual(recentTrendRange(before), { start: "2026-10-08", end: "2026-10-14" });
+  assert.deepEqual(recentTrendRange(after), { start: "2026-10-09", end: "2026-10-15" });
+  const now = new Date("2026-10-16T03:00:00Z"), range = recentTrendRange(now), week = labsReportingPeriod(now);
+  assert.deepEqual(range, { start: week.start, end: week.end });
+  assert.deepEqual(range, { start: "2026-10-10", end: "2026-10-16" });
 });
 
-let queryCalls = [], reportPeriodRows = [], trendObservations = null;
+const labs = (id, overrides = {}) => observation(id, { source: "dataforseo_labs", captureId:"labs-capture", captureStatus:"COMPLETE", periodStart: null, periodEnd: null,
+  collectedAt: new Date("2026-10-16T02:00:00Z"), dataUpdatedAt: new Date("2026-10-01T00:00:00Z"), rank: 12, ...overrides });
+test("Labs trends emit real collection days only, preserving old SERP dates and the entire site cohort", () => {
+  const keys = [keyword("a"), keyword("b"), keyword("c", { siteDomain: "rackrate.org" })];
+  assert.deepEqual(labsSnapshotTrendPoints(keys, [observation("a")], "US", "2026-10-09", "2026-10-16"), []);
+  const points = labsSnapshotTrendPoints(keys, [labs("a"), labs("b", {region:"JP"})], "US", "2026-10-09", "2026-10-16");
+  assert.equal(points.length, 1);
+  assert.equal(points[0].date, "2026-10-16");
+  assert.equal(points[0].total, 3);
+  assert.equal(points[0].ranked, 1);
+  assert.equal(points[0].pending, 2);
+  assert.equal(points[0].outside, 0);
+  assert.deepEqual(points[0].dataDates, ["2026-10-01T00:00:00.000Z"]);
+  assert.deepEqual(labsSnapshotTrendPoints(keys, [labs("a")], "JP", "2026-10-09", "2026-10-16"), []);
+});
+test("new Labs no_data replaces an earlier rank on its collection day without resurrecting GSC or implying outside", () => {
+  const points = labsSnapshotTrendPoints([keyword("a")], [labs("a"), labs("a", { rank: null, rankStatus:"no_data", dataUpdatedAt:null,
+    collectedAt:new Date("2026-10-16T03:00:00Z") }), observation("a", {rank:1})], "US", "2026-10-09", "2026-10-16");
+  assert.equal(points[0].ranked, 0);
+  assert.equal(points[0].pending, 1);
+  assert.equal(points[0].outside, 0);
+});
+
+let queryCalls = [], trendObservations = [];
 const db = { $queryRaw: async query => {
   queryCalls.push(query);
-  if (query.sql.includes("ranking-period:recent-query-reports")) return reportPeriodRows;
-  if (query.sql.includes("weekly-trends:cohort")) return [keyword("formal"), keyword("research", { pool: "RESEARCH" })];
-  if (query.sql.includes("weekly-trends:bounded-observations")) return trendObservations ?? [observation("formal"), observation("research")];
+  if (query.sql.includes("labs-trends:cohort")) return [keyword("formal"), keyword("research", { pool: "RESEARCH" })];
+  if (query.sql.includes("labs-trends:bounded-observations")) return trendObservations;
   throw new Error("unexpected SQL");
 } };
 const prismaPath = path.join(root, "src/lib/prisma.ts");
 require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: db } };
 const { assembleDashboard } = require("../src/lib/services/dashboard-data.ts");
 const { GET } = require("../src/app/api/seo/trends/route.ts");
-
-test("the trend API reads cohort and bounded query reports once, emits v2 metadata and rejects incomplete dates", async () => {
-  const NativeDate = Date;
-  const fixed = NativeDate.parse("2026-10-16T04:00:00Z");
-  global.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [fixed])); } static now() { return fixed; } };
-  try {
-    queryCalls = [];
-    const response = await GET(new Request("http://localhost/api/seo/trends?region=US&start=2026-10-09&end=2026-10-15"));
-    assert.equal(response.status, 200);
-    const result = await response.json();
-    assert.equal(result.schemaVersion, 2);
-    assert.equal(result.mode, "weekly-evidence");
-    assert.equal(result.asOf, "2026-10-16T04:00:00.000Z");
-    assert.equal(result.points.length, 7);
-    assert.equal(result.points.at(-1).total, 1);
-    assert.equal(result.points.at(-1).ranked, 1);
-    assert.equal(queryCalls.length, 2);
-    assert.ok(queryCalls[0].sql.includes("sk.pool = 'FORMAL'"));
-    assert.ok(queryCalls[1].sql.includes('o."periodEnd" - o."periodStart" = 6'));
-    assert.ok(!queryCalls[1].values.includes("research"));
-    const again = await GET(new Request("http://localhost/api/seo/trends?region=US&start=2026-10-09&end=2026-10-15"));
-    assert.equal(again.status, 200);
-    assert.equal(queryCalls.length, 2);
-    const incomplete = await GET(new Request("http://localhost/api/seo/trends?region=US&end=2026-10-16"));
-    assert.equal(incomplete.status, 400);
-  } finally { global.Date = NativeDate; }
-});
-
-test("default trend shares the imported seven-day report endpoint while an explicit client endpoint is preserved", async () => {
+test("trend API emits v3 Labs snapshots including today, never reads GSC periods, and refreshes cached reads", async () => {
   const NativeDate = Date, fixed = NativeDate.parse("2026-10-16T04:00:00Z");
   global.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [fixed])); } static now() { return fixed; } };
   try {
-    queryCalls = [];
-    reportPeriodRows = [{ siteDomain: "flatkey.ai", text: "formal api", periodStart: new Date("2026-10-08"), periodEnd: new Date("2026-10-14") }];
-    trendObservations = [observation("formal", { region: "JP", periodStart: new Date("2026-10-08"), periodEnd: new Date("2026-10-14") })];
-    const response = await GET(new Request("http://localhost/api/seo/trends?region=JP"));
-    assert.equal(response.status, 200);
-    const result = await response.json();
-    assert.deepEqual([result.start, result.end], ["2026-10-08", "2026-10-14"]);
-    assert.equal(result.points.at(-1).periodStart, "2026-10-08");
-    assert.equal(result.points.at(-1).periodEnd, "2026-10-14");
-    assert.equal(result.points.at(-1).ranked, 1);
-    assert.equal(queryCalls.length, 3);
-    assert.ok(queryCalls[0].sql.includes("ranking-period:recent-query-reports"));
-    const dashboard = assembleDashboard("all", [], [{ ...keyword("formal"), id: "formal", type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", targetUrls: [], defaultVolume: 0, lastSyncedAt: null }], trendObservations, [], null, null, [], { ...trendPeriod(result.end), label: "最近已导入7天" });
-    assert.equal(result.points.at(-1).ranked, rankingStats(dashboard.keywords, "JP").ranked);
-    const explicit = await GET(new Request("http://localhost/api/seo/trends?region=JP&end=2026-10-15"));
-    assert.equal(explicit.status, 200);
-    const requested = await explicit.json();
-    assert.equal(requested.end, "2026-10-15");
-    assert.equal(requested.points.at(-1).ranked, 0);
-    assert.equal(requested.points.at(-1).pending, 1);
-  } finally { global.Date = NativeDate; reportPeriodRows = []; trendObservations = null; }
+    queryCalls=[];trendObservations=[labs("formal"), labs("research")];
+    const response=await GET(new Request("http://localhost/api/seo/trends?region=US"));
+    assert.equal(response.status,200);const result=await response.json();
+    assert.equal(result.schemaVersion,3);assert.equal(result.mode,"labs-snapshots");
+    assert.deepEqual([result.start,result.end],["2026-10-10","2026-10-16"]);
+    assert.equal(result.points.length,1);assert.equal(result.points[0].ranked,1);assert.equal(result.points[0].total,1);
+    assert.equal(queryCalls.length,2);assert.ok(queryCalls[1].sql.includes("o.source = 'dataforseo_labs'"));
+    assert.ok(queryCalls[1].sql.includes('"collectedAt"'));assert.ok(!queryCalls[1].values.includes("research"));
+    await GET(new Request("http://localhost/api/seo/trends?region=US"));assert.equal(queryCalls.length,2);
+    await GET(new Request("http://localhost/api/seo/trends?region=US&refresh=1"));assert.equal(queryCalls.length,4);
+    const future=await GET(new Request("http://localhost/api/seo/trends?end=2026-10-17"));assert.equal(future.status,400);
+    const noData=await GET(new Request("http://localhost/api/seo/trends?region=JP"));assert.deepEqual((await noData.json()).points,[]);
+  } finally {global.Date=NativeDate;trendObservations=[];}
 });

@@ -17,6 +17,7 @@ import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
 import { postImportBatch } from "@/lib/import-client";
 import { KeywordReviewPanel } from "@/components/KeywordReviewPanel";
+import { DataforSeoConnection } from "@/components/DataforSeoConnection";
 const initialTopicForm = { text: "", type: "MAIN" as TopicType, parentId: "" };
 type ImportKeywordsResponse = {
   message?: string;
@@ -173,7 +174,7 @@ export function ManagementDashboard() {
       let duplicateBatches = 0;
       const sourceCounts = { changed: 0, skipped: 0, added: 0, promoted: 0, held: 0, blocked: 0, conflicts: 0 };
       let sourceBatches = 0, previewBatches = 0;
-      const pageCounts = { changed: 0, unchanged: 0, verified: 0, missing: 0, mismatch: 0, review: 0 };
+      const pageCounts = { changed: 0, unchanged: 0, verified: 0, missing: 0, mismatch: 0, review: 0, noMatch: 0, contentGap: 0 };
       let pageBatches = 0, pagePreviews = 0;
       for (let index = 0; index < batches.length; index++) {
         setImportProgress(`正在导入 ${index + 1} / ${batches.length}`);
@@ -199,7 +200,7 @@ export function ManagementDashboard() {
       }
       const summaries: string[] = [];
       if (sourceBatches) summaries.push(`协作表${previewBatches === sourceBatches ? "预览完成（未写入）" : "同步完成"}：变化 ${sourceCounts.changed} 行，未变化跳过 ${sourceCounts.skipped} 行；新增词 ${sourceCounts.added}，进入正式监控 ${sourceCounts.promoted}，保留候选 ${sourceCounts.held}；保护拦截 ${sourceCounts.blocked}，页面关联待核实 ${sourceCounts.conflicts}。`);
-      if (pageBatches) summaries.push(`页面复核${pagePreviews === pageBatches ? "预览完成（未写入）" : "完成"}：匹配 ${pageCounts.verified}，缺页 ${pageCounts.missing}，错配 ${pageCounts.mismatch}，待核实 ${pageCounts.review}；变化 ${pageCounts.changed}，未变化 ${pageCounts.unchanged}。关键词保留。`);
+      if (pageBatches) summaries.push(`页面复核${pagePreviews === pageBatches ? "预览完成（未写入）" : "完成"}：匹配 ${pageCounts.verified}，待建设 ${pageCounts.missing + pageCounts.noMatch}，需补内容 ${pageCounts.contentGap}，错配 ${pageCounts.mismatch}，待核实 ${pageCounts.review}；变化 ${pageCounts.changed}，未变化 ${pageCounts.unchanged}。关键词保留。`);
       setMessage(summaries.length ? summaries.join("\n") : `导入完成：${batches.length} 批，共确认 ${total} 条记录；新增批次 ${batches.length-duplicateBatches}，重复跳过 ${duplicateBatches}（未重复写入）`);
       setJsonFile(null); setJsonText("");
       await loadDashboard();
@@ -214,7 +215,7 @@ export function ManagementDashboard() {
         <div>
           <p className="eyebrow">WORKSPACE</p>
           <h1>数据管理</h1>
-          <p>组织话题，导入关键词，连接每日采集。</p>
+          <p>配置排名更新，管理词库与协作表同步。</p>
         </div>
         <div className="workspaceCounts">
           <span>
@@ -240,6 +241,7 @@ export function ManagementDashboard() {
           </button>
         </div>
       ) : null}
+      <DataforSeoConnection onChanged={loadDashboard} />
       <section className="manageWorkspace">
         <form className="topicEditor" onSubmit={submitTopic}>
           <div className="manageCardHeading">
@@ -388,8 +390,8 @@ export function ManagementDashboard() {
             <Clock3 size={19} />
           </span>
           <div>
-            <h2>每日采集连接</h2>
-            <p>每天 10:30 · 北京时间 · GSC / Ahrefs</p>
+            <h2>协作表与历史证据导入</h2>
+            <p>现有词库 + 三张协作表增量；保留候选与原始证据</p>
             <span className="lastImport">
               最后导入：
               {data?.latestImportAt
