@@ -1,7 +1,7 @@
 /* global process, console */
 import { spawnSync } from "node:child_process";
+import { URL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import databaseUrl from "../src/lib/database-url.cjs";
 
 if (process.env.VERCEL_ENV !== "production") {
   console.log(
@@ -16,9 +16,18 @@ if (process.env.VERCEL_ENV !== "production") {
     );
   // The SQL is additive, transactional, and repeatable. Never use db push here:
   // an unrelated schema change must not drop production columns during a build.
-  // The SQL file uses one explicit transaction and transaction-scoped locks.
-  // It can share the serverless pool without reserving another session slot.
-  const environment = { ...process.env, DATABASE_URL: databaseUrl.buildDatabaseUrl(process.env.DATABASE_URL, true) };
+  // Schema preparation keeps the configured direct/session connection. The
+  // serverless transaction pool is selected separately by the runtime client.
+  let migrationUrl;
+  try {
+    migrationUrl = new URL(process.env.DIRECT_URL || process.env.DATABASE_URL);
+  } catch {
+    throw new Error("Production database URL is invalid.");
+  }
+  migrationUrl.searchParams.set("connection_limit", "1");
+  migrationUrl.searchParams.set("connect_timeout", "20");
+  migrationUrl.searchParams.set("pool_timeout", "20");
+  const environment = { ...process.env, DATABASE_URL: migrationUrl.toString() };
   const execute = () => spawnSync(
     process.execPath,
     [
@@ -30,16 +39,20 @@ if (process.env.VERCEL_ENV !== "production") {
       "--schema",
       "prisma/schema.prisma",
     ],
-    { encoding: "utf8", env: environment },
+    { encoding: "utf8", env: environment, timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 },
   );
   let result;
   for (let attempt = 1; attempt <= 3; attempt++) {
+    console.log(`Preparing production database (attempt ${attempt}/3).`);
     result = execute();
     if (result.status === 0) break;
     const output = `${result.stderr ?? ""}${result.stdout ?? ""}`;
-    const code = output.match(/\bP\d{4}\b/)?.[0] ?? (/response from the engine was empty/i.test(output) ? "ENGINE_EMPTY" : "UNKNOWN");
+    const timedOut = result.error?.code === "ETIMEDOUT";
+    const code = timedOut ? "TIMEOUT" : output.match(/\bP\d{4}\b/)?.[0] ?? (/response from the engine was empty/i.test(output) ? "ENGINE_EMPTY" : "UNKNOWN");
     console.warn(`Database preparation attempt ${attempt} failed (${code}).`);
-    if (attempt === 3 || !/P1001|P1002|P1017|connection|timed out|timeout|response from the engine was empty/i.test(output)) break;
+    const retryable = ["TIMEOUT", "ENGINE_EMPTY", "P1001", "P1002", "P1017", "P2024"].includes(code) ||
+      (code === "UNKNOWN" && /\bconnection\b|timed out|\btimeout\b/i.test(output));
+    if (attempt === 3 || !retryable) break;
     await delay(attempt * 1000);
   }
   if (result.status !== 0) {
