@@ -28,7 +28,7 @@ export type SerpMonitorStatus = {
   cronConfigured: boolean;
   gate: { environmentEnabled: boolean; persistedEnabled: boolean; canSpend: boolean };
   connection: { configured: boolean; loginMasked: string | null };
-  cohort: { hash: string; targetCount: number; queryCount: number; bySite: Record<string, number> };
+  cohort: { hash: string; targetCount: number; queryCount: number; allTargetCount: number; heldTargetCount: number; bySite: Record<string, number> };
   quote: SerpQuote;
   budget: { monthReservedCostMicros: number; monthLimitMicros: number };
   runs: SerpMonitorRunDto[];

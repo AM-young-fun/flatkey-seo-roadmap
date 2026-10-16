@@ -155,6 +155,9 @@ export type DashboardKeyword = {
   rankingEvidence?: Record<SearchRegionCode, RankingEvidence[]>;
   firstTrackedAt?: string | null;
   volumeReview?: KeywordVolumeReview;
+  monitoringEligible?: boolean;
+  monitoringHoldReason?: string | null;
+  monitoringHoldCode?: string | null;
 };
 
 export type DashboardTopic = {

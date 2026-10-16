@@ -10,6 +10,7 @@ import { loadRecentRankingReportPeriod } from "@/lib/services/ranking-report-per
 import type { DashboardKeyword, DashboardResponse, DashboardTopic, RankingEvidence, RankingReportingPeriod, SyncRunSummary } from "@/lib/types";
 import { loadSerpResults } from "@/lib/services/serp-results";
 import { SERP_MARKET_LANGUAGE, serpRankSummary, serpRankingEvidence } from "@/lib/serp-results";
+import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 
 const SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
 const NAMES: Record<string, string> = { "flatkey.ai": "Flatkey", "rackrate.org": "RackRate", "modelfit.cc": "ModelFit" };
@@ -290,7 +291,8 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
     keywordId: site === "all" ? keyword.id.slice((keyword.siteDomain?.length ?? 0) + 1) : keyword.id,
     keyword: keyword.text, siteDomain: keyword.siteDomain!, targetUrls: keyword.targetUrls ?? [],
   })) };
-  const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort)), REGION_CODES.map(region => `serp:${region}`));
+  const monitoring = await loadSerpMonitoringCohort(site);
+  const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring)), REGION_CODES.map(region => `serp:${region}`));
   for (const snapshot of snapshots) {
     const results = new Map(snapshot.items.map(item => [`${item.siteDomain}:${item.keywordId}`, item]));
     for (const keyword of dashboard.keywords) {
@@ -299,6 +301,9 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
       // database hit or an average position from a different source.
       keyword.latestRanks[snapshot.region] = result ? serpRankSummary(result, keyword.marketVolumes[snapshot.region]) : null;
       if (result) {
+        keyword.monitoringEligible = result.monitoringEligible;
+        keyword.monitoringHoldReason = result.monitoringHoldReason;
+        keyword.monitoringHoldCode = result.monitoringHoldCode;
         const evidence = serpRankingEvidence(result);
         if (evidence) {
           keyword.rankingEvidence![snapshot.region].unshift(evidence);

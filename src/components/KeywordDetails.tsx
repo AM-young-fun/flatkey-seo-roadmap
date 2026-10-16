@@ -73,10 +73,11 @@ export function KeywordDetails() {
   const okrFor = (keyword: DashboardKeyword) => isFlatkey(keyword) ? okrItems.get(flatkeyKeywordId(keyword.id)) : undefined;
   const pageFor = (keyword: DashboardKeyword) => {
     const target = okrFor(keyword);
+    const needsReview = keyword.monitoringHoldCode === "NO_VERIFIED_PAGE" || keyword.monitoringHoldCode === "PAGE_REVIEW_REQUIRED";
     return keywordPageTag({ siteDomain: keyword.siteDomain ?? "flatkey.ai",
       mappingStatus: target?.mappingStatus, targetUrls: target?.targetUrls ?? keyword.targetUrls,
       candidateUrls: target?.candidateUrls,
-      latestPageAuditVerdict: target?.latestPageAuditVerdict });
+      latestPageAuditVerdict: needsReview ? "REVIEW" : target?.latestPageAuditVerdict });
   };
   const appliedAt = okr.data?.initialized ? okr.data.audits.find(audit => audit.status === "APPLIED")?.appliedAt : null;
   useEffect(() => { if (appliedAt) refresh(); }, [appliedAt, refresh]);
@@ -97,13 +98,23 @@ export function KeywordDetails() {
   };
   const historicalEvidenceFor = (keyword: DashboardKeyword) => evidenceFor(keyword).filter(e => e.source !== "dataforseo_serp");
   const rankedPagesFor = (keyword: DashboardKeyword) => keywordRankingPages(rankFor(keyword), evidenceFor(keyword), keyword.siteDomain ?? "flatkey.ai");
-  const rankingFor = (keyword: DashboardKeyword) => keywordRankingTag(rankFor(keyword));
+  const pausedFor = (keyword: DashboardKeyword) => keyword.monitoringEligible === false ||
+    Boolean(isFlatkey(keyword) && okrFor(keyword) && okrFor(keyword)?.pool !== "FORMAL");
+  const holdReasonFor = (keyword: DashboardKeyword) => keyword.monitoringHoldReason ??
+    (isFlatkey(keyword) && okrFor(keyword)?.pool !== "FORMAL" ? "研究候选或已归档词不参与付费监控" : "页面尚未就绪，暂不监控");
+  const rankingFor = (keyword: DashboardKeyword) => {
+    const tag = keywordRankingTag(rankFor(keyword));
+    return tag.key === "PENDING" && pausedFor(keyword) ? { ...tag, key: "PAUSED",
+      label: keyword.monitoringHoldCode === "PAGE_NOT_BUILT" ? "待页面上线" : "暂不监控", tooltip: holdReasonFor(keyword) } : tag;
+  };
   const rows = [...loadedKeywords, ...targetOnlyKeywords].filter(k => site === "all" || k.siteDomain === site)
     .filter(k => isFlatkey(k) ? okr.data?.initialized && okrFor(k)?.pool === pool : pool === "FORMAL" && keywordRelevance(k.siteDomain ?? "flatkey.ai", k.text).status === "relevant")
     .filter(k => mapping === "ALL" || (mapping === "MONITORABLE" ? pageFor(k).key === "MATCHED" : mapping === "CANDIDATE" ? pageFor(k).key !== "MATCHED" : pageFor(k).key === mapping.replace(/^PAGE_/, "")))
     .filter(k => origin === "ALL" || k.origin === origin)
     .filter(k => {
       if (view === "FORMAL") return true;
+      if (view === "PAUSED") return pausedFor(k);
+      if (view === "MONITORING_READY") return k.monitoringEligible === true;
       const tag = rankingFor(k);
       const rank = rankFor(k);
       return view === "EVIDENCE" ? rank?.rankStatus === "ranked" && rank.rank != null && Number.isInteger(rank.rank) && rank.rank >= 1 && rank.rank <= 100 : tag.key === view;
@@ -146,7 +157,7 @@ export function KeywordDetails() {
     } },
     { title: "SERP实际名次", key: "rank", width: 180, sorter: (a, b) => (rankFor(a)?.rank ?? Infinity) - (rankFor(b)?.rank ?? Infinity), render: (_, k) => {
       const rank = rankFor(k);
-      return <div className="evidenceSummary"><Tooltip title="同轮SERP有效命中中取本站最佳自然名次；多页面保留各自名次，不平均，也不重复计词。"><strong>{rank?.rank != null ? `#${position(rank.rank)}` : rankingFor(k).label}</strong></Tooltip>{rank?.periodLabel ? <small>{rank.periodLabel}</small> : null}{rank?.checkedAt ? <small>{localDate(rank.checkedAt)}</small> : null}{rank?.rankStatus === "not_found_capture" ? <small>{rank.coveredThroughRank ? `已检查自然排名前${rank.coveredThroughRank}名` : `本次返回${rank.organicCount ?? 0}条自然结果`}，未命中本站</small> : rank?.rankStatus === "query_changed" ? <small>Google改搜：{rank.correctedKeyword ?? "未提供"}</small> : rank?.depthIncomplete ? <small>已核实名次 · 返回{rank.organicCount ?? "部分"}条自然结果</small> : null}</div>;
+      return <div className="evidenceSummary"><Tooltip title="同轮SERP有效命中中取本站最佳自然名次；多页面保留各自名次，不平均，也不重复计词。"><strong>{rank?.rank != null ? `#${position(rank.rank)}` : rankingFor(k).label}</strong></Tooltip>{rank?.checkedAt && pausedFor(k) ? <small>暂不更新 · {holdReasonFor(k)}</small> : null}{rank?.periodLabel ? <small>{rank.periodLabel}</small> : null}{rank?.checkedAt ? <small>{localDate(rank.checkedAt)}</small> : null}{rank?.rankStatus === "not_found_capture" ? <small>{rank.coveredThroughRank ? `已检查自然排名前${rank.coveredThroughRank}名` : `本次返回${rank.organicCount ?? 0}条自然结果`}，未命中本站</small> : rank?.rankStatus === "query_changed" ? <small>Google改搜：{rank.correctedKeyword ?? "未提供"}</small> : rank?.depthIncomplete ? <small>已核实名次 · 返回{rank.organicCount ?? "部分"}条自然结果</small> : null}</div>;
     } },
     { title: "较上次有效实测", key: "movement", width: 190, render: (_, k) => {
       const rank = rankFor(k);
@@ -161,7 +172,7 @@ export function KeywordDetails() {
     <PageHeader active="keywords" />
     <div className="pageIntro"><p className="eyebrow">BUSINESS TARGETS & RANKED KEYWORDS</p><h1>关键词明细</h1><p>查看关键词对应的页面、实际排名和变化。</p></div>
     <div className="okrCaptureState"><strong>正式目标 {formalTotal?.toLocaleString() ?? "—"} 词</strong><span>四国 · 每月1日、16日 · 全量定时未开启</span></div>
-    <details className="simpleExplanation keywordMethod"><summary>排名和页面状态怎么看</summary><p className="chartNote">一个词可以关联多个页面，实际命中页面逐页保留名次。页面建设状态与排名分别标记。已有页面待补强叫“待优化”，无合适页面叫“待建设”。排名命中列实际名次；“本次未命中”表示已采完但在所列检查范围内未发现本站，只有完整检查前100无命中才列前100外。Google纠词、异常和未采集分别标明。研究候选不会消失，也不自动付费抓取。历史来源、搜索量和筛检理由见行内展开。</p></details>
+    <details className="simpleExplanation keywordMethod"><summary>排名和页面状态怎么看</summary><p className="chartNote">一个词可以关联多个页面，实际命中页面逐页保留名次。页面建设状态与排名分别标记。已有页面待补强叫“待优化”，无合适页面叫“待建设”。排名命中列实际名次；“本次未命中”表示已采完但在所列检查范围内未发现本站，只有完整检查前100无命中才列前100外。Google纠词、异常和未采集分别标明。后续只监控已有合适页面的正式词，已有页面待优化的词继续监控；待建设或页面待核实的词暂不抓取，历史排名仍保留。研究候选不会消失，也不自动付费抓取。历史来源、搜索量和筛检理由见行内展开。</p></details>
     {data?.usingDemoData ? <p className="loadError" role="alert">当前为演示数据，不能用于判断实际 Google 排名。</p> : null}
     {refreshing ? <p className="cacheNotice" role="status">正在获取最新词库与证据…</p> : null}
     {error ? <div className="loadError" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>重新加载</button></div> : null}
@@ -171,7 +182,7 @@ export function KeywordDetails() {
     {section === "keywords" || section === "discovery" ? <div className="keywordRegionToolbar pageRegionFilter"><span>查看国家</span><RegionSelect value={region} onChange={selection.setRegion} /></div> : null}
     {section === "keywords" ? <>
     <div className="detailToolbar"><div className="detailFilters">
-      <label className="originSelectField"><span>排名区间</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "实测暂无前100排名" }, { value: "PENDING", label: "待采集" }, { value: "QUEUED", label: "采集中" }, { value: "FAILED", label: "采集失败" }, { value: "NOT_FOUND_CAPTURE", label: "本次未命中" }, { value: "QUERY_CHANGED", label: "Google已纠词" }, { value: "INCOMPLETE", label: "数据异常" }]} /></label>
+      <label className="originSelectField"><span>排名状态</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "实测暂无前100排名" }, { value: "PENDING", label: "待采集（页面已就绪）" }, { label: "监控范围", options: [{ value: "MONITORING_READY", label: "可监控（已有合适页面）" }, { value: "PAUSED", label: "暂不监控" }] }, { value: "QUEUED", label: "采集中" }, { value: "FAILED", label: "采集失败" }, { value: "NOT_FOUND_CAPTURE", label: "本次未命中" }, { value: "QUERY_CHANGED", label: "Google已纠词" }, { value: "INCOMPLETE", label: "数据异常" }]} /></label>
       <label className="originSelectField"><span>网站</span><Select aria-label="所属网站" className="originSelect" value={site} onChange={value => { setSite(value); setPool("FORMAL"); setMapping("ALL"); }} options={[{ value: "all", label: "全部网站" }, ...SITES.map(e => ({ value: e.domain, label: e.name }))]} /></label>
       {site === "flatkey.ai" || site === "all" ? <label className="originSelectField"><span>词库分类</span><Select aria-label="业务词池" className="originSelect" value={pool} onChange={value => { setPool(value); setView("FORMAL"); setMapping("ALL"); }} options={(Object.entries(POOLS) as Array<[KeywordPool, string]>).map(([value, label]) => ({ value, label }))} /></label> : null}
       {site === "flatkey.ai" || site === "all" ? <label className="originSelectField"><span>页面状态</span><Select aria-label="页面关联状态" className="originSelect" value={mapping} onChange={setMapping} options={[{ value: "ALL", label: "全部页面状态" }, { value: "MONITORABLE", label: "已匹配页面" }, { value: "CANDIDATE", label: "页面待处理（全部）" }, { label: "按页面任务细分", options: PAGE_TAG_FILTERS }]} /></label> : null}
@@ -181,7 +192,7 @@ export function KeywordDetails() {
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     <section className="tablePanel"><Table className="keywordTable" columns={columns} dataSource={loading || okr.loading ? [] : rows} rowKey="id" loading={loading || okr.loading}
       rowSelection={site === "flatkey.ai" ? undefined : { selectedRowKeys: selected, onChange: keys => setSelected(keys.slice(0, 500)), preserveSelectedRowKeys: true, getCheckboxProps: k => ({ disabled: isFlatkey(k) }) }}
-      expandable={{ expandedRowRender: k => <div className="keywordEvidenceDetails">{okrFor(k) ? <section><strong>筛检与页面关联结论</strong><p>{okrFor(k)?.latestPageAuditReason ?? okrFor(k)?.reason ?? "暂无说明"}</p>{okrFor(k)?.candidateUrls.length ? <><p>候选页面（尚未确认关联，不作为已完成覆盖）：</p><ul>{okrFor(k)?.candidateUrls.map(url => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}</ul></> : null}{okrFor(k)?.actualPages.length ? <><p>审计保留的历史来源页面（不参与默认排名）：</p><ul>{okrFor(k)?.actualPages.map((page, index) => <li key={`${page.url}:${index}`}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {page.source.toUpperCase()} · {page.region} · {page.periodStart && page.periodEnd ? `${page.periodStart} 至 ${page.periodEnd}` : "未记录统计区间"}</li>)}</ul></> : null}<p className="chartNote">审计批次：{okrFor(k)?.auditId ?? "—"}；历史来源页面不代表当前 Google 排名。</p></section> : null}<section><strong>搜索量与词库说明</strong><p>月搜索量（{REGIONS[region].label}）：{number(k.marketVolumes[region])} · {k.volumeReview?.label ?? "历史不足，保留观察"}</p><p>{okrFor(k)?.reason ?? "无额外筛检说明"}</p></section><section><strong>SERP实测证据</strong>{rankFor(k) ? <><p>状态：{rankingFor(k).label} · 自然名次：{position(rankFor(k)!.rank)} · {REGIONS[region].label}</p><p>实测时间：{rankFor(k)!.checkedAt ? localDate(rankFor(k)!.checkedAt) : "未记录"}</p>{rankedPagesFor(k).length ? <ObservedPages pages={rankedPagesFor(k)} /> : <p className="muted">本批次未取得独立页面排名。</p>}<p className="chartNote">每个页面保留各自名次与来源时间。关键词采用本轮最佳自然名次归入一个区间，不平均页面名次，不重复计词。</p></> : <p>该地区尚未取得SERP实测结果；目标词保留为待采集。</p>}</section><details className="historicalEvidence"><summary>历史参考 · Labs / GSC / Ahrefs（{historicalEvidenceFor(k).length} 条）</summary><p className="chartNote">历史数据库名次、曝光、均位和页面报告仅供复查，不参与主表排名与前10／100筛选。</p>{historicalEvidenceFor(k).length ? historicalEvidenceFor(k).map(e => {
+      expandable={{ expandedRowRender: k => <div className="keywordEvidenceDetails">{okrFor(k) ? <section><strong>筛检与页面关联结论</strong><p>{okrFor(k)?.latestPageAuditReason ?? okrFor(k)?.reason ?? "暂无说明"}</p>{okrFor(k)?.candidateUrls.length ? <><p>候选页面（尚未确认关联，不作为已完成覆盖）：</p><ul>{okrFor(k)?.candidateUrls.map(url => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}</ul></> : null}{okrFor(k)?.actualPages.length ? <><p>审计保留的历史来源页面（不参与默认排名）：</p><ul>{okrFor(k)?.actualPages.map((page, index) => <li key={`${page.url}:${index}`}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {page.source.toUpperCase()} · {page.region} · {page.periodStart && page.periodEnd ? `${page.periodStart} 至 ${page.periodEnd}` : "未记录统计区间"}</li>)}</ul></> : null}<p className="chartNote">审计批次：{okrFor(k)?.auditId ?? "—"}；历史来源页面不代表当前 Google 排名。</p></section> : null}<section><strong>搜索量与词库说明</strong><p>月搜索量（{REGIONS[region].label}）：{number(k.marketVolumes[region])} · {k.volumeReview?.label ?? "历史不足，保留观察"}</p><p>{okrFor(k)?.reason ?? "无额外筛检说明"}</p></section><section><strong>SERP实测证据</strong>{rankFor(k) ? <><p>状态：{rankingFor(k).label} · 自然名次：{position(rankFor(k)!.rank)} · {REGIONS[region].label}</p><p>实测时间：{rankFor(k)!.checkedAt ? localDate(rankFor(k)!.checkedAt) : "未记录"}</p>{rankedPagesFor(k).length ? <ObservedPages pages={rankedPagesFor(k)} /> : <p className="muted">本批次未取得独立页面排名。</p>}<p className="chartNote">每个页面保留各自名次与来源时间。关键词采用本轮最佳自然名次归入一个区间，不平均页面名次，不重复计词。</p></> : <p>{pausedFor(k) ? `${holdReasonFor(k)}；关键词及已有历史记录保留。` : "该地区尚未取得SERP实测结果；页面已就绪，等待采集。"}</p>}</section><details className="historicalEvidence"><summary>历史参考 · Labs / GSC / Ahrefs（{historicalEvidenceFor(k).length} 条）</summary><p className="chartNote">历史数据库名次、曝光、均位和页面报告仅供复查，不参与主表排名与前10／100筛选。</p>{historicalEvidenceFor(k).length ? historicalEvidenceFor(k).map(e => {
         const domain = k.siteDomain ?? "flatkey.ai";
         const resource = domain === "flatkey.ai" ? `sc-domain:${domain}` : `https://${domain}/`;
         const params = new URLSearchParams({ resource_id: resource, metrics: "CLICKS,IMPRESSIONS,CTR,POSITION", breakdown: "page", country: { US: "usa", JP: "jpn", ES: "esp", BR: "bra" }[region], query: `!${k.text}` });

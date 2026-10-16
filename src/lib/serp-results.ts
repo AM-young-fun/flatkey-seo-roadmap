@@ -29,6 +29,7 @@ export type SerpKeywordResult = SerpTarget & {
   runScope: SerpRunScope | null; runTargetCount: number | null;
   captureComplete: boolean; organicCount: number | null; coveredThroughRank: number | null;
   queryStatus: "EXACT" | "AUTOCORRECTED" | null; correctedKeyword: string | null; spellType: string | null; pagesCount: number | null;
+  monitoringEligible?: boolean; monitoringHoldReason?: string | null; monitoringHoldCode?: string | null;
 };
 export type SerpResultsResponse = {
   schemaVersion: 1; source: typeof SERP_SOURCE; site: string; region: SearchRegionCode;
@@ -36,6 +37,7 @@ export type SerpResultsResponse = {
   summary: ReturnType<typeof summarizeSerpResults>; items: SerpKeywordResult[]; latestCompletedAt: string | null;
   currentPeriod: SerpPeriod; movementSummary: ReturnType<typeof summarizeSerpMovements>;
   sampleSummary: ReturnType<typeof summarizeSerpSampleResults>;
+  monitoring: ReturnType<typeof summarizeSerpMonitoring>;
 };
 
 const record = (value: unknown): Record<string, unknown> | null => value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -160,6 +162,31 @@ export function summarizeSerpSampleResults(items: SerpKeywordResult[]) {
     failed: summary.failed, incomplete: summary.incomplete, captured: summary.captured,
     notFoundCaptured: summary.notFoundCaptured, queryChanged: summary.queryChanged,
     latestCheckedAt: samples.flatMap(item => item.checkedAt ? [item.checkedAt] : []).sort().at(-1) ?? null };
+}
+
+export type SerpMonitoringReadCohort = {
+  targets: SerpTarget[]; hash: string; allTargetCount: number; heldTargetCount: number;
+  heldTargets: Array<SerpTarget & { reason: string; reasonLabel: string }>;
+};
+
+export function withSerpMonitoringEligibility(items: SerpKeywordResult[], cohort: SerpMonitoringReadCohort): SerpKeywordResult[] {
+  const ready = new Set(cohort.targets.map(serpTargetKey)), held = new Map(cohort.heldTargets.map(item => [serpTargetKey(item), item]));
+  return items.map(item => {
+    const key = serpTargetKey(item), reason = held.get(key), eligible = ready.has(key);
+    // Readiness controls future collection only. A saved real rank, capture,
+    // page or previous-period comparison must survive a later page hold.
+    return { ...item, monitoringEligible: eligible,
+      monitoringHoldReason: eligible ? null : reason?.reasonLabel ?? "未纳入当前正式监控范围",
+      monitoringHoldCode: eligible ? null : reason?.reason ?? "NOT_FORMAL_TARGET" };
+  });
+}
+
+export function summarizeSerpMonitoring(items: SerpKeywordResult[], cohort: SerpMonitoringReadCohort) {
+  const eligible = items.filter(item => item.monitoringEligible === true);
+  const summary = summarizeSerpResults(eligible);
+  return { allTargetCount: cohort.allTargetCount, eligibleTargetCount: cohort.targets.length, heldTargetCount: cohort.heldTargetCount,
+    capturedTargetCount: summary.captured, pendingTargetCount: summary.pending, queuedTargetCount: summary.queued,
+    failedTargetCount: summary.failed, incompleteTargetCount: summary.incomplete, hash: cohort.hash };
 }
 
 export function summarizeSerpResults(items: SerpKeywordResult[]) {

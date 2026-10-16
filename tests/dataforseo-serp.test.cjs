@@ -13,7 +13,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 
 const clone = value => structuredClone(value);
-let state, targets, queue, inTransaction, fetches, respond, events;
+let state, targets, queue, inTransaction, fetches, respond, events, liveBalance, balanceRequests;
 function matches(row, where = {}) {
   return Object.entries(where).every(([key, expected]) => {
     if (key === "OR") return expected.some(part => matches(row, part));
@@ -88,27 +88,52 @@ const db = {
     finally { inTransaction = false; release(); }
   },
   $executeRaw: async query => {
-    if (!query?.sql?.includes("serp-monitor:upgrade-cached-sample-results")) return 0;
+    if (query?.sql?.includes("serp-monitor:submission-receipts")) {
+      assert.equal(inTransaction, true);
+      const values = query.values, runId = values.at(-1); let count = 0;
+      for (let index = 0; index < values.length - 1; index += 5) {
+        const task = state.tasks.find(task => task.id === values[index] && task.runId === runId && task.state === "SUBMITTING");
+        if (task) { Object.assign(task, { state: values[index + 1], providerTaskId: values[index + 2], costMicros: values[index + 3] ?? task.costMicros, errorCode: values[index + 4] }); count++; }
+      }
+      events.push("associate:batch"); return count;
+    }
+    if (query?.sql?.includes("serp-monitor:raw-results")) {
+      assert.equal(inTransaction, true);
+      const values = query.values, runId = values.at(-1); let count = 0;
+      for (let index = 0; index < values.length - 1; index += 5) {
+        const task = state.tasks.find(task => task.id === values[index] && task.runId === runId && task.state === "QUEUED");
+        if (task) {
+          Object.assign(task, { state: values[index + 1], rawResponse: values[index + 2] ?? task.rawResponse, costMicros: values[index + 3], errorCode: values[index + 4] }); count++;
+          if (values[index + 2]) events.push("persist:raw");
+        }
+      }
+      events.push("persist:raw-batch"); return count;
+    }
+    if (!query?.sql?.includes("serp-monitor:upgrade-cached-sample-results") && !query?.sql?.includes("serp-monitor:normalized-results")) return 0;
     const values = query.values, runId = values.at(-1); let count = 0;
     for (let index = 0; index < values.length - 1; index += 6) {
       const task = state.tasks.find(task => task.id === values[index] && task.runId === runId && ["RECEIVED", "INCOMPLETE", "COMPLETE"].includes(task.state));
       if (task) {
+        assert.ok(task.rawResponse, "normalization follows durable raw persistence");
         Object.assign(task, { costMicros: values[index + 1], normalizedJson: values[index + 2] === null ? null : JSON.parse(values[index + 2]),
           checkedAt: values[index + 3], state: values[index + 4], errorCode: values[index + 5] }); count++;
       }
     }
-    events.push("settle:cached"); return count;
+    events.push(query.sql.includes("upgrade-cached-sample-results") ? "settle:cached" : "persist:normalized"); return count;
   },
   serpMonitorConfig: model("config", { revision: 1, nextDueAt: null }), serpMonitorRun: model("runs", { scope: "SCHEDULED", sampleAuthorizationHash: null }), serpMonitorTask: model("tasks"),
   dataForSeoConnection: { findUnique: async () => state.connection ? { loginMasked: "f***", encryptedCredentials: "fictional-ciphertext", connectionVersion: 1 } : null },
 };
 function mockFile(relative, exports) { const name = path.join(root, relative); require.cache[name] = { id: name, filename: name, loaded: true, exports }; }
 mockFile("src/lib/prisma.ts", { prisma: db });
-mockFile("src/lib/services/serp-targets.ts", { loadSerpTargetCohort: async () => ({ targets: clone(targets), hash: "a".repeat(64) }) });
+mockFile("src/lib/services/serp-targets.ts", {
+  loadSerpTargetCohort: async () => ({ targets: clone(targets), hash: "a".repeat(64) }),
+  loadSerpMonitoringCohort: async () => ({ targets: clone(targets), hash: "a".repeat(64), allTargets: clone(targets), allTargetHash: "a".repeat(64), allTargetCount: targets.length, heldTargetCount: 0 }),
+});
 mockFile("src/lib/dataforseo-credentials.ts", { decryptDataForSeoCredentials: () => ({ apiLogin: "fictional@example.invalid", apiPassword: "fictional-not-a-real-password" }) });
 const { SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_MARKET_CONFIG, configForSerpRegion, groupSerpQueries, groupSerpMarketQueries, quoteSerpTargets, buildSerpTask, normalizeSerpAdvanced, serpMonitorMutationSchema } = require("../src/lib/dataforseo-serp.ts");
 const { periodDue, nextSerpPeriodKey, serpPeriod } = require("../src/lib/serp-periods.ts");
-const { SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_AUTHORIZATION_ID } = require("../src/lib/serp-sample.ts");
+const { SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_AUTHORIZATION_ID } = require("../src/lib/serp-sample.ts");
 const { loadSerpMonitorStatus, mutateSerpMonitor, runSerpMonitorCron, submitSerpSampleBatch } = require("../src/lib/services/serp-monitor.ts");
 
 function target(keyword, siteDomain = "flatkey.ai") { return { keyword, keywordId: `id-${keyword}`, siteDomain, targetUrls: [`https://${siteDomain}/models/example`] }; }
@@ -124,11 +149,15 @@ beforeEach(t => {
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED; delete process.env.DISABLE_EXTERNAL_FETCH;
   targets = [target("model api price"), target("brand key")];
   state = { config: { id: "default", ...SERP_DEFAULT_CONFIG, revision: 1 }, connection: true, runs: [], tasks: [] };
-  queue = Promise.resolve(); inTransaction = false; fetches = []; events = [];
+  queue = Promise.resolve(); inTransaction = false; fetches = []; events = []; balanceRequests = []; liveBalance = 100;
   respond = async (url, init) => init.method === "POST" ? new Response(JSON.stringify({ status_code: 20000, tasks: JSON.parse(init.body).map((data, index) => ({ id: `provider-${index}-${fetches.length}`, status_code: 20100, cost: 0.006, data })) })) :
     new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)))));
   t.mock.method(globalThis, "fetch", async (url, init) => {
     assert.equal(inTransaction, false, "network must follow durable transaction commit");
+    if (url === SERP_USER_DATA_URL) {
+      assert.equal(init.method, "GET"); balanceRequests.push({ url, init });
+      return new Response(JSON.stringify({ status_code: 20000, cost: 0, tasks: [{ status_code: 20000, cost: 0, result: [{ money: { balance: liveBalance } }] }] }));
+    }
     if (init.method === "POST") {
       const body = JSON.parse(init.body); assert.ok(body.length <= 100); assert.ok(body.every(row => state.tasks.find(task => task.id === row.tag)?.state === "SUBMITTING"));
       assert.ok(events.includes("reserve:SUBMITTING") && events.includes("commit"));
@@ -320,6 +349,10 @@ test("daily worker submits more than 100 queries in safe batches and follows com
   const result = await runSerpMonitorCron();
   assert.equal(result.paidRequests, 5); assert.equal(state.runs.length, 1);
   assert.equal(fetches.filter(row => row.method === "POST").length, 5);
+  assert.ok(fetches.findIndex(row => row.method === "GET") < fetches.findIndex((row, index) => index > 0 && row.method === "POST"), "known results are checked before the second paid batch");
+  assert.equal(events.filter(event => event === "associate:batch").length, 5, "one atomic receipt association per POST");
+  assert.equal(events.filter(event => event === "persist:raw-batch").length, 11, "404 free responses use eleven bounded raw writes");
+  assert.equal(events.filter(event => event === "persist:normalized").length, 11, "normalization is saved per group rather than per keyword");
   assert.ok(state.tasks.every(task => task.state === "COMPLETE"));
   assert.equal((await runSerpMonitorCron()).status, "NOT_DUE");
   assert.equal(fetches.filter(row => row.method === "POST").length, 5);
@@ -389,7 +422,112 @@ test("a batch total above its maximum preserves the greater actual cost and rese
   assert.equal(result.run.reservedCostMicros, 2424000);
   assert.equal((await start()).duplicate, true);
   assert.equal((await runSerpMonitorCron()).status, "NEEDS_REVIEW");
-  assert.equal(fetches.length, 1);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+  assert.equal(fetches.filter(row => row.method === "GET").length, 100, "cost review blocks new spending but still collects paid IDs for free");
+});
+
+test("paused daily runner drains already-paid scheduled IDs without balance probes or new paid batches", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  await start(); const probes = balanceRequests.length;
+  delete process.env.DATAFORSEO_SERP_PAID_ENABLED; state.config.paidEnabled = false;
+  const result = await runSerpMonitorCron();
+  assert.equal(result.status, "PAUSED"); assert.equal(result.paidRequests, 0); assert.equal(result.freeResultsChecked, 100);
+  assert.equal(result.remainingQueries, 20); assert.equal(result.continuationRequired, true);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(balanceRequests.length, probes);
+  assert.equal(state.tasks.filter(task => task.state === "COMPLETE").length, 100);
+  const gets = fetches.filter(row => row.method === "GET").length;
+  process.env.DISABLE_EXTERNAL_FETCH = "true";
+  assert.equal((await runSerpMonitorCron()).reason, "EXTERNAL_FETCH_DISABLED");
+  assert.equal(fetches.filter(row => row.method === "GET").length, gets);
+});
+
+test("insufficient live balance halts the entire unpaid remainder before its first POST and does not auto-unblock", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true; liveBalance = 0.067;
+  targets = Array.from({ length: 3 }, (_, index) => target(`model ${index} price`));
+  const result = await start();
+  assert.equal(result.run.errorCode, "ACCOUNT_BALANCE_INSUFFICIENT"); assert.equal(result.run.status, "UNKNOWN");
+  assert.equal(result.run.taskCounts.PLANNED, 12); assert.equal(balanceRequests.length, 1); assert.equal(fetches.length, 0);
+  liveBalance = 100;
+  assert.equal((await runSerpMonitorCron()).status, "NEEDS_REVIEW");
+  assert.equal(balanceRequests.length, 1); assert.equal(fetches.length, 0);
+});
+
+test("pausing a paid gate during a run stops the next batch and still drains the already-paid batch", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true; state.config.nextDueAt = new Date(Date.now() - 1000);
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  const original = respond;
+  respond = async (url, init) => {
+    const response = await original(url, init);
+    if (init.method === "POST") state.config.paidEnabled = false;
+    return response;
+  };
+  const result = await runSerpMonitorCron();
+  assert.equal(result.status, "PAUSED"); assert.equal(result.remainingQueries, 20);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(fetches.filter(row => row.method === "GET").length, 100);
+});
+
+test("a provider ID already owned by another paid task leaves the new reservation unknown instead of relinking it", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  const created = await start(), taken = state.tasks.find(task => task.providerTaskId).providerTaskId;
+  const original = respond;
+  respond = async (url, init) => {
+    const response = await original(url, init);
+    if (init.method !== "POST") return response;
+    const raw = await response.json(); raw.tasks[0].id = taken;
+    return new Response(JSON.stringify(raw));
+  };
+  await runSerpMonitorCron();
+  assert.equal(state.tasks.filter(task => task.providerTaskId === taken).length, 1);
+  assert.equal(state.tasks.filter(task => task.errorCode === "PROVIDER_ID_ALREADY_OWNED").length, 1);
+  assert.equal(state.runs.find(run => run.id === created.run.id).status, "UNKNOWN");
+  const paid = fetches.filter(row => row.method === "POST").length;
+  await runSerpMonitorCron(); assert.equal(fetches.filter(row => row.method === "POST").length, paid);
+});
+
+test("provider account rejection atomically stops later paid batches while preserving accepted IDs for free collection", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true; state.config.nextDueAt = new Date(Date.now() - 1000);
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  const original = respond;
+  respond = async (url, init) => {
+    const response = await original(url, init);
+    if (init.method !== "POST") return response;
+    const raw = await response.json(); raw.tasks[0] = { ...raw.tasks[0], id: null, status_code: 40200, cost: 0 };
+    return new Response(JSON.stringify(raw));
+  };
+  const result = await runSerpMonitorCron();
+  assert.equal(result.status, "NEEDS_REVIEW"); assert.equal(result.run.errorCode, "ACCOUNT_40200");
+  assert.equal(result.run.taskCounts.COMPLETE, 99); assert.equal(result.run.taskCounts.FAILED, 1); assert.equal(result.run.taskCounts.PLANNED, 20);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+  assert.equal(fetches.filter(row => row.method === "GET").length, 99); assert.equal(balanceRequests.length, 1);
+  assert.equal(events.filter(event => event === "associate:batch").length, 1);
+});
+
+test("account errors discovered during free GET prevent any later paid batch", async () => {
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true; state.config.nextDueAt = new Date(Date.now() - 1000);
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  const original = respond;
+  respond = async (url, init) => init.method === "GET" ? new Response(JSON.stringify({ status_code: 40200, tasks: null })) : original(url, init);
+  const result = await runSerpMonitorCron();
+  assert.equal(result.status, "NEEDS_REVIEW"); assert.equal(result.run.errorCode, "ACCOUNT_40200");
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+  assert.equal(result.run.taskCounts.PLANNED, 20); assert.equal(result.run.taskCounts.QUEUED, 100);
+});
+
+test("worker deadline covers setup and stops before another paid POST, leaving a resumable immutable ledger", async t => {
+  let now = Date.now(); const began = now;
+  t.mock.method(Date, "now", () => now);
+  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true; state.config.nextDueAt = new Date(now - 1000);
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  const original = respond;
+  respond = async (url, init) => { assert.ok(now < began + 100000); const result = await original(url, init); if (init.method === "POST") now += 85000; return result; };
+  const result = await runSerpMonitorCron({ maxDurationMs: 100000 });
+  assert.equal(result.paidRequests, 1); assert.equal(result.continuationRequired, true); assert.equal(result.remainingQueries, 120);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(fetches.filter(row => row.method === "GET").length, 0);
+  now += 200000;
+  assert.equal((await runSerpMonitorCron({ maxDurationMs: 0 })).status, "TIME_BUDGET_EXHAUSTED");
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
 });
 
 async function seedAuthorizedSample(count = 2) {

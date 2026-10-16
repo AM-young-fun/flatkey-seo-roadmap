@@ -14,7 +14,8 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 
 const { eligibleSerpTargets } = require("../src/lib/serp-targets.ts");
-const { buildSerpKeywordResults, summarizeSerpResults, summarizeSerpSampleResults, serpRankSummary, serpRankingEvidence } = require("../src/lib/serp-results.ts");
+const { buildSerpKeywordResults, summarizeSerpResults, summarizeSerpSampleResults, summarizeSerpMonitoring, withSerpMonitoringEligibility, serpRankSummary, serpRankingEvidence } = require("../src/lib/serp-results.ts");
+const { PAGE_AUDIT_SOURCE_ID } = require("../src/lib/page-audit.ts");
 const { serpCheckTrendPoints, serpTrendRange } = require("../src/lib/ranking-trends.ts");
 const { rankingStats } = require("../src/lib/rank-display.ts");
 const { serpPeriod, serpPeriodFromKey, periodDue, nextSerpPeriodDue } = require("../src/lib/serp-periods.ts");
@@ -272,11 +273,38 @@ test("sample and scheduled runs share one period without losing observations or 
   }
 });
 
-let sessionToken = null, queried = [], taskRows = [], cohortRows = [], trendCohortRows = null;
+test("page readiness pauses future collection without erasing an existing rank or rewriting historical period totals", () => {
+  const ready = target("ready"), build = target("build"), buildWithRank = target("build-ranked"), research = target("research");
+  const formal = [ready, build, buildWithRank], saved = task([buildWithRank], {
+    normalizedJson: { normalizationVersion: 2, captureComplete: true, queryStatus: "EXACT", rankingVerified: true,
+      completeDepth: false, organicCount: 10, coveredThroughRank: 10, organicResults: [page(buildWithRank.targetUrls[0], 7)] } });
+  const original = buildSerpKeywordResults([...formal, research], [saved]);
+  const held = model => ({ ...model, reason: "PAGE_NOT_BUILT", reasonLabel: "待建设，页面上线并核实后加入监控" });
+  const cohort = { targets: [ready], hash: "readiness-before", allTargetCount: 3, heldTargetCount: 2,
+    heldTargets: [held(build), held(buildWithRank)] };
+  const before = withSerpMonitoringEligibility(original, cohort), summary = summarizeSerpMonitoring(before, cohort);
+  assert.deepEqual([summary.allTargetCount, summary.eligibleTargetCount, summary.heldTargetCount, summary.pendingTargetCount], [3, 1, 2, 1]);
+  assert.equal(before[2].monitoringEligible, false); assert.equal(before[2].status, "RANKED"); assert.equal(before[2].rank, 7);
+  assert.equal(before[2].pages[0].url, buildWithRank.targetUrls[0]); assert.equal(before[2].checkedAt, original[2].checkedAt);
+  assert.equal(before[3].monitoringHoldCode, "NOT_FORMAL_TARGET"); assert.equal(before[3].monitoringEligible, false);
+  const afterCohort = { ...cohort, targets: [ready, build], hash: "readiness-after", heldTargets: [held(buildWithRank)], heldTargetCount: 1 };
+  const after = withSerpMonitoringEligibility(original, afterCohort), next = summarizeSerpMonitoring(after, afterCohort);
+  assert.equal(next.pendingTargetCount, 2); assert.equal(after[1].monitoringEligible, true);
+  assert.equal(after[1].status, "PENDING", "page completion changes eligibility without pretending to perform a SERP check");
+  assert.equal(after[2].rank, 7); assert.equal(original[1].monitoringEligible, undefined, "display annotations do not mutate the frozen result inputs");
+  const frozen = [{ runId: saved.runId, periodKey: "2026-10-2", targets: formal }];
+  for (const inventory of [cohort.targets, afterCohort.targets]) {
+    const [point] = serpCheckTrendPoints(inventory, [saved], "2026-10-01", "2026-10-31", { cohorts: frozen });
+    assert.equal(point.total, 3); assert.equal(point.ranked, 1); assert.equal(point.movementSummary.droppedOut, 0);
+  }
+});
+
+let sessionToken = null, queried = [], taskRows = [], cohortRows = [], trendCohortRows = null, readinessRows = [];
 const db = {
   $queryRaw: async query => {
     queried.push(query);
     if (query.sql.includes("serp-monitor:cohort")) return cohortRows;
+    if (query.sql.includes("serp-monitor:page-readiness-evidence")) return readinessRows;
     if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
     if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.values.includes(row.region ?? "US"));
     if (query.sql.includes("dashboard:keywords")) return cohortRows.map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
@@ -296,9 +324,34 @@ const { GET } = require("../src/app/api/serp-monitor/results/route.ts");
 const { GET: trendGET } = require("../src/app/api/seo/trends/route.ts");
 const { getAuthToken } = require("../src/lib/auth.ts");
 beforeEach(t => {
-  sessionToken = null; queried = []; taskRows = []; cohortRows = [candidate("claude")]; trendCohortRows = null;
+  sessionToken = null; queried = []; taskRows = []; cohortRows = [candidate("claude")]; trendCohortRows = null; readinessRows = [];
   process.env.DATABASE_URL = "postgresql://unused.invalid/serp-read-test"; process.env.LOGIN_PWD = "fictional-serp-read-password";
   t.mock.method(globalThis, "fetch", async () => assert.fail("a ranking read must never call a paid provider"));
+});
+
+test("API and keyword details share saved readiness while ready-page candidates remain outside paid scope", async () => {
+  cohortRows = [candidate("ready"), candidate("gap"), candidate("build"), candidate("build-ranked"), candidate("research", { pool: "RESEARCH" })];
+  const proof = (id, verdict, action) => ({ siteDomain: "flatkey.ai", sourceId: PAGE_AUDIT_SOURCE_ID, rowKey: `keyword:${id}`,
+    snapshot: { keywordId: id, verdict, pageUrl: target(id).targetUrls[0], workPlan: { action, pageUrls: [target(id).targetUrls[0]] } } });
+  readinessRows = [proof("ready", "VERIFIED", "LINK"), proof("gap", "CONTENT_GAP", "EXPAND"),
+    proof("build", "NO_MATCH", "BUILD"), proof("build-ranked", "NO_MATCH", "BUILD"), proof("research", "VERIFIED", "LINK")];
+  taskRows = [task([target("build-ranked")], { normalizedJson: { completeDepth: true, organicResults: [page(target("build-ranked").targetUrls[0], 7)] } })];
+  const result = await loadSerpResults("all", "US");
+  assert.equal(result.summary.total, 4); assert.equal(result.items.length, 4); assert.equal(result.summary.ranked, 1);
+  assert.deepEqual([result.monitoring.allTargetCount, result.monitoring.eligibleTargetCount, result.monitoring.heldTargetCount,
+    result.monitoring.pendingTargetCount, result.monitoring.capturedTargetCount], [4, 2, 2, 2, 0]);
+  const build = result.items.find(item => item.keywordId === "build"), ranked = result.items.find(item => item.keywordId === "build-ranked");
+  assert.equal(build.monitoringEligible, false); assert.equal(build.monitoringHoldCode, "PAGE_NOT_BUILT");
+  assert.equal(ranked.monitoringEligible, false); assert.equal(ranked.rank, 7);
+  const dashboard = await loadDashboard("all", "dataforseo_serp", "week", new Date("2026-10-16T03:00:00Z"), true);
+  assert.equal(dashboard.keywords.length, 5);
+  assert.equal(dashboard.keywords.find(item => item.id === "flatkey.ai:gap").monitoringEligible, true, "existing pages needing optimization remain monitorable");
+  assert.equal(dashboard.keywords.find(item => item.id === "flatkey.ai:research").monitoringEligible, false, "a research candidate is never promoted by its nonempty or verified page");
+  assert.equal(dashboard.keywords.find(item => item.id === "flatkey.ai:build-ranked").latestRanks.US.rank, 7);
+  readinessRows = readinessRows.filter(row => row.rowKey !== "keyword:build").concat(proof("build", "VERIFIED", "LINK"));
+  const next = await loadSerpResults("all", "US");
+  assert.equal(next.monitoring.eligibleTargetCount, 3); assert.equal(next.monitoring.pendingTargetCount, 3);
+  assert.notEqual(next.monitoring.hash, result.monitoring.hash); assert.equal(next.summary.ranked, 1);
 });
 
 test("four countries in one sample run remain independent 38-word samples against the same 1629-word inventory", async () => {

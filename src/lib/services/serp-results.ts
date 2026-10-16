@@ -1,8 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SearchRegionCode } from "@/lib/seo";
-import { buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "@/lib/serp-results";
-import { loadSerpTargetCohort } from "@/lib/services/serp-targets";
+import { buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, summarizeSerpMonitoring, withSerpMonitoringEligibility, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope, type SerpMonitoringReadCohort } from "@/lib/serp-results";
+import { loadSerpTargetCohort, loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import type { SerpTarget } from "@/lib/serp-targets";
 import { serpPeriod } from "@/lib/serp-periods";
 
@@ -114,12 +114,16 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
 // Reads only our persisted SERP ledger. Opening a page never contacts a paid
 // provider, creates a run or treats a Labs/GSC/Ahrefs record as a SERP check.
 export async function loadSerpResults(site = "all", region: SearchRegionCode = "US", languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop",
-  existingCohort?: { targets: SerpTarget[]; hash: string }): Promise<SerpResultsResponse> {
+  existingCohort?: { targets: SerpTarget[]; hash: string }, existingMonitoring?: SerpMonitoringReadCohort): Promise<SerpResultsResponse> {
   const cohort = existingCohort ?? await loadSerpTargetCohort(site);
+  // The dashboard may include research candidates for its historical drawer.
+  // Never offer that broader display cohort to the paid-monitoring selector.
+  const monitoring = existingMonitoring ?? await loadSerpMonitoringCohort(site, existingCohort ? undefined : cohort);
   const tasks = cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : [];
-  const items = buildSerpKeywordResults(cohort.targets, tasks);
+  const items = withSerpMonitoringEligibility(buildSerpKeywordResults(cohort.targets, tasks), monitoring);
   const completeDates = items.filter(item => item.captureComplete).flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,
     summary: summarizeSerpResults(items), items, latestCompletedAt: completeDates.sort().at(-1) ?? null,
-    currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items) };
+    currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items),
+    monitoring: summarizeSerpMonitoring(items, monitoring) };
 }
