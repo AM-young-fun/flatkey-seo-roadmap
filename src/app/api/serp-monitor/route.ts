@@ -4,12 +4,14 @@ import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { isDatabaseConfigured } from "@/lib/env";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
+import { serpSampleMutationSchema } from "@/lib/serp-sample";
+import { mutateSerpSample } from "@/lib/services/serp-sample";
 import { serpMonitorMutationSchema } from "@/lib/dataforseo-serp";
 import { loadSerpMonitorStatus, mutateSerpMonitor } from "@/lib/services/serp-monitor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 const headers = { "Cache-Control": "private, no-store" };
 async function authorize() {
   if (!isAuthEnabled() || !await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value)) return NextResponse.json({ message: "需要登录后管理SERP实测排名" }, { status: 401, headers });
@@ -29,8 +31,11 @@ export async function GET() {
 export async function POST(request: Request) {
   const denied = await authorize(); if (denied) return denied;
   try {
-    const parsed = serpMonitorMutationSchema.safeParse(await readImportJson(request));
-    if (!parsed.success) return NextResponse.json({ message: "操作参数无效；本轮仅支持保存为付费关闭状态" }, { status: 400, headers });
+    const body = await readImportJson(request);
+    const sample = serpSampleMutationSchema.safeParse(body);
+    if (sample.success) return NextResponse.json(await mutateSerpSample(sample.data), { headers });
+    const parsed = serpMonitorMutationSchema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ message: "操作参数无效；全量计划仅支持保存为关闭，小批验证需专用费用预览" }, { status: 400, headers });
     // No mutation retry: a start can reserve money and make one paid POST.
     return NextResponse.json(await mutateSerpMonitor(parsed.data), { headers });
   } catch (error) { return failure(error); }

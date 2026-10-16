@@ -331,13 +331,13 @@ CREATE TABLE IF NOT EXISTS "SerpMonitorConfig" (
  "languageCode" TEXT NOT NULL DEFAULT 'en', "locationCode" INTEGER NOT NULL DEFAULT 2840,
  device TEXT NOT NULL DEFAULT 'desktop', depth INTEGER NOT NULL DEFAULT 100, schedule TEXT NOT NULL DEFAULT 'SEMI_MONTHLY',
  "intervalDays" INTEGER NOT NULL DEFAULT 14, "paidEnabled" BOOLEAN NOT NULL DEFAULT false,
- "maxRunCostMicros" INTEGER NOT NULL DEFAULT 12000000, "maxMonthCostMicros" INTEGER NOT NULL DEFAULT 30000000,
+ "maxRunCostMicros" INTEGER NOT NULL DEFAULT 50000000, "maxMonthCostMicros" INTEGER NOT NULL DEFAULT 100000000,
  revision INTEGER NOT NULL DEFAULT 1, "nextDueAt" TIMESTAMP(3),
  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
  CHECK (depth = 100 AND "intervalDays" = 14), CHECK ("maxRunCostMicros" > 0 AND "maxMonthCostMicros" > 0)
 );
 CREATE TABLE IF NOT EXISTS "SerpMonitorRun" (
- id TEXT PRIMARY KEY, "periodKey" TEXT NOT NULL UNIQUE, "periodLabel" TEXT NOT NULL, "periodStart" TIMESTAMP(3) NOT NULL, "periodEnd" TIMESTAMP(3) NOT NULL, status TEXT NOT NULL DEFAULT 'PLANNED',
+ id TEXT PRIMARY KEY, "periodKey" TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'SCHEDULED', "sampleAuthorizationHash" TEXT, "periodLabel" TEXT NOT NULL, "periodStart" TIMESTAMP(3) NOT NULL, "periodEnd" TIMESTAMP(3) NOT NULL, status TEXT NOT NULL DEFAULT 'PLANNED',
  "cohortHash" TEXT NOT NULL, "cohortJson" JSONB NOT NULL, "configJson" JSONB NOT NULL,
  "queryCount" INTEGER NOT NULL, "targetCount" INTEGER NOT NULL,
  "estimatedCostMicros" INTEGER NOT NULL, "reservedCostMicros" INTEGER NOT NULL, "actualCostMicros" INTEGER,
@@ -346,17 +346,26 @@ CREATE TABLE IF NOT EXISTS "SerpMonitorRun" (
  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
  CHECK ("estimatedCostMicros" >= 0 AND "reservedCostMicros" >= 0)
 );
+-- A one-off sample must not occupy or activate the scheduled full-cohort slot.
+ALTER TABLE "SerpMonitorRun" ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'SCHEDULED';
+ALTER TABLE "SerpMonitorRun" ADD COLUMN IF NOT EXISTS "sampleAuthorizationHash" TEXT;
+ALTER TABLE "SerpMonitorRun" DROP CONSTRAINT IF EXISTS "SerpMonitorRun_periodKey_key";
+DROP INDEX IF EXISTS "SerpMonitorRun_periodKey_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "SerpMonitorRun_periodKey_scope_key" ON "SerpMonitorRun"("periodKey", scope);
+CREATE UNIQUE INDEX IF NOT EXISTS "SerpMonitorRun_sampleAuthorizationHash_key" ON "SerpMonitorRun"("sampleAuthorizationHash");
 CREATE INDEX IF NOT EXISTS "SerpMonitorRun_createdAt_idx" ON "SerpMonitorRun"("createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "SerpMonitorRun_status_idx" ON "SerpMonitorRun"(status);
 CREATE TABLE IF NOT EXISTS "SerpMonitorTask" (
  id TEXT PRIMARY KEY, "runId" TEXT NOT NULL REFERENCES "SerpMonitorRun"(id) ON DELETE RESTRICT,
- "queryKey" TEXT NOT NULL, keyword TEXT NOT NULL, "targetsJson" JSONB NOT NULL,
+ region TEXT NOT NULL DEFAULT 'US', "queryKey" TEXT NOT NULL, keyword TEXT NOT NULL, "targetsJson" JSONB NOT NULL,
  state TEXT NOT NULL DEFAULT 'PLANNED', "providerTaskId" TEXT UNIQUE, "requestJson" JSONB NOT NULL,
  "submissionRaw" TEXT, "rawResponse" TEXT, "normalizedJson" JSONB, "checkedAt" TIMESTAMP(3), "costMicros" INTEGER,
  "errorCode" TEXT, "submittedAt" TIMESTAMP(3), "lastPolledAt" TIMESTAMP(3),
  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE ("runId", "queryKey")
 );
+ALTER TABLE "SerpMonitorTask" ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT 'US';
+CREATE INDEX IF NOT EXISTS "SerpMonitorTask_region_checkedAt_idx" ON "SerpMonitorTask"(region, "checkedAt" DESC);
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_runId_state_idx" ON "SerpMonitorTask"("runId", state);
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_checkedAt_idx" ON "SerpMonitorTask"("checkedAt" DESC);
 COMMIT;

@@ -1,20 +1,23 @@
 export type SerpTaskState = "PLANNED" | "SUBMITTING" | "QUEUED" | "RECEIVED" | "COMPLETE" | "INCOMPLETE" | "FAILED" | "UNKNOWN";
 export type SerpRunState = "PLANNED" | "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED" | "UNKNOWN";
+export type SerpRegion = "US" | "JP" | "ES" | "BR";
 export type SerpMonitorConfiguration = {
-  region: "US"; languageCode: "en"; locationCode: 2840; device: "desktop";
+  region: SerpRegion; languageCode: "en" | "ja" | "es" | "pt"; locationCode: 2840 | 2392 | 2724 | 2076; device: "desktop";
+  regions: SerpRegion[];
   depth: 100; intervalDays: 14; paidEnabled: boolean;
   schedule: "SEMI_MONTHLY"; scheduleDays: [1, 16]; timezone: "Asia/Shanghai"; localTime: "10:30";
   maxRunCostMicros: number; maxMonthCostMicros: number; revision: number; nextDueAt: string | null;
 };
 export type SerpQuote = {
   targetCount: number; queryCount: number; sharedQueriesSaved: number;
+  keywordQueryCount: number; markets: SerpRegion[]; marketCount: number;
   perQueryMaxCostMicros: number; maxCostMicros: number;
   annualRuns: 24; annual24RunsMicros: number; monthlyAverageMicros: number;
   batchCount: number; provider: "dataforseo_serp"; mode: "standard";
   pricingUrl: string; pricedAt: "2026-10-16";
 };
 export type SerpMonitorRunDto = {
-  id: string; status: SerpRunState; targetCount: number; queryCount: number;
+  id: string; scope: "SCHEDULED" | "SAMPLE"; status: SerpRunState; targetCount: number; queryCount: number;
   estimatedCostMicros: number; reservedCostMicros: number; actualCostMicros: number | null;
   startedAt: string; completedAt: string | null; errorCode: string | null;
   periodKey: string; periodLabel: string; periodStart: string; periodEnd: string;

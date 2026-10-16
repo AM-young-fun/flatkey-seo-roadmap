@@ -1,7 +1,7 @@
 import { eligibleSerpTargets } from "./serp-targets";
 import { buildRankingEvidence, latestQueryEvidence, type RankingObservationRow } from "./ranking-evidence";
 import type { SearchRegionCode } from "./seo";
-import { buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpTaskRead, type SerpTrendCohort } from "./serp-results";
+import { buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "./serp-results";
 import type { SerpTarget } from "./serp-targets";
 
 export const EARLIEST_TREND_DATE = "2026-10-08";
@@ -34,6 +34,10 @@ export type TrendPoint = {
   captureDates?: string[];
   movementSummary?: ReturnType<typeof summarizeSerpMovements>;
   partialRanked?: number;
+  sampleOnly?: boolean;
+  sampledTargetCount?: number;
+  runScopes?: SerpRunScope[];
+  scopeLabel?: string;
 };
 export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string };
 export type TrendKeyword = {
@@ -57,7 +61,8 @@ export function serpTrendRange(start?: string, end?: string, now = new Date()) {
 export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[], start: string, end: string,
   options: { cohorts?: SerpTrendCohort[]; site?: string } = {}): TrendPoint[] {
   const periods = new Map<string, NonNullable<ReturnType<typeof serpTaskPeriod>>>();
-  const frozen = options.cohorts ? new Map(options.cohorts.map(cohort => [cohort.periodKey, cohort])) : null;
+  const frozen = options.cohorts ? new Map<string, SerpTrendCohort[]>() : null;
+  for (const cohort of options.cohorts ?? []) frozen!.set(cohort.periodKey, [...(frozen!.get(cohort.periodKey) ?? []), cohort]);
   for (const task of tasks) {
     if (!task.checkedAt) continue;
     const checkedAt = new Date(task.checkedAt);
@@ -68,11 +73,18 @@ export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[
     if (period && (!frozen || frozen.has(period.key))) periods.set(period.key, period);
   }
   return [...periods].sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, period]) => {
-    const periodTargets = (frozen?.get(key)?.targets ?? targets).filter(target => !options.site || options.site === "all" || target.siteDomain === options.site);
+    const cohorts = frozen?.get(key);
+    // A sample freezes the whole target inventory too. If a scheduled run also
+    // exists, its inventory defines the reporting-period denominator; both
+    // ledgers may contribute real observations without counting a word twice.
+    const canonical = cohorts ? [...cohorts].sort((a, b) =>
+      Number(b.runScope !== "SAMPLE") - Number(a.runScope !== "SAMPLE") ||
+      (new Date(b.runCreatedAt ?? 0).getTime() || 0) - (new Date(a.runCreatedAt ?? 0).getTime() || 0))[0] : null;
+    const periodTargets = (canonical?.targets ?? targets).filter(target => !options.site || options.site === "all" || target.siteDomain === options.site);
     const empty = new Map(buildSerpKeywordResults(periodTargets, []).map(item => [`${item.siteDomain}:${item.keywordId}`, item]));
     const observations = tasks.filter(task => {
       const taskPeriod = serpTaskPeriod(task);
-      return taskPeriod != null && taskPeriod.key <= key && (!frozen?.has(taskPeriod.key) || frozen.get(taskPeriod.key)?.runId === task.runId);
+      return taskPeriod != null && taskPeriod.key <= key && (!frozen?.has(taskPeriod.key) || frozen.get(taskPeriod.key)!.some(cohort => cohort.runId === task.runId));
     });
     const items = buildSerpKeywordResults(periodTargets, observations).map(item => item.periodKey === key ? item : empty.get(`${item.siteDomain}:${item.keywordId}`)!);
     const touched = items.filter(item => item.runId != null);
@@ -81,13 +93,17 @@ export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[
     const timestamps = touched.flatMap(item => item.checkedAt ? [item.checkedAt] : []).sort();
     if (!timestamps.length) return [];
     const captureStartAt = timestamps[0], captureEndAt = timestamps.at(-1)!;
+    const runScopes = [...new Set(touched.map(item => item.runScope ?? "SCHEDULED"))].sort();
+    const sampledTargetCount = touched.filter(item => item.runScope === "SAMPLE").length;
+    const sampleOnly = runScopes.length === 1 && runScopes[0] === "SAMPLE";
     return [{ date: trendToday(new Date(captureEndAt)), periodKey: key, periodLabel: period.label,
       counts: summary.buckets.map(bucket => bucket.count), sites: [...new Set(periodTargets.map(target => target.siteDomain))].sort(),
       sources: ["dataforseo_serp"], total: summary.total, ranked: summary.ranked, pending: summary.pending,
       outside: summary.outside, checked: summary.checked, failed: summary.failed, incomplete: summary.incomplete, queued: summary.queued,
       periodStart: period.start, periodEnd: period.end, snapshotAt: captureEndAt, captureStartAt, captureEndAt,
       captureDates: [...new Set(timestamps.map(timestamp => trendToday(new Date(timestamp))))].sort(),
-      dataDates: [...new Set(timestamps)], movementSummary: summarizeSerpMovements(items), partialRanked: summary.partialRanked }];
+      dataDates: [...new Set(timestamps)], movementSummary: summarizeSerpMovements(items), partialRanked: summary.partialRanked,
+      sampleOnly, sampledTargetCount, runScopes, scopeLabel: sampleOnly ? "抽样实测" : sampledTargetCount ? "正式监控（含抽样）" : "正式监控" }];
   });
 }
 

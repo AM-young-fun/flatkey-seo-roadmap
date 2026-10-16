@@ -14,7 +14,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 
 const { eligibleSerpTargets } = require("../src/lib/serp-targets.ts");
-const { buildSerpKeywordResults, summarizeSerpResults, serpRankSummary, serpRankingEvidence } = require("../src/lib/serp-results.ts");
+const { buildSerpKeywordResults, summarizeSerpResults, summarizeSerpSampleResults, serpRankSummary, serpRankingEvidence } = require("../src/lib/serp-results.ts");
 const { serpCheckTrendPoints, serpTrendRange } = require("../src/lib/ranking-trends.ts");
 const { rankingStats } = require("../src/lib/rank-display.ts");
 const { serpPeriod, serpPeriodFromKey, periodDue, nextSerpPeriodDue } = require("../src/lib/serp-periods.ts");
@@ -177,12 +177,53 @@ test("SERP trends emit real Shanghai check days only and never manufacture a dai
   assert.deepEqual(serpTrendRange(undefined, undefined, new Date("2026-10-16T03:00:00Z")), { start: "2026-07-19", end: "2026-10-16" });
 });
 
-let sessionToken = null, queried = [], taskRows = [], cohortRows = [];
+test("a one-off sample preserves the 1629-target denominator and does not turn unsampled words into no rankings", () => {
+  const targets = Array.from({ length: 1629 }, (_, i) => target(`model-${i}`));
+  const sampleTask = (model, overrides = {}) => task([model], { id: `sample-${model.keywordId}`, runId: "sample-run",
+    runScope: "SAMPLE", runTargetCount: 3, periodKey: "2026-10-2", ...overrides });
+  const records = [sampleTask(targets[0], { state: "INCOMPLETE", normalizedJson: { completeDepth: false, rankingVerified: true, organicResults: [page(targets[0].targetUrls[0], 1)] } }),
+    sampleTask(targets[1], { state: "INCOMPLETE", normalizedJson: { completeDepth: false, rankingVerified: true, organicResults: [] } }),
+    sampleTask(targets[2], { state: "FAILED", normalizedJson: null, checkedAt: null })];
+  const results = buildSerpKeywordResults(targets, records), summary = summarizeSerpResults(results);
+  assert.deepEqual([summary.total, summary.ranked, summary.outside, summary.pending, summary.incomplete, summary.failed], [1629, 1, 0, 1626, 1, 1]);
+  const samples = summarizeSerpSampleResults(results);
+  assert.deepEqual([samples.sampledTargetCount, samples.checked, samples.incomplete, samples.failed], [3, 1, 1, 1]);
+  assert.equal(serpRankSummary(results[0]).runScope, "SAMPLE"); assert.equal(serpRankSummary(results[0]).runTargetCount, 3);
+  assert.equal(serpRankingEvidence(results[0]).runScope, "SAMPLE");
+  const [point] = serpCheckTrendPoints([], records, "2026-10-01", "2026-10-31", {
+    cohorts: [{ runId: "sample-run", periodKey: "2026-10-2", targets, runScope: "SAMPLE", runTargetCount: 3 }],
+  });
+  assert.equal(point.total, 1629); assert.equal(point.sampleOnly, true); assert.equal(point.sampledTargetCount, 3);
+  assert.equal(point.scopeLabel, "抽样实测"); assert.deepEqual(point.runScopes, ["SAMPLE"]);
+  assert.equal(point.checked, 1); assert.equal(point.pending, 1626);
+});
+
+test("sample and scheduled runs share one period without losing observations or changing the formal denominator", () => {
+  const targets = [target("shared"), target("sample-only"), target("scheduled-only"), target("not-checked")];
+  const sample = (model, rank) => task([model], { id: `sample-${model.keywordId}`, runId: "sample-run", periodKey: "2026-10-2",
+    runScope: "SAMPLE", runTargetCount: 2, normalizedJson: { completeDepth: true, rankingVerified: true, organicResults: [page(model.targetUrls[0], rank)] } });
+  const scheduled = (model, rank) => task([model], { id: `scheduled-${model.keywordId}`, runId: "scheduled-run", periodKey: "2026-10-2",
+    runScope: "SCHEDULED", runTargetCount: 4, runCreatedAt: "2026-10-17T02:30:00Z", checkedAt: "2026-10-17T03:00:00Z", updatedAt: "2026-10-17T03:00:00Z",
+    normalizedJson: { completeDepth: true, rankingVerified: true, organicResults: [page(model.targetUrls[0], rank)] } });
+  const records = [sample(targets[0], 1), sample(targets[1], 28), scheduled(targets[0], 7), scheduled(targets[2], 42)];
+  const sampleCohort = { runId: "sample-run", periodKey: "2026-10-2", targets: targets.slice(0, 2), runScope: "SAMPLE", runCreatedAt: "2026-10-16T02:30:00Z" };
+  const scheduledCohort = { runId: "scheduled-run", periodKey: "2026-10-2", targets, runScope: "SCHEDULED", runCreatedAt: "2026-10-17T02:30:00Z" };
+  for (const cohorts of [[sampleCohort, scheduledCohort], [scheduledCohort, sampleCohort]]) {
+    const [point] = serpCheckTrendPoints([], records, "2026-10-01", "2026-10-31", { cohorts });
+    assert.equal(point.total, 4); assert.equal(point.checked, 3); assert.equal(point.pending, 1);
+    assert.deepEqual(point.counts, [1, 1, 1, 0]); assert.equal(point.sampleOnly, false);
+    assert.equal(point.sampledTargetCount, 1); assert.equal(point.scopeLabel, "正式监控（含抽样）");
+    assert.deepEqual(point.runScopes, ["SAMPLE", "SCHEDULED"]);
+    assert.equal(point.movementSummary.firstCheck, 3, "same-period sample is not a previous-period comparison baseline");
+  }
+});
+
+let sessionToken = null, queried = [], taskRows = [], cohortRows = [], trendCohortRows = null;
 const db = {
   $queryRaw: async query => {
     queried.push(query);
     if (query.sql.includes("serp-monitor:cohort")) return cohortRows;
-    if (query.sql.includes("serp-monitor:trend-cohorts")) return [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
+    if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
     if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.values.includes(row.region ?? "US"));
     if (query.sql.includes("dashboard:keywords")) return cohortRows.map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
     if (query.sql.includes("dashboard:ranks")) return [{ keywordId: "claude", siteDomain: "flatkey.ai", region: "US", source: "dataforseo_labs", rank: 1, rankStatus: "ranked", rankReported: true, captureStatus: "COMPLETE", periodStart: null, periodEnd: null, collectedAt: new Date("2026-10-16T01:00:00Z"), dataUpdatedAt: new Date("2026-10-01T01:00:00Z") }];
@@ -195,15 +236,49 @@ const headersPath = require.resolve("next/headers");
 require.cache[headersPath] = { id: headersPath, filename: headersPath, loaded: true, exports: {
   cookies: async () => ({ get: name => name === "seo_rank_auth" && sessionToken ? { value: sessionToken } : undefined }),
 } };
-const { loadSerpResults } = require("../src/lib/services/serp-results.ts");
+const { loadSerpResults, loadSerpTasks, loadSerpTrendCohorts } = require("../src/lib/services/serp-results.ts");
 const { loadDashboard } = require("../src/lib/services/dashboard-data.ts");
 const { GET } = require("../src/app/api/serp-monitor/results/route.ts");
 const { GET: trendGET } = require("../src/app/api/seo/trends/route.ts");
 const { getAuthToken } = require("../src/lib/auth.ts");
 beforeEach(t => {
-  sessionToken = null; queried = []; taskRows = []; cohortRows = [candidate("claude")];
+  sessionToken = null; queried = []; taskRows = []; cohortRows = [candidate("claude")]; trendCohortRows = null;
   process.env.DATABASE_URL = "postgresql://unused.invalid/serp-read-test"; process.env.LOGIN_PWD = "fictional-serp-read-password";
   t.mock.method(globalThis, "fetch", async () => assert.fail("a ranking read must never call a paid provider"));
+});
+
+test("four countries in one sample run remain independent 38-word samples against the same 1629-word inventory", async () => {
+  sessionToken = await getAuthToken();
+  cohortRows = Array.from({ length: 1629 }, (_, i) => candidate(`model-${i}`));
+  const targets = cohortRows.map(row => target(row.keywordId));
+  const ranks = { US: 1, JP: 11, ES: 31, BR: 51 }, languages = { US: "en", JP: "ja", ES: "es", BR: "pt" };
+  taskRows = Object.entries(ranks).flatMap(([region, rank]) => targets.slice(0, 38).map(model => task([model], {
+    id: `${region}-${model.keywordId}`, runId: "four-country-sample", periodKey: "2026-10-2", region,
+    runScope: "SAMPLE", runTargetCount: 38,
+    normalizedJson: { completeDepth: true, rankingVerified: true, organicResults: [page(model.targetUrls[0], rank)] },
+  })));
+  trendCohortRows = [{ runId: "four-country-sample", periodKey: "2026-10-2", runScope: "SAMPLE", runTargetCount: 38,
+    cohortJson: targets, runCreatedAt: new Date("2026-10-16T02:00:00Z") }];
+  for (const [region, rank] of Object.entries(ranks)) {
+    const response = await GET(new Request(`https://flatkey.test/api/serp-monitor/results?region=${region}`));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.region, region); assert.equal(body.languageCode, languages[region]);
+    assert.deepEqual([body.summary.total, body.summary.checked, body.summary.pending, body.summary.outside], [1629, 38, 1591, 0]);
+    assert.equal(body.sampleSummary.sampledTargetCount, 38); assert.equal(body.items[0].rank, rank);
+    assert.equal(body.items[0].runTargetCount, 38, "152 country queries are still only 38 sampled target words per market");
+    const frozen = await loadSerpTrendCohorts(region, "2026-10-01", "2026-10-31");
+    const records = await loadSerpTasks(region, undefined, "desktop", "2026-10-01", "2026-10-31");
+    assert.equal(records.length, 38); assert.ok(records.every(row => row.region === region));
+    const [point] = serpCheckTrendPoints([], records, "2026-10-01", "2026-10-31", { cohorts: frozen });
+    assert.equal(point.total, 1629); assert.equal(point.checked, 38); assert.equal(point.sampledTargetCount, 38); assert.equal(point.sampleOnly, true);
+  }
+  const cohortQuery = queried.find(query => query.sql.includes("serp-monitor:trend-cohorts"));
+  assert.match(cohortQuery.sql, /EXISTS[\s\S]+t\.region/);
+  assert.match(cohortQuery.sql, /'regions'[\s\S]+jsonb_build_array/);
+  const resultQuery = queried.find(query => query.sql.includes("serp-monitor:results"));
+  assert.match(resultQuery.sql, /WHERE t\.region/);
+  assert.match(resultQuery.sql, /requestJson[\s\S]+language_code/);
 });
 
 test("SERP read API requires a session, reads only the selected market ledger and leaks no raw responses", async () => {

@@ -54,7 +54,7 @@ export function KeywordDetails() {
   const [site, setSite] = useState("all");
   const [view, setView] = useState("FORMAL");
   const [section, setSection] = useState<"keywords" | "discovery" | "tasks" | "audit">("keywords");
-  useEffect(() => { if (new URLSearchParams(window.location.search).get("view") === "discovery") setSection("discovery"); }, []);
+  useEffect(() => { const params = new URLSearchParams(window.location.search); if (params.get("view") === "discovery") setSection("discovery"); if (params.get("sample") === "1") setView("SAMPLE"); }, []);
   const [pool, setPool] = useState<KeywordPool>("FORMAL");
   const [mapping, setMapping] = useState("ALL");
   const [busy, setBusy] = useState(false);
@@ -97,6 +97,7 @@ export function KeywordDetails() {
     .filter(k => origin === "ALL" || k.origin === origin)
     .filter(k => {
       if (view === "FORMAL") return true;
+      if (view === "SAMPLE") return rankFor(k)?.runScope === "SAMPLE";
       const tag = rankingFor(k);
       return view === "EVIDENCE" ? Boolean(rankFor(k)?.rank && rankFor(k)!.rank! <= 100) : tag.key === view;
     })
@@ -152,7 +153,7 @@ export function KeywordDetails() {
   return <main className="appShell">
     <PageHeader active="keywords" selection={selection} />
     <div className="pageIntro"><p className="eyebrow">BUSINESS TARGETS & RANKED KEYWORDS</p><h1>关键词明细</h1><p>查看关键词对应的页面、实际排名和变化。</p></div>
-    <div className="okrCaptureState"><strong>正式目标 {formalTotal?.toLocaleString() ?? "—"} 词</strong><span>美国 · 每月1日、16日 · 付费抓取未开启</span></div>
+    <div className="okrCaptureState"><strong>正式目标 {formalTotal?.toLocaleString() ?? "—"} 词</strong><span>四国 · 每月1日、16日 · 全量定时未开启</span></div>
     <details className="simpleExplanation keywordMethod"><summary>排名和页面状态怎么看</summary><p className="chartNote">一个词可以关联多个页面，实际命中页面逐页保留名次。页面建设状态与排名分别标记；只有完整查询前100无本站命中才算暂无前100排名，待采集和失败单独保留。研究候选不会消失，也不自动付费抓取。历史来源、搜索量和筛检理由见行内展开。</p></details>
     {data?.usingDemoData ? <p className="loadError" role="alert">当前为演示数据，不能用于判断实际 Google 排名。</p> : null}
     {refreshing ? <p className="cacheNotice" role="status">正在获取最新词库与证据…</p> : null}
@@ -162,7 +163,7 @@ export function KeywordDetails() {
     <div className="keywordViewTabs" role="tablist" aria-label="关键词明细查看范围"><button type="button" role="tab" aria-selected={section === "keywords"} className={section === "keywords" ? "selected" : ""} onClick={() => setSection("keywords")}>关键词明细</button><button type="button" role="tab" aria-selected={section === "discovery"} className={section === "discovery" ? "selected" : ""} onClick={() => setSection("discovery")}>历史数据库发现</button><button type="button" role="tab" aria-selected={section === "tasks"} className={section === "tasks" ? "selected" : ""} onClick={() => setSection("tasks")}>页面任务{okr.data?.initialized ? `（${okr.data.tasks.length}）` : ""}</button><button type="button" role="tab" aria-selected={section === "audit"} className={section === "audit" ? "selected" : ""} onClick={() => setSection("audit")}>审计与应用</button></div>
     {section === "keywords" ? <>
     <div className="detailToolbar"><div className="detailFilters">
-      <label className="originSelectField"><span>排名区间</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "实测暂无前100排名" }, { value: "PENDING", label: "待采集" }, { value: "QUEUED", label: "采集中" }, { value: "FAILED", label: "采集失败" }, { value: "INCOMPLETE", label: "采集未完成" }]} /></label>
+      <label className="originSelectField"><span>排名区间</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词" }, { value: "SAMPLE", label: "本次抽样验证" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "实测暂无前100排名" }, { value: "PENDING", label: "待采集" }, { value: "QUEUED", label: "采集中" }, { value: "FAILED", label: "采集失败" }, { value: "INCOMPLETE", label: "采集未完成" }]} /></label>
       <label className="originSelectField"><span>网站</span><Select aria-label="所属网站" className="originSelect" value={site} onChange={value => { setSite(value); setPool("FORMAL"); setMapping("ALL"); }} options={[{ value: "all", label: "全部网站" }, ...SITES.map(e => ({ value: e.domain, label: e.name }))]} /></label>
       {site === "flatkey.ai" || site === "all" ? <label className="originSelectField"><span>词库分类</span><Select aria-label="业务词池" className="originSelect" value={pool} onChange={value => { setPool(value); setView("FORMAL"); setMapping("ALL"); }} options={(Object.entries(POOLS) as Array<[KeywordPool, string]>).map(([value, label]) => ({ value, label }))} /></label> : null}
       {site === "flatkey.ai" || site === "all" ? <label className="originSelectField"><span>页面状态</span><Select aria-label="页面关联状态" className="originSelect" value={mapping} onChange={setMapping} options={[{ value: "ALL", label: "全部页面状态" }, { value: "MONITORABLE", label: "已匹配页面" }, { value: "CANDIDATE", label: "尚未完成页面匹配" }, ...PAGE_TAG_FILTERS]} /></label> : null}

@@ -48,6 +48,8 @@ export type RankingEvidence = {
   periodKey?: string | null;
   periodLabel?: string | null;
   depthIncomplete?: boolean;
+  runScope?: "SCHEDULED" | "SAMPLE" | null;
+  runTargetCount?: number | null;
 };
 
 export type RankingDailyEvidence = Omit<RankingPageEvidence, "url"> & {
@@ -114,6 +116,8 @@ export type RankSummary = {
   previousCheckedAt?: string | null;
   movement?: "UP" | "DOWN" | "UNCHANGED" | "NEW_IN_TOP100" | "DROPPED_OUT" | "FIRST_CHECK" | "NOT_COMPARABLE";
   depthIncomplete?: boolean;
+  runScope?: "SCHEDULED" | "SAMPLE" | null;
+  runTargetCount?: number | null;
 };
 
 export type DashboardKeyword = {

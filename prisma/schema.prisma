@@ -471,8 +471,8 @@ model SerpMonitorConfig {
   schedule String @default("SEMI_MONTHLY")
   intervalDays Int @default(14)
   paidEnabled Boolean @default(false)
-  maxRunCostMicros Int @default(12000000)
-  maxMonthCostMicros Int @default(30000000)
+  maxRunCostMicros Int @default(50000000)
+  maxMonthCostMicros Int @default(100000000)
   revision Int @default(1)
   nextDueAt DateTime?
   createdAt DateTime @default(now())
@@ -481,7 +481,9 @@ model SerpMonitorConfig {
 
 model SerpMonitorRun {
   id String @id
-  periodKey String @unique
+  periodKey String
+  scope String @default("SCHEDULED")
+  sampleAuthorizationHash String? @unique
   periodLabel String
   periodStart DateTime
   periodEnd DateTime
@@ -501,6 +503,7 @@ model SerpMonitorRun {
   tasks SerpMonitorTask[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@unique([periodKey, scope])
   @@index([createdAt(sort: Desc)])
   @@index([status])
 }
@@ -509,6 +512,7 @@ model SerpMonitorTask {
   id String @id
   runId String
   run SerpMonitorRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  region String @default("US")
   queryKey String
   keyword String
   targetsJson Json
@@ -529,4 +533,5 @@ model SerpMonitorTask {
   @@unique([runId, queryKey])
   @@index([runId, state])
   @@index([checkedAt(sort: Desc)])
+  @@index([region, checkedAt(sort: Desc)])
 }

@@ -32,11 +32,14 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
     const timer = window.setInterval(onVisible, 60000);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    const onRankingsUpdated = () => { void update(true); };
+    window.addEventListener("seo-rankings-updated", onRankingsUpdated);
     return () => {
       active = false;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      window.removeEventListener("seo-rankings-updated", onRankingsUpdated);
     };
   }, [key, site, source, includeResearch, version]);
   const data = state.key === key ? state.data : dashboardStore.peek(site, source, includeResearch);

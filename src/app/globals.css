@@ -1928,3 +1928,7 @@ a:focus-visible {
 .sourceFilterDisclosure { margin-top:-5px; }
 .sourceFilterDisclosure .originSelectField { display:inline-flex; margin:12px 0; max-width:300px; }
 @media (max-width:700px) { .simpleMetrics,.serpPlanStats,.sourceSyncGrid { grid-template-columns:1fr; } .serpOverviewFooter { flex-direction:column; } .serpOverviewFooter .simpleExplanation { max-width:100%; } }
+
+.serpSamplePanel { border-top:1px solid #e5ecf5; padding-top:20px; margin-top:24px; font-size:13px; color:#627792; line-height:1.8; }
+.serpSamplePanel h3 { font-size:15px; color:#24364f; margin:0 0 8px; }
+.serpSamplePanel .serpPeriodTable table { min-width:650px; }

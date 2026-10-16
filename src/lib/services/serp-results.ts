@@ -1,19 +1,26 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SearchRegionCode } from "@/lib/seo";
-import { buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort } from "@/lib/serp-results";
+import { buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "@/lib/serp-results";
 import { loadSerpTargetCohort } from "@/lib/services/serp-targets";
 import type { SerpTarget } from "@/lib/serp-targets";
 import { serpPeriod } from "@/lib/serp-periods";
 
 export async function loadSerpTrendCohorts(region: SearchRegionCode, start: string, end: string, languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop"): Promise<SerpTrendCohort[]> {
-  const rows = await prisma.$queryRaw<Array<{ runId: string; periodKey: string; cohortJson: unknown }>>(Prisma.sql`
+  const rows = await prisma.$queryRaw<Array<{ runId: string; periodKey: string; cohortJson: unknown; runScope: SerpRunScope; runTargetCount: number; runCreatedAt: Date }>>(Prisma.sql`
     /* serp-monitor:trend-cohorts */
-    SELECT id AS "runId", "periodKey", "cohortJson" FROM "SerpMonitorRun"
-    WHERE "configJson"->>'region' = ${region} AND "configJson"->>'languageCode' = ${languageCode}
-      AND "configJson"->>'device' = ${device} AND "configJson"->>'depth' = '100'
-      AND "periodStart" <= ${end}::date AND "periodEnd" >= ${start}::date
-    ORDER BY "periodKey"
+    SELECT r.id AS "runId", r."periodKey", r."cohortJson", r.scope AS "runScope", r."targetCount" AS "runTargetCount", r."createdAt" AS "runCreatedAt" FROM "SerpMonitorRun" r
+    WHERE (EXISTS (
+      SELECT 1 FROM "SerpMonitorTask" t WHERE t."runId" = r.id AND t.region = ${region}
+        AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}
+        AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
+        AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
+    ) OR (
+      (r."configJson"->'regions' @> jsonb_build_array(${region}::text) OR
+        (r."configJson"->>'region' = ${region} AND r."configJson"->>'languageCode' = ${languageCode}))
+      AND r."configJson"->>'device' = ${device} AND r."configJson"->>'depth' = '100'
+    )) AND r."periodStart" <= ${end}::date AND r."periodEnd" >= ${start}::date
+    ORDER BY r."periodKey", r."createdAt"
   `);
   return rows.map(row => {
     const targets = new Map<string, SerpTarget>();
@@ -27,7 +34,8 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode, start: stri
     }
     // Do not run today's activation/relevance policy against an immutable past
     // cohort. Later additions, exclusions and deletes must not rewrite totals.
-    return { runId: row.runId, periodKey: row.periodKey, targets: [...targets.values()] };
+    return { runId: row.runId, periodKey: row.periodKey, targets: [...targets.values()], runScope: row.runScope ?? "SCHEDULED",
+      runTargetCount: row.runTargetCount, runCreatedAt: row.runCreatedAt };
   });
 }
 
@@ -36,14 +44,14 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
   return prisma.$queryRaw<SerpTaskRead[]>(Prisma.sql`
     /* serp-monitor:results */
     WITH market_tasks AS (
-      SELECT t.id, t."runId", t.keyword, t."targetsJson", t.state, t."normalizedJson", t."checkedAt",
+      SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, t."normalizedJson", t."checkedAt",
         t."providerTaskId", t."errorCode", t."updatedAt", r."createdAt" AS "runCreatedAt",
-        r."periodKey", r."periodLabel", r."periodStart", r."periodEnd"
+        r."periodKey", r."periodLabel", r."periodStart", r."periodEnd", r.scope AS "runScope", r."targetCount" AS "runTargetCount"
       FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
-      WHERE r."configJson"->>'region' = ${region}
-        AND r."configJson"->>'languageCode' = ${languageCode}
-        AND r."configJson"->>'device' = ${device}
-        AND r."configJson"->>'depth' = '100'
+      WHERE t.region = ${region}
+        AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}
+        AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
+        AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
         AND (${!end} OR (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end ?? "9999-12-31"}::date
           OR (t."checkedAt" IS NULL AND r."periodStart" <= ${end ?? "9999-12-31"}::date))
     ), expanded_tasks AS (
@@ -58,19 +66,32 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
       FROM market_tasks t CROSS JOIN LATERAL jsonb_array_elements(
         CASE WHEN jsonb_typeof(t."targetsJson") = 'array' THEN t."targetsJson" ELSE '[]'::jsonb END
       ) target
+    ), verified_periods AS (
+      SELECT id, "targetSite", "targetKeyword", DENSE_RANK() OVER (
+        PARTITION BY "targetSite", "targetKeyword" ORDER BY "periodKey" DESC
+      ) AS n FROM expanded_tasks WHERE verified
+    ), prior_verified_periods AS (
+      SELECT id, "targetSite", "targetKeyword", DENSE_RANK() OVER (
+        PARTITION BY "targetSite", "targetKeyword" ORDER BY "periodKey" DESC
+      ) AS n FROM expanded_tasks WHERE verified AND
+        ("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date < ${start ?? "1970-01-01"}::date
     ), ranked_tasks AS (
-      SELECT t.*, ROW_NUMBER() OVER w AS n,
-        SUM(CASE WHEN verified THEN 1 ELSE 0 END) OVER w AS "verifiedN",
-        SUM(CASE WHEN verified AND (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date < ${start ?? "1970-01-01"}::date THEN 1 ELSE 0 END) OVER w AS "priorN"
+      SELECT t.*, ROW_NUMBER() OVER w AS n
       FROM expanded_tasks t WINDOW w AS (PARTITION BY "targetSite", "targetKeyword" ORDER BY "periodKey" DESC, "runCreatedAt" DESC, "updatedAt" DESC, id DESC ROWS UNBOUNDED PRECEDING)
     ), selected_tasks AS (
       SELECT DISTINCT id FROM ranked_tasks WHERE
         (${historical} AND (("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date >= ${start ?? "1970-01-01"}::date
-          OR ("checkedAt" IS NULL AND "periodEnd" >= ${start ?? "1970-01-01"}::date) OR (verified AND "priorN" <= 2))) OR
-        (${!historical} AND (n = 1 OR (verified AND "verifiedN" <= 2)))
+          OR ("checkedAt" IS NULL AND "periodEnd" >= ${start ?? "1970-01-01"}::date) OR (verified AND EXISTS (
+            SELECT 1 FROM prior_verified_periods p WHERE p.id = ranked_tasks.id AND p."targetSite" = ranked_tasks."targetSite"
+              AND p."targetKeyword" = ranked_tasks."targetKeyword" AND p.n <= 2
+          )))) OR
+        (${!historical} AND (n = 1 OR (verified AND EXISTS (
+          SELECT 1 FROM verified_periods p WHERE p.id = ranked_tasks.id AND p."targetSite" = ranked_tasks."targetSite"
+            AND p."targetKeyword" = ranked_tasks."targetKeyword" AND p.n <= 2
+        ))))
     )
-    SELECT t.id, t."runId", t.keyword, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."errorCode", t."runCreatedAt", t."updatedAt",
-      t."periodKey", t."periodLabel", t."periodStart", t."periodEnd",
+    SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."errorCode", t."runCreatedAt", t."updatedAt",
+      t."periodKey", t."periodLabel", t."periodStart", t."periodEnd", t."runScope", t."runTargetCount",
       CASE WHEN t."normalizedJson" IS NOT NULL THEN jsonb_build_object(
         'completeDepth', t."normalizedJson"->'completeDepth', 'rankingVerified', t."normalizedJson"->'rankingVerified', 'maxOrganicRank', t."normalizedJson"->'maxOrganicRank',
         'checkedAt', t."normalizedJson"->'checkedAt', 'googleUrl', t."normalizedJson"->'googleUrl',
@@ -94,5 +115,5 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
   const completeDates = items.filter(item => item.status === "RANKED" || item.status === "OUTSIDE_TOP100").flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,
     summary: summarizeSerpResults(items), items, latestCompletedAt: completeDates.sort().at(-1) ?? null,
-    currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items) };
+    currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items) };
 }
