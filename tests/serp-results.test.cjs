@@ -388,6 +388,40 @@ test("four countries in one sample run remain independent 38-word samples agains
   assert.match(resultQuery.sql, /requestJson[\s\S]+language_code/);
 });
 
+test("all-country overview counts business targets once, shares readiness reads and keeps country buckets independent", async () => {
+  sessionToken = await getAuthToken();
+  cohortRows = Array.from({ length: 1629 }, (_, i) => candidate(`model-${i}`));
+  const targets = cohortRows.map(row => target(row.keywordId));
+  const ranks = { US: 1, JP: 11, ES: 31, BR: 51 };
+  readinessRows = targets.slice(0, 40).map(model => ({ siteDomain: model.siteDomain, sourceId: PAGE_AUDIT_SOURCE_ID, rowKey: `keyword:${model.keywordId}`,
+    snapshot: { keywordId: model.keywordId, verdict: "VERIFIED", pageUrl: model.targetUrls[0], workPlan: { action: "LINK", pageUrls: model.targetUrls } } }));
+  taskRows = Object.entries(ranks).flatMap(([region, rank]) => targets.slice(0, region === "JP" ? 39 : 38).map(model => task([model], {
+    id: `${region}-${model.keywordId}`, runId: "four-country", region,
+    normalizedJson: { normalizationVersion: 2, captureComplete: true, queryStatus: "EXACT", rankingVerified: true,
+      completeDepth: false, organicCount: 80, coveredThroughRank: 80, organicResults: [page(model.targetUrls[0], rank)] },
+  })));
+  const response = await GET(new Request("https://flatkey.test/api/serp-monitor/results?region=all"));
+  assert.equal(response.status, 200); assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  const body = await response.json();
+  assert.equal(body.region, "all"); assert.deepEqual([body.summary.total, body.summary.rankedInAnyRegion, body.summary.capturedInAnyRegion], [1629, 39, 39]);
+  assert.equal(body.summary.rankedRecords, 153);
+  assert.deepEqual(body.summary.buckets.map(bucket => bucket.count), [38, 1, 0, 0], "the total uses each word's best known country rank once");
+  assert.deepEqual([body.monitoring.allTargetCount, body.monitoring.eligibleTargetCount, body.monitoring.heldTargetCount], [1629, 40, 1589]);
+  assert.deepEqual(body.regions.map(result => result.region), ["US", "JP", "ES", "BR"]);
+  assert.deepEqual(body.regions.map(result => result.summary.buckets.map(bucket => bucket.count)), [[38, 0, 0, 0], [0, 39, 0, 0], [0, 0, 38, 0], [0, 0, 0, 38]]);
+  assert.deepEqual(body.regions.map(result => result.rankedCount), [38, 39, 38, 38]);
+  assert.equal(body.regions[1].targetSharePercent, 39 / 1629 * 100);
+  assert.equal(body.regions[1].rankingRecordSharePercent, 39 / 153 * 100);
+  assert.deepEqual(body.regions.map(result => result.monitoring.pendingTargetCount), [2, 1, 2, 2]);
+  assert.equal(queried.filter(query => query.sql.includes("serp-monitor:cohort")).length, 1);
+  assert.equal(queried.filter(query => query.sql.includes("serp-monitor:page-readiness-evidence")).length, 1);
+  assert.equal(queried.filter(query => query.sql.includes("serp-monitor:results")).length, 4);
+  for (const field of ["rawResponse", "requestJson", "encryptedCredentials", "submissionRaw", "organicResults", "\"items\""])
+    assert.ok(!JSON.stringify(body).includes(field), `${field} must not leave the aggregate endpoint`);
+  assert.equal((await GET(new Request("https://flatkey.test/api/serp-monitor/results?region=all&language=en"))).status, 400);
+  assert.equal((await GET(new Request("https://flatkey.test/api/serp-monitor/results?region=all&device=mobile"))).status, 400);
+});
+
 test("SERP read API requires a session, reads only the selected market ledger and leaks no raw responses", async () => {
   assert.equal((await GET(new Request("https://flatkey.test/api/serp-monitor/results"))).status, 401); assert.equal(queried.length, 0);
   sessionToken = await getAuthToken(); taskRows = [task([target("claude")])];

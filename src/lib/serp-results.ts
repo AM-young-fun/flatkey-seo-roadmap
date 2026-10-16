@@ -1,4 +1,5 @@
-import type { SearchRegionCode } from "./seo";
+import { REGION_CODES, type SearchRegionCode } from "./seo";
+import { normalizeKeywordText } from "./keyword-relevance";
 import { serpTargetKey, type SerpTarget } from "./serp-targets";
 import { validSitePage } from "./keyword-volume-review";
 import type { RankingEvidence, RankingPageEvidence, RankSummary } from "./types";
@@ -18,7 +19,7 @@ export type SerpTaskRead = {
   runScope?: SerpRunScope; runTargetCount?: number;
   region?: SearchRegionCode;
 };
-export type SerpTrendCohort = { runId: string; periodKey: string; targets: SerpTarget[]; runScope?: SerpRunScope; runTargetCount?: number; runCreatedAt?: Date | string };
+export type SerpTrendCohort = { runId: string; periodKey: string; targets: SerpTarget[]; runScope?: SerpRunScope; runTargetCount?: number; runCreatedAt?: Date | string; regions?: SearchRegionCode[] };
 export type SerpKeywordResult = SerpTarget & {
   status: SerpResultStatus; rank: number | null; url: string | null; pages: SerpRankedPage[];
   checkedAt: string | null; runId: string | null; providerTaskId: string | null;
@@ -38,6 +39,15 @@ export type SerpResultsResponse = {
   currentPeriod: SerpPeriod; movementSummary: ReturnType<typeof summarizeSerpMovements>;
   sampleSummary: ReturnType<typeof summarizeSerpSampleResults>;
   monitoring: ReturnType<typeof summarizeSerpMonitoring>;
+};
+export type SerpAllRegionsResponse = {
+  schemaVersion: 1; source: typeof SERP_SOURCE; site: string; region: "all"; cohortHash: string;
+  currentPeriod: SerpPeriod; latestCompletedAt: string | null;
+  summary: ReturnType<typeof aggregateSerpRegionResults>["summary"];
+  monitoring: Pick<ReturnType<typeof summarizeSerpMonitoring>, "allTargetCount" | "eligibleTargetCount" | "heldTargetCount" | "hash"> & { siteTargetCount: number };
+  regions: Array<Pick<SerpResultsResponse, "region" | "languageCode" | "device" | "depth" | "summary" | "monitoring" | "latestCompletedAt"> & {
+    rankedCount: number; targetSharePercent: number | null; rankingRecordSharePercent: number | null;
+  }>;
 };
 
 const record = (value: unknown): Record<string, unknown> | null => value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -187,6 +197,72 @@ export function summarizeSerpMonitoring(items: SerpKeywordResult[], cohort: Serp
   return { allTargetCount: cohort.allTargetCount, eligibleTargetCount: cohort.targets.length, heldTargetCount: cohort.heldTargetCount,
     capturedTargetCount: summary.captured, pendingTargetCount: summary.pending, queuedTargetCount: summary.queued,
     failedTargetCount: summary.failed, incompleteTargetCount: summary.incomplete, hash: cohort.hash };
+}
+
+export function summarizeSerpAllRegions(results: SerpResultsResponse[]) {
+  return aggregateSerpRegionResults(results).summary;
+}
+
+const validRankedResult = (item: SerpKeywordResult) => item.status === "RANKED" && positiveInteger(item.rank) && item.rank <= 100;
+
+/** Display grouping only: immutable site targets and paid task scope stay intact. */
+export function aggregateSerpRegionResults(regional: ReadonlyArray<{ region: SearchRegionCode; items: SerpKeywordResult[] }>, allTargets?: SerpTarget[]) {
+  const targetGroups = new Map<string, Map<string, SerpTarget>>();
+  for (const target of allTargets ?? regional.flatMap(country => country.items)) {
+    const word = normalizeKeywordText(target.keyword), members = targetGroups.get(word) ?? new Map<string, SerpTarget>();
+    members.set(serpTargetKey(target), target); targetGroups.set(word, members);
+  }
+  const countries = new Map<SearchRegionCode, Map<string, SerpKeywordResult>>();
+  for (const country of regional) {
+    const items = countries.get(country.region) ?? new Map<string, SerpKeywordResult>();
+    for (const item of country.items) {
+      const key = serpTargetKey(item), previous = items.get(key);
+      if (!previous || (Date.parse(item.checkedAt ?? "") || 0) > (Date.parse(previous.checkedAt ?? "") || 0)) items.set(key, item);
+    }
+    countries.set(country.region, items);
+  }
+  const combine = (members: SerpTarget[], regions: readonly SearchRegionCode[]): SerpKeywordResult => {
+    const observations = regions.flatMap(region => members.flatMap(member => {
+      const item = countries.get(region)?.get(serpTargetKey(member)); return item ? [item] : [];
+    }));
+    const ranked = observations.filter(validRankedResult).sort((a, b) => a.rank! - b.rank! ||
+      (Date.parse(b.checkedAt ?? "") || 0) - (Date.parse(a.checkedAt ?? "") || 0) || serpTargetKey(a).localeCompare(serpTargetKey(b)));
+    const latest = [...observations].sort((a, b) => (Date.parse(b.checkedAt ?? "") || 0) - (Date.parse(a.checkedAt ?? "") || 0))[0];
+    const base = ranked[0] ?? latest ?? buildSerpKeywordResults([members[0]], [])[0];
+    const completeOutside = observations.length === members.length * regions.length && observations.every(item => item.status === "OUTSIDE_TOP100");
+    const status: SerpResultStatus = ranked.length ? "RANKED" : completeOutside ? "OUTSIDE_TOP100"
+      : observations.some(item => item.status === "NOT_FOUND_CAPTURE" || item.status === "OUTSIDE_TOP100") ? "NOT_FOUND_CAPTURE"
+      : observations.some(item => item.status === "QUERY_CHANGED") ? "QUERY_CHANGED"
+      : observations.some(item => item.status === "QUEUED") ? "QUEUED"
+      : observations.some(item => item.status === "INCOMPLETE") ? "INCOMPLETE"
+      : observations.some(item => item.status === "FAILED") ? "FAILED" : "PENDING";
+    const eligible = observations.some(item => item.monitoringEligible === true);
+    const allDepthChecked = observations.length === members.length * regions.length && observations.every(item =>
+      item.status === "OUTSIDE_TOP100" || validRankedResult(item) && !item.depthIncomplete);
+    // A country's previous rank is not a cross-country comparison baseline.
+    // Trend callers compare these aggregate snapshots between real periods.
+    return { ...base, status, rank: ranked[0]?.rank ?? null, url: ranked[0]?.url ?? null, pages: ranked[0]?.pages ?? [],
+      captureComplete: observations.some(item => item.captureComplete), depthIncomplete: status === "RANKED" && !allDepthChecked,
+      previousRank: null, previousRankStatus: null, previousCheckedAt: null, previousPeriodKey: null, previousPeriodLabel: null,
+      movement: "NOT_COMPARABLE", monitoringEligible: eligible,
+      monitoringHoldReason: eligible ? null : observations.find(item => item.monitoringHoldReason)?.monitoringHoldReason ?? null,
+      monitoringHoldCode: eligible ? null : observations.find(item => item.monitoringHoldCode)?.monitoringHoldCode ?? null };
+  };
+  const groups = [...targetGroups].sort(([a], [b]) => a.localeCompare(b)).map(([, members]) => [...members.values()].sort((a, b) => serpTargetKey(a).localeCompare(serpTargetKey(b))));
+  const items = groups.map(members => combine(members, REGION_CODES));
+  const countryResults = REGION_CODES.map(region => {
+    const countryItems = groups.map(members => combine(members, [region]));
+    return { region, items: countryItems, summary: summarizeSerpResults(countryItems) };
+  });
+  const rankedRecords = countryResults.reduce((sum, country) => sum + country.summary.ranked, 0);
+  const summary = summarizeSerpResults(items), eligibleTargetCount = items.filter(item => item.monitoringEligible).length;
+  return { items, summary: { ...summary, rankedInAnyRegion: summary.ranked, capturedInAnyRegion: summary.captured,
+    rankedRecords, coveragePercent: summary.total ? summary.ranked / summary.total * 100 : null },
+    countries: countryResults.map(country => ({ ...country, rankedCount: country.summary.ranked,
+      targetSharePercent: summary.total ? country.summary.ranked / summary.total * 100 : null,
+      rankingRecordSharePercent: rankedRecords ? country.summary.ranked / rankedRecords * 100 : null })),
+    monitoring: { allTargetCount: summary.total, eligibleTargetCount, heldTargetCount: summary.total - eligibleTargetCount,
+      siteTargetCount: groups.reduce((sum, members) => sum + members.length, 0) } };
 }
 
 export function summarizeSerpResults(items: SerpKeywordResult[]) {

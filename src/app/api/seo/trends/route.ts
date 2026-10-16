@@ -3,22 +3,23 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { eligibleTrendKeywords, labsSnapshotTrendPoints, recentTrendRange, serpCheckTrendPoints, serpTrendRange, trendRange, type TrendKeyword, type TrendResult } from "@/lib/ranking-trends";
+import { combinedSerpTrendPoints, eligibleTrendKeywords, labsSnapshotTrendPoints, multiRegionTrendResult, recentTrendRange, serpCheckTrendFrames, serpCheckTrendPoints, serpTrendRange, trendRange, uniqueMarketTrendPoints, type TrendKeyword, type TrendResult, type MultiRegionTrendResult, type MarketTrend, type SerpTrendFrame } from "@/lib/ranking-trends";
 import type { RankingObservationRow } from "@/lib/ranking-evidence";
 import { loadSerpTasks, loadSerpTrendCohorts } from "@/lib/services/serp-results";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-const cache = new Map<string, { expires: number; value: TrendResult }>();
-const pending = new Map<string, Promise<TrendResult>>();
+const cache = new Map<string, { expires: number; value: TrendResult | MultiRegionTrendResult }>();
+const pending = new Map<string, Promise<TrendResult | MultiRegionTrendResult>>();
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
-  const region = (params.get("region") ?? "US") as SearchRegionCode;
-  if (!REGION_CODES.includes(region)) return NextResponse.json({ message: "地区无效" }, { status: 400 });
+  const region = (params.get("region") ?? "US") as SearchRegionCode | "all";
+  if (region !== "all" && !REGION_CODES.includes(region)) return NextResponse.json({ message: "地区无效" }, { status: 400 });
   const source = params.get("source") ?? "dataforseo_serp", site = params.get("site") ?? "all";
   if (!["dataforseo_serp", "dataforseo_labs"].includes(source) || !["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site))
     return NextResponse.json({ message: "网站或来源无效" }, { status: 400 });
+  if (region === "all" && source !== "dataforseo_serp") return NextResponse.json({ message: "四国趋势仅支持SERP实测" }, { status: 400 });
   const now = new Date();
   let range: ReturnType<typeof trendRange>;
   try {
@@ -28,14 +29,32 @@ export async function GET(request: Request) {
       range = trendRange(params.get("start") ?? recent.start, params.get("end") ?? recent.end, now);
     }
   } catch { return NextResponse.json({ message: "日期范围无效，最早为 2026-10-08，最晚为今天" }, { status: 400 }); }
-  const key = `${source}:checks-v4:${site}:${region}:${range.start}:${range.end}`;
+  const key = `${source}:${region === "all" ? "markets-v5" : "checks-v4"}:${site}:${region}:${range.start}:${range.end}`;
   try {
     const saved = cache.get(key);
     if (params.get("refresh") !== "1" && saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });
-    if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<TrendResult> => {
+    if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<TrendResult | MultiRegionTrendResult> => {
+      if (source === "dataforseo_serp" && region === "all") {
+        // One shared immutable inventory read and one Lambda for all markets.
+        // A failed market stays unavailable; it never becomes a zero trend.
+        const cohorts = await loadSerpTrendCohorts("all", range.start, range.end);
+        const reads = await Promise.all(REGION_CODES.map(async (market): Promise<{ market: MarketTrend; frames: SerpTrendFrame[] }> => {
+          try {
+            const scoped = cohorts.filter(cohort => !cohort.regions || cohort.regions.includes(market));
+            const tasks = scoped.length ? await retryDatabaseRead(() => loadSerpTasks(market, undefined, "desktop", range.start, range.end)) : [];
+            const frames = serpCheckTrendFrames([], tasks, range.start, range.end, { cohorts: scoped, site });
+            return { market: { region: market, status: "READY", points: uniqueMarketTrendPoints(market, frames) }, frames };
+          } catch { return { market: { region: market, status: "ERROR", points: null }, frames: [] }; }
+        }));
+        const value = multiRegionTrendResult(reads.map(read => read.market), range, now.toISOString(),
+          combinedSerpTrendPoints(reads.map(read => ({ region: read.market.region, frames: read.frames })), cohorts, site));
+        cache.set(key, { value, expires: Date.now() + 30000 });
+        return value;
+      }
       if (source === "dataforseo_serp") {
+        const market = region as SearchRegionCode;
         const [cohorts, tasks] = await Promise.all([
-          loadSerpTrendCohorts(region, range.start, range.end), loadSerpTasks(region, undefined, "desktop", range.start, range.end),
+          loadSerpTrendCohorts(market, range.start, range.end), loadSerpTasks(market, undefined, "desktop", range.start, range.end),
         ]);
         const value: TrendResult = { ...range, schemaVersion: 4, mode: "serp-checks", asOf: now.toISOString(),
           points: serpCheckTrendPoints([], tasks, range.start, range.end, { cohorts, site }), snapshot: null };
@@ -73,7 +92,7 @@ export async function GET(request: Request) {
           o."collectedAt" DESC, o."importedAt" DESC, o.id DESC
       `) : [];
       const value: TrendResult = { ...range, schemaVersion: 3, mode: "labs-snapshots", asOf: now.toISOString(),
-        points: labsSnapshotTrendPoints(cohort, observations, region, range.start, range.end), snapshot: null };
+        points: labsSnapshotTrendPoints(cohort, observations, region as SearchRegionCode, range.start, range.end), snapshot: null };
       cache.set(key, { value, expires: Date.now() + 30000 });
       return value;
     }).finally(() => pending.delete(key)));

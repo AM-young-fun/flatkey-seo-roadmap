@@ -1,7 +1,7 @@
 import { eligibleSerpTargets } from "./serp-targets";
 import { buildRankingEvidence, latestQueryEvidence, type RankingObservationRow } from "./ranking-evidence";
-import type { SearchRegionCode } from "./seo";
-import { buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "./serp-results";
+import { REGION_CODES, type SearchRegionCode } from "./seo";
+import { aggregateSerpRegionResults, buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpKeywordResult, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "./serp-results";
 import type { SerpTarget } from "./serp-targets";
 
 export const EARLIEST_TREND_DATE = "2026-10-08";
@@ -43,6 +43,28 @@ export type TrendPoint = {
   queryChanged?: number;
 };
 export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string };
+export type MarketTrend = { region: SearchRegionCode; status: "READY" | "ERROR"; points: TrendPoint[] | null };
+export type MultiRegionTrendResult = { schemaVersion: 5; mode: "serp-markets"; points: TrendPoint[] | null; markets: MarketTrend[]; start: string; end: string; snapshot: null; asOf: string };
+export function multiRegionTrendPeriods(markets: MarketTrend[]) {
+  const periods = new Map<string, { key: string; label: string; points: Partial<Record<SearchRegionCode, TrendPoint>> }>();
+  for (const market of markets) {
+    if (market.status !== "READY") continue;
+    for (const point of market.points ?? []) {
+      const key = point.periodKey ?? point.date;
+      const period = periods.get(key) ?? { key, label: point.periodLabel ?? point.date, points: {} };
+      period.points[market.region] = point;
+      periods.set(key, period);
+    }
+  }
+  return [...periods.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+export function marketTrendCount(point: TrendPoint | undefined): number | null {
+  return point && (point.captured ?? point.checked ?? point.ranked + point.outside) > 0 ? point.ranked : null;
+}
+export function multiRegionTrendResult(markets: MarketTrend[], range: { start: string; end: string }, asOf: string, points: TrendPoint[] = []): MultiRegionTrendResult {
+  return { ...range, schemaVersion: 5, mode: "serp-markets", snapshot: null, asOf, points: markets.some(market => market.status === "ERROR") ? null : points,
+    markets: REGION_CODES.map(region => markets.find(market => market.region === region) ?? { region, status: "ERROR", points: null }) };
+}
 export type TrendKeyword = {
   keywordId: string; text: string; siteDomain: string; active: boolean; keywordActive: boolean;
   siteActive: boolean; topicId: string | null; pool: string;
@@ -63,6 +85,11 @@ export function serpTrendRange(start?: string, end?: string, now = new Date()) {
 // times stay separate from the monthly 1st/16th reporting boundaries.
 export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[], start: string, end: string,
   options: { cohorts?: SerpTrendCohort[]; site?: string } = {}): TrendPoint[] {
+  return serpCheckTrendFrames(targets, tasks, start, end, options).map(frame => frame.point);
+}
+export type SerpTrendFrame = { point: TrendPoint; items: SerpKeywordResult[]; targets: SerpTarget[] };
+export function serpCheckTrendFrames(targets: SerpTarget[], tasks: SerpTaskRead[], start: string, end: string,
+  options: { cohorts?: SerpTrendCohort[]; site?: string } = {}): SerpTrendFrame[] {
   const periods = new Map<string, NonNullable<ReturnType<typeof serpTaskPeriod>>>();
   const frozen = options.cohorts ? new Map<string, SerpTrendCohort[]>() : null;
   for (const cohort of options.cohorts ?? []) frozen!.set(cohort.periodKey, [...(frozen!.get(cohort.periodKey) ?? []), cohort]);
@@ -99,7 +126,7 @@ export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[
     const runScopes = [...new Set(touched.map(item => item.runScope ?? "SCHEDULED"))].sort();
     const sampledTargetCount = touched.filter(item => item.runScope === "SAMPLE").length;
     const sampleOnly = runScopes.length === 1 && runScopes[0] === "SAMPLE";
-    return [{ date: trendToday(new Date(captureEndAt)), periodKey: key, periodLabel: period.label,
+    return [{ items, targets: periodTargets, point: { date: trendToday(new Date(captureEndAt)), periodKey: key, periodLabel: period.label,
       counts: summary.buckets.map(bucket => bucket.count), sites: [...new Set(periodTargets.map(target => target.siteDomain))].sort(),
       sources: ["dataforseo_serp"], total: summary.total, ranked: summary.ranked, pending: summary.pending,
       outside: summary.outside, checked: summary.checked, failed: summary.failed, incomplete: summary.incomplete, queued: summary.queued,
@@ -107,7 +134,39 @@ export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[
       periodStart: period.start, periodEnd: period.end, snapshotAt: captureEndAt, captureStartAt, captureEndAt,
       captureDates: [...new Set(timestamps.map(timestamp => trendToday(new Date(timestamp))))].sort(),
       dataDates: [...new Set(timestamps)], movementSummary: summarizeSerpMovements(items), partialRanked: summary.partialRanked,
-      sampleOnly, sampledTargetCount, runScopes, scopeLabel: sampleOnly ? "抽样实测" : sampledTargetCount ? "正式监控（含抽样）" : "正式监控" }];
+      sampleOnly, sampledTargetCount, runScopes, scopeLabel: sampleOnly ? "抽样实测" : sampledTargetCount ? "正式监控（含抽样）" : "正式监控" } }];
+  });
+}
+function uniqueTrendPoint(point: TrendPoint, summary: ReturnType<typeof summarizeSerpResults>): TrendPoint {
+  return { ...point, total: summary.total, ranked: summary.ranked, counts: summary.buckets.map(bucket => bucket.count),
+    pending: summary.pending, outside: summary.outside, checked: summary.checked, captured: summary.captured,
+    failed: summary.failed, incomplete: summary.incomplete, queued: summary.queued,
+    notFoundCaptured: summary.notFoundCaptured, queryChanged: summary.queryChanged, movementSummary: undefined };
+}
+export function uniqueMarketTrendPoints(region: SearchRegionCode, frames: SerpTrendFrame[]): TrendPoint[] {
+  return frames.map(frame => uniqueTrendPoint(frame.point, aggregateSerpRegionResults([{ region, items: frame.items }], frame.targets).countries.find(country => country.region === region)!.summary));
+}
+export function combinedSerpTrendPoints(markets: { region: SearchRegionCode; frames: SerpTrendFrame[] }[], cohorts: SerpTrendCohort[], site = "all"): TrendPoint[] {
+  const keys = [...new Set(markets.flatMap(market => market.frames.map(frame => frame.point.periodKey ?? frame.point.date)))].sort();
+  return keys.flatMap(key => {
+    const current = markets.flatMap(market => {
+      const frame = market.frames.find(frame => (frame.point.periodKey ?? frame.point.date) === key);
+      return frame ? [{ region: market.region, frame }] : [];
+    });
+    if (!current.length || !cohorts.some(cohort => cohort.periodKey === key)) return [];
+    // Each country has already selected its own immutable period snapshot.
+    // Union those saved members before display-word deduplication; a newer
+    // US-only run must not discard another country's different frozen goals.
+    const targets = [...new Map(current.flatMap(market => market.frame.targets)
+      .filter(target => site === "all" || target.siteDomain === site)
+      .map(target => [`${target.siteDomain}:${target.keywordId}`, target] as const)).values()];
+    const summary = aggregateSerpRegionResults(current.map(market => ({ region: market.region, items: market.frame.items })), targets).summary;
+    const times = current.flatMap(market => market.frame.point.dataDates ?? []).sort();
+    if (!times.length) return [];
+    const point = uniqueTrendPoint(current[0].frame.point, summary);
+    const start = times[0], end = times.at(-1)!;
+    return [{ ...point, date: trendToday(new Date(end)), captureStartAt: start, captureEndAt: end, snapshotAt: end,
+      dataDates: [...new Set(times)], captureDates: [...new Set(times.map(time => trendToday(new Date(time))))].sort() }];
   });
 }
 

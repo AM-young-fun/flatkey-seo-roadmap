@@ -2,19 +2,22 @@
 import type * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { DashboardKeyword } from "@/lib/types";
-import { REGIONS, type SearchRegionCode } from "@/lib/seo";
+import { REGION_CODES, REGIONS } from "@/lib/seo";
 import {
   displayBucket,
   displayRank,
-  rankDescription,
 } from "@/lib/rank-display";
+
+function bestObservedRank(keyword: DashboardKeyword) {
+  return REGION_CODES.map(region => keyword.latestRanks[region]).filter(rank =>
+    rank?.source === "dataforseo_serp" && rank.rankStatus === "ranked" && rank.rank != null && rank.rank >= 1 && rank.rank <= 100,
+  ).sort((a, b) => a!.rank! - b!.rank!)[0] ?? null;
+}
 
 export function KeywordGraph({
   keywords,
-  selectedRegion,
 }: {
   keywords: DashboardKeyword[];
-  selectedRegion: SearchRegionCode;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const option = useMemo<echarts.EChartsOption>(() => {
@@ -55,19 +58,16 @@ export function KeywordGraph({
       sorted.slice(1).forEach((member) => addEdge(sorted[0].id, member.id));
     });
     const nodes = keywords.map((keyword) => {
-      const knownVolume = keyword.marketVolumes[selectedRegion];
-      const volume = knownVolume ?? 0;
       const dotSize = Math.max(3, Math.min(18, 560 / Math.sqrt(keywords.length)));
       return {
         id: keyword.id,
         name: keyword.text,
         keyword,
-        volume: knownVolume,
         x: positions.get(keyword.id)!.x,
         y: positions.get(keyword.id)!.y,
-        symbolSize: dotSize * (0.75 + Math.min(0.6, Math.log10(volume + 1) * 0.1)),
+        symbolSize: dotSize,
         itemStyle: {
-          color: displayBucket(keyword.latestRanks[selectedRegion]?.rank).color,
+          color: displayBucket(bestObservedRank(keyword)?.rank).color,
           borderColor: "#fff",
           borderWidth: large ? 0.5 : 2,
           shadowBlur: large ? 0 : 8,
@@ -83,15 +83,12 @@ export function KeywordGraph({
         confine: true,
         formatter: (params: unknown) => {
           const node = (
-            params as { data?: { keyword?: DashboardKeyword; volume?: number } }
+            params as { data?: { keyword?: DashboardKeyword } }
           ).data;
           if (!node?.keyword) return "同话题或父子关键词关联";
           const keyword = node.keyword;
-          const rank = keyword.latestRanks[selectedRegion];
-          const description = rank?.source === "dataforseo_labs"
-            ? `DataForSEO Labs 数据库名次\n来源 SERP 更新：${rank.dataUpdatedAt ?? rank.dataDate ?? "来源日期未提供"}\n实际排名页：${rank.url ?? "未提供"}\n非实时搜索结果`
-            : rankDescription(rank);
-          return `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${REGIONS[selectedRegion].label}排名：${displayRank(rank)}\n${description}\n声量：${node.volume?.toLocaleString() ?? "—"}`;
+          const ranks = REGION_CODES.map(region => `${REGIONS[region].label}：${!keyword.latestRanks[region] && keyword.monitoringEligible === false ? "暂不监控" : displayRank(keyword.latestRanks[region])}`).join("\n");
+          return `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${ranks}\n颜色取四国已取得的最佳自然名次`;
         },
       },
       series: [
@@ -118,7 +115,7 @@ export function KeywordGraph({
         },
       ],
     };
-  }, [keywords, selectedRegion]);
+  }, [keywords]);
   useEffect(() => {
     if (!element.current || !keywords.length) return;
     const target = element.current;
@@ -143,7 +140,7 @@ export function KeywordGraph({
       ref={element}
       className="keywordGraph"
       role="img"
-      aria-label={`${REGIONS[selectedRegion].label}关键词关系图，按排名着色；完整数据可在关键词明细中查看`}
+      aria-label="四国关键词关系图，按各词已取得的最佳自然排名着色；完整数据可在关键词明细中查看"
     />
   ) : (
     <div className="emptyGraph">暂无关键词，请通过顶部「数据管理」导入</div>

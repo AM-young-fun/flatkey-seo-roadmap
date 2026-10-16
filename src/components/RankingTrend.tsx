@@ -1,45 +1,59 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type * as echarts from "echarts";
 import Link from "next/link";
+import { REGION_CODES, REGIONS } from "@/lib/seo";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
-import { REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { EARLIEST_TREND_DATE, trendToday, type TrendResult } from "@/lib/ranking-trends";
+import { EARLIEST_TREND_DATE, marketTrendCount, multiRegionTrendPeriods, trendToday, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
 
-const trendResults = new Map<string, TrendResult>();
+const trendResults = new Map<string, MultiRegionTrendResult>();
+const COLORS = ["#19283f", ...DISPLAY_BUCKETS.slice(0, 4).map(bucket => bucket.color)];
+const captured = (point?: TrendPoint) => point ? point.captured ?? point.checked ?? point.ranked + point.outside : 0;
+const captureTime = (point?: TrendPoint) => {
+  if (!point) return "本期未采集";
+  const format = (value: string) => new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+  return point.captureStartAt ? `${format(point.captureStartAt)}${point.captureEndAt && point.captureEndAt !== point.captureStartAt ? ` 至 ${format(point.captureEndAt)}` : ""}` : point.date;
+};
 function reportRange() {
   const end = trendToday();
   const start = new Date(Date.parse(`${end}T00:00:00Z`) - 89 * 86400000).toISOString().slice(0, 10);
   return { start: start < EARLIEST_TREND_DATE ? EARLIEST_TREND_DATE : start, end };
 }
+function isTrendResult(data: MultiRegionTrendResult) {
+  return data.schemaVersion === 5 && data.mode === "serp-markets" && (data.points === null || Array.isArray(data.points)) && Array.isArray(data.markets) &&
+    REGION_CODES.every(region => data.markets.some(market => market.region === region &&
+      (market.status === "ERROR" && market.points === null || market.status === "READY" && Array.isArray(market.points))));
+}
 
-export function RankingTrend({ region }: { region: SearchRegionCode }) {
+export function RankingTrend() {
   const [range, setRange] = useState(() => reportRange());
-  const key = `serp-checks-v4:${dashboardStore.revision()}:${region}:${range.start}:${range.end}`;
-  const [result, setResult] = useState<(TrendResult & {key:string}) | null>(() => {
+  const key = `serp-markets-v5:${dashboardStore.revision()}:${range.start}:${range.end}`;
+  const [result, setResult] = useState<(MultiRegionTrendResult & { key: string }) | null>(() => {
     const saved = trendResults.get(key);
     return saved ? { ...saved, key } : null;
   });
   const [error, setError] = useState(false);
   const [version, retry] = useState(0);
   const element = useRef<HTMLDivElement>(null);
+  const markets = result?.key === key ? result.markets : null;
+  const periods = useMemo(() => multiRegionTrendPeriods(markets ?? []), [markets]);
   const points = result?.key === key ? result.points : null;
-  const displayStart = points?.[0]?.date ?? range.start;
-  const displayEnd = points?.at(-1)?.date ?? range.end;
   const latest = points?.at(-1);
+  const latestCountries = periods.find(period => period.key === (latest?.periodKey ?? latest?.date)) ?? periods.at(-1);
+  const failed = markets?.filter(market => market.status === "ERROR") ?? [];
+  const hasPoints = points?.some(point => marketTrendCount(point) !== null) ?? false;
   useEffect(() => {
     const controller = new AbortController();
-    let busy = false;
-    let completed = false;
+    let busy = false, completed = false;
     const remembered = trendResults.get(key);
     if (remembered) setResult(previous => previous?.key === key ? previous : { ...remembered, key });
     void dashboardSession.load(`trend:${key}`).then(saved => {
       if (!saved || completed || controller.signal.aborted) return;
       try {
-        const data = JSON.parse(saved.body) as TrendResult;
-        if (data.schemaVersion === 4 && data.mode === "serp-checks" && Array.isArray(data.points) && data.start === range.start && data.end === range.end)
+        const data = JSON.parse(saved.body) as MultiRegionTrendResult;
+        if (isTrendResult(data) && data.start === range.start && data.end === range.end)
           setResult(previous => previous?.key === key ? previous : { ...data, key });
       } catch { /* Ignore malformed cache data. */ }
     });
@@ -48,15 +62,15 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
       busy = true;
       setRange(previous => { const next = reportRange(); return next.start === previous.start && next.end === previous.end ? previous : next; });
       try {
-        const response = await fetch(`/api/seo/trends?region=${region}&start=${range.start}&end=${range.end}${version > 0 || dashboardStore.revision() > 0 ? "&refresh=1" : ""}`, { signal: controller.signal, cache: "no-store" });
+        const response = await fetch(`/api/seo/trends?region=all&start=${range.start}&end=${range.end}${version > 0 || dashboardStore.revision() > 0 ? "&refresh=1" : ""}`, { signal: controller.signal, cache: "no-store" });
         if (response.status === 401) { window.location.assign("/login"); return; }
         if (!response.ok) throw new Error("加载失败");
-        const data = await response.json() as TrendResult;
-        if (data.schemaVersion !== 4 || data.mode !== "serp-checks") throw new Error("统计口径已更新，请重新加载");
+        const data = await response.json() as MultiRegionTrendResult;
+        if (!isTrendResult(data)) throw new Error("统计口径已更新，请重新加载");
         if (!controller.signal.aborted) {
           trendResults.set(key, data);
           if (trendResults.size > 16) trendResults.delete(trendResults.keys().next().value!);
-          setResult({...data,key}); setError(false);
+          setResult({ ...data, key }); setError(false);
           void dashboardSession.save(`trend:${key}`, JSON.stringify(data), Date.now());
         }
       } catch { if (!controller.signal.aborted) setError(true); }
@@ -69,41 +83,52 @@ export function RankingTrend({ region }: { region: SearchRegionCode }) {
     window.addEventListener("focus", read);
     window.addEventListener("seo-rankings-updated", onUpdated);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); window.removeEventListener("seo-rankings-updated", onUpdated); };
-  }, [region, key, range.start, range.end, version]);
+  }, [key, range.start, range.end, version]);
   useEffect(() => {
-    if (!element.current || !points?.length) return;
+    if (!element.current || !hasPoints) return;
     const target = element.current;
     let disposed = false;
     let chart: echarts.ECharts | undefined;
     let observer: ResizeObserver | undefined;
-    const byDate = new Map(points.map((point) => [point.periodKey ?? point.date, point]));
-    const dates = points.map(point => point.periodKey ?? point.date);
-    const option: echarts.EChartsOption = { animation: false, color: ["#19283f", ...DISPLAY_BUCKETS.slice(0,4).map(bucket=>bucket.color)],
-      tooltip: { trigger: "axis", renderMode:"richText", confine:true, formatter:(raw:unknown)=> {
-        const values = raw as {axisValue:string;seriesName:string;value:number|null}[];
-        const point = byDate.get(String(values[0]?.axisValue));
+    const byPeriod = new Map((points ?? []).map(point => [point.periodKey ?? point.date, point]));
+    const dates = [...byPeriod.keys()];
+    const option: echarts.EChartsOption = { animation: false, color: COLORS,
+      tooltip: { trigger: "axis", renderMode: "richText", confine: true, formatter: (raw: unknown) => {
+        const values = raw as { axisValue: string; seriesName: string; value: number | null }[];
+        const point = byPeriod.get(String(values[0]?.axisValue));
         if (!point) return "暂无SERP实测记录";
-        return [`期次 ${point.periodLabel ?? point.date}`, `当期冻结词库：${point.total.toLocaleString()} 词`, ...values.filter(row=>row.value != null).map(row=>`${row.seriesName}：${Number(row.value).toLocaleString()} 词`), `已完成采集：${point.captured ?? point.checked ?? point.ranked + point.outside} 词`, `本次未命中：${point.notFoundCaptured ?? 0} 词`, `实测时间：${point.dataDates?.length ? point.dataDates.join("、") : "来源日期未提供"}`, "DataForSEO SERP采集时的自然排名"].join("\n");
+        return [point.periodLabel ?? point.date, `当期冻结关键词：${point.total} 词`,
+          ...values.filter(value => value.value !== null).map(value => `${value.seriesName}：${value.value} 词`),
+          `实际采集：${captureTime(point)}`].join("\n");
       } },
-      legend: { top: 0, textStyle: {color:"#70819a",fontSize:11} },
+      legend: { top: 0, textStyle: { color: "#70819a", fontSize: 11 } },
       grid: { left: 45, right: 25, top: 45, bottom: 60 },
-      xAxis: { type:"category", data:dates, boundaryGap:true, axisLabel:{formatter:(value:string)=>(byDate.get(value)?.periodLabel ?? value).replace("年", "年\n"),color:"#8795a9"}, axisLine:{lineStyle:{color:"#e5eaf2"}} },
-      yAxis: { type:"value", minInterval:1, axisLabel:{color:"#8795a9"},splitLine:{lineStyle:{color:"#eef2f7"}} },
-      series: [{ name:"前 100 合计", type:"line" as const, lineStyle:{width:3}, itemStyle:{color:"#19283f"}, symbolSize:6, connectNulls:false, data:dates.map(date=> { const point=byDate.get(date); return point && (point.captured ?? point.checked ?? point.ranked + point.outside) > 0 ? point.ranked : null; }) }, ...DISPLAY_BUCKETS.slice(0,4).map((bucket,index)=>({ name:`${bucket.range} 名`, type:"line" as const, itemStyle:{color:bucket.color}, lineStyle:{color:bucket.color}, smooth:false, showSymbol:true, symbolSize:points.length===1?10:5, connectNulls:false, data:dates.map(date=>{ const point=byDate.get(date); return point && (point.captured ?? point.checked ?? point.ranked + point.outside) > 0 ? point.counts[index] : null; }) }))],
+      xAxis: { type: "category", data: dates, boundaryGap: true, axisLabel: { formatter: (value: string) => (byPeriod.get(value)?.periodLabel ?? value).replace("年", "年\n"), color: "#8795a9" }, axisLine: { lineStyle: { color: "#e5eaf2" } } },
+      yAxis: { type: "value", minInterval: 1, name: "关键词数", axisLabel: { color: "#8795a9" }, splitLine: { lineStyle: { color: "#eef2f7" } } },
+      series: [{ name: "前100合计", type: "line" as const, lineStyle: { width: 3, color: COLORS[0] }, itemStyle: { color: COLORS[0] },
+        symbolSize: dates.length === 1 ? 9 : 5, connectNulls: false, data: dates.map(date => marketTrendCount(byPeriod.get(date))) },
+        ...DISPLAY_BUCKETS.slice(0, 4).map((bucket, index) => ({ name: `${bucket.range} 名`, type: "line" as const,
+          lineStyle: { width: 2, color: bucket.color }, itemStyle: { color: bucket.color }, symbolSize: dates.length === 1 ? 9 : 5,
+          connectNulls: false, data: dates.map(date => { const point = byPeriod.get(date); return marketTrendCount(point) === null ? null : point!.counts[index]; }) }))],
     };
     void import("@/lib/charts").then(({ init }) => {
       if (disposed) return;
-      chart = init(target);
-      chart.setOption(option);
-      observer = new ResizeObserver(() => chart?.resize());
-      observer.observe(target);
+      chart = init(target); chart.setOption(option);
+      observer = new ResizeObserver(() => chart?.resize()); observer.observe(target);
     });
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
-  }, [points, range.start, range.end]);
+  }, [points, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>每期排名趋势</h2><p className="chartNote">{REGIONS[region].label} · 最近90天真实期次快照 · 每月1日、16日 · 全量定时未开启</p></div><Link href="/manage" className="textLink">管理采集计划 →</Link></div>
-    {latest ? <><p className="inventoryTrendTotal">当期冻结词库 <strong>{latest.total.toLocaleString()}</strong> 词 · 其中取得前 100 记录 <strong>{(latest.captured ?? latest.checked ?? latest.ranked + latest.outside) === 0 ? "暂无记录" : `${latest.ranked.toLocaleString()} 词`}</strong></p><p className="chartNote">{latest.periodLabel ?? latest.date} · 最近实测日 {latest.date} · 已采集 {latest.captured ?? latest.checked ?? latest.ranked + latest.outside} 词 · 本次未命中 {latest.notFoundCaptured ?? 0} 词</p>{(latest.captured ?? latest.checked ?? latest.ranked + latest.outside) === 0 ? <p className="chartNote" role="status">尚无已完成的采集结果。</p> : null}</> : null}
-    {error ? <div className="loadError"><span>趋势暂时无法读取</span><button onClick={()=>retry(value=>value+1)}>重新加载</button></div> : null}
-    {!points ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !points.length ? <p className="muted">尚无该国排名快照，采集完成后会显示实际期次与趋势。</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${REGIONS[region].label} DataForSEO SERP实测，${displayStart} 至 ${displayEnd}；仅显示真实采集日`} /><p className="chartNote">每个真实采集期次仅绘一个点，标注当期实际采集时间；未采集的期次不补零。</p><details className="simpleExplanation"><summary>查看各期数据与变化</summary><div className="serpPeriodTable"><table><thead><tr><th>期次 / 实测时间</th><th>当期词库 / 已采集</th><th>前10</th><th>11–30</th><th>31–50</th><th>51–100</th><th>暂无前100</th><th>较上次有效实测</th></tr></thead><tbody>{points.map(point => <tr key={point.periodKey ?? point.date}><td><strong>{point.periodLabel ?? point.date}</strong><small>{point.captureStartAt ? new Date(point.captureStartAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : point.date}{point.captureEndAt && point.captureEndAt !== point.captureStartAt ? ` 至 ${new Date(point.captureEndAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}` : ""}</small></td><td>{point.total} / {point.captured ?? point.checked ?? point.ranked + point.outside}<small>本次未命中 {point.notFoundCaptured ?? 0} · 纠词 {point.queryChanged ?? 0}</small></td>{point.counts.map((count, index) => <td key={index}>{(point.captured ?? point.checked ?? point.ranked + point.outside) > 0 ? count : "—"}</td>)}<td>{(point.captured ?? point.checked ?? point.ranked + point.outside) > 0 ? point.outside : "—"}</td><td>{point.movementSummary ? <>↑ {point.movementSummary.up} · ↓ {point.movementSummary.down}<small>新进 {point.movementSummary.newInTop100} · 跌出 {point.movementSummary.droppedOut} · 首次 {point.movementSummary.firstCheck}</small></> : "暂无可比基线"}</td></tr>)}</tbody></table></div></details><details className="movementDetails"><summary>数据说明</summary><p className="chartNote">后续采集仅纳入页面就绪的正式词，研究候选不自动进入付费范围。历史期次按采集时冻结的词库范围保留，不因当前页面状态改变而重算。只统计DataForSEO SERP的自然结果，每个关键词只计一次，保留同轮各排名页面。“本次未命中”是已完成采集的结论，保留实际检查范围，不自动视为跌出前100。未查询、失败与数据异常不算作无排名；Labs、GSC、Ahrefs不参与本图。</p></details></>}
+    <div className="dailyHeading"><div><h2>每期排名趋势</h2><p className="chartNote">四国汇总 · 同一关键词只计一次 · 每月两期</p></div><Link href="/manage" className="textLink">管理采集计划 →</Link></div>
+    {latest ? <p className="inventoryTrendTotal">{latest.periodLabel ?? latest.date} · 当期关键词 <strong>{latest.total.toLocaleString()}</strong> 词 · 取得前100排名 <strong>{latest.ranked.toLocaleString()}</strong> 词</p> : null}
+    {error || failed.length ? <div className="loadError"><span>{error ? "趋势暂时无法读取" : `${failed.map(market => REGIONS[market.region].label).join("、")}趋势暂时无法读取`}</span><button onClick={() => retry(value => value + 1)}>重新加载</button></div> : null}
+    {!markets ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "尚无有效排名快照，采集完成后显示总趋势。"}</p> : <><div ref={element} className="rankingTrend" role="img" aria-label="四国汇总关键词总趋势，跨网站和国家去重，每词取最佳有效自然排名" /><p className="chartNote">跨网站与四国按关键词去重，取最佳有效自然排名；各区间互不重叠。未采集的期次不补零。</p></>}
+    {latestCountries ? <details className="simpleExplanation"><summary>查看最新一期各国明细与采集时间</summary><div className="serpPeriodTable"><table><thead><tr><th>国家 / 实测时间</th><th>当期词库 / 已采集</th><th>前10</th><th>11–30</th><th>31–50</th><th>51–100</th><th>前100合计</th><th>前100词数变化</th></tr></thead><tbody>{REGION_CODES.map(region => {
+      const point = latestCountries.points[region], count = marketTrendCount(point), failedMarket = failed.some(market => market.region === region);
+      const previous = markets?.find(market => market.region === region)?.points?.filter(item => (item.periodKey ?? item.date) < latestCountries.key && marketTrendCount(item) !== null).at(-1);
+      const difference = count !== null && previous ? count - previous.ranked : null;
+      return <tr key={region}><td><strong>{REGIONS[region].label}</strong><small>{failedMarket ? "读取失败" : captureTime(point)}</small></td><td>{point ? `${point.total} / ${captured(point)}` : "—"}</td>{[0, 1, 2, 3].map(index => <td key={index}>{count === null ? "—" : point!.counts[index]}</td>)}<td>{count ?? "—"}</td><td>{difference === null ? "暂无可比基线" : `${difference > 0 ? "+" : ""}${difference} 词`}</td></tr>;
+    })}</tbody></table></div></details> : null}
+    <details className="movementDetails"><summary>数据说明</summary><p className="chartNote">总趋势把四国和各网站的同名关键词合并，每词按最佳有效自然排名计入一个区间。各期使用当时冻结词库去重后的关键词数，历史基线不会随当前词库变动。四国分项保留在上方折叠表中。只使用DataForSEO SERP自然排名；未查询、失败、纠词和异常结果不算无排名。新采集仅包含页面就绪的正式词，全量付费定时仍未开启。</p></details>
   </section>;
 }

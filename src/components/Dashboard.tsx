@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useSeoSelection } from "@/components/useSeoSelection";
 import { RankingTrend } from "@/components/RankingTrend";
 import { ArrowUpRight } from "lucide-react";
 import { KeywordGraph } from "@/components/KeywordGraph";
@@ -9,13 +8,24 @@ import { PageHeader } from "@/components/PageHeader";
 import { useDashboard } from "@/components/useDashboard";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { SerpOverview } from "@/components/SerpOverview";
-import { RegionSelect } from "@/components/RegionSelect";
-import type { SearchRegionCode } from "@/lib/seo";
+import { groupKeywordDetails, keywordDetailCountryRanks } from "@/lib/keyword-details-group";
+import type { DashboardKeyword } from "@/lib/types";
 
-function KeywordNetwork({ region }: { region: SearchRegionCode }) {
+function KeywordNetwork() {
   const { data, loading, error, refresh } = useDashboard("all", "dataforseo_serp");
   const ready = Boolean(data);
-  const keywords = useMemo(() => data?.keywords ?? [], [data?.keywords]);
+  const keywords = useMemo(() => {
+    const groups = groupKeywordDetails(data?.keywords ?? []);
+    const ids = new Map(groups.flatMap(group => group.members.map(member => [member.id, group.id] as const)));
+    return groups.map(group => ({ ...group.members[0], id: group.id, text: group.text,
+      siteName: [...new Set(group.members.map(member => member.siteName ?? "Flatkey"))].join("、"),
+      targetUrls: [...new Set(group.members.flatMap(member => member.targetUrls ?? []))],
+      latestRanks: Object.fromEntries(keywordDetailCountryRanks(group, "all").map(value => [value.region, value.rank])) as DashboardKeyword["latestRanks"],
+      monitoringEligible: group.members.some(member => member.monitoringEligible === true),
+      parentIds: [...new Set(group.members.flatMap(member => (member.parentIds.length ? member.parentIds : member.parentId ? [member.parentId] : []).map(id => ids.get(id)).filter((id): id is string => Boolean(id))))],
+      parentId: null,
+    }));
+  }, [data?.keywords]);
   const [graphSearch, setGraphSearch] = useState("");
   const graphKeywords = useMemo(() => {
     const query = graphSearch.trim().toLowerCase();
@@ -27,7 +37,7 @@ function KeywordNetwork({ region }: { region: SearchRegionCode }) {
             <div>
               <p className="eyebrow">KEYWORD NETWORK</p>
               <h2>关键词关系图</h2>
-              <p>缩放、拖动或悬停查看关键词；连线表示同话题或父子关联</p>
+              <p>四国综合排名着色；缩放、拖动或悬停查看关键词与关联</p>
             </div>
             <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
               查看明细
@@ -48,24 +58,22 @@ function KeywordNetwork({ region }: { region: SearchRegionCode }) {
           ) : error && !data ? (
             <div className="loadingState">词库读取失败，请点击上方「重新加载」</div>
           ) : (
-            <KeywordGraph keywords={graphKeywords} selectedRegion={region} />
+            <KeywordGraph keywords={graphKeywords} />
           )}
         </article>
       </section>;
 }
 
 export function Dashboard() {
-  const selection = useSeoSelection();
-  const { region } = selection;
-  const [graphOpen, setGraphOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(true);
   return (
     <main className="appShell">
       <PageHeader active="overview" />
-      <div className="rankingPageToolbar"><h1>排名概览</h1><div className="pageRegionFilter"><span>查看国家</span><RegionSelect value={region} onChange={selection.setRegion} /></div></div>
-      <SerpOverview site={selection.site} region={region} />
-      <RankingTrend region={region} />
+      <div className="rankingPageToolbar"><h1>排名概览</h1><span className="chartNote">美国、日本、西班牙、巴西 · 四国汇总</span></div>
+      <SerpOverview site="all" />
+      <RankingTrend />
 
-      <details className="simpleDisclosure keywordGraphDisclosure" onToggle={event => setGraphOpen(event.currentTarget.open)}><summary>业务词库关系图</summary>{graphOpen ? <KeywordNetwork region={region} /> : null}</details>
+      <details className="simpleDisclosure keywordGraphDisclosure" open={graphOpen} onToggle={event => setGraphOpen(event.currentTarget.open)}><summary>业务词库关系图</summary>{graphOpen ? <KeywordNetwork /> : null}</details>
       <footer className="overviewFooter">
         <span>排名来自DataForSEO SERP实测；Labs、GSC、Ahrefs历史记录不计入主排名。</span>
         <span>地区、采集时间及各排名页面详见关键词明细</span>

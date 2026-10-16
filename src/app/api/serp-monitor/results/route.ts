@@ -5,7 +5,7 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { SERP_MARKET_LANGUAGE } from "@/lib/serp-results";
-import { loadSerpResults } from "@/lib/services/serp-results";
+import { loadSerpAllRegionResults, loadSerpResults } from "@/lib/services/serp-results";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +17,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "需要登录后查看实测排名" }, { status: 401, headers });
   if (!isDatabaseConfigured()) return NextResponse.json({ message: "数据库未配置" }, { status: 503, headers });
   const params = new URL(request.url).searchParams, site = params.get("site") ?? "all", region = params.get("region") ?? "US";
-  if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site) || !REGION_CODES.includes(region as SearchRegionCode))
+  if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site) || region !== "all" && !REGION_CODES.includes(region as SearchRegionCode))
     return NextResponse.json({ message: "网站或地区无效" }, { status: 400, headers });
+  if (region === "all") {
+    if (params.has("language") || params.has("device") && params.get("device") !== "desktop")
+      return NextResponse.json({ message: "四国汇总固定使用各国默认语言和桌面端" }, { status: 400, headers });
+    try { return NextResponse.json(await retryDatabaseRead(() => loadSerpAllRegionResults(site)), { headers }); }
+    catch (error) {
+      const code = databaseErrorCode(error); console.error("SERP ranking summary read failed", { code });
+      return NextResponse.json({ message: "排名汇总暂时读取失败，请稍后刷新", code }, { status: 503, headers });
+    }
+  }
   const language = params.get("language") ?? SERP_MARKET_LANGUAGE[region as SearchRegionCode], device = params.get("device") ?? "desktop";
   if (!/^[a-z]{2}(?:-[A-Z]{2})?$/.test(language) || !["desktop", "mobile"].includes(device))
     return NextResponse.json({ message: "语言或设备无效" }, { status: 400, headers });

@@ -1,23 +1,36 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { SearchRegionCode } from "@/lib/seo";
-import { buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, summarizeSerpMonitoring, withSerpMonitoringEligibility, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope, type SerpMonitoringReadCohort } from "@/lib/serp-results";
+import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
+import { aggregateSerpRegionResults, buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, summarizeSerpMonitoring, withSerpMonitoringEligibility, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope, type SerpMonitoringReadCohort, type SerpAllRegionsResponse } from "@/lib/serp-results";
 import { loadSerpTargetCohort, loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import type { SerpTarget } from "@/lib/serp-targets";
 import { serpPeriod } from "@/lib/serp-periods";
 
-export async function loadSerpTrendCohorts(region: SearchRegionCode, start: string, end: string, languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop"): Promise<SerpTrendCohort[]> {
-  const rows = await prisma.$queryRaw<Array<{ runId: string; periodKey: string; cohortJson: unknown; runScope: SerpRunScope; runTargetCount: number; runCreatedAt: Date }>>(Prisma.sql`
+export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", start: string, end: string, languageCode = region === "all" ? "en" : SERP_MARKET_LANGUAGE[region], device = "desktop"): Promise<SerpTrendCohort[]> {
+  const taskMarket = region === "all" ? Prisma.sql`t.region IN ('US','JP','ES','BR')
+    AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') =
+      CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END` :
+    Prisma.sql`t.region = ${region} AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}`;
+  const configuredMarket = region === "all" ? Prisma.sql`(r."configJson"->'regions' ?| ARRAY['US','JP','ES','BR'] OR
+    (r."configJson"->>'region' IN ('US','JP','ES','BR') AND r."configJson"->>'languageCode' =
+      CASE r."configJson"->>'region' WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END))` :
+    Prisma.sql`(r."configJson"->'regions' @> jsonb_build_array(${region}::text) OR
+      (r."configJson"->>'region' = ${region} AND r."configJson"->>'languageCode' = ${languageCode}))`;
+  const rows = await prisma.$queryRaw<Array<{ runId: string; periodKey: string; cohortJson: unknown; runScope: SerpRunScope; runTargetCount: number; runCreatedAt: Date; regions?: SearchRegionCode[] }>>(Prisma.sql`
     /* serp-monitor:trend-cohorts */
-    SELECT r.id AS "runId", r."periodKey", r."cohortJson", r.scope AS "runScope", r."targetCount" AS "runTargetCount", r."createdAt" AS "runCreatedAt" FROM "SerpMonitorRun" r
+    SELECT r.id AS "runId", r."periodKey", r."cohortJson", r.scope AS "runScope", r."targetCount" AS "runTargetCount", r."createdAt" AS "runCreatedAt",
+      ARRAY(SELECT DISTINCT mt.region FROM "SerpMonitorTask" mt WHERE mt."runId" = r.id AND mt.region IN ('US','JP','ES','BR')
+        AND COALESCE(mt."requestJson"->>'language_code', r."configJson"->>'languageCode') =
+          CASE mt.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END
+        AND COALESCE(mt."requestJson"->>'device', r."configJson"->>'device') = ${device}
+        AND COALESCE(mt."requestJson"->>'depth', r."configJson"->>'depth') = '100') AS regions
+    FROM "SerpMonitorRun" r
     WHERE (EXISTS (
-      SELECT 1 FROM "SerpMonitorTask" t WHERE t."runId" = r.id AND t.region = ${region}
-        AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}
+      SELECT 1 FROM "SerpMonitorTask" t WHERE t."runId" = r.id AND ${taskMarket}
         AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
     ) OR (
-      (r."configJson"->'regions' @> jsonb_build_array(${region}::text) OR
-        (r."configJson"->>'region' = ${region} AND r."configJson"->>'languageCode' = ${languageCode}))
+      ${configuredMarket}
       AND r."configJson"->>'device' = ${device} AND r."configJson"->>'depth' = '100'
     )) AND r."periodStart" <= ${end}::date AND r."periodEnd" >= ${start}::date
     ORDER BY r."periodKey", r."createdAt"
@@ -35,7 +48,7 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode, start: stri
     // Do not run today's activation/relevance policy against an immutable past
     // cohort. Later additions, exclusions and deletes must not rewrite totals.
     return { runId: row.runId, periodKey: row.periodKey, targets: [...targets.values()], runScope: row.runScope ?? "SCHEDULED",
-      runTargetCount: row.runTargetCount, runCreatedAt: row.runCreatedAt };
+      runTargetCount: row.runTargetCount, runCreatedAt: row.runCreatedAt, regions: row.regions };
   });
 }
 
@@ -126,4 +139,25 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
     summary: summarizeSerpResults(items), items, latestCompletedAt: completeDates.sort().at(-1) ?? null,
     currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items),
     monitoring: summarizeSerpMonitoring(items, monitoring) };
+}
+
+export async function loadSerpAllRegionResults(site = "all"): Promise<SerpAllRegionsResponse> {
+  const cohort = await loadSerpTargetCohort(site);
+  const monitoring = await loadSerpMonitoringCohort(site, cohort);
+  const results = await Promise.all(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring)));
+  const aggregated = aggregateSerpRegionResults(results, cohort.targets);
+  // Display deduplication never changes the original site memberships, task
+  // evidence, monitoring hash, paid query quote or immutable reporting cohort.
+  return { schemaVersion: 1, source: SERP_SOURCE, site, region: "all", cohortHash: cohort.hash, currentPeriod: serpPeriod(),
+    summary: aggregated.summary, latestCompletedAt: results.flatMap(result => result.latestCompletedAt ? [result.latestCompletedAt] : []).sort().at(-1) ?? null,
+    monitoring: { ...aggregated.monitoring, hash: monitoring.hash },
+    regions: aggregated.countries.map(country => {
+      const original = results.find(result => result.region === country.region)!;
+      const countryMonitoring = summarizeSerpMonitoring(country.items, { ...monitoring,
+        targets: country.items.filter(item => item.monitoringEligible), allTargetCount: aggregated.monitoring.allTargetCount,
+        heldTargetCount: aggregated.monitoring.heldTargetCount });
+      return { region: country.region, languageCode: original.languageCode, device: original.device, depth: original.depth,
+        summary: country.summary, monitoring: countryMonitoring, latestCompletedAt: original.latestCompletedAt,
+        rankedCount: country.rankedCount, targetSharePercent: country.targetSharePercent, rankingRecordSharePercent: country.rankingRecordSharePercent };
+    }) };
 }
