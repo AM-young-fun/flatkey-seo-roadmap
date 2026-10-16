@@ -611,3 +611,26 @@ test("mutation schemas forbid arbitrary endpoints, schedules, limits and credent
     { action: "credentials" }, { action: "preview", requestId: "../unsafe" }, { action: "connect", apiLogin: "user:password", apiPassword: "fictional" },
   ]) assert.equal(dataForSeoMutationSchema.safeParse(value).success, false);
 });
+
+test("cached ranking exports require the management cookie and exclude raw responses and credentials", async () => {
+  await connect();
+  const run = seedRun({ requestId: "export-cached-run", normalized: { rows: [{ keyword: "claude api", url: "https://flatkey.ai/models/claude", rank_group: 9 }] },
+    candidates: [{ keyword: "new model api" }], rawResponse: "raw-private-test-value" });
+  const url = `https://flatkey.test/api/dataforseo?requestId=${run.requestId}`;
+  assert.equal((await GET(new Request(url))).status, 401);
+  sessionToken = await getAuthToken();
+  const response = await GET(new Request(url));
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("Cache-Control"), /private, no-store/);
+  assert.match(response.headers.get("Content-Disposition"), /attachment/);
+  const value = await response.json();
+  assert.deepEqual(value.snapshot, run.normalized);
+  assert.deepEqual(value.candidates, run.candidates);
+  for (const privateValue of ["raw-private-test-value", fictional.apiPassword, state.connection.encryptedCredentials, "requestJson", "connectionVersion"])
+    assert.ok(!JSON.stringify(value).includes(privateValue));
+  assert.equal((await GET(new Request("https://flatkey.test/api/dataforseo?requestId=../unsafe"))).status, 400);
+  seedRun({ requestId: "other-site-export", siteDomain: "other.example" });
+  assert.equal((await GET(new Request("https://flatkey.test/api/dataforseo?requestId=other-site-export"))).status, 404);
+  assert.equal(fetched.length, 0);
+  assert.equal(importAttempts.length, 0);
+});

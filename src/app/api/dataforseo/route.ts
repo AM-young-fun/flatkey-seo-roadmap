@@ -5,7 +5,7 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { dataForSeoMutationSchema } from "@/lib/dataforseo-management";
-import { loadDataForSeoStatus, mutateDataForSeo } from "@/lib/services/dataforseo";
+import { loadDataForSeoExport, loadDataForSeoStatus, mutateDataForSeo } from "@/lib/services/dataforseo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,9 +21,17 @@ function failure(error: unknown) {
   console.error("DataForSEO management failed", { code });
   return NextResponse.json({ message: "请求状态暂时无法确认，请查看账本；不要创建新扣费请求", code }, { status: 503, headers });
 }
-export async function GET() {
+export async function GET(request?: Request) {
   const denied = await authorize(); if (denied) return denied;
-  try { return NextResponse.json(await retryDatabaseRead(loadDataForSeoStatus), { headers }); } catch (error) { return failure(error); }
+  try {
+    const requestId = request ? new URL(request.url).searchParams.get("requestId") : null;
+    if (requestId !== null) {
+      const parsed = dataForSeoMutationSchema.safeParse({ action: "replay", requestId });
+      if (!parsed.success) return NextResponse.json({ message: "采集标识无效" }, { status: 400, headers });
+      return NextResponse.json(await retryDatabaseRead(() => loadDataForSeoExport(requestId)), { headers: { ...headers, "Content-Disposition": `attachment; filename="dataforseo-${requestId}.json"` } });
+    }
+    return NextResponse.json(await retryDatabaseRead(loadDataForSeoStatus), { headers });
+  } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {
   const denied = await authorize(); if (denied) return denied;

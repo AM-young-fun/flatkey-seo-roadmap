@@ -7,6 +7,7 @@ import { DATAFORSEO_TRIAL_BUDGET_MICROS, type DataForSeoMutation, type DataForSe
 import { buildDataForSeoImportPlan } from "@/lib/dataforseo-import-plan";
 import { ImportRequestError, rankingImportSchema } from "@/lib/ranking-import";
 import { importSeo } from "@/lib/services/seo-import";
+import { databaseErrorCode } from "@/lib/database-read";
 
 const SITE = "flatkey.ai", LIMIT = 1000, quote = quoteForLimit(LIMIT);
 const UNRESOLVED_STATUSES = ["PENDING", "UNKNOWN", "RECEIVED", "IMPORT_FAILED"];
@@ -19,6 +20,14 @@ function runDto(run: RunRow): DataForSeoRunDto {
     errorCode: run.errorCode, actualCostMicros: run.actualCostMicros, budgetCostMicros: run.budgetCostMicros, summary: run.summary as DataForSeoSummary | null };
 }
 const budget = (usedMicros: number) => ({ limitMicros: DATAFORSEO_TRIAL_BUDGET_MICROS, usedMicros, remainingMicros: Math.max(0, DATAFORSEO_TRIAL_BUDGET_MICROS - usedMicros) });
+const planFailureCode = (error: unknown) => `IMPORT_PLAN_${databaseErrorCode(error) === "UNKNOWN" ? "FAILED" : databaseErrorCode(error)}`;
+export async function loadDataForSeoExport(requestId: string) {
+  const run = await prisma.dataForSeoRun.findUnique({ where: { requestId } });
+  if (!run || run.siteDomain !== SITE) throw new ImportRequestError("没有找到此采集账本", 404);
+  // Only the normalized public ranking dataset is downloadable. Never export
+  // provider request headers, raw responses or the connection record.
+  return { run: runDto(run), snapshot: run.normalized, candidates: run.candidates };
+}
 async function usedBudget(client: Prisma.TransactionClient = prisma) {
   return (await client.dataForSeoRun.aggregate({ where: { siteDomain: SITE }, _sum: { budgetCostMicros: true } }))._sum.budgetCostMicros ?? 0;
 }
@@ -40,8 +49,8 @@ async function replayRun(requestId: string, action: "update" | "replay" = "repla
   if (!run.normalized && !(run.rawResponse && run.collectedAt && ["RECEIVED", "IMPORT_FAILED"].includes(run.status))) return result(action, run, true);
   if (!Array.isArray(run.importPayload)) {
     try { run = await saveImportPlan(requestId, run.normalized as unknown as DataForSeoNormalized | undefined); }
-    catch {
-      await prisma.dataForSeoRun.updateMany({ where: { requestId, importedBatches: run.importedBatches, status: { in: ["RECEIVED", "IMPORT_FAILED"] } }, data: { status: "IMPORT_FAILED", errorCode: "IMPORT_PLAN_FAILED" } });
+    catch (error) {
+      await prisma.dataForSeoRun.updateMany({ where: { requestId, importedBatches: run.importedBatches, status: { in: ["RECEIVED", "IMPORT_FAILED"] } }, data: { status: "IMPORT_FAILED", errorCode: planFailureCode(error) } });
       return result(action, await prisma.dataForSeoRun.findUniqueOrThrow({ where: { requestId } }), duplicate);
     }
   }
@@ -79,7 +88,7 @@ async function saveImportPlan(requestId: string, normalized?: DataForSeoNormaliz
     const plan = buildDataForSeoImportPlan(normalized, memberships, requestId);
     return tx.dataForSeoRun.update({ where: { requestId }, data: { normalized: json(normalized), importPayload: json(plan.batches), candidates: json(plan.candidates), summary: json(plan.summary),
       actualCostMicros: normalized.actualCostMicros, budgetCostMicros: normalized.actualCostMicros ?? quote.maxCostMicros, status: "RECEIVED", errorCode: null } });
-  });
+  }, { maxWait: 10000, timeout: 20000 });
 }
 async function reserveRun(requestId: string, previewToken: string) {
   return prisma.$transaction(async tx => {
@@ -154,8 +163,8 @@ async function executeRun(requestId: string, previewToken: string) {
     actualCostMicros: normalized.actualCostMicros, budgetCostMicros: normalized.actualCostMicros ?? quote.maxCostMicros, status: "RECEIVED" } });
   try {
     await saveImportPlan(requestId, normalized);
-  } catch {
-    await prisma.dataForSeoRun.updateMany({ where: { requestId, importedBatches: 0, status: { in: ["RECEIVED", "IMPORT_FAILED"] } }, data: { status: "IMPORT_FAILED", errorCode: "IMPORT_PLAN_FAILED" } });
+  } catch (error) {
+    await prisma.dataForSeoRun.updateMany({ where: { requestId, importedBatches: 0, status: { in: ["RECEIVED", "IMPORT_FAILED"] } }, data: { status: "IMPORT_FAILED", errorCode: planFailureCode(error) } });
     return result("update", await prisma.dataForSeoRun.findUniqueOrThrow({ where: { requestId } }), false);
   }
   return result("update", await prisma.dataForSeoRun.findUniqueOrThrow({ where: { requestId } }), false);
