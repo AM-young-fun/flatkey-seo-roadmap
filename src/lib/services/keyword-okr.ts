@@ -151,7 +151,7 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
     /* keyword-okr:audit-summaries */
     SELECT id, status, "appliedAt", "restoredAt",
       CASE WHEN jsonb_typeof("after") = 'array' THEN jsonb_array_length("after") ELSE 0 END AS changed
-    FROM "KeywordCurationAudit" WHERE "siteDomain" = ${siteDomain}
+    FROM "KeywordCurationAudit" WHERE "siteDomain" = ${siteDomain} AND status <> 'PAGE_TASK_PLAN'
     ORDER BY "appliedAt" DESC, id DESC LIMIT 10
   `);
   const initialized = audits.some(row => row.status === "APPLIED");

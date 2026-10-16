@@ -7,7 +7,7 @@ import type { useKeywordOkr } from "@/components/useKeywordOkr";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordContentTask, type KeywordOkrMutation, type KeywordOkrMutationResponse } from "@/lib/keyword-okr";
 import type { PageTaskMergeResult } from "@/lib/keyword-page-tasks";
-import { matchesPageTask, pageTaskChecklist, PAGE_TASK_LABELS, PAGE_TASK_STATUS_LABELS, pageTasksCsv } from "@/lib/keyword-page-task-view";
+import { matchesPageTask, pageTaskChecklist, PAGE_TASK_LABELS, PAGE_TASK_STATUS_LABELS, pageTasksCsv, primaryPageTaskUrl } from "@/lib/keyword-page-task-view";
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "—";
 
@@ -104,7 +104,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
   }
 
   const taskColumns: ColumnsType<KeywordContentTask> = [
-    { title: "页面任务", key: "title", width: 310, render: (_, task) => <div className="evidenceSummary"><strong>{task.title}</strong>{task.type === "NEW" ? <small>规划地址：{task.plannedUrl}</small> : <UrlList urls={[task.plannedUrl]} />}</div> },
+    { title: "页面任务", key: "title", width: 310, render: (_, task) => <div className="evidenceSummary"><strong>{task.title}</strong>{task.type === "NEW" ? <small>规划地址：{primaryPageTaskUrl(task)}</small> : <UrlList urls={[primaryPageTaskUrl(task)]} />}{primaryPageTaskUrl(task) !== task.plannedUrl ? <small>原规划地址：{task.plannedUrl}</small> : null}</div> },
     { title: "关联关键词", key: "keywords", width: 270, render: (_, task) => <div className="evidenceSummary"><div>{task.keywords.slice(0, 4).map(word => <Tag key={word}>{word}</Tag>)}</div><small>共 {task.keywords.length} 个词{task.keywords.length > 4 ? "，展开查看全部" : ""}</small></div> },
     { title: "处理方式 / 状态", key: "type", width: 160, render: (_, task) => <div className="evidenceSummary"><Tag color={task.type === "NEW" ? "blue" : task.type === "EXPAND" ? "orange" : "green"}>{PAGE_TASK_LABELS[task.type]}</Tag><small>{PAGE_TASK_STATUS_LABELS[task.status] ?? task.status}</small></div> },
     { title: "内容要求", key: "requirements", width: 360, render: (_, task) => {
@@ -132,7 +132,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
     <div className="okrSectionHeading"><Input aria-label="搜索页面任务" placeholder="搜索页面、关键词或具体要求" value={taskSearch} onChange={event => setTaskSearch(event.target.value)} allowClear style={{ maxWidth: 400 }} /><Select aria-label="内容任务类型" value={taskType} onChange={setTaskType} options={[{ value: "ALL", label: `全部任务${initialized ? `（${tasks.length}）` : ""}` }, ...Object.entries(PAGE_TASK_LABELS).map(([value, label]) => ({ value, label: `${label}${initialized ? `（${tasks.filter(task => task.type === value).length}）` : ""}` }))]} style={{ minWidth: 180 }} /></div>
     <Table columns={taskColumns} dataSource={visibleTasks} rowKey="id" loading={loading} scroll={{ x: 1300 }} size="middle" pagination={{ defaultPageSize: 10, showTotal: total => `共 ${total} 个页面任务` }} locale={{ emptyText: initialized ? "当前没有匹配的页面任务" : "尚未登记页面任务" }} expandable={{ columnTitle: "详情", expandedRowRender: task => {
       const checklist = pageTaskChecklist(task);
-      return <div className="keywordEvidenceDetails"><p><strong>核实结论：</strong>{task.reason}</p><p><strong>关联目标词（{task.keywords.length}）：</strong>{task.keywords.join("；") || "暂无"}</p><p><strong>{task.type === "NEW" ? "规划地址（页面待建设）" : "主要处理页面"}：</strong>{task.plannedUrl}</p>
+      return <div className="keywordEvidenceDetails"><p><strong>核实结论：</strong>{task.reason}</p><p><strong>关联目标词（{task.keywords.length}）：</strong>{task.keywords.join("；") || "暂无"}</p><p><strong>{task.type === "NEW" ? "规划地址（页面待建设）" : "主要处理页面"}：</strong>{primaryPageTaskUrl(task)}</p>{primaryPageTaskUrl(task) !== task.plannedUrl ? <p className="chartNote">原规划地址：{task.plannedUrl}，当前任务复用上述已核实页面。</p> : null}
         {task.type === "REUSE" ? <p className="chartNote">已有页面承接主意图；辅助词是否完整覆盖，按以下要求验收。</p> : null}
         {checklist.requirements.length ? <section><h3>页面具体要求</h3><ol className="contentPlanChecklist">{checklist.requirements.map((text, index) => <li key={index}>{text}</li>)}</ol></section> : null}
         {checklist.acceptance.length ? <section><h3>验收标准</h3><ol className="contentPlanChecklist">{checklist.acceptance.map((text, index) => <li key={index}>{text}</li>)}</ol></section> : null}

@@ -229,6 +229,7 @@ test("OKR reads summarize multiple large audits in PostgreSQL and retry a transi
   assert.equal(response.audits.length, 2);
   assert.equal(response.audits.find(row => row.id === "older-restored-audit").changed, 5321);
   assert.match(state.auditReadSql, /jsonb_array_length\("after"\)/);
+  assert.match(state.auditReadSql, /status <> 'PAGE_TASK_PLAN'/, "task parent audits are not keyword curation history or initialization evidence");
   assert.ok(!response.audits.some(row => "after" in row || "before" in row));
   const current = response.keywords.find(row => row.id === "kept");
   assert.equal(current.mappingStatus, "READY");

@@ -22,7 +22,11 @@ const db = {
   seoSite: { findUnique: async () => ({ active: true }) },
   siteKeyword: { findMany: async () => state.members },
   keywordSourceRow: { findMany: async () => state.snapshots, create: async ({ data }) => { if (state.failSnapshot) throw new Error("snapshot failure"); state.receipts.push(structuredClone(data)); } },
-  keywordContentTask: { findMany: async () => state.tasks, createMany: async ({ data }) => { state.tasks.push(...data.map(row => ({ ...row, updatedAt: new Date("2026-10-16T09:01:00.000Z") }))); } },
+  keywordCurationAudit: { findUnique: async ({ where }) => state.audits.find(row => row.id === where.id) ?? null,
+    create: async ({ data }) => { state.audits.push(structuredClone(data)); } },
+  keywordContentTask: { findMany: async () => state.tasks, createMany: async ({ data }) => {
+    for (const row of data) if (!state.audits.some(audit => audit.id === row.auditId)) throw Object.assign(new Error("audit foreign key constraint"), { code: "P2003" });
+    state.tasks.push(...data.map(row => ({ ...row, updatedAt: new Date("2026-10-16T09:01:00.000Z") }))); } },
 };
 const prismaPath = path.join(root, "src/lib/prisma.ts");
 require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: db } };
@@ -34,7 +38,37 @@ beforeEach(() => {
     requirements: ["Explain exact setup and conditions.", "Show runnable request and response.", "Include dated primary source links."], acceptance: ["All examples reproduce the requested behavior.", "The intended model has a separate price row."] };
   state = { members: [{ keywordId: "word", keyword: { text: "model API pricing" } }],
     snapshots: [{ rowKey: "keyword:word", snapshot: { keywordId: "word", keyword: "model API pricing", verdict: "CONTENT_GAP", checkedAt: "2026-10-16T09:00:00.000Z", workPlan } }],
-    tasks: [{ id: "old-task", plannedUrl: "https://flatkey.ai/old", type: "NEW", status: "IN_PROGRESS", title: "Manual title", reason: "Manual reason", keywords: ["model API pricing"], targetUrls: [], owner: "Alice", dueAt: new Date("2026-11-01T00:00:00.000Z"), updatedAt: new Date("2026-10-16T09:00:00.000Z") }], receipts: [] };
+    tasks: [{ id: "old-task", plannedUrl: "https://flatkey.ai/old", type: "NEW", status: "IN_PROGRESS", title: "Manual title", reason: "Manual reason", keywords: ["model API pricing"], targetUrls: [], owner: "Alice", dueAt: new Date("2026-11-01T00:00:00.000Z"), updatedAt: new Date("2026-10-16T09:00:00.000Z") }], receipts: [], audits: [] };
+});
+
+test("new tasks create their production foreign-key audit parent first and preserve it on replay", async () => {
+  const migration = fs.readFileSync(path.join(root, "prisma/ranking-import.sql"), "utf8");
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "KeywordContentTask"\s*\([\s\S]*?"auditId" TEXT NOT NULL REFERENCES "KeywordCurationAudit"\("id"\)/,
+    "the additive production schema has a real FK even though Prisma has no relation field");
+  state.tasks = [];
+  const preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
+  assert.equal(state.audits.length, 0);
+  await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: preview.stateHash });
+  assert.equal(state.tasks.length, 1);
+  assert.equal(state.audits.length, 1);
+  assert.equal(state.tasks[0].auditId, state.audits[0].id);
+  assert.equal(state.audits[0].status, "PAGE_TASK_PLAN");
+  assert.deepEqual(state.audits[0].before, []);
+  assert.deepEqual(state.audits[0].after, []);
+  const after = structuredClone(state);
+  await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: preview.stateHash });
+  assert.deepEqual(state, after);
+});
+
+test("a task-plan parent must retain its site, dedicated status and approved payload identity", async () => {
+  state.tasks = [];
+  const preview = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
+  await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: preview.stateHash });
+  state.tasks = [];
+  state.audits[0].payloadHash = "different-approved-plan";
+  const fresh = await mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "preview" });
+  await assert.rejects(mergeKeywordPageTasks({ siteDomain: "flatkey.ai", action: "apply", expectedStateHash: fresh.stateHash }), /审计编号或已审核清单发生冲突/);
+  assert.equal(state.tasks.length, 0);
 });
 
 test("preview is read-only; apply reuses the task and preserves manual fields; identical replay writes nothing", async () => {

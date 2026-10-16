@@ -5,7 +5,7 @@ const ts = require("typescript");
 require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
-const { pageTaskChecklist, matchesPageTask, pageTasksCsv } = require("../src/lib/keyword-page-task-view.ts");
+const { pageTaskChecklist, matchesPageTask, pageTasksCsv, primaryPageTaskUrl } = require("../src/lib/keyword-page-task-view.ts");
 const task = { id: "one-page", title: '=A "vendor", API guide', plannedUrl: "https://flatkey.ai/blog/vendor-api", type: "EXPAND", status: "IN_PROGRESS", owner: "Alice", dueAt: "2026-11-01", reason: "One page supports both keyword intents.",
   keywords: ["vendor api key", "vendor api pricing"], targetUrls: ["https://flatkey.ai/blog/vendor-api"],
   requirements: ["Add authentication example"], acceptance: ["Runnable examples"], workPlans: [
@@ -29,4 +29,15 @@ test("page CSV exports one row per page with all words, progress and per-word ac
   assert.ok(csv.includes('"vendor api key\nvendor api pricing"'));
   assert.ok(csv.includes("vendor api pricing\n具体要求：\n1. Document quotas\nand pricing\n验收标准：\n1. Prices have dated sources"));
   assert.ok(csv.includes("2. Document quotas\nand pricing"));
+});
+
+test("existing tasks display and export the verified target instead of an unbuilt old plan; new tasks keep their plan", () => {
+  const reused = { ...task, title: "Agent 工具市场", type: "REUSE", plannedUrl: "https://flatkey.ai/blog/agent-tools-no-subscriptions", targetUrls: ["https://flatkey.ai/tools"] };
+  assert.equal(primaryPageTaskUrl(reused), "https://flatkey.ai/tools");
+  assert.equal(primaryPageTaskUrl({ ...reused, type: "EXPAND" }), "https://flatkey.ai/tools");
+  assert.equal(primaryPageTaskUrl({ ...reused, type: "NEW" }), reused.plannedUrl);
+  assert.equal(primaryPageTaskUrl({ ...reused, targetUrls: [] }), reused.plannedUrl);
+  const csv = pageTasksCsv([reused]);
+  assert.ok(csv.includes('"Agent 工具市场","https://flatkey.ai/tools","复用现有页面"'));
+  assert.ok(csv.includes(`"${reused.plannedUrl}"`));
 });

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isDatabaseConfigured } from "@/lib/env";
+import { databaseErrorCategory, databaseErrorCode } from "@/lib/database-read";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
-import { mergeKeywordPageTasks } from "@/lib/services/keyword-page-tasks";
+import { mergeKeywordPageTasks, pageTaskMergeFailureStage } from "@/lib/services/keyword-page-tasks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json(await mergeKeywordPageTasks(parsed.data), { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
-    console.error("Keyword page task merge failed");
-    return NextResponse.json({ message: "页面任务合并未完成，请重新预览后重试" }, { status: 503, headers });
+    const code = databaseErrorCode(error), category = databaseErrorCategory(error), stage = pageTaskMergeFailureStage(error);
+    console.error("Keyword page task merge failed", { code, category, stage });
+    const diagnostic = [stage, code, category].filter(Boolean).join(" / ");
+    return NextResponse.json({ message: `页面任务合并未完成，请重新预览后重试（${diagnostic}）`, code, category, stage }, { status: 503, headers });
   }
 }

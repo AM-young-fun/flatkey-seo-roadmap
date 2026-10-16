@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ImportRequestError } from "@/lib/ranking-import";
@@ -7,16 +8,24 @@ import { keywordWorkPlanSchema, PAGE_AUDIT_SOURCE_ID } from "@/lib/page-audit";
 import { buildPageTaskMerge, PAGE_TASK_PLAN_ID, type PageTaskRow, type PageTaskWorkItem, type PageTaskMergeResult } from "@/lib/keyword-page-tasks";
 
 export type PageTaskMergeInput = { siteDomain: "flatkey.ai"; action: "preview" | "apply"; expectedStateHash?: string };
+const failureStages = new WeakMap<object, string>();
+export function pageTaskMergeFailureStage(error: unknown): string | null {
+  return error && typeof error === "object" ? failureStages.get(error) ?? null : null;
+}
 
 export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<PageTaskMergeResult> {
   if (input.siteDomain !== "flatkey.ai") throw new ImportRequestError("页面任务合并仅适用于已审核的 Flatkey 清单", 400);
-  return prisma.$transaction(async tx => {
+  let stage = "LOCK";
+  try { return await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"seo-import:flatkey.ai"}))`;
+    stage = "READ_SITE";
     const site = await tx.seoSite.findUnique({ where: { domain: input.siteDomain } });
     if (!site?.active) throw new ImportRequestError("Flatkey 网站未启用", 400);
+    stage = "READ_MEMBERS";
     const members = await tx.siteKeyword.findMany({ where: { siteDomain: input.siteDomain, pool: "FORMAL", active: true },
       select: { keywordId: true, keyword: { select: { text: true } } }, orderBy: { keywordId: "asc" } });
     const memberMap = new Map(members.map(row => [row.keywordId, row.keyword.text]));
+    stage = "READ_WORK_PLANS";
     const snapshots = members.length ? await tx.keywordSourceRow.findMany({ where: { siteDomain: input.siteDomain, sourceId: PAGE_AUDIT_SOURCE_ID,
       rowKey: { in: members.map(row => `keyword:${row.keywordId}`) } }, select: { rowKey: true, snapshot: true } }) : [];
     const items: PageTaskWorkItem[] = [];
@@ -32,9 +41,11 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
       items.push({ ...plan.data, keyword, keywordId });
     }
     if (!items.length) throw new ImportRequestError("当前没有经过核验的待补充或待建设工作清单", 409);
+    stage = "READ_TASKS";
     const stored = await tx.keywordContentTask.findMany({ where: { siteDomain: input.siteDomain }, orderBy: { id: "asc" } });
     const before: PageTaskRow[] = stored.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, type: row.type, status: row.status, title: row.title,
       reason: row.reason, keywords: row.keywords, targetUrls: row.targetUrls, owner: row.owner, dueAt: row.dueAt?.toISOString() ?? null }));
+    stage = "PLAN";
     const plan = buildPageTaskMerge(before, items);
     if (input.action === "apply") {
       if (plan.conflicts.length) throw new ImportRequestError(`页面任务尚有冲突：${plan.conflicts.slice(0, 3).join("；")}`, 409);
@@ -42,9 +53,23 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
       if (plan.changes.length) {
         const existing = new Set(stored.map(row => row.id));
         const create = plan.changes.filter(row => !existing.has(row.id));
-        if (create.length) await tx.keywordContentTask.createMany({ data: create.map(row => ({ ...row, dueAt: row.dueAt ? new Date(row.dueAt) : null, siteDomain: input.siteDomain, auditId: PAGE_TASK_PLAN_ID })) });
+        if (create.length) {
+          // The additive production schema enforces this FK even though the
+          // current Prisma model has no relation field. Create its dedicated
+          // audit parent inside the same transaction before inserting tasks.
+          stage = "CREATE_TASK_AUDIT";
+          const parent = await tx.keywordCurationAudit.findUnique({ where: { id: PAGE_TASK_PLAN_ID } });
+          const taskPayloadHash = createHash("sha256").update(JSON.stringify({ version: PAGE_TASK_PLAN_ID, items: [...items].sort((a, b) => a.keywordId.localeCompare(b.keywordId)) })).digest("hex");
+          if (parent && (parent.siteDomain !== input.siteDomain || parent.status !== "PAGE_TASK_PLAN" || parent.payloadHash !== taskPayloadHash)) throw new ImportRequestError("页面任务审计编号或已审核清单发生冲突，未保存任务", 409);
+          if (!parent) await tx.keywordCurationAudit.create({ data: { id: PAGE_TASK_PLAN_ID, siteDomain: input.siteDomain, status: "PAGE_TASK_PLAN",
+            payloadHash: taskPayloadHash, before: [], after: [],
+            summary: { kind: "page-task-plan", ...plan.summary } as unknown as Prisma.InputJsonValue } });
+          stage = "CREATE_TASKS";
+          await tx.keywordContentTask.createMany({ data: create.map(row => ({ ...row, dueAt: row.dueAt ? new Date(row.dueAt) : null, siteDomain: input.siteDomain, auditId: PAGE_TASK_PLAN_ID })) });
+        }
         const update = plan.changes.filter(row => existing.has(row.id));
         if (update.length) {
+          stage = "UPDATE_TASKS";
           // The common site advisory lock serializes this with imports and
           // page audits; updatedAt guards protect future task-editor writes too.
           const expectedUpdates = update.map(row => ({ ...row, expectedUpdatedAt: stored.find(old => old.id === row.id)!.updatedAt.toISOString() }));
@@ -61,6 +86,7 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
         // Keep the exact prior task fields, including owners and progress, in
         // an append-only source snapshot. No keyword or page audit is mutated.
         const rowKey = `${PAGE_TASK_PLAN_ID}:${plan.stateHash}`;
+        stage = "WRITE_RECOVERY";
         await tx.keywordSourceRow.create({ data: { siteDomain: input.siteDomain, sourceId: "page_task_merge", rowKey,
           snapshotHash: plan.stateHash, snapshot: { version: PAGE_TASK_PLAN_ID, summary: plan.summary, before,
             after: plan.after, assignments: plan.tasks.map(row => ({ id: row.id, plannedUrl: row.plannedUrl, keywords: row.workPlans.map(item => item.keyword) })) } as unknown as Prisma.InputJsonValue } });
@@ -68,5 +94,6 @@ export async function mergeKeywordPageTasks(input: PageTaskMergeInput): Promise<
     }
     return { siteDomain: input.siteDomain, action: input.action, status: input.action === "preview" ? "PREVIEW" : "APPLIED",
       stateHash: plan.stateHash, summary: plan.summary, conflicts: plan.conflicts, tasks: plan.tasks };
-  }, { timeout: 55_000, maxWait: 5000 });
+  }, { timeout: 55_000, maxWait: 5000 }); }
+  catch (error) { if (error && typeof error === "object") failureStages.set(error, stage); throw error; }
 }
