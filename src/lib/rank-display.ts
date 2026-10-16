@@ -33,7 +33,9 @@ export function displayBucket(rank: number | null | undefined) {
 export function displayRank(summary: RankSummary | null | undefined) {
   if (!summary) return "待采集";
   if (summary.rankStatus === "failed") return "采集失败";
-  if (summary.rankStatus === "incomplete") return "采集未完成";
+  if (summary.rankStatus === "incomplete") return "数据异常";
+  if (summary.rankStatus === "not_found_capture") return "本次未命中";
+  if (summary.rankStatus === "query_changed") return "Google已纠词";
   if (summary.rankStatus === "queued") return "采集中";
   if (summary.rank == null)
     return summary.rankStatus === "outside_top100" ? "暂无前 100 排名" : "待采集";
@@ -45,10 +47,12 @@ export function matchesRanking(summary: RankSummary | null | undefined, scope: s
   if (scope === "ALL") return true;
   if (scope === "FAILED") return summary?.rankStatus === "failed";
   if (scope === "INCOMPLETE") return summary?.rankStatus === "incomplete";
+  if (scope === "NOT_FOUND_CAPTURE") return summary?.rankStatus === "not_found_capture";
+  if (scope === "QUERY_CHANGED") return summary?.rankStatus === "query_changed";
   if (scope === "QUEUED") return summary?.rankStatus === "queued";
   if (scope === "PENDING") return !summary || ["pending", "no_data", undefined].includes(summary.rankStatus) && rank == null;
   if (scope === "OUTSIDE") return summary?.rankStatus === "outside_top100" || (rank != null && rank > 100);
-  if (scope === "UNKNOWN") return rank == null && summary?.rankStatus !== "outside_top100";
+  if (scope === "UNKNOWN") return rank == null && !["outside_top100", "not_found_capture", "query_changed"].includes(summary?.rankStatus ?? "");
   if (rank == null || rank < 1) return false;
   if (scope === "TOP100") return rank <= 100;
   if (scope === "TOP10") return rank <= 10;
@@ -61,7 +65,9 @@ export function matchesRanking(summary: RankSummary | null | undefined, scope: s
 export function rankDescription(summary: RankSummary | null | undefined) {
   if (!summary) return "尚未执行该地区的 Google SERP 实测，不能判断是否进入前100";
   if (summary.source === "dataforseo_serp") {
-    const state = summary.rankStatus === "failed" ? "采集失败，不代表没有排名" : summary.rankStatus === "incomplete" ? "前100采集未完成，不据此判断是否无排名"
+    const state = summary.rankStatus === "failed" ? "采集失败，不代表没有排名" : summary.rankStatus === "incomplete" ? "数据异常，不能判断排名"
+      : summary.rankStatus === "not_found_capture" ? `本次采集已完成，${summary.coveredThroughRank ? `已查自然排名前${summary.coveredThroughRank}名` : `返回${summary.organicCount ?? 0}条自然结果`}，未命中本站`
+      : summary.rankStatus === "query_changed" ? `采集已完成，Google改搜“${summary.correctedKeyword ?? "未提供"}”`
       : summary.rankStatus === "queued" ? "已提交，等待结果" : summary.serpVerification === "verified"
         ? summary.depthIncomplete ? "Google 自然名次已核实，但不足100个自然结果" : "Google 自然排名实测（前100）" : "等待有效实测结果";
     return `DataForSEO SERP · ${state}${summary.checkedAt ? ` · 采集于 ${summary.checkedAt}` : ""}`;
@@ -93,6 +99,8 @@ export function rankingStats(
   const failed = keywords.filter(keyword => matchesRanking(keyword.latestRanks[region], "FAILED")).length;
   const incomplete = keywords.filter(keyword => matchesRanking(keyword.latestRanks[region], "INCOMPLETE")).length;
   const queued = keywords.filter(keyword => matchesRanking(keyword.latestRanks[region], "QUEUED")).length;
+  const notFoundCaptured = keywords.filter(keyword => matchesRanking(keyword.latestRanks[region], "NOT_FOUND_CAPTURE")).length;
+  const queryChanged = keywords.filter(keyword => matchesRanking(keyword.latestRanks[region], "QUERY_CHANGED")).length;
   const percent = (count: number) => (total ? (count / total) * 100 : 0);
   return {
     total,
@@ -103,6 +111,9 @@ export function rankingStats(
     failed,
     incomplete,
     queued,
+    notFoundCaptured,
+    queryChanged,
+    captured: ranked + outside + notFoundCaptured + queryChanged,
     checked: ranked + outside,
     percent,
     buckets: DISPLAY_BUCKETS.map((bucket) => ({

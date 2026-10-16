@@ -34,7 +34,7 @@ test("never captured, failed, incomplete and confirmed outside checks have disti
     assert.equal(tag.key, "UNRANKED"); assert.equal(tag.label, "暂无前100排名");
   }
   assert.match(absent.tooltip, /尚无.*SERP/); assert.match(notReturned.tooltip, /不能据此确认/); assert.match(outside.tooltip, /成功核验前100/);
-  for (const [rankStatus, key, label] of [["failed", "FAILED", "采集失败"], ["incomplete", "INCOMPLETE", "采集未完成"], ["queued", "QUEUED", "采集中"]]) {
+  for (const [rankStatus, key, label] of [["failed", "FAILED", "采集失败"], ["incomplete", "INCOMPLETE", "数据异常"], ["queued", "QUEUED", "采集中"]]) {
     const tag = keywordRankingTag(snapshot(null, { rankStatus })); assert.equal(tag.key, key); assert.equal(tag.label, label);
   }
 });
@@ -42,6 +42,15 @@ test("never captured, failed, incomplete and confirmed outside checks have disti
 test("legacy averages and invalid positions cannot receive a positive ranking tag", () => {
   for (const source of ["gsc", "ahrefs", "dataforseo_labs", "serpapi", undefined]) assert.equal(keywordRankingTag(snapshot(8, { source })).key, "PENDING", String(source));
   for (const rank of [null, undefined, 0, -1, 1.5, 10.1, NaN, Infinity]) assert.equal(keywordRankingTag(snapshot(rank)).key, "PENDING", String(rank));
+});
+
+test("finished limited searches and corrected queries are final outcomes rather than pending or outside", () => {
+  const missed = keywordRankingTag(snapshot(null, { rankStatus: "not_found_capture", coveredThroughRank: 55, organicCount: 55 }));
+  assert.equal(missed.key, "NOT_FOUND_CAPTURE"); assert.equal(missed.label, "本次未命中");
+  assert.match(missed.tooltip, /采集已完成/); assert.match(missed.tooltip, /55/); assert.match(missed.tooltip, /不据此声称/);
+  const corrected = keywordRankingTag(snapshot(null, { rankStatus: "query_changed", correctedKeyword: "flat key" }));
+  assert.equal(corrected.key, "QUERY_CHANGED"); assert.match(corrected.tooltip, /flat key/);
+  for (const tag of [missed, corrected]) assert.ok(!["PENDING", "UNRANKED", "INCOMPLETE"].includes(tag.key));
 });
 
 const page = { siteDomain: "flatkey.ai", mappingStatus: "READY", targetUrls: ["https://flatkey.ai/blog/model-api"], candidateUrls: [] };
@@ -65,8 +74,8 @@ test("only unverified existing URLs stay pending", () => {
 });
 
 test("completed page checks expose concrete outcomes even if a stale target URL remains", () => {
-  for (const [verdict, key, label] of [["NO_MATCH", "BUILD", "候选·待建设"], ["MISSING", "BUILD", "候选·待建设"],
-    ["CONTENT_GAP", "EXPAND", "候选·需补内容"], ["MISMATCH", "MISMATCH", "候选·页面错配"]]) {
+  for (const [verdict, key, label] of [["NO_MATCH", "BUILD", "候选·待建设（无合适页面）"], ["MISSING", "BUILD", "候选·待建设（无合适页面）"],
+    ["CONTENT_GAP", "EXPAND", "候选·待优化（已有页面）"], ["MISMATCH", "MISMATCH", "候选·页面错配"]]) {
     const result = keywordPageTag({ ...page, latestPageAuditVerdict: verdict });
     assert.equal(result.key, key); assert.equal(result.label, label); assert.doesNotMatch(result.label, /待核实/);
   }

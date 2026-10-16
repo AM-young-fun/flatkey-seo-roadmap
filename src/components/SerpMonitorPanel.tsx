@@ -5,7 +5,7 @@ import type { SerpMonitorPreview, SerpMonitorStatus } from "@/lib/serp-monitor-t
 
 const money = (micros: number) => `$${(micros / 1_000_000).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
 const time = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待授权后安排";
-const stateLabels: Record<string, string> = { PLANNED: "计划已保存", RUNNING: "采集中", COMPLETED: "已完成", PARTIAL: "部分完成", FAILED: "失败", UNKNOWN: "提交结果待核实" };
+const stateLabels: Record<string, string> = { PLANNED: "计划已保存", RUNNING: "采集中", COMPLETED: "已完成", PARTIAL: "已结束，部分数据异常", FAILED: "失败", UNKNOWN: "提交结果待核实" };
 
 export function SerpMonitorPanel() {
   const [status, setStatus] = useState<SerpMonitorStatus | null>(null);

@@ -6,6 +6,7 @@ import type { SerpMonitorConfiguration, SerpNormalizedResult, SerpOrganicResult,
 export const SERP_TASK_POST_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_post";
 export const SERP_TASK_GET_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_get/advanced";
 export const SERP_CONFIG_ID = "default";
+export const SERP_NORMALIZATION_VERSION = 2;
 export const SERP_MARKETS: SerpRegion[] = ["US", "JP", "ES", "BR"];
 export const SERP_MARKET_CONFIG = {
   US: { region: "US", languageCode: "en", locationCode: 2840, searchDomain: "google.com" },
@@ -93,9 +94,17 @@ export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: 
       (data.se !== undefined && data.se !== "google") || (data.se_type !== undefined && data.se_type !== "organic") ||
       result.location_code !== config.locationCode || result.language_code !== config.languageCode ||
       result.type !== "organic" || !isSerpRegion(config.region) || result.se_domain !== SERP_MARKET_CONFIG[config.region].searchDomain) throw new Error("SERP_SCOPE_MISMATCH");
+  const spell = record(result.spell), spellType = typeof spell.type === "string" ? spell.type : null;
+  const corrected = typeof spell.keyword === "string" ? spell.keyword : typeof spell.spell === "string" ? spell.spell : null;
+  const correctedKeyword = corrected?.trim() || null;
+  const queryStatus = ["showing_results_for", "no_results_found_for", "including_results_for"].includes(spellType ?? "") ? "AUTOCORRECTED" : "EXACT";
   // The echoed request keyword is encoded, while the result keyword is decoded.
+  // Some Google responses echo the corrected term in the result metadata;
+  // retain that evidence as a completed, corrected query, never original rank.
   const expectedInput = expected.keyword.replace(/%/g, "%25").replace(/\+/g, "%2B");
-  if (data.keyword !== expectedInput || serpQueryKey(String(result.keyword ?? "")) !== serpQueryKey(expected.keyword)) throw new Error("SERP_KEYWORD_MISMATCH");
+  const resultKeyword = serpQueryKey(String(result.keyword ?? ""));
+  if (data.keyword !== expectedInput || (resultKeyword !== serpQueryKey(expected.keyword) &&
+    !(queryStatus === "AUTOCORRECTED" && correctedKeyword && resultKeyword === serpQueryKey(correctedKeyword)))) throw new Error("SERP_KEYWORD_MISMATCH");
   if (!Array.isArray(result.items)) throw new Error("INVALID_SERP_ITEMS");
   const organicResults: SerpOrganicResult[] = [], seen = new Set<string>();
   let invalidOrganic = false;
@@ -117,13 +126,17 @@ export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: 
   const ranks = new Set(organicResults.map(item => item.rankGroup));
   // items_count includes ads/widgets. Neither it, se_results_count nor merely
   // requesting depth 100 proves that 100 organic positions were retrieved.
-  const spell = record(result.spell), changedQuery = ["showing_results_for", "no_results_found_for"].includes(String(spell.type));
-  const completeDepth = !invalidOrganic && !changedQuery && Array.from({ length: 100 }, (_, index) => index + 1).every(rank => ranks.has(rank));
+  let coveredThroughRank = 0;
+  while (coveredThroughRank < 100 && ranks.has(coveredThroughRank + 1)) coveredThroughRank++;
+  const captureComplete = !invalidOrganic, rankingVerified = captureComplete && queryStatus === "EXACT";
+  const completeDepth = rankingVerified && coveredThroughRank === 100;
   let googleUrl: string | null = null;
   try { const parsed = new URL(String(result.check_url)); if (parsed.protocol === "https:" && isSerpRegion(config.region) && (parsed.hostname === SERP_MARKET_CONFIG[config.region].searchDomain || parsed.hostname.endsWith(`.${SERP_MARKET_CONFIG[config.region].searchDomain}`))) googleUrl = parsed.href; } catch { /* Optional source evidence. */ }
-  return { providerTaskId: expected.providerTaskId, keyword: expected.keyword, locationCode: config.locationCode,
+  return { normalizationVersion: SERP_NORMALIZATION_VERSION, captureComplete, organicCount: organicResults.length, coveredThroughRank,
+    queryStatus, correctedKeyword, spellType, pagesCount: Number.isInteger(result.pages_count) && Number(result.pages_count) >= 0 ? Number(result.pages_count) : null,
+    providerTaskId: expected.providerTaskId, keyword: expected.keyword, locationCode: config.locationCode,
     languageCode: config.languageCode, device: config.device, checkedAt: dateFromProvider(result.datetime), googleUrl,
-    organicResults, completeDepth, rankingVerified: !invalidOrganic && !changedQuery, maxOrganicRank: Math.max(0, ...ranks) };
+    organicResults, completeDepth, rankingVerified, maxOrganicRank: Math.max(0, ...ranks) };
 }
 
 export const serpMonitorMutationSchema = z.discriminatedUnion("action", [

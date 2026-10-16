@@ -38,6 +38,9 @@ export type TrendPoint = {
   sampledTargetCount?: number;
   runScopes?: SerpRunScope[];
   scopeLabel?: string;
+  captured?: number;
+  notFoundCaptured?: number;
+  queryChanged?: number;
 };
 export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string };
 export type TrendKeyword = {
@@ -100,6 +103,7 @@ export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[
       counts: summary.buckets.map(bucket => bucket.count), sites: [...new Set(periodTargets.map(target => target.siteDomain))].sort(),
       sources: ["dataforseo_serp"], total: summary.total, ranked: summary.ranked, pending: summary.pending,
       outside: summary.outside, checked: summary.checked, failed: summary.failed, incomplete: summary.incomplete, queued: summary.queued,
+      captured: summary.captured, notFoundCaptured: summary.notFoundCaptured, queryChanged: summary.queryChanged,
       periodStart: period.start, periodEnd: period.end, snapshotAt: captureEndAt, captureStartAt, captureEndAt,
       captureDates: [...new Set(timestamps.map(timestamp => trendToday(new Date(timestamp))))].sort(),
       dataDates: [...new Set(timestamps)], movementSummary: summarizeSerpMovements(items), partialRanked: summary.partialRanked,

@@ -6,7 +6,7 @@ import { serpPeriod, serpPeriodFromKey, type SerpPeriod } from "./serp-periods";
 
 export const SERP_SOURCE = "dataforseo_serp" as const;
 export const SERP_MARKET_LANGUAGE: Record<SearchRegionCode, string> = { US: "en", JP: "ja", ES: "es", BR: "pt" };
-export type SerpResultStatus = "PENDING" | "QUEUED" | "RANKED" | "OUTSIDE_TOP100" | "FAILED" | "INCOMPLETE";
+export type SerpResultStatus = "PENDING" | "QUEUED" | "RANKED" | "OUTSIDE_TOP100" | "NOT_FOUND_CAPTURE" | "QUERY_CHANGED" | "FAILED" | "INCOMPLETE";
 export type SerpRunScope = "SCHEDULED" | "SAMPLE";
 export type SerpMovement = "UP" | "DOWN" | "UNCHANGED" | "NEW_IN_TOP100" | "DROPPED_OUT" | "FIRST_CHECK" | "NOT_COMPARABLE";
 export type SerpRankedPage = { url: string; title: string | null; rankGroup: number; rankAbsolute: number | null };
@@ -27,6 +27,8 @@ export type SerpKeywordResult = SerpTarget & {
   periodKey: string | null; periodLabel: string | null; periodStart: string | null; periodEnd: string | null;
   previousPeriodKey: string | null; previousPeriodLabel: string | null; movement: SerpMovement; depthIncomplete: boolean;
   runScope: SerpRunScope | null; runTargetCount: number | null;
+  captureComplete: boolean; organicCount: number | null; coveredThroughRank: number | null;
+  queryStatus: "EXACT" | "AUTOCORRECTED" | null; correctedKeyword: string | null; spellType: string | null; pagesCount: number | null;
 };
 export type SerpResultsResponse = {
   schemaVersion: 1; source: typeof SERP_SOURCE; site: string; region: SearchRegionCode;
@@ -39,6 +41,7 @@ export type SerpResultsResponse = {
 const record = (value: unknown): Record<string, unknown> | null => value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const string = (value: unknown) => typeof value === "string" && value.length ? value : null;
 const positiveInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1;
+const nonnegativeInteger = (value: unknown): number | null => typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 const normalizedKeyword = (value: string) => value.normalize("NFKC").toLocaleLowerCase("en-US").trim().replace(/\s+/g, " ");
 const date = (value: unknown): string | null => {
   if (!(typeof value === "string" || value instanceof Date)) return null;
@@ -78,24 +81,37 @@ function taskResult(target: SerpTarget, task?: SerpTaskRead): SerpKeywordResult 
   const empty: SerpKeywordResult = { ...target, status: "PENDING", rank: null, url: null, pages: [], checkedAt: null,
     runId: null, providerTaskId: null, errorCode: null, googleUrl: null, previousRank: null,
     previousRankStatus: null, previousCheckedAt: null, previousPeriodKey: null, previousPeriodLabel: null, movement: "NOT_COMPARABLE", depthIncomplete: false,
-    periodKey: null, periodLabel: null, periodStart: null, periodEnd: null, runScope: null, runTargetCount: null };
+    periodKey: null, periodLabel: null, periodStart: null, periodEnd: null, runScope: null, runTargetCount: null,
+    captureComplete: false, organicCount: null, coveredThroughRank: null, queryStatus: null, correctedKeyword: null, spellType: null, pagesCount: null };
   if (!task) return empty;
   const normalized = record(task.normalizedJson), checkedAt = date(task.checkedAt) ?? date(normalized?.checkedAt);
   const pages = rankedPages(task, target), period = serpTaskPeriod(task);
+  const terminal = ["COMPLETE", "INCOMPLETE"].includes(task.state);
+  const legacy = normalized?.normalizationVersion !== 2 && normalized?.captureComplete == null;
+  const captureComplete = checkedAt != null && terminal && (normalized?.captureComplete === true ||
+    (legacy && task.state === "COMPLETE" && normalized?.completeDepth === true && normalized?.rankingVerified !== false));
+  const queryStatus = normalized?.queryStatus === "EXACT" || normalized?.queryStatus === "AUTOCORRECTED" ? normalized.queryStatus
+    : legacy && normalized?.rankingVerified !== false && (normalized?.rankingVerified === true || normalized?.completeDepth === true) ? "EXACT" : null;
+  const queryChanged = captureComplete && queryStatus === "AUTOCORRECTED";
   const validCapture = checkedAt != null && normalized?.rankingVerified !== false &&
-    (task.state === "COMPLETE" || (task.state === "INCOMPLETE" && normalized?.rankingVerified === true));
-  const complete = validCapture && task.state === "COMPLETE" && normalized?.completeDepth === true;
+    !queryChanged && (captureComplete && queryStatus === "EXACT" || legacy &&
+      (task.state === "COMPLETE" || (task.state === "INCOMPLETE" && normalized?.rankingVerified === true)));
+  const complete = validCapture && normalized?.completeDepth === true;
   // A verified #1 is real even when Google returned fewer than 100 results.
   // Conversely, an incomplete search without a hit cannot prove absence.
   const matched = validCapture && pages.length > 0;
-  const status: SerpResultStatus = matched ? "RANKED" : complete ? "OUTSIDE_TOP100"
+  const status: SerpResultStatus = queryChanged ? "QUERY_CHANGED" : matched ? "RANKED" : complete ? "OUTSIDE_TOP100"
+    : captureComplete && validCapture ? "NOT_FOUND_CAPTURE"
     : task.state === "INCOMPLETE" || task.state === "COMPLETE" ? "INCOMPLETE"
     : ["FAILED", "UNKNOWN"].includes(task.state) ? "FAILED"
     : ["SUBMITTING", "QUEUED", "RECEIVED"].includes(task.state) ? "QUEUED" : "PENDING";
   return { ...empty, status, rank: matched ? pages[0].rankGroup : null, url: matched ? pages[0].url : null,
     // Partial results remain evidence, but never prove a full top-100 check.
-    pages: normalized?.rankingVerified === false ? [] : pages, checkedAt, runId: task.runId, providerTaskId: task.providerTaskId,
+    pages: queryChanged || normalized?.rankingVerified === false ? [] : pages, checkedAt, runId: task.runId, providerTaskId: task.providerTaskId,
     errorCode: task.errorCode, googleUrl: string(normalized?.googleUrl), depthIncomplete: matched && !complete,
+    captureComplete, organicCount: nonnegativeInteger(normalized?.organicCount),
+    coveredThroughRank: nonnegativeInteger(normalized?.coveredThroughRank), queryStatus,
+    correctedKeyword: string(normalized?.correctedKeyword), spellType: string(normalized?.spellType), pagesCount: nonnegativeInteger(normalized?.pagesCount),
     runScope: task.runScope === "SAMPLE" ? "SAMPLE" : "SCHEDULED", runTargetCount: positiveInteger(task.runTargetCount) ? task.runTargetCount : null,
     periodKey: period?.key ?? null, periodLabel: period?.label ?? null, periodStart: period?.start ?? null, periodEnd: period?.end ?? null };
 }
@@ -141,7 +157,8 @@ export function summarizeSerpSampleResults(items: SerpKeywordResult[]) {
   const samples = items.filter(item => item.runScope === "SAMPLE");
   const summary = summarizeSerpResults(samples);
   return { sampledTargetCount: samples.length, checked: summary.checked, pending: summary.pending, queued: summary.queued,
-    failed: summary.failed, incomplete: summary.incomplete,
+    failed: summary.failed, incomplete: summary.incomplete, captured: summary.captured,
+    notFoundCaptured: summary.notFoundCaptured, queryChanged: summary.queryChanged,
     latestCheckedAt: samples.flatMap(item => item.checkedAt ? [item.checkedAt] : []).sort().at(-1) ?? null };
 }
 
@@ -149,6 +166,7 @@ export function summarizeSerpResults(items: SerpKeywordResult[]) {
   const count = (status: SerpResultStatus) => items.filter(item => item.status === status).length;
   const ranked = count("RANKED"), outside = count("OUTSIDE_TOP100"), queued = count("QUEUED"), incomplete = count("INCOMPLETE"), failed = count("FAILED");
   return { total: items.length, checked: ranked + outside, ranked, outside, pending: count("PENDING"), queued, incomplete, failed,
+    captured: items.filter(item => item.captureComplete).length, notFoundCaptured: count("NOT_FOUND_CAPTURE"), queryChanged: count("QUERY_CHANGED"),
     fullDepth: items.filter(item => (item.status === "RANKED" || item.status === "OUTSIDE_TOP100") && !item.depthIncomplete).length,
     partialRanked: items.filter(item => item.status === "RANKED" && item.depthIncomplete).length,
     buckets: [
@@ -162,6 +180,7 @@ export function summarizeSerpResults(items: SerpKeywordResult[]) {
 export function serpRankSummary(result: SerpKeywordResult, searchVolume: number | null = null): RankSummary | null {
   if (result.status === "PENDING" && !result.runId) return null;
   const rankStatus = result.status === "RANKED" ? "ranked" : result.status === "OUTSIDE_TOP100" ? "outside_top100"
+    : result.status === "NOT_FOUND_CAPTURE" ? "not_found_capture" : result.status === "QUERY_CHANGED" ? "query_changed"
     : result.status === "FAILED" ? "failed" : result.status === "INCOMPLETE" ? "incomplete" : result.status === "QUEUED" ? "queued" : "pending";
   const bucket = result.rank == null ? "NOT_FOUND" : result.rank <= 10 ? "TOP_10" : result.rank <= 30 ? "TOP_30" : result.rank <= 50 ? "TOP_50" : "TOP_100";
   const comparable = result.status === "RANKED" || result.status === "OUTSIDE_TOP100";
@@ -173,7 +192,9 @@ export function serpRankSummary(result: SerpKeywordResult, searchVolume: number 
     runId: result.runId, providerTaskId: result.providerTaskId, googleUrl: result.googleUrl, errorCode: result.errorCode,
     periodKey: result.periodKey, periodLabel: result.periodLabel, previousPeriodKey: result.previousPeriodKey, previousPeriodLabel: result.previousPeriodLabel,
     previousRankStatus: result.previousRankStatus, previousCheckedAt: result.previousCheckedAt, movement: result.movement, depthIncomplete: result.depthIncomplete,
-    runScope: result.runScope, runTargetCount: result.runTargetCount };
+    runScope: result.runScope, runTargetCount: result.runTargetCount, captureComplete: result.captureComplete,
+    organicCount: result.organicCount, coveredThroughRank: result.coveredThroughRank, queryStatus: result.queryStatus,
+    correctedKeyword: result.correctedKeyword, spellType: result.spellType, pagesCount: result.pagesCount };
 }
 
 export function serpRankingEvidence(result: SerpKeywordResult): RankingEvidence | null {
@@ -186,9 +207,12 @@ export function serpRankingEvidence(result: SerpKeywordResult): RankingEvidence 
     rankGroup: page.rankGroup, rankAbsolute: page.rankAbsolute, clicks: null, impressions: null, ctr: null }));
   return { ...context, source: SERP_SOURCE, scope: "query", rank: result.rank,
     rankStatus: result.status === "RANKED" ? "ranked" : result.status === "OUTSIDE_TOP100" ? "outside_top100"
+      : result.status === "NOT_FOUND_CAPTURE" ? "not_found_capture" : result.status === "QUERY_CHANGED" ? "query_changed"
       : result.status === "FAILED" ? "failed" : result.status === "INCOMPLETE" ? "incomplete" : "no_data",
     url: result.url, pages, clicks: null, impressions: null, ctr: null,
     runId: result.runId, providerTaskId: result.providerTaskId, googleUrl: result.googleUrl,
     periodKey: result.periodKey, periodLabel: result.periodLabel, depthIncomplete: result.depthIncomplete,
-    runScope: result.runScope, runTargetCount: result.runTargetCount };
+    runScope: result.runScope, runTargetCount: result.runTargetCount, captureComplete: result.captureComplete,
+    organicCount: result.organicCount, coveredThroughRank: result.coveredThroughRank, queryStatus: result.queryStatus,
+    correctedKeyword: result.correctedKeyword, spellType: result.spellType, pagesCount: result.pagesCount };
 }

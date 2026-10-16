@@ -88,11 +88,14 @@ const db = {
     finally { inTransaction = false; release(); }
   },
   $executeRaw: async query => {
-    if (!query?.sql?.includes("serp-monitor:settle-cached-sample-costs")) return 0;
+    if (!query?.sql?.includes("serp-monitor:upgrade-cached-sample-results")) return 0;
     const values = query.values, runId = values.at(-1); let count = 0;
-    for (let index = 0; index < values.length - 1; index += 2) {
-      const task = state.tasks.find(task => task.id === values[index] && task.runId === runId && ["INCOMPLETE", "COMPLETE"].includes(task.state));
-      if (task && task.costMicros !== values[index + 1]) { task.costMicros = values[index + 1]; count++; }
+    for (let index = 0; index < values.length - 1; index += 6) {
+      const task = state.tasks.find(task => task.id === values[index] && task.runId === runId && ["RECEIVED", "INCOMPLETE", "COMPLETE"].includes(task.state));
+      if (task) {
+        Object.assign(task, { costMicros: values[index + 1], normalizedJson: values[index + 2] === null ? null : JSON.parse(values[index + 2]),
+          checkedAt: values[index + 3], state: values[index + 4], errorCode: values[index + 5] }); count++;
+      }
     }
     events.push("settle:cached"); return count;
   },
@@ -262,15 +265,42 @@ test("a scope mismatch or wrong keyword never becomes a successful ranking, and 
   assert.equal(normalizeSerpAdvanced(advanced(task, 100, { spell: { type: "showing_results_for", keyword: "different" } }), expected).completeDepth, false);
 });
 
-test("successful short captures are explicitly INCOMPLETE and a local replay never makes a second paid request", async () => {
+test("normalization v2 separates completed capture, contiguous organic coverage and Google query correction", () => {
+  const task = { providerTaskId: "fictional-v2-provider", keyword: "model api price",
+    requestJson: buildSerpTask(groupSerpQueries([target("model api price")])[0], "v2-tag", SERP_DEFAULT_CONFIG) };
+  const expected = { providerTaskId: task.providerTaskId, keyword: task.keyword, config: SERP_DEFAULT_CONFIG };
+  const short = normalizeSerpAdvanced(advanced(task, 10, { pages_count: 2 }), expected);
+  assert.equal(short.normalizationVersion, 2); assert.equal(short.captureComplete, true); assert.equal(short.organicCount, 10);
+  assert.equal(short.coveredThroughRank, 10); assert.equal(short.completeDepth, false); assert.equal(short.rankingVerified, true);
+  assert.equal(short.queryStatus, "EXACT"); assert.equal(short.correctedKeyword, null); assert.equal(short.spellType, null); assert.equal(short.pagesCount, 2);
+  const sparse = advanced(task, 1); sparse.tasks[0].result[0].items[0].rank_group = 100;
+  const normalizedSparse = normalizeSerpAdvanced(sparse, expected);
+  assert.equal(normalizedSparse.captureComplete, true); assert.equal(normalizedSparse.maxOrganicRank, 100);
+  assert.equal(normalizedSparse.coveredThroughRank, 0); assert.equal(normalizedSparse.completeDepth, false);
+  const corrected = normalizeSerpAdvanced(advanced(task, 10, { keyword: "corrected query", spell: {
+    type: "showing_results_for", keyword: "corrected query", spell: "lower-priority fallback",
+  } }), expected);
+  assert.equal(corrected.captureComplete, true); assert.equal(corrected.queryStatus, "AUTOCORRECTED");
+  assert.equal(corrected.correctedKeyword, "corrected query"); assert.equal(corrected.spellType, "showing_results_for");
+  assert.equal(corrected.rankingVerified, false); assert.equal(corrected.completeDepth, false);
+  const fallback = normalizeSerpAdvanced(advanced(task, 10, { spell: { type: "including_results_for", spell: "legacy corrected query" } }), expected);
+  assert.equal(fallback.correctedKeyword, "legacy corrected query"); assert.equal(fallback.queryStatus, "AUTOCORRECTED"); assert.equal(fallback.rankingVerified, false);
+  const suggestion = normalizeSerpAdvanced(advanced(task, 10, { spell: { type: "did_you_mean", keyword: "suggested query" } }), expected);
+  assert.equal(suggestion.queryStatus, "EXACT"); assert.equal(suggestion.rankingVerified, true, "an unaccepted suggestion does not replace the search query");
+  const invalid = advanced(task, 10); invalid.tasks[0].result[0].items[3].url = "javascript:alert(1)";
+  const malformed = normalizeSerpAdvanced(invalid, expected);
+  assert.equal(malformed.captureComplete, false); assert.equal(malformed.rankingVerified, false); assert.equal(malformed.completeDepth, false);
+});
+
+test("successful short captures are COMPLETE while top100 coverage stays limited, and local replay never makes a second paid request", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
   await start(); respond = async url => new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)), 10)));
   const resumed = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
-  assert.equal(resumed.run.status, "PARTIAL"); assert.equal(resumed.run.taskCounts.INCOMPLETE, 8);
+  assert.equal(resumed.run.status, "COMPLETED"); assert.equal(resumed.run.taskCounts.COMPLETE, 8);
   const count = fetches.length;
   const replayed = await mutateSerpMonitor({ action: "replay", runId: "fictional-serp-run-1" });
-  assert.equal(replayed.run.taskCounts.INCOMPLETE, 8); assert.equal(fetches.length, count);
-  assert.ok(state.tasks.every(task => !task.normalizedJson.completeDepth));
+  assert.equal(replayed.run.taskCounts.COMPLETE, 8); assert.equal(fetches.length, count);
+  assert.ok(state.tasks.every(task => !task.normalizedJson.completeDepth && task.normalizedJson.captureComplete && task.errorCode === null));
 });
 
 test("a saved POST receipt recovers task IDs after interruption without another paid POST", async () => {
@@ -462,11 +492,30 @@ test("free resume repairs all 152 cached legacy sample settlements once, includi
   }
   const result = await mutateSerpMonitor({ action: "resume", runId: run.id });
   assert.equal(result.run.actualCostMicros, 182400); assert.equal(result.run.reservedCostMicros, 912000);
-  assert.ok(state.tasks.every(task => task.costMicros === 1200)); assert.equal(events.filter(event => event === "settle:cached").length, 1);
+  assert.ok(state.tasks.every(task => task.costMicros === 1200 && task.state === "COMPLETE" && task.normalizedJson.normalizationVersion === 2 && task.normalizedJson.captureComplete && task.errorCode === null));
+  assert.equal(result.run.status, "COMPLETED"); assert.equal(events.filter(event => event === "settle:cached").length, 1);
   assert.equal(result.run.completedAt, completedAt.toISOString()); assert.equal(fetches.length, 0); assert.equal(state.config.nextDueAt, null);
   await mutateSerpMonitor({ action: "resume", runId: run.id });
+  await mutateSerpMonitor({ action: "replay", runId: run.id });
   assert.equal(events.filter(event => event === "settle:cached").length, 1, "unchanged cached rows produce no repeated settlement write");
   assert.ok(state.tasks.every(task => task.submissionRaw === "original-prepayment-receipt")); assert.equal(fetches.length, 0);
+});
+
+test("cached parser upgrade retains query-correction evidence and leaves genuinely invalid receipts incomplete", async () => {
+  const run = await seedAuthorizedSample();
+  for (const [index, task] of state.tasks.entries()) {
+    task.providerTaskId = `fictional-upgrade-${index}`; task.state = "INCOMPLETE"; task.costMicros = 6000;
+    const raw = advanced(task, 10, { pages_count: 1, spell: { type: "no_results_found_for", spell: "corrected query" } });
+    raw.tasks[0].cost = 0.0012; task.rawResponse = JSON.stringify(raw);
+  }
+  state.tasks[0].rawResponse = "invalid cached JSON";
+  const result = await mutateSerpMonitor({ action: "resume", runId: run.id });
+  assert.equal(result.run.status, "PARTIAL"); assert.equal(result.run.taskCounts.COMPLETE, 7); assert.equal(result.run.taskCounts.INCOMPLETE, 1);
+  assert.equal(state.tasks[0].errorCode, "RESULT_VALIDATION_FAILED_V2"); assert.equal(state.tasks[0].normalizedJson, null);
+  assert.ok(state.tasks.slice(1).every(task => task.normalizedJson.queryStatus === "AUTOCORRECTED" && task.normalizedJson.correctedKeyword === "corrected query" && task.normalizedJson.rankingVerified === false));
+  const writes = events.filter(event => event === "settle:cached").length;
+  await mutateSerpMonitor({ action: "replay", runId: run.id });
+  assert.equal(events.filter(event => event === "settle:cached").length, writes); assert.equal(fetches.length, 0);
 });
 
 test("local replay lowers an already completed run's stale actual total even when its ranking status is unchanged", async () => {

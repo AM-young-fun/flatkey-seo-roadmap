@@ -1,6 +1,6 @@
 import type { KeywordContentTask } from "./keyword-okr";
 
-export const PAGE_TASK_LABELS = { NEW: "待建设", EXPAND: "补充现有页面", REUSE: "复用现有页面" } as const;
+export const PAGE_TASK_LABELS = { NEW: "新建页面", EXPAND: "优化现有页面", REUSE: "复用现有页面" } as const;
 export const PAGE_TASK_STATUS_LABELS: Record<string, string> = { TODO: "待安排", IN_PROGRESS: "进行中", DONE: "已完成", BLOCKED: "受阻", MERGED: "已合并", RESTORED: "已恢复" };
 
 const unique = (values: string[]) => [...new Set(values.filter(Boolean))];

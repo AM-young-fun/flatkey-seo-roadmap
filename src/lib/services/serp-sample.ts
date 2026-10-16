@@ -155,7 +155,7 @@ export async function loadSerpSampleEvidence() {
     select: { id: true, scope: true, periodKey: true, periodLabel: true, targetCount: true, queryCount: true, status: true } });
   if (!run || run.scope !== "SAMPLE") return { scope: "SAMPLE", run: null, taskCount: 0, tasks: [] };
   const saved = await prisma.serpMonitorTask.findMany({ where: { runId: run.id }, orderBy: [{ region: "asc" }, { keyword: "asc" }], take: 200,
-    select: { keyword: true, region: true, state: true, errorCode: true, checkedAt: true, providerTaskId: true, rawResponse: true } });
+    select: { keyword: true, region: true, state: true, errorCode: true, checkedAt: true, providerTaskId: true, rawResponse: true, normalizedJson: true } });
   const object = (value: unknown): Record<string, unknown> => value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const text = (value: unknown) => typeof value === "string" ? value : null;
   const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -174,7 +174,7 @@ export async function loadSerpSampleEvidence() {
     const items = Array.isArray(result.items) ? result.items.map(object) : [];
     const organic = items.filter(item => item.type === "organic");
     const ranks = new Set(organic.flatMap(item => { const position = rank(item.rank_group); return position == null ? [] : [position]; }));
-    const spell = object(result.spell);
+    const spell = object(result.spell), normalized = object(row.normalizedJson);
     const flatkeyPages = organic.flatMap(item => {
       const url = safeUrl(item.url); if (!url) return [];
       const host = new URL(url).hostname.toLowerCase();
@@ -195,7 +195,9 @@ export async function loadSerpSampleEvidence() {
     return { keyword: row.keyword, region: row.region, state: row.state, errorCode: row.errorCode, checkedAt: row.checkedAt,
       hasCachedResponse: row.rawResponse != null, cachedGetTaskCost: number(cached.cost),
       resultKeyword: text(result.keyword), searchDomain: text(result.se_domain), pagesCount: number(result.pages_count), itemsCount: number(result.items_count),
-      spell: { type: text(spell.type), spell: text(spell.spell) }, organicCount: organic.length, maxOrganicRank: Math.max(0, ...ranks),
+      normalizationVersion: number(normalized.normalizationVersion), captureComplete: normalized.captureComplete === true,
+      coveredThroughRank: number(normalized.coveredThroughRank), queryStatus: text(normalized.queryStatus),
+      spell: { type: text(spell.type), spell: text(spell.keyword) ?? text(spell.spell) }, organicCount: organic.length, maxOrganicRank: Math.max(0, ...ranks),
       missingOrganicRanks: Array.from({ length: 100 }, (_, index) => index + 1).filter(position => !ranks.has(position)),
       flatkeyPages, relatedResults };
   });

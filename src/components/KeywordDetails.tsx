@@ -19,7 +19,7 @@ import { keywordRankingPages } from "@/lib/keyword-ranking-pages";
 import { RankingDiscoveryTable } from "@/components/RankingDiscovery";
 
 const POOLS: Record<KeywordPool, string> = { FORMAL: "业务目标", RESEARCH: "候选研究", ARCHIVED: "已归档", MERGED: "已归并" };
-const PAGE_TAG_FILTERS = [{ value: "PAGE_BUILD", label: "待建设" }, { value: "PAGE_EXPAND", label: "需补内容" }, { value: "PAGE_MISMATCH", label: "页面错配" }, { value: "PAGE_REVIEW", label: "页面待核实" }];
+const PAGE_TAG_FILTERS = [{ value: "PAGE_BUILD", label: "待建设（无合适页面）" }, { value: "PAGE_EXPAND", label: "待优化（已有页面）" }, { value: "PAGE_MISMATCH", label: "页面错配" }, { value: "PAGE_REVIEW", label: "页面待核实" }];
 
 const ORIGINS = [
   { value: "ALL", label: "全部来源" }, { value: "PLANNED", label: "页面目标词" },
@@ -135,11 +135,11 @@ export function KeywordDetails() {
       const matched = [...new Set(target?.targetUrls ?? k.targetUrls ?? [])];
       const expansion = !matched.length && target?.workPlan?.action === "EXPAND";
       const urls = expansion ? target.workPlan!.pageUrls : matched;
-      return <div className="evidenceSummary">{urls.length ? urls.map(url => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>) : <span className="muted">{target?.workPlan?.action === "BUILD" ? "暂无合适页面，待建设" : "未关联目标页面"}</span>}{expansion ? <small>已指定补充页面，内容待验收</small> : null}</div>;
+      return <div className="evidenceSummary">{urls.length ? urls.map(url => <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>) : <span className="muted">{target?.workPlan?.action === "BUILD" ? "待建设（无合适页面）" : "未关联目标页面"}</span>}{expansion ? <small>优化现有页面，完成后待验收</small> : null}</div>;
     } },
     { title: "SERP实际名次", key: "rank", width: 180, sorter: (a, b) => (rankFor(a)?.rank ?? Infinity) - (rankFor(b)?.rank ?? Infinity), render: (_, k) => {
       const rank = rankFor(k);
-      return <div className="evidenceSummary"><Tooltip title="同轮SERP有效命中中取本站最佳自然名次；多页面保留各自名次，不平均，也不重复计词。"><strong>{rank?.rank != null ? `#${position(rank.rank)}` : rankingFor(k).label}</strong></Tooltip>{rank?.periodLabel ? <small>{rank.periodLabel}</small> : null}{rank?.checkedAt ? <small>{localDate(rank.checkedAt)}</small> : null}{rank?.depthIncomplete ? <small>有效命中 · 前100深度未完整</small> : null}</div>;
+      return <div className="evidenceSummary"><Tooltip title="同轮SERP有效命中中取本站最佳自然名次；多页面保留各自名次，不平均，也不重复计词。"><strong>{rank?.rank != null ? `#${position(rank.rank)}` : rankingFor(k).label}</strong></Tooltip>{rank?.periodLabel ? <small>{rank.periodLabel}</small> : null}{rank?.checkedAt ? <small>{localDate(rank.checkedAt)}</small> : null}{rank?.rankStatus === "not_found_capture" ? <small>{rank.coveredThroughRank ? `已检查自然排名前${rank.coveredThroughRank}名` : `本次返回${rank.organicCount ?? 0}条自然结果`}，未命中本站</small> : rank?.rankStatus === "query_changed" ? <small>Google改搜：{rank.correctedKeyword ?? "未提供"}</small> : rank?.depthIncomplete ? <small>已核实名次 · 返回{rank.organicCount ?? "部分"}条自然结果</small> : null}</div>;
     } },
     { title: "较上次有效实测", key: "movement", width: 190, render: (_, k) => {
       const rank = rankFor(k);
@@ -154,7 +154,7 @@ export function KeywordDetails() {
     <PageHeader active="keywords" selection={selection} />
     <div className="pageIntro"><p className="eyebrow">BUSINESS TARGETS & RANKED KEYWORDS</p><h1>关键词明细</h1><p>查看关键词对应的页面、实际排名和变化。</p></div>
     <div className="okrCaptureState"><strong>正式目标 {formalTotal?.toLocaleString() ?? "—"} 词</strong><span>四国 · 每月1日、16日 · 全量定时未开启</span></div>
-    <details className="simpleExplanation keywordMethod"><summary>排名和页面状态怎么看</summary><p className="chartNote">一个词可以关联多个页面，实际命中页面逐页保留名次。页面建设状态与排名分别标记；只有完整查询前100无本站命中才算暂无前100排名，待采集和失败单独保留。研究候选不会消失，也不自动付费抓取。历史来源、搜索量和筛检理由见行内展开。</p></details>
+    <details className="simpleExplanation keywordMethod"><summary>排名和页面状态怎么看</summary><p className="chartNote">一个词可以关联多个页面，实际命中页面逐页保留名次。页面建设状态与排名分别标记。已有页面待补强叫“待优化”，无合适页面叫“待建设”。排名命中列实际名次；“本次未命中”表示已采完但在所列检查范围内未发现本站，只有完整检查前100无命中才列前100外。Google纠词、异常和未采集分别标明。研究候选不会消失，也不自动付费抓取。历史来源、搜索量和筛检理由见行内展开。</p></details>
     {data?.usingDemoData ? <p className="loadError" role="alert">当前为演示数据，不能用于判断实际 Google 排名。</p> : null}
     {refreshing ? <p className="cacheNotice" role="status">正在获取最新词库与证据…</p> : null}
     {error ? <div className="loadError" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>重新加载</button></div> : null}
@@ -163,7 +163,7 @@ export function KeywordDetails() {
     <div className="keywordViewTabs" role="tablist" aria-label="关键词明细查看范围"><button type="button" role="tab" aria-selected={section === "keywords"} className={section === "keywords" ? "selected" : ""} onClick={() => setSection("keywords")}>关键词明细</button><button type="button" role="tab" aria-selected={section === "discovery"} className={section === "discovery" ? "selected" : ""} onClick={() => setSection("discovery")}>历史数据库发现</button><button type="button" role="tab" aria-selected={section === "tasks"} className={section === "tasks" ? "selected" : ""} onClick={() => setSection("tasks")}>页面任务{okr.data?.initialized ? `（${okr.data.tasks.length}）` : ""}</button><button type="button" role="tab" aria-selected={section === "audit"} className={section === "audit" ? "selected" : ""} onClick={() => setSection("audit")}>审计与应用</button></div>
     {section === "keywords" ? <>
     <div className="detailToolbar"><div className="detailFilters">
-      <label className="originSelectField"><span>排名区间</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词" }, { value: "SAMPLE", label: "本次抽样验证" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "实测暂无前100排名" }, { value: "PENDING", label: "待采集" }, { value: "QUEUED", label: "采集中" }, { value: "FAILED", label: "采集失败" }, { value: "INCOMPLETE", label: "采集未完成" }]} /></label>
+      <label className="originSelectField"><span>排名区间</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词" }, { value: "SAMPLE", label: "本次抽样验证" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "实测暂无前100排名" }, { value: "PENDING", label: "待采集" }, { value: "QUEUED", label: "采集中" }, { value: "FAILED", label: "采集失败" }, { value: "NOT_FOUND_CAPTURE", label: "本次未命中" }, { value: "QUERY_CHANGED", label: "Google已纠词" }, { value: "INCOMPLETE", label: "数据异常" }]} /></label>
       <label className="originSelectField"><span>网站</span><Select aria-label="所属网站" className="originSelect" value={site} onChange={value => { setSite(value); setPool("FORMAL"); setMapping("ALL"); }} options={[{ value: "all", label: "全部网站" }, ...SITES.map(e => ({ value: e.domain, label: e.name }))]} /></label>
       {site === "flatkey.ai" || site === "all" ? <label className="originSelectField"><span>词库分类</span><Select aria-label="业务词池" className="originSelect" value={pool} onChange={value => { setPool(value); setView("FORMAL"); setMapping("ALL"); }} options={(Object.entries(POOLS) as Array<[KeywordPool, string]>).map(([value, label]) => ({ value, label }))} /></label> : null}
       {site === "flatkey.ai" || site === "all" ? <label className="originSelectField"><span>页面状态</span><Select aria-label="页面关联状态" className="originSelect" value={mapping} onChange={setMapping} options={[{ value: "ALL", label: "全部页面状态" }, { value: "MONITORABLE", label: "已匹配页面" }, { value: "CANDIDATE", label: "尚未完成页面匹配" }, ...PAGE_TAG_FILTERS]} /></label> : null}

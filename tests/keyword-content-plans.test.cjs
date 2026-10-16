@@ -23,6 +23,6 @@ test("CSV keeps all keyword-specific requirements and safely escapes formulas, q
   assert.ok(csv.includes('"\'=danger(1)"'));
   assert.ok(csv.includes('Vendor ""API"", guide'));
   assert.ok(csv.includes('1. Explain the exact vendor\'s integration.\n2. Include runnable requests and responses.'));
-  assert.ok(csv.includes('"待建设","","Vendor'));
+  assert.ok(csv.includes('"新建页面","","Vendor'));
   assert.ok(csv.includes("https://flatkey.ai/old-page"));
 });

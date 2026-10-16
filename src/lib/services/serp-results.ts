@@ -56,13 +56,15 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
           OR (t."checkedAt" IS NULL AND r."periodStart" <= ${end ?? "9999-12-31"}::date))
     ), expanded_tasks AS (
       SELECT t.*, target->>'siteDomain' AS "targetSite", target->>'keywordId' AS "targetKeyword",
-        (t."checkedAt" IS NOT NULL AND (
-          (t.state = 'COMPLETE' AND t."normalizedJson"->>'completeDepth' = 'true' AND COALESCE(t."normalizedJson"->>'rankingVerified','true') = 'true') OR
-          (t.state = 'INCOMPLETE' AND t."normalizedJson"->>'rankingVerified' = 'true' AND EXISTS (
+        (t."checkedAt" IS NOT NULL AND t.state IN ('COMPLETE', 'INCOMPLETE')
+          AND COALESCE(t."normalizedJson"->>'queryStatus', 'EXACT') = 'EXACT'
+          AND (t."normalizedJson"->>'rankingVerified' = 'true' OR
+            (t.state = 'COMPLETE' AND t."normalizedJson"->>'rankingVerified' IS NULL))
+          AND (t."normalizedJson"->>'completeDepth' = 'true' OR EXISTS (
             SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(t."normalizedJson"->'organicResults') = 'array' THEN t."normalizedJson"->'organicResults' ELSE '[]'::jsonb END) item
             WHERE item->>'domain' = target->>'siteDomain' OR item->>'domain' LIKE '%.' || (target->>'siteDomain')
           ))
-        )) AS verified
+        ) AS verified
       FROM market_tasks t CROSS JOIN LATERAL jsonb_array_elements(
         CASE WHEN jsonb_typeof(t."targetsJson") = 'array' THEN t."targetsJson" ELSE '[]'::jsonb END
       ) target
@@ -93,6 +95,10 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
     SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."errorCode", t."runCreatedAt", t."updatedAt",
       t."periodKey", t."periodLabel", t."periodStart", t."periodEnd", t."runScope", t."runTargetCount",
       CASE WHEN t."normalizedJson" IS NOT NULL THEN jsonb_build_object(
+        'normalizationVersion', t."normalizedJson"->'normalizationVersion', 'captureComplete', t."normalizedJson"->'captureComplete',
+        'organicCount', t."normalizedJson"->'organicCount', 'coveredThroughRank', t."normalizedJson"->'coveredThroughRank',
+        'queryStatus', t."normalizedJson"->'queryStatus', 'correctedKeyword', t."normalizedJson"->'correctedKeyword',
+        'spellType', t."normalizedJson"->'spellType', 'pagesCount', t."normalizedJson"->'pagesCount',
         'completeDepth', t."normalizedJson"->'completeDepth', 'rankingVerified', t."normalizedJson"->'rankingVerified', 'maxOrganicRank', t."normalizedJson"->'maxOrganicRank',
         'checkedAt', t."normalizedJson"->'checkedAt', 'googleUrl', t."normalizedJson"->'googleUrl',
         'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements(
@@ -112,7 +118,7 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
   const cohort = existingCohort ?? await loadSerpTargetCohort(site);
   const tasks = cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : [];
   const items = buildSerpKeywordResults(cohort.targets, tasks);
-  const completeDates = items.filter(item => item.status === "RANKED" || item.status === "OUTSIDE_TOP100").flatMap(item => item.checkedAt ? [item.checkedAt] : []);
+  const completeDates = items.filter(item => item.captureComplete).flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,
     summary: summarizeSerpResults(items), items, latestCompletedAt: completeDates.sort().at(-1) ?? null,
     currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items) };

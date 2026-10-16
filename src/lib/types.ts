@@ -3,7 +3,7 @@ import type { RankBucket, SearchRegionCode } from "@/lib/seo";
 export type KeywordType = "MAIN" | "LONG_TAIL";
 export type TopicType = "MAIN" | "SUB_TOPIC";
 export type RankingSource = "gsc" | "ahrefs" | "dataforseo_labs" | "dataforseo_serp";
-export type RankingStatus = "ranked" | "outside_top100" | "no_data" | "pending" | "queued" | "failed" | "incomplete";
+export type RankingStatus = "ranked" | "outside_top100" | "not_found_capture" | "query_changed" | "no_data" | "pending" | "queued" | "failed" | "incomplete";
 export type RankingReportingPeriod = { start: string; end: string; label: string };
 
 export type RankingPageEvidence = {
@@ -50,6 +50,13 @@ export type RankingEvidence = {
   depthIncomplete?: boolean;
   runScope?: "SCHEDULED" | "SAMPLE" | null;
   runTargetCount?: number | null;
+  captureComplete?: boolean;
+  organicCount?: number | null;
+  coveredThroughRank?: number | null;
+  queryStatus?: "EXACT" | "AUTOCORRECTED" | null;
+  correctedKeyword?: string | null;
+  spellType?: string | null;
+  pagesCount?: number | null;
 };
 
 export type RankingDailyEvidence = Omit<RankingPageEvidence, "url"> & {
@@ -118,6 +125,13 @@ export type RankSummary = {
   depthIncomplete?: boolean;
   runScope?: "SCHEDULED" | "SAMPLE" | null;
   runTargetCount?: number | null;
+  captureComplete?: boolean;
+  organicCount?: number | null;
+  coveredThroughRank?: number | null;
+  queryStatus?: "EXACT" | "AUTOCORRECTED" | null;
+  correctedKeyword?: string | null;
+  spellType?: string | null;
+  pagesCount?: number | null;
 };
 
 export type DashboardKeyword = {

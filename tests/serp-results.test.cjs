@@ -106,6 +106,60 @@ test("a verified brand hit is real with short SERPs, but other sites and autocor
   assert.equal(invalid.status, "INCOMPLETE"); assert.equal(invalid.rank, null); assert.deepEqual(invalid.pages, []);
 });
 
+test("finished captures distinguish limited misses, corrected searches and complete top100 absences", () => {
+  const models = ["limited", "outside", "corrected", "broken", "hit", "queued", "never"].map(id => target(id));
+  const normalized = overrides => ({ normalizationVersion: 2, captureComplete: true, queryStatus: "EXACT", rankingVerified: true,
+    completeDepth: false, organicCount: 10, coveredThroughRank: 5, maxOrganicRank: 11, correctedKeyword: null, spellType: null,
+    pagesCount: 1, organicResults: [], ...overrides });
+  const records = [task([models[0]], { id: "limited", normalizedJson: normalized({}) }),
+    task([models[1]], { id: "outside", normalizedJson: normalized({ completeDepth: true, organicCount: 100, coveredThroughRank: 100 }) }),
+    task([models[2]], { id: "corrected", normalizedJson: normalized({ queryStatus: "AUTOCORRECTED", rankingVerified: false,
+      correctedKeyword: "corrected model pricing", spellType: "showing_results_for", organicResults: [page(models[2].targetUrls[0], 1)] }) }),
+    task([models[3]], { id: "broken", state: "INCOMPLETE", normalizedJson: normalized({ captureComplete: false, rankingVerified: false }) }),
+    task([models[4]], { id: "hit", normalizedJson: normalized({ organicResults: [page(models[4].targetUrls[0], 3)] }) }),
+    task([models[5]], { id: "queued", state: "QUEUED", checkedAt: null, normalizedJson: null })];
+  const results = buildSerpKeywordResults(models, records), summary = summarizeSerpResults(results);
+  assert.deepEqual(results.map(row => row.status), ["NOT_FOUND_CAPTURE", "OUTSIDE_TOP100", "QUERY_CHANGED", "INCOMPLETE", "RANKED", "QUEUED", "PENDING"]);
+  assert.deepEqual([summary.total, summary.captured, summary.checked, summary.notFoundCaptured, summary.queryChanged, summary.outside, summary.incomplete], [7, 4, 2, 1, 1, 1, 1]);
+  assert.equal(results[0].organicCount, 10); assert.equal(results[0].coveredThroughRank, 5, "the largest returned rank cannot imply contiguous coverage");
+  assert.equal(results[0].pagesCount, 1); assert.equal(results[0].rank, null); assert.equal(results[0].captureComplete, true);
+  assert.equal(serpRankSummary(results[0]).rankStatus, "not_found_capture");
+  assert.equal(serpRankingEvidence(results[0]).rankStatus, "not_found_capture");
+  assert.equal(results[2].rank, null); assert.deepEqual(results[2].pages, []); assert.equal(results[2].correctedKeyword, "corrected model pricing");
+  assert.equal(serpRankSummary(results[2]).rankStatus, "query_changed"); assert.equal(serpRankingEvidence(results[2]).queryStatus, "AUTOCORRECTED");
+  assert.equal(results[4].rank, 3); assert.equal(results[4].depthIncomplete, true);
+  assert.equal(summarizeSerpResults(results).buckets[0].count, 1);
+});
+
+test("old partial caches remain conservative until replay while null-projected legacy full captures remain compatible", () => {
+  const model = target("legacy");
+  const partial = task([model], { state: "INCOMPLETE", normalizedJson: { completeDepth: false, rankingVerified: true, organicResults: [] } });
+  const [old] = buildSerpKeywordResults([model], [partial]);
+  assert.equal(old.status, "INCOMPLETE"); assert.equal(old.captureComplete, false); assert.equal(old.organicCount, null);
+  const [full] = buildSerpKeywordResults([model], [task([model], { normalizedJson: { normalizationVersion: null, captureComplete: null,
+    completeDepth: true, rankingVerified: null, organicResults: [] } })]);
+  assert.equal(full.status, "OUTSIDE_TOP100"); assert.equal(full.captureComplete, true);
+});
+
+test("limited misses and corrected queries finish the period capture without inventing ranking losses or future comparison baselines", () => {
+  const models = [target("lost"), target("corrected"), target("first-rank")];
+  const capture = (model, current, normalized) => task([model], { id: `${model.keywordId}-${current}`, runId: current ? "current" : "previous",
+    periodKey: current ? "2026-10-2" : "2026-10-1", runCreatedAt: current ? "2026-10-16T02:00:00Z" : "2026-10-01T02:00:00Z",
+    checkedAt: current ? "2026-10-16T03:00:00Z" : "2026-10-01T03:00:00Z",
+    normalizedJson: { normalizationVersion: 2, captureComplete: true, queryStatus: "EXACT", rankingVerified: true,
+      completeDepth: false, organicCount: 10, coveredThroughRank: 10, organicResults: [], ...normalized } });
+  const records = [capture(models[0], false, { organicResults: [page(models[0].targetUrls[0], 5)] }),
+    capture(models[1], false, { organicResults: [page(models[1].targetUrls[0], 4)] }), capture(models[2], false, {}),
+    capture(models[0], true, {}), capture(models[1], true, { queryStatus: "AUTOCORRECTED", correctedKeyword: "different keyword", rankingVerified: false }),
+    capture(models[2], true, { organicResults: [page(models[2].targetUrls[0], 3)] })];
+  const results = buildSerpKeywordResults(models, records);
+  assert.deepEqual(results.map(row => row.movement), ["NOT_COMPARABLE", "NOT_COMPARABLE", "FIRST_CHECK"]);
+  const points = serpCheckTrendPoints(models, records, "2026-10-01", "2026-10-31"), latest = points.at(-1);
+  assert.equal(latest.captured, 3); assert.equal(latest.checked, 1); assert.equal(latest.notFoundCaptured, 1); assert.equal(latest.queryChanged, 1);
+  assert.equal(latest.incomplete, 0); assert.equal(latest.outside, 0); assert.equal(latest.movementSummary.droppedOut, 0);
+  assert.equal(latest.movementSummary.newInTop100, 0);
+});
+
 test("monthly reporting periods use Shanghai 1st/16th boundaries, retain the year and handle leap years and year transitions", () => {
   assert.equal(serpPeriod("2026-10-15T15:59:59Z").key, "2026-10-1");
   assert.equal(serpPeriod("2026-10-15T16:00:00Z").key, "2026-10-2");
