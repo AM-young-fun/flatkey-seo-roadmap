@@ -181,7 +181,7 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
     siteDomain, initialized, rankingCaptureEnabled: false, availableAudit: auditInfo, summary,
     keywords: rows.map(row => ({ id: row.keywordId, text: row.text, siteDomain, active: row.active, pool: row.pool,
       reviewStatus: row.reviewStatus, mappingStatus: row.mappingStatus, targetUrls: row.targetUrls, candidateUrls: row.candidateUrls,
-      reason: row.auditReason ?? row.exclusionReason, protected: row.protected, auditedAt: row.curatedAt, auditId: row.curationId,
+      reason: pageAudits.get(row.keywordId)?.reason ?? row.auditReason ?? row.exclusionReason, protected: row.protected, auditedAt: row.curatedAt, auditId: row.curationId,
       latestPageAuditVerdict: pageAudits.get(row.keywordId)?.verdict ?? null, latestPageAuditReason: pageAudits.get(row.keywordId)?.reason ?? null,
       latestPageAuditCheckedAt: pageAudits.get(row.keywordId)?.checkedAt ?? null,
       actualPages: byKeyword.get(row.keywordId) ?? [],
