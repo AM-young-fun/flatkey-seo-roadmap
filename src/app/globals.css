@@ -1809,6 +1809,16 @@ a:focus-visible {
 .okrSectionHeading p { color:#7e8da3; line-height:1.8; font-size:12px; margin:0; }
 .okrSection .chartNote { margin-bottom:14px; }
 .okrReason { display:block; max-width:380px; color:#64768f; line-height:1.8; font-size:12px; overflow-wrap:anywhere; }
+.contentPlanIntro { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin:24px 0 18px; }
+.contentPlanIntro h2 { margin:0 0 8px; color:#1c2d45; font-size:22px; }
+.contentPlanIntro p { margin:0; max-width:860px; color:#64768f; line-height:1.8; }
+.contentPlanSummary { display:flex; flex-wrap:wrap; gap:16px 32px; padding:16px 20px; margin-bottom:22px; background:#fff; border:1px solid #e2e8f2; border-radius:12px; color:#64768f; }
+.contentPlanSummary strong { color:#1c2d45; font-size:21px; margin-left:6px; }
+.contentPlanWorkspace .originSelectField .ant-select { min-width:180px; }
+.contentPlanChecklist { margin:0; padding-left:20px; line-height:1.85; color:#42546e; }
+.contentPlanChecklist li + li { margin-top:6px; }
+.contentPlanTable .ant-table-cell { vertical-align:top; }
+@media (max-width:700px) { .contentPlanIntro { flex-direction:column; } }
 .okrSection .ant-tag { white-space:normal; line-height:1.8; }
 .okrSection .keywordEvidenceDetails { padding:14px 12px; font-size:12px; line-height:1.9; }
 .okrSection .keywordEvidenceDetails h3 { margin:20px 0 10px; font-size:13px; }

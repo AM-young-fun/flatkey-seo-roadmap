@@ -1,4 +1,4 @@
-import type { PageAuditVerdict } from "./page-audit";
+import type { KeywordWorkPlan, PageAuditVerdict } from "./page-audit";
 
 export const KEYWORD_OKR_AUDIT_ID = "flatkey-keyword-curation-2026-10-15-v2";
 export type KeywordPool = "FORMAL" | "RESEARCH" | "ARCHIVED" | "MERGED";
@@ -8,6 +8,7 @@ export type KeywordOkrItem = {
   reviewStatus: string; mappingStatus: KeywordMappingStatus; targetUrls: string[]; candidateUrls: string[];
   reason: string | null; protected: boolean; auditedAt: string | null; auditId: string | null;
   latestPageAuditVerdict: PageAuditVerdict | null; latestPageAuditReason: string | null; latestPageAuditCheckedAt: string | null;
+  workPlan?: KeywordWorkPlan | null;
   actualPages: Array<{ url: string; source: string; region: string; periodStart: string | null; periodEnd: string | null; collectedAt: string; rank: number | null }>;
 };
 export type KeywordContentTask = {

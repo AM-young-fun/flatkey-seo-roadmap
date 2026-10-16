@@ -24,6 +24,10 @@ export function planKeywordPageAudit(payload: PageAuditPayload, priorRows: PageA
       ...(row.httpStatus !== undefined ? { httpStatus: row.httpStatus } : {}), checkedAt: new Date(row.checkedAt).toISOString(), reason: tidy(row.reason),
       evidence: Object.fromEntries(Object.entries(row.evidence).filter((entry): entry is [string, string] => typeof entry[1] === "string").map(([key, value]) => [key, tidy(value)])) };
     if (row.inventory) snapshot.inventory = { ...row.inventory, checkedAt: new Date(row.inventory.checkedAt).toISOString() };
+    if (row.workPlan) snapshot.workPlan = { ...row.workPlan,
+      pageUrls: row.workPlan.pageUrls.map(normalizeAuditPageUrl),
+      previousPageUrl: row.workPlan.previousPageUrl ? normalizeAuditPageUrl(row.workPlan.previousPageUrl) : null,
+      proposedTitle: tidy(row.workPlan.proposedTitle), requirements: row.workPlan.requirements.map(tidy), acceptance: row.workPlan.acceptance.map(tidy) };
     if (row.additionalPages?.length) snapshot.additionalPages = row.additionalPages.map(page => ({ ...page,
       pageUrl: normalizeAuditPageUrl(page.pageUrl), canonicalUrl: normalizeAuditPageUrl(page.canonicalUrl), checkedAt: new Date(page.checkedAt).toISOString(), reason: tidy(page.reason),
       evidence: Object.fromEntries(Object.entries(page.evidence).filter((entry): entry is [string, string] => typeof entry[1] === "string").map(([key, value]) => [key, tidy(value)])),

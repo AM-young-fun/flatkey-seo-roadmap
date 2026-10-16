@@ -156,6 +156,27 @@ test("VERIFIED requires HTTP 200, same-page canonical and detailed keyword inten
   assert.equal(pageAuditSchema.safeParse({ ...valid, rows: [auditRow(undefined, { pageUrl: "https://flatkey.ai/blog/verified-api/#section" })] }).success, true);
 });
 
+test("content action plans persist with audited page associations and reject invented targets", async () => {
+  const member = addMember("keyword-1", { protected: true });
+  const workPlan = { originalVerdict: "MISMATCH", action: "LINK", pageUrls: ["https://flatkey.ai/blog/verified-api"], previousPageUrl: "https://flatkey.ai/old-page",
+    proposedTitle: "Verified model API integration", requirements: ["The correct model identity is explicitly documented.", "Authentication and request parameters match the query.", "The existing page directly answers the business search intent."],
+    acceptance: ["Every associated URL has independently checked content.", "Model-protection and keyword membership remain preserved."] };
+  const input = payload([auditRow(undefined, { workPlan })]);
+  const preview = await auditKeywordPages({ ...input, action: "preview" });
+  const result = await auditKeywordPages({ ...input, expectedStateHash: preview.stateHash });
+  assert.equal(result.pageSummary.verified, 1);
+  assert.deepEqual(state.sourceRows[0].snapshot.workPlan, workPlan);
+  assert.deepEqual(member.targetUrls, workPlan.pageUrls);
+  assert.equal(member.protected, true);
+  const writes = state.dataWrites;
+  assert.equal((await auditKeywordPages({ ...input, expectedStateHash: preview.stateHash })).duplicate, true);
+  assert.equal(state.dataWrites, writes);
+  for (const patch of [
+    { action: "EXPAND" }, { pageUrls: ["https://flatkey.ai/not-checked"] }, { pageUrls: [] },
+    { pageUrls: [...workPlan.pageUrls, ...workPlan.pageUrls] }, { requirements: ["Missing details"] },
+  ]) assert.equal(pageAuditSchema.safeParse({ ...input, rows: [auditRow(undefined, { workPlan: { ...workPlan, ...patch } })] }).success, false);
+});
+
 test("schema strictly separates missing, mismatch and inconclusive HTTP evidence", () => {
   for (const status of [404, 410]) assert.equal(pageAuditSchema.safeParse({ ...payload(), rows: [auditRow(undefined, { verdict: "MISSING", httpStatus: status, canonicalUrl: undefined })] }).success, true);
   for (const status of [200, 403, 429, 500, 503]) assert.equal(pageAuditSchema.safeParse({ ...payload(), rows: [auditRow(undefined, { verdict: "MISSING", httpStatus: status })] }).success, false);

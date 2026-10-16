@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { readPageAuditVerdict } from "@/lib/keyword-monitoring";
-import { PAGE_AUDIT_SOURCE_ID, type PageAuditVerdict } from "@/lib/page-audit";
+import { keywordWorkPlanSchema, PAGE_AUDIT_SOURCE_ID, type KeywordWorkPlan, type PageAuditVerdict } from "@/lib/page-audit";
 
-export type LatestPageAudit = { verdict: PageAuditVerdict; reason: string | null; checkedAt: string | null };
+export type LatestPageAudit = { verdict: PageAuditVerdict; reason: string | null; checkedAt: string | null; workPlan: KeywordWorkPlan | null };
 export async function loadLatestPageAudits(keywordIds: string[]): Promise<Map<string, LatestPageAudit>> {
   const ids = [...new Set(keywordIds)];
   if (!ids.length) return new Map();
@@ -15,8 +15,11 @@ export async function loadLatestPageAudits(keywordIds: string[]): Promise<Map<st
     if (!wanted.has(id)) continue;
     const snapshot = row.snapshot && typeof row.snapshot === "object" && !Array.isArray(row.snapshot) ? row.snapshot as Record<string, unknown> : {};
     const wrongIdentity = snapshot.keywordId !== undefined && snapshot.keywordId !== id;
-    result.set(id, { verdict: wrongIdentity ? "REVIEW" : readPageAuditVerdict(snapshot),
+    const workPlan = !wrongIdentity ? keywordWorkPlanSchema.safeParse(snapshot.workPlan) : null;
+    const verdict = wrongIdentity ? "REVIEW" : readPageAuditVerdict(snapshot);
+    result.set(id, { verdict,
       reason: typeof snapshot.reason === "string" ? snapshot.reason : null,
+      workPlan: workPlan?.success && ({ LINK: "VERIFIED", EXPAND: "CONTENT_GAP", BUILD: "NO_MATCH" } as const)[workPlan.data.action] === verdict ? workPlan.data : null,
       checkedAt: typeof snapshot.checkedAt === "string" && Number.isFinite(Date.parse(snapshot.checkedAt)) ? new Date(snapshot.checkedAt).toISOString() : null });
   }
   return result;

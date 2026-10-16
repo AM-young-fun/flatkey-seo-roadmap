@@ -16,6 +16,8 @@ import { keywordRelevance } from "@/lib/keyword-relevance";
 import type { KeywordPool } from "@/lib/keyword-okr";
 import { keywordPageTag, keywordRankingTag } from "@/lib/keyword-status-tags";
 import { keywordRankingPages } from "@/lib/keyword-ranking-pages";
+import { KeywordContentPlans } from "@/components/KeywordContentPlans";
+import { keywordContentPlans } from "@/lib/keyword-content-plans";
 
 const POOLS: Record<KeywordPool, string> = { FORMAL: "业务目标", RESEARCH: "候选研究", ARCHIVED: "已归档", MERGED: "已归并" };
 const PAGE_TAG_FILTERS = [{ value: "PAGE_BUILD", label: "候选·待建设" }, { value: "PAGE_EXPAND", label: "候选·需补内容" }, { value: "PAGE_MISMATCH", label: "候选·页面错配" }, { value: "PAGE_REVIEW", label: "候选·页面待核实" }];
@@ -48,7 +50,7 @@ export function KeywordDetails() {
   const [origin, setOrigin] = useState("ALL");
   const [site, setSite] = useState("flatkey.ai");
   const [view, setView] = useState("FORMAL");
-  const [section, setSection] = useState<"keywords" | "tasks" | "audit">("keywords");
+  const [section, setSection] = useState<"keywords" | "content" | "tasks" | "audit">("keywords");
   const [pool, setPool] = useState<KeywordPool>("FORMAL");
   const [mapping, setMapping] = useState("ALL");
   const [busy, setBusy] = useState(false);
@@ -155,7 +157,7 @@ export function KeywordDetails() {
     {error ? <div className="loadError" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>重新加载</button></div> : null}
     {(site === "flatkey.ai" || site === "all") && okr.error ? <div className="loadError" role="alert"><span>正式目标读取失败：{okr.error}。未用原始词库替代正式目标。</span><button type="button" onClick={okr.refresh}>重新加载正式目标</button></div> : null}
     {(site === "flatkey.ai" || site === "all") && okr.data && !okr.data.initialized && section !== "audit" ? <div className="okrUninitialized" role="status">清洁审计尚未应用到数据库，Flatkey 正式目标暂不展示。 <button type="button" onClick={() => setSection("audit")}>预览并应用清理</button></div> : null}
-    <div className="keywordViewTabs" role="tablist" aria-label="关键词明细查看范围"><button type="button" role="tab" aria-selected={section === "keywords"} className={section === "keywords" ? "selected" : ""} onClick={() => setSection("keywords")}>关键词明细</button><button type="button" role="tab" aria-selected={section === "tasks"} className={section === "tasks" ? "selected" : ""} onClick={() => setSection("tasks")}>页面任务{okr.data?.initialized ? `（${okr.data.tasks.length}）` : ""}</button><button type="button" role="tab" aria-selected={section === "audit"} className={section === "audit" ? "selected" : ""} onClick={() => setSection("audit")}>审计与应用</button></div>
+    <div className="keywordViewTabs" role="tablist" aria-label="关键词明细查看范围"><button type="button" role="tab" aria-selected={section === "keywords"} className={section === "keywords" ? "selected" : ""} onClick={() => setSection("keywords")}>关键词明细</button><button type="button" role="tab" aria-selected={section === "content"} className={section === "content" ? "selected" : ""} onClick={() => setSection("content")}>内容优化{okr.data?.initialized ? `（${keywordContentPlans(okr.data.keywords).length}）` : ""}</button><button type="button" role="tab" aria-selected={section === "tasks"} className={section === "tasks" ? "selected" : ""} onClick={() => setSection("tasks")}>页面任务{okr.data?.initialized ? `（${okr.data.tasks.length}）` : ""}</button><button type="button" role="tab" aria-selected={section === "audit"} className={section === "audit" ? "selected" : ""} onClick={() => setSection("audit")}>审计与应用</button></div>
     {section === "keywords" ? <>
     <div className="detailToolbar"><div className="detailFilters">
       <label className="originSelectField"><span>排名区间</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "当前分类全部词（含暂无排名）" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10（1–10）" }, { value: "TOP_30", label: "前30（11–30）" }, { value: "TOP_50", label: "前50（31–50）" }, { value: "TOP_100", label: "前100（51–100）" }, { value: "UNRANKED", label: "暂无排名" }]} /></label>
@@ -181,6 +183,6 @@ export function KeywordDetails() {
         </section>;
       }) : <p>尚无 GSC / Ahrefs 历史原始证据。</p>}</details><a href={`https://www.google.com/search?${new URLSearchParams({ q: k.text, gl: REGIONS[region].gl, hl: REGIONS[region].hl, pws: "0" })}`} target="_blank" rel="noreferrer">在 Google 搜索此词 ↗</a><p className="chartNote">搜索链接传入国家与语言偏好；实际位置、设备和时间会影响结果。DataForSEO 数据库记录不代表此刻的实时搜索结果。</p></div> }}
       pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: total => `共 ${total} 条记录` }} scroll={{ x: 2100 }} size="middle" /></section>
-    </> : <KeywordOkrWorkspace okr={okr} section={section} />}
+    </> : section === "content" ? <KeywordContentPlans items={okr.data?.keywords ?? []} loading={okr.loading} /> : <KeywordOkrWorkspace okr={okr} section={section} />}
   </main>;
 }

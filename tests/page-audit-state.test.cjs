@@ -54,7 +54,7 @@ test("one site-scoped batch returns each latest verdict together with its human 
   assert.equal(reads[0].where.sourceId, "page_audit");
   assert.deepEqual(new Set(reads[0].where.rowKey.in), new Set(rows.map(row => row.rowKey)));
   for (const [id, verdict] of [["verified", "VERIFIED"], ["missing", "MISSING"], ["mismatch", "MISMATCH"], ["review", "REVIEW"]]) {
-    assert.deepEqual(result.get(id), { verdict, reason: rows[0].snapshot.reason, checkedAt: rows[0].snapshot.checkedAt });
+    assert.deepEqual(result.get(id), { verdict, reason: rows[0].snapshot.reason, checkedAt: rows[0].snapshot.checkedAt, workPlan: null });
   }
 });
 
@@ -77,8 +77,19 @@ test("malformed stored audit rows fail closed while missing or non-string metada
   ];
   const ids = ["null-snapshot", "primitive", "unknown", "wrong-shape", "bad-metadata"];
   const result = await loadLatestPageAudits(ids);
-  for (const id of ids.slice(0, -1)) assert.deepEqual(result.get(id), { verdict: "REVIEW", reason: null, checkedAt: null });
-  assert.deepEqual(result.get("bad-metadata"), { verdict: "VERIFIED", reason: null, checkedAt: null });
+  for (const id of ids.slice(0, -1)) assert.deepEqual(result.get(id), { verdict: "REVIEW", reason: null, checkedAt: null, workPlan: null });
+  assert.deepEqual(result.get("bad-metadata"), { verdict: "VERIFIED", reason: null, checkedAt: null, workPlan: null });
+});
+
+test("optimization requirements return only for the matching keyword and consistent audit result", async () => {
+  const workPlan = { originalVerdict: "CONTENT_GAP", action: "EXPAND", pageUrls: ["https://flatkey.ai/compute"], previousPageUrl: "https://flatkey.ai/compute",
+    proposedTitle: "H200 monthly cost calculation", requirements: ["Show the exact billing hours and hourly rate.", "Separate storage and network fees from GPU fees.", "Include a dated and reproducible monthly example."],
+    acceptance: ["The monthly example can be independently recalculated.", "Every price has its source and date stated."] };
+  rows = [audit("correct", "CONTENT_GAP", { workPlan }), audit("wrong-id", "CONTENT_GAP", { keywordId: "other", workPlan }),
+    audit("wrong-result", "NO_MATCH", { workPlan }), audit("invalid-plan", "CONTENT_GAP", { workPlan: { ...workPlan, pageUrls: ["https://untrusted.example/"] } })];
+  const result = await loadLatestPageAudits(["correct", "wrong-id", "wrong-result", "invalid-plan"]);
+  assert.deepEqual(result.get("correct").workPlan, workPlan);
+  for (const id of ["wrong-id", "wrong-result", "invalid-plan"]) assert.equal(result.get(id).workPlan, null);
 });
 
 test("evidence for a different keyword identity cannot verify the requested row", async () => {

@@ -24,6 +24,16 @@ const additionalPage = z.object({
   pageUrl: localPage, canonicalUrl: localPage, httpStatus: z.literal(200),
   checkedAt: z.iso.datetime({ offset: true }), reason: z.string().trim().min(20).max(3000), evidence: pageEvidence,
 }).strict();
+export const keywordWorkPlanSchema = z.object({
+  originalVerdict: z.enum(["CONTENT_GAP", "MISMATCH"]),
+  action: z.enum(["EXPAND", "LINK", "BUILD"]),
+  pageUrls: z.array(localPage).max(21),
+  previousPageUrl: localPage.nullable(),
+  proposedTitle: z.string().trim().min(4).max(500),
+  requirements: z.array(z.string().trim().min(8).max(1000)).min(3).max(8),
+  acceptance: z.array(z.string().trim().min(8).max(1000)).min(2).max(6),
+}).strict();
+export type KeywordWorkPlan = z.infer<typeof keywordWorkPlanSchema>;
 export const pageAuditSchema = z.object({
   kind: z.literal("page-audit"), requestId: z.string().trim().min(1).max(160).regex(/^[\w.:-]+$/),
   targetDomain: z.literal("flatkey.ai"), action: z.enum(["preview", "apply"]),
@@ -35,6 +45,7 @@ export const pageAuditSchema = z.object({
     checkedAt: z.iso.datetime({ offset: true }), reason: z.string().trim().min(12).max(3000),
     evidence: pageEvidence,
     additionalPages: z.array(additionalPage).max(20).optional(),
+    workPlan: keywordWorkPlanSchema.optional(),
     inventory: z.object({ sourceUrl: localPage, pageCount: z.number().int().positive().max(1000000), checkedAt: z.iso.datetime({ offset: true }) }).strict().optional(),
   }).strict()).min(1).max(30),
 }).strict().superRefine((input, context) => {
@@ -62,6 +73,17 @@ export const pageAuditSchema = z.object({
       const identity = normalizeAuditPageUrl(page.pageUrl);
       if (pages.has(identity)) issue("同一关键词的匹配页面不能重复");
       pages.add(identity);
+    }
+    if (row.workPlan) {
+      const expected = { LINK: "VERIFIED", EXPAND: "CONTENT_GAP", BUILD: "NO_MATCH" } as const;
+      if (row.verdict !== expected[row.workPlan.action]) issue("优化清单处理方式必须与页面核验结论一致");
+      const targets = row.workPlan.pageUrls.map(normalizeAuditPageUrl);
+      if (new Set(targets).size !== targets.length) issue("优化清单页面不能重复");
+      if (row.workPlan.action === "BUILD") {
+        if (targets.length) issue("待建设词不能关联尚未存在的页面");
+      } else if (!targets.length || targets.some(url => !pages.has(url)) || (row.workPlan.action === "LINK" && targets.length !== pages.size)) {
+        issue("优化清单的处理页面须逐一通过本次页面核验");
+      }
     }
   });
 });
