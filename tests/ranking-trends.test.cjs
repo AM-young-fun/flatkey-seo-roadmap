@@ -163,16 +163,16 @@ test("trend API emits v3 Labs snapshots including today, never reads GSC periods
   global.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [fixed])); } static now() { return fixed; } };
   try {
     queryCalls=[];trendObservations=[labs("formal"), labs("research")];
-    const response=await GET(new Request("http://localhost/api/seo/trends?region=US"));
+    const response=await GET(new Request("http://localhost/api/seo/trends?source=dataforseo_labs&region=US"));
     assert.equal(response.status,200);const result=await response.json();
     assert.equal(result.schemaVersion,3);assert.equal(result.mode,"labs-snapshots");
     assert.deepEqual([result.start,result.end],["2026-10-10","2026-10-16"]);
     assert.equal(result.points.length,1);assert.equal(result.points[0].ranked,1);assert.equal(result.points[0].total,1);
     assert.equal(queryCalls.length,2);assert.ok(queryCalls[1].sql.includes("o.source = 'dataforseo_labs'"));
     assert.ok(queryCalls[1].sql.includes('"collectedAt"'));assert.ok(!queryCalls[1].values.includes("research"));
-    await GET(new Request("http://localhost/api/seo/trends?region=US"));assert.equal(queryCalls.length,2);
-    await GET(new Request("http://localhost/api/seo/trends?region=US&refresh=1"));assert.equal(queryCalls.length,4);
+    await GET(new Request("http://localhost/api/seo/trends?source=dataforseo_labs&region=US"));assert.equal(queryCalls.length,2);
+    await GET(new Request("http://localhost/api/seo/trends?source=dataforseo_labs&region=US&refresh=1"));assert.equal(queryCalls.length,4);
     const future=await GET(new Request("http://localhost/api/seo/trends?end=2026-10-17"));assert.equal(future.status,400);
-    const noData=await GET(new Request("http://localhost/api/seo/trends?region=JP"));assert.deepEqual((await noData.json()).points,[]);
+    const noData=await GET(new Request("http://localhost/api/seo/trends?source=dataforseo_labs&region=JP"));assert.deepEqual((await noData.json()).points,[]);
   } finally {global.Date=NativeDate;trendObservations=[];}
 });

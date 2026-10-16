@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { runDailyRankingSync } from "@/lib/services/sync-rankings";
+import { runSerpMonitorCron } from "@/lib/services/serp-monitor";
+import { loadSourceSyncHealth } from "@/lib/services/source-sync-health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,11 +9,7 @@ export const maxDuration = 300;
 function isAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
 
-  if (!secret) {
-    return process.env.NODE_ENV !== "production";
-  }
-
-  return request.headers.get("authorization") === `Bearer ${secret}`;
+  return Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 async function handleCron(request: Request) {
@@ -27,8 +24,13 @@ async function handleCron(request: Request) {
     );
   }
 
-  const result = await runDailyRankingSync();
-  return NextResponse.json(result, { status: result.status === "DISABLED" ? 409 : 200 });
+  const [serp, sourceHealth] = await Promise.allSettled([runSerpMonitorCron(), loadSourceSyncHealth()]);
+  if (serp.status === "rejected") return NextResponse.json({ status: "NEEDS_REVIEW", message: "SERP原采集账本需要核对，请勿重复提交采集" }, { status: 503 });
+  return NextResponse.json({ status: serp.value.status, serp: serp.value,
+    // This is an honest baseline check, not a claim that the three protected
+    // DingTalk tables have been pulled by the server.
+    sourceSync: sourceHealth.status === "fulfilled" ? { ...sourceHealth.value, executed: false } : { status: "HEALTH_UNAVAILABLE", executed: false } },
+    { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function GET(request: Request) {

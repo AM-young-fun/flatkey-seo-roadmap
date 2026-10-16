@@ -38,7 +38,8 @@ export async function POST(request: Request) {
   try {
     const parsed = dataForSeoMutationSchema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "操作参数无效" }, { status: 400, headers });
-    // Mutations containing a paid POST must never be wrapped in a retry helper.
+    // Old, already-open clients must not bypass the new SERP spending gates.
+    if (parsed.data.action === "update") return NextResponse.json({ message: "历史Labs付费更新已停用，请使用SERP实测计划；本次未请求供应商" }, { status: 410, headers });
     return NextResponse.json(await mutateDataForSeo(parsed.data), { headers });
   } catch (error) { return failure(error); }
 }

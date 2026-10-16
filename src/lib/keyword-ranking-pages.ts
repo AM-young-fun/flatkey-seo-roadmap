@@ -11,10 +11,10 @@ const urlIdentity = (value: string) => {
 // Show page-level records only from the keyword's current capture. Each page
 // keeps its own source date and rank, even when they differ within that capture.
 export function keywordRankingPages(summary: RankSummary | null | undefined, evidence: RankingEvidence[], siteDomain: string): RankingPageEvidence[] {
-  if (summary?.source !== "dataforseo_labs" || !summary.checkedAt) return [];
+  if (!["dataforseo_labs", "dataforseo_serp"].includes(summary?.source ?? "") || !summary?.checkedAt) return [];
   const byUrl = new Map<string, RankingPageEvidence>();
   for (const report of evidence) {
-    if (report.source !== "dataforseo_labs" || !sameTime(report.checkedAt, summary.checkedAt)) continue;
+    if (report.source !== summary.source || !sameTime(report.checkedAt, summary.checkedAt)) continue;
     for (const page of report.pages) {
       if (!sameTime(page.checkedAt, summary.checkedAt) || !validRank(page.rank) || !validSitePage(page.url, siteDomain)) continue;
       const key = urlIdentity(page.url), prior = byUrl.get(key);
@@ -27,7 +27,7 @@ export function keywordRankingPages(summary: RankSummary | null | undefined, evi
   if (validRank(summary.rank) && validSitePage(summary.url, siteDomain) && !byUrl.has(urlIdentity(summary.url!))) {
     byUrl.set(urlIdentity(summary.url!), { url: summary.url!, rank: summary.rank, clicks: null, impressions: null, ctr: null,
       periodStart: null, periodEnd: null, dataDate: summary.dataDate ?? null, dataUpdatedAt: summary.dataUpdatedAt ?? null,
-      checkedAt: summary.checkedAt, importedAt: null, serpVerification: "unverified" });
+      checkedAt: summary.checkedAt, importedAt: null, serpVerification: summary.serpVerification ?? "unverified" });
   }
   return [...byUrl.values()].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.url.localeCompare(b.url));
 }

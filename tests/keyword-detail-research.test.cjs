@@ -55,7 +55,7 @@ const { createDashboardStore } = require("../src/lib/dashboard-client.ts");
 
 test("keyword-detail scope exposes stored research rank, page and volume without a topic while overview remains formal", async () => {
   const read = async suffix => {
-    const response = await GET(new Request(`https://flatkey.test/api/dashboard?site=flatkey.ai${suffix}`));
+    const response = await GET(new Request(`https://flatkey.test/api/dashboard?site=flatkey.ai&source=dataforseo_labs${suffix}`));
     assert.equal(response.status, 200);
     return response.json();
   };

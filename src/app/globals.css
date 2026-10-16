@@ -1833,6 +1833,19 @@ a:focus-visible {
 .formalTrendDetails > summary { cursor:pointer; padding:12px 2px; }
 .formalTrendDetails .rankingTrend { min-height:300px; }
 .discoveryWorkspace .detailFilters .ant-select { min-width:155px; }
+.serpScope { color:#7c8da4; font-size:13px; margin:16px 0; }
+.serpProgressMetrics { display:grid; grid-template-columns:1.3fr repeat(4,1fr); gap:20px; padding:18px 0 22px; }
+.serpProgressMetrics > div, .serpRankMetrics > div { display:flex; flex-direction:column; gap:12px; }
+.serpProgressMetrics span, .serpRankMetrics span { color:#74869f; font-size:13px; }
+.serpProgressMetrics strong { color:#1b2c45; font-size:32px; }
+.serpProgressMetrics strong small { margin-left:8px; font-size:12px; font-weight:400; color:#94a3b8; }
+.serpRankMetrics { display:grid; grid-template-columns:repeat(5,1fr); gap:20px; border-top:1px solid #e7edf5; padding:24px 0 15px; margin-top:20px; }
+.serpRankMetrics strong { font-size:26px; color:#24364f; }
+.serpRankMetrics i { display:inline-block; width:8px; height:8px; margin-right:7px; border-radius:50%; }
+.serpRankMetrics small { font-size:11px; }
+.serpEmptyNotice { padding:14px 18px; background:#f0f5fb; border:1px solid #dfe8f5; border-radius:10px; color:#526b8c; font-size:13px; line-height:1.8; }
+.serpEmptyNotice p { margin:5px 0 0; }
+@media (max-width:700px) { .serpProgressMetrics, .serpRankMetrics { grid-template-columns:repeat(2,1fr); } }
 @media (max-width:700px) { .discoveryMetrics { grid-template-columns:repeat(2,1fr); } .discoveryPanel { padding:20px; } .discoveryMetrics strong { font-size:28px; } }
 .contentPlanTable .ant-table-cell { vertical-align:top; }
 @media (max-width:700px) { .contentPlanIntro { flex-direction:column; } }
@@ -1884,3 +1897,34 @@ a:focus-visible {
 @media(max-width:520px) {
   .overviewSummaryGrid .analyticsColumn { grid-template-columns:1fr; }
 }
+
+.serpMovementSummary { display:flex; flex-wrap:wrap; gap:10px 20px; color:#647b98; font-size:12px; margin:10px 0 20px; }
+.serpPeriodTable { overflow-x:auto; margin:20px 0; }
+.serpPeriodTable table { width:100%; border-collapse:collapse; min-width:850px; text-align:left; font-size:12px; color:#60758f; }
+.serpPeriodTable th,.serpPeriodTable td { padding:14px 10px; border-bottom:1px solid #e8edf5; }
+.serpPeriodTable th { background:#f7f9fc; font-weight:500; }
+.serpPeriodTable strong { color:#24364f; }
+.serpPeriodTable small { display:block; margin-top:6px; font-size:11px; color:#8b9aaf; }
+
+.simpleMetrics { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.serpSimpleNotice { padding:12px 16px; margin:6px 0 18px; background:#f3f7fc; color:#617995; border-radius:8px; font-size:13px; line-height:1.7; }
+.serpOverviewFooter { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; margin-top:14px; }
+.simpleExplanation { color:#8594aa; font-size:12px; line-height:1.8; margin:12px 0; }
+.simpleExplanation summary { cursor:pointer; }
+.simpleExplanation p { max-width:800px; margin:10px 0; }
+.serpOverviewFooter .simpleExplanation { margin:0; max-width:60%; }
+.simpleDisclosure,.managementDisclosure { background:white; border:1px solid var(--border); border-radius:14px; margin:20px 0; padding:20px 24px; }
+.simpleDisclosure > summary,.managementDisclosure > summary { cursor:pointer; font-size:14px; color:#526985; font-weight:500; }
+.keywordGraphDisclosure .overviewGrid { margin-top:20px; }
+.keywordGraphDisclosure .graphPanel { border:0; padding:0; }
+.managementDisclosureBody { margin-top:20px; }
+.managementDisclosureBody .dataforseoPanel { border:0; padding:0; margin:0; }
+.serpPlanStats { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.sourceSyncGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-top:18px; }
+.sourceSyncGrid article { padding:15px; border:1px solid #e6edf5; border-radius:9px; font-size:12px; line-height:1.8; color:#778aa3; }
+.sourceSyncGrid strong { display:block; color:#3e5878; margin-bottom:5px; }
+.sourceSyncDetails { margin-top:16px; font-size:12px; color:#8696ac; line-height:1.8; }
+.sourceSyncDetails summary { cursor:pointer; }
+.sourceFilterDisclosure { margin-top:-5px; }
+.sourceFilterDisclosure .originSelectField { display:inline-flex; margin:12px 0; max-width:300px; }
+@media (max-width:700px) { .simpleMetrics,.serpPlanStats,.sourceSyncGrid { grid-template-columns:1fr; } .serpOverviewFooter { flex-direction:column; } .serpOverviewFooter .simpleExplanation { max-width:100%; } }

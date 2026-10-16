@@ -9,6 +9,8 @@ import { assessKeywordVolume, type VolumeReviewSample } from "@/lib/keyword-volu
 import { keywordRelevance } from "@/lib/keyword-relevance";
 import { loadRecentRankingReportPeriod } from "@/lib/services/ranking-report-period";
 import type { DashboardKeyword, DashboardResponse, DashboardTopic, RankingEvidence, RankingReportingPeriod, SyncRunSummary } from "@/lib/types";
+import { loadSerpResults } from "@/lib/services/serp-results";
+import { SERP_MARKET_LANGUAGE, serpRankSummary, serpRankingEvidence } from "@/lib/serp-results";
 
 const SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
 const NAMES: Record<string, string> = { "flatkey.ai": "Flatkey", "rackrate.org": "RackRate", "modelfit.cc": "ModelFit" };
@@ -62,7 +64,7 @@ export function assembleDashboard(
       if (volume) updated.push(volume.fetchedAt.toISOString());
       const key = `${row.siteDomain}:${row.id}:${region}`;
       const queryRows = ranksByKey.get(key) ?? [], pageRows = pagesByKey.get(key) ?? [];
-      rankingEvidence[region] = rankingSource === "dataforseo_labs" ? [
+      rankingEvidence[region] = ["dataforseo_labs", "dataforseo_serp"].includes(rankingSource) ? [
         ...buildRankingEvidence(queryRows.filter(row => row.source === "dataforseo_labs"), pageRows.filter(row => row.source === "dataforseo_labs")),
         // Keep raw legacy reports in the historical drawer, even a 28-day
         // report outside the current Labs collection window.
@@ -119,12 +121,22 @@ export function assembleDashboard(
     ...(reportingPeriod ? { reportingPeriod } : {}) };
 }
 
-export async function loadDashboard(site: string, source = "dataforseo_labs", period: "week" | "history" = "week", now = new Date(), includeResearch = false): Promise<DashboardResponse> {
-  const week = source === "dataforseo_labs" ? labsReportingPeriod(now) : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
+export async function loadDashboard(site: string, source = "dataforseo_serp", period: "week" | "history" = "week", now = new Date(), includeResearch = false): Promise<DashboardResponse> {
+  const snapshotSource = ["dataforseo_labs", "dataforseo_serp"].includes(source);
+  const week = snapshotSource ? { ...labsReportingPeriod(now), ...(source === "dataforseo_serp" ? { label: "最近有效 Google SERP 实测 · 每月1日、16日更新" } : {}) }
+    : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
-  if (!isDatabaseConfigured()) return { ...getDemoDashboard(), ...(reportingPeriod ? { reportingPeriod } : {}) };
+  if (!isDatabaseConfigured()) {
+    const demo = getDemoDashboard();
+    // A mock rank cannot pass for a paid provider's verified observation.
+    if (source === "dataforseo_serp") for (const keyword of demo.keywords) {
+      keyword.latestRanks = Object.fromEntries(REGION_CODES.map(region => [region, null])) as DashboardKeyword["latestRanks"];
+      keyword.rankingEvidence = Object.fromEntries(REGION_CODES.map(region => [region, [] as RankingEvidence[]])) as NonNullable<DashboardKeyword["rankingEvidence"]>;
+    }
+    return { ...demo, ...(reportingPeriod ? { reportingPeriod } : {}) };
+  }
   const domains = Prisma.join(site === "all" ? SITES : [site]);
-  const splitDaily = Prisma.raw(period === "week" && source !== "dataforseo_labs" ? "true" : "false");
+  const splitDaily = Prisma.raw(period === "week" && !snapshotSource ? "true" : "false");
   // Keyword details also need evidence for active research candidates, including
   // those without a topic. The overview keeps its formal-target cohort.
   const membershipScope = includeResearch
@@ -142,8 +154,9 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
     WHERE o."siteDomain" IN (${domains}) AND o."rankReported" = true
       AND (o.source <> 'dataforseo_labs' OR capture.status = 'COMPLETE')
       AND (o.source = ${source} OR (${source} = 'dataforseo_labs' AND o.source IN ('gsc','ahrefs'))
+        OR (${source} = 'dataforseo_serp' AND o.source IN ('gsc','ahrefs','dataforseo_labs'))
         OR (${source} = 'combined' AND o.source IN ('gsc','ahrefs','dataforseo_labs')))
-      AND (${period === "history"} OR
+      AND (${period === "history" || source === "dataforseo_serp"} OR
         (${source} = 'dataforseo_labs' AND o.source IN ('gsc','ahrefs')) OR
         o.source = 'dataforseo_labs' OR
         (o.source = 'gsc' AND ((o."periodStart" = ${week.start}::date AND o."periodEnd" = ${week.end}::date)
@@ -186,6 +199,7 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
         ARRAY(SELECT DISTINCT a.text FROM "SiteKeywordTopic" s JOIN "Topic" a ON a.id = s."topicId"
           WHERE s."siteDomain" = sk."siteDomain" AND s."keywordId" = k.id ORDER BY a.text) AS "topicTexts"
       FROM "SiteKeyword" sk JOIN "Keyword" k ON k.id = sk."keywordId"
+      JOIN "SeoSite" current_site ON current_site.domain = sk."siteDomain" AND current_site.active = true
       LEFT JOIN "Topic" t ON t.id = sk."topicId"
       WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND ${membershipScope} AND k.active = true
       ORDER BY sk."siteDomain", k.type, k.text
@@ -243,8 +257,9 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
               AND owner."collectedAt" = p."collectedAt" AND capture.status = 'COMPLETE'
               AND capture."siteDomain" = owner."siteDomain" AND capture.region = owner.region AND capture.source = owner.source))
           AND (p.source = ${source} OR (${source} = 'dataforseo_labs' AND p.source IN ('gsc','ahrefs'))
+            OR (${source} = 'dataforseo_serp' AND p.source IN ('gsc','ahrefs','dataforseo_labs'))
             OR (${source} = 'combined' AND p.source IN ('gsc','ahrefs','dataforseo_labs')))
-          AND (${period === "history"} OR
+          AND (${period === "history" || source === "dataforseo_serp"} OR
             (${source} = 'dataforseo_labs' AND p.source IN ('gsc','ahrefs')) OR
             p.source = 'dataforseo_labs' OR
             (p.source = 'gsc' AND ((p."periodStart" = ${week.start}::date AND p."periodEnd" = ${week.end}::date)
@@ -276,7 +291,30 @@ export async function loadDashboard(site: string, source = "dataforseo_labs", pe
         p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
     `),
   ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages"]);
-  return assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
+  const dashboard = assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
     latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null,
     pages, reportingPeriod, source);
+  if (source !== "dataforseo_serp") return dashboard;
+  const cohort = { hash: "", targets: dashboard.keywords.map(keyword => ({
+    keywordId: site === "all" ? keyword.id.slice((keyword.siteDomain?.length ?? 0) + 1) : keyword.id,
+    keyword: keyword.text, siteDomain: keyword.siteDomain!, targetUrls: keyword.targetUrls ?? [],
+  })) };
+  const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort)), REGION_CODES.map(region => `serp:${region}`));
+  for (const snapshot of snapshots) {
+    const results = new Map(snapshot.items.map(item => [`${item.siteDomain}:${item.keywordId}`, item]));
+    for (const keyword of dashboard.keywords) {
+      const id = site === "all" ? keyword.id : `${keyword.siteDomain}:${keyword.id}`, result = results.get(id);
+      // An unmatched or failed new SERP check never falls back to a historic
+      // database hit or an average position from a different source.
+      keyword.latestRanks[snapshot.region] = result ? serpRankSummary(result, keyword.marketVolumes[snapshot.region]) : null;
+      if (result) {
+        const evidence = serpRankingEvidence(result);
+        if (evidence) {
+          keyword.rankingEvidence![snapshot.region].unshift(evidence);
+          if (!keyword.lastSyncedAt || evidence.checkedAt > keyword.lastSyncedAt) keyword.lastSyncedAt = evidence.checkedAt;
+        }
+      }
+    }
+  }
+  return dashboard;
 }

@@ -457,3 +457,76 @@ model DataForSeoRun {
   updatedAt DateTime @updatedAt
   @@index([siteDomain, createdAt(sort: Desc)])
 }
+
+// Independent from the Labs discovery connection: storing credentials never
+// authorizes a paid SERP request. Both this flag and the server kill switch
+// must be explicitly enabled in a later authorized operation.
+model SerpMonitorConfig {
+  id String @id @default("default")
+  region String @default("US")
+  languageCode String @default("en")
+  locationCode Int @default(2840)
+  device String @default("desktop")
+  depth Int @default(100)
+  schedule String @default("SEMI_MONTHLY")
+  intervalDays Int @default(14)
+  paidEnabled Boolean @default(false)
+  maxRunCostMicros Int @default(12000000)
+  maxMonthCostMicros Int @default(30000000)
+  revision Int @default(1)
+  nextDueAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SerpMonitorRun {
+  id String @id
+  periodKey String @unique
+  periodLabel String
+  periodStart DateTime
+  periodEnd DateTime
+  status String @default("PLANNED")
+  cohortHash String
+  cohortJson Json
+  configJson Json
+  queryCount Int
+  targetCount Int
+  estimatedCostMicros Int
+  reservedCostMicros Int
+  actualCostMicros Int?
+  connectionVersion Int
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  errorCode String?
+  tasks SerpMonitorTask[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+}
+
+model SerpMonitorTask {
+  id String @id
+  runId String
+  run SerpMonitorRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  queryKey String
+  keyword String
+  targetsJson Json
+  state String @default("PLANNED")
+  providerTaskId String? @unique
+  requestJson Json
+  // Submission receipt is retained separately from the advanced result.
+  submissionRaw String?
+  rawResponse String?
+  normalizedJson Json?
+  checkedAt DateTime?
+  costMicros Int?
+  errorCode String?
+  submittedAt DateTime?
+  lastPolledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([runId, queryKey])
+  @@index([runId, state])
+  @@index([checkedAt(sort: Desc)])
+}

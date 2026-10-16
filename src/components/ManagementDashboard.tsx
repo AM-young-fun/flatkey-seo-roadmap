@@ -17,6 +17,8 @@ import { useDashboard } from "@/components/useDashboard";
 import type { TopicType } from "@/lib/types";
 import { postImportBatch } from "@/lib/import-client";
 import { KeywordReviewPanel } from "@/components/KeywordReviewPanel";
+import { SerpMonitorPanel } from "@/components/SerpMonitorPanel";
+import { SourceSyncStatus } from "@/components/SourceSyncStatus";
 import { DataforSeoConnection } from "@/components/DataforSeoConnection";
 const initialTopicForm = { text: "", type: "MAIN" as TopicType, parentId: "" };
 type ImportKeywordsResponse = {
@@ -241,7 +243,15 @@ export function ManagementDashboard() {
           </button>
         </div>
       ) : null}
-      <DataforSeoConnection onChanged={loadDashboard} />
+      <SerpMonitorPanel />
+      <SourceSyncStatus />
+      <details className="managementDisclosure">
+        <summary>DataForSEO 连接与历史记录<span>管理 API 凭据、查看旧采集记录</span></summary>
+        <div className="managementDisclosureBody"><DataforSeoConnection onChanged={loadDashboard} /></div>
+      </details>
+      <details className="managementDisclosure advancedManagement">
+        <summary>高级数据管理工具<span>话题、批量导入、关键词审核与导入密钥</span></summary>
+        <div className="managementDisclosureBody">
       <section className="manageWorkspace">
         <form className="topicEditor" onSubmit={submitTopic}>
           <div className="manageCardHeading">
@@ -436,6 +446,8 @@ export function ManagementDashboard() {
           </span>
         </div>
       </section>
+        </div>
+      </details>
     </main>
   );
 }

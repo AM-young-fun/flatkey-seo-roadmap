@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { dashboardStore, DashboardReadError } from "@/lib/dashboard-client";
 
-export function useDashboard(site = "all", source = "dataforseo_labs", includeResearch = false) {
+export function useDashboard(site = "all", source = "dataforseo_serp", includeResearch = false) {
   const key = `${site}:${source}:${includeResearch ? "library" : "formal"}`;
   const [state, setState] = useState(() => ({ key, data: dashboardStore.peek(site, source, includeResearch), error: null as string | null, cached: false }));
   const [version, setVersion] = useState(0);

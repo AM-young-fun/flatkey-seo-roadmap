@@ -1,6 +1,8 @@
-import { keywordRelevance } from "./keyword-relevance";
+import { eligibleSerpTargets } from "./serp-targets";
 import { buildRankingEvidence, latestQueryEvidence, type RankingObservationRow } from "./ranking-evidence";
 import type { SearchRegionCode } from "./seo";
+import { buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpTaskRead, type SerpTrendCohort } from "./serp-results";
+import type { SerpTarget } from "./serp-targets";
 
 export const EARLIEST_TREND_DATE = "2026-10-08";
 
@@ -21,22 +23,72 @@ export type TrendPoint = {
   periodStart: string; periodEnd: string;
   snapshotAt?: string;
   dataDates?: string[];
+  checked?: number;
+  failed?: number;
+  incomplete?: number;
+  queued?: number;
+  periodKey?: string;
+  periodLabel?: string;
+  captureStartAt?: string;
+  captureEndAt?: string;
+  captureDates?: string[];
+  movementSummary?: ReturnType<typeof summarizeSerpMovements>;
+  partialRanked?: number;
 };
-export type TrendResult = { schemaVersion: 3; points: TrendPoint[]; mode: "labs-snapshots"; start: string; end: string; snapshot: null; asOf: string };
+export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string };
 export type TrendKeyword = {
   keywordId: string; text: string; siteDomain: string; active: boolean; keywordActive: boolean;
   siteActive: boolean; topicId: string | null; pool: string;
 };
 
 export function eligibleTrendKeywords(rows: TrendKeyword[]): TrendKeyword[] {
-  const eligible = new Map<string, TrendKeyword>();
-  for (const row of rows) {
-    if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(row.siteDomain) || !row.active || !row.keywordActive || !row.siteActive || !row.topicId) continue;
-    if (row.siteDomain === "flatkey.ai" && row.pool !== "FORMAL") continue;
-    if (keywordRelevance(row.siteDomain, row.text).status === "unrelated") continue;
-    eligible.set(`${row.siteDomain}:${row.keywordId}`, row);
+  return eligibleSerpTargets(rows);
+}
+
+export function serpTrendRange(start?: string, end?: string, now = new Date()) {
+  const last = end ?? trendToday(now), first = start ?? new Date(Date.parse(`${last}T00:00:00Z`) - 89 * 86400000).toISOString().slice(0, 10);
+  const valid = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  if (!valid(first) || !valid(last) || first < "2020-01-01" || first > last || last > trendToday(now)) throw new Error("实测趋势日期范围无效");
+  return { start: first, end: last };
+}
+
+// Only real captures create a reporting-period point. Actual Google capture
+// times stay separate from the monthly 1st/16th reporting boundaries.
+export function serpCheckTrendPoints(targets: SerpTarget[], tasks: SerpTaskRead[], start: string, end: string,
+  options: { cohorts?: SerpTrendCohort[]; site?: string } = {}): TrendPoint[] {
+  const periods = new Map<string, NonNullable<ReturnType<typeof serpTaskPeriod>>>();
+  const frozen = options.cohorts ? new Map(options.cohorts.map(cohort => [cohort.periodKey, cohort])) : null;
+  for (const task of tasks) {
+    if (!task.checkedAt) continue;
+    const checkedAt = new Date(task.checkedAt);
+    if (!Number.isFinite(checkedAt.getTime())) continue;
+    const date = trendToday(checkedAt);
+    if (date < start || date > end) continue;
+    const period = serpTaskPeriod(task);
+    if (period && (!frozen || frozen.has(period.key))) periods.set(period.key, period);
   }
-  return [...eligible.values()];
+  return [...periods].sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, period]) => {
+    const periodTargets = (frozen?.get(key)?.targets ?? targets).filter(target => !options.site || options.site === "all" || target.siteDomain === options.site);
+    const empty = new Map(buildSerpKeywordResults(periodTargets, []).map(item => [`${item.siteDomain}:${item.keywordId}`, item]));
+    const observations = tasks.filter(task => {
+      const taskPeriod = serpTaskPeriod(task);
+      return taskPeriod != null && taskPeriod.key <= key && (!frozen?.has(taskPeriod.key) || frozen.get(taskPeriod.key)?.runId === task.runId);
+    });
+    const items = buildSerpKeywordResults(periodTargets, observations).map(item => item.periodKey === key ? item : empty.get(`${item.siteDomain}:${item.keywordId}`)!);
+    const touched = items.filter(item => item.runId != null);
+    if (!touched.length) return [];
+    const summary = summarizeSerpResults(items);
+    const timestamps = touched.flatMap(item => item.checkedAt ? [item.checkedAt] : []).sort();
+    if (!timestamps.length) return [];
+    const captureStartAt = timestamps[0], captureEndAt = timestamps.at(-1)!;
+    return [{ date: trendToday(new Date(captureEndAt)), periodKey: key, periodLabel: period.label,
+      counts: summary.buckets.map(bucket => bucket.count), sites: [...new Set(periodTargets.map(target => target.siteDomain))].sort(),
+      sources: ["dataforseo_serp"], total: summary.total, ranked: summary.ranked, pending: summary.pending,
+      outside: summary.outside, checked: summary.checked, failed: summary.failed, incomplete: summary.incomplete, queued: summary.queued,
+      periodStart: period.start, periodEnd: period.end, snapshotAt: captureEndAt, captureStartAt, captureEndAt,
+      captureDates: [...new Set(timestamps.map(timestamp => trendToday(new Date(timestamp))))].sort(),
+      dataDates: [...new Set(timestamps)], movementSummary: summarizeSerpMovements(items), partialRanked: summary.partialRanked }];
+  });
 }
 
 export function trendPeriod(date: string) {

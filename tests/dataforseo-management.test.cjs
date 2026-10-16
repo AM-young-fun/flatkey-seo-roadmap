@@ -681,6 +681,7 @@ test("management endpoints require a real enabled cookie session and never accep
   assert.ok(!JSON.stringify(dto).includes(fictional.apiPassword));
   assert.equal((await GET()).status, 200);
   assert.equal((await POST(request({ action: "preview", requestId: "route-preview" }))).status, 200);
+  assert.equal((await POST(request({ action: "update", requestId: "retired-labs-paid", previewToken: "obsolete-preview" }))).status, 410);
   assert.equal(fetched.length, 0);
   delete process.env.LOGIN_PWD;
   assert.equal((await GET()).status, 401);

@@ -2,8 +2,8 @@ import type { RankBucket, SearchRegionCode } from "@/lib/seo";
 
 export type KeywordType = "MAIN" | "LONG_TAIL";
 export type TopicType = "MAIN" | "SUB_TOPIC";
-export type RankingSource = "gsc" | "ahrefs" | "dataforseo_labs";
-export type RankingStatus = "ranked" | "outside_top100" | "no_data";
+export type RankingSource = "gsc" | "ahrefs" | "dataforseo_labs" | "dataforseo_serp";
+export type RankingStatus = "ranked" | "outside_top100" | "no_data" | "pending" | "queued" | "failed" | "incomplete";
 export type RankingReportingPeriod = { start: string; end: string; label: string };
 
 export type RankingPageEvidence = {
@@ -18,7 +18,9 @@ export type RankingPageEvidence = {
   checkedAt: string;
   importedAt: string | null;
   dataUpdatedAt: string | null;
-  serpVerification: "unverified";
+  serpVerification: "unverified" | "verified";
+  rankGroup?: number;
+  rankAbsolute?: number | null;
 };
 
 export type RankingEvidence = {
@@ -39,7 +41,13 @@ export type RankingEvidence = {
   dataUpdatedAt: string | null;
   pages: RankingPageEvidence[];
   daily?: RankingDailyEvidence[];
-  serpVerification: "unverified";
+  serpVerification: "unverified" | "verified";
+  runId?: string | null;
+  providerTaskId?: string | null;
+  googleUrl?: string | null;
+  periodKey?: string | null;
+  periodLabel?: string | null;
+  depthIncomplete?: boolean;
 };
 
 export type RankingDailyEvidence = Omit<RankingPageEvidence, "url"> & {
@@ -77,7 +85,7 @@ export type KeywordVolumeReview = {
 export type RankSummary = {
   dataUpdatedAt?: string | null;
   dataDate?: string | null;
-  serpVerification?: "unverified";
+  serpVerification?: "unverified" | "verified";
   clicks?: number | null;
   impressions?: number | null;
   ctr?: number | null;
@@ -94,6 +102,18 @@ export type RankSummary = {
   previousRank: number | null;
   rankDelta: number | null;
   changed: boolean;
+  runId?: string | null;
+  providerTaskId?: string | null;
+  googleUrl?: string | null;
+  errorCode?: string | null;
+  periodKey?: string | null;
+  periodLabel?: string | null;
+  previousPeriodKey?: string | null;
+  previousPeriodLabel?: string | null;
+  previousRankStatus?: "ranked" | "outside_top100" | null;
+  previousCheckedAt?: string | null;
+  movement?: "UP" | "DOWN" | "UNCHANGED" | "NEW_IN_TOP100" | "DROPPED_OUT" | "FIRST_CHECK" | "NOT_COMPARABLE";
+  depthIncomplete?: boolean;
 };
 
 export type DashboardKeyword = {

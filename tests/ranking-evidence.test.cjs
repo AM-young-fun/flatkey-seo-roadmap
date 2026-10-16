@@ -211,13 +211,13 @@ test("a newer Labs no_data snapshot supersedes an old hit despite missing SERP d
   const evidence=buildRankingEvidence([labsRow(),labsRow({rank:null,rankStatus:"no_data",url:null,dataUpdatedAt:null,collectedAt:new Date("2026-10-16T03:00:00Z")})],[]);
   assert.equal(evidence[0].rank,null);assert.equal(evidence[0].rankStatus,"no_data");assert.equal(evidence[0].dataDate,null);
 });
-test("default dashboard ranks only Labs while retaining raw GSC and Ahrefs history outside its collection week", async () => {
+test("explicit historical Labs view retains raw GSC and Ahrefs history outside its collection week", async () => {
   const originalUrl=process.env.DATABASE_URL;process.env.DATABASE_URL="postgresql://unused.invalid/labs-test";
   const history=row({periodStart:new Date("2026-09-01"),periodEnd:new Date("2026-09-28"),rank:1.4});
   const jp=row({region:"JP",rank:2.6});let sql=[];
   Object.assign(prismaMock,{$queryRaw:async query=>{sql.push(query);if(query.sql.includes("dashboard:keywords"))return[inventory()];if(query.sql.includes("dashboard:ranks"))return[labsRow(),history,jp];return[];},rankingImport:{findFirst:async()=>null},syncRun:{findFirst:async()=>null}});
   try {
-    const data=await loadDashboard("flatkey.ai",undefined,"week",new Date("2026-10-16T04:00:00Z"));const keyword=data.keywords[0];
+    const data=await loadDashboard("flatkey.ai","dataforseo_labs","week",new Date("2026-10-16T04:00:00Z"));const keyword=data.keywords[0];
     assert.equal(keyword.latestRanks.US.source,"dataforseo_labs");assert.equal(keyword.latestRanks.US.rank,12);
     assert.equal(keyword.latestRanks.JP,null);assert.equal(keyword.rankingEvidence.JP[0].source,"gsc");
     assert.equal(keyword.rankingEvidence.US.find(value=>value.source==="gsc").rank,1.4);

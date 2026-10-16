@@ -6,7 +6,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { keywordRankingTag, keywordPageTag } = require("../src/lib/keyword-status-tags.ts");
-const snapshot = (rank, overrides = {}) => ({ source: "dataforseo_labs", rank, rankStatus: rank == null ? "no_data" : "ranked", checkedAt: "2026-10-16T08:00:00Z", ...overrides });
+const snapshot = (rank, overrides = {}) => ({ source: "dataforseo_serp", rank, rankStatus: rank == null ? "no_data" : "ranked", checkedAt: "2026-10-16T08:00:00Z", ...overrides });
 
 test("ranking tags form one exclusive interval at every boundary", () => {
   const expected = [[1, "TOP_10", "前10"], [10, "TOP_10", "前10"], [11, "TOP_30", "前30"], [30, "TOP_30", "前30"],
@@ -25,18 +25,23 @@ test("ranking tags form one exclusive interval at every boundary", () => {
   assert.equal(keywordRankingTag(snapshot(8)).label, "前10");
 });
 
-test("identical no-rank labels distinguish never captured, not returned and confirmed outside in their evidence", () => {
+test("never captured, failed, incomplete and confirmed outside checks have distinct status tags", () => {
   const absent = keywordRankingTag(null), notReturned = keywordRankingTag(snapshot(null)), outside = keywordRankingTag(snapshot(null, { rankStatus: "outside_top100" }));
-  for (const tag of [absent, notReturned, outside, keywordRankingTag(snapshot(101))]) {
-    assert.equal(tag.key, "UNRANKED"); assert.equal(tag.label, "暂无排名");
+  for (const tag of [absent, notReturned]) {
+    assert.equal(tag.key, "PENDING"); assert.equal(tag.label, "待采集");
   }
-  assert.match(absent.tooltip, /尚未抓取/); assert.match(notReturned.tooltip, /本次.*未检出/); assert.match(outside.tooltip, /明确报告前100外/);
-  assert.match(notReturned.tooltip, /不等于确认/);
+  for (const tag of [outside, keywordRankingTag(snapshot(101))]) {
+    assert.equal(tag.key, "UNRANKED"); assert.equal(tag.label, "暂无前100排名");
+  }
+  assert.match(absent.tooltip, /尚无.*SERP/); assert.match(notReturned.tooltip, /不能据此确认/); assert.match(outside.tooltip, /成功核验前100/);
+  for (const [rankStatus, key, label] of [["failed", "FAILED", "采集失败"], ["incomplete", "INCOMPLETE", "采集未完成"], ["queued", "QUEUED", "采集中"]]) {
+    const tag = keywordRankingTag(snapshot(null, { rankStatus })); assert.equal(tag.key, key); assert.equal(tag.label, label);
+  }
 });
 
 test("legacy averages and invalid positions cannot receive a positive ranking tag", () => {
-  for (const source of ["gsc", "ahrefs", "serpapi", undefined]) assert.equal(keywordRankingTag(snapshot(8, { source })).key, "UNRANKED", String(source));
-  for (const rank of [null, undefined, 0, -1, 1.5, 10.1, NaN, Infinity]) assert.equal(keywordRankingTag(snapshot(rank)).key, "UNRANKED", String(rank));
+  for (const source of ["gsc", "ahrefs", "dataforseo_labs", "serpapi", undefined]) assert.equal(keywordRankingTag(snapshot(8, { source })).key, "PENDING", String(source));
+  for (const rank of [null, undefined, 0, -1, 1.5, 10.1, NaN, Infinity]) assert.equal(keywordRankingTag(snapshot(rank)).key, "PENDING", String(rank));
 });
 
 const page = { siteDomain: "flatkey.ai", mappingStatus: "READY", targetUrls: ["https://flatkey.ai/blog/model-api"], candidateUrls: [] };

@@ -3,8 +3,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { eligibleTrendKeywords, labsSnapshotTrendPoints, recentTrendRange, trendRange, type TrendKeyword, type TrendResult } from "@/lib/ranking-trends";
+import { eligibleTrendKeywords, labsSnapshotTrendPoints, recentTrendRange, serpCheckTrendPoints, serpTrendRange, trendRange, type TrendKeyword, type TrendResult } from "@/lib/ranking-trends";
 import type { RankingObservationRow } from "@/lib/ranking-evidence";
+import { loadSerpTasks, loadSerpTrendCohorts } from "@/lib/services/serp-results";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,17 +16,32 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const region = (params.get("region") ?? "US") as SearchRegionCode;
   if (!REGION_CODES.includes(region)) return NextResponse.json({ message: "地区无效" }, { status: 400 });
+  const source = params.get("source") ?? "dataforseo_serp", site = params.get("site") ?? "all";
+  if (!["dataforseo_serp", "dataforseo_labs"].includes(source) || !["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site))
+    return NextResponse.json({ message: "网站或来源无效" }, { status: 400 });
   const now = new Date();
   let range: ReturnType<typeof trendRange>;
   try {
-    const recent = recentTrendRange(now, params.get("end") ?? undefined);
-    range = trendRange(params.get("start") ?? recent.start, params.get("end") ?? recent.end, now);
+    if (source === "dataforseo_serp") range = serpTrendRange(params.get("start") ?? undefined, params.get("end") ?? undefined, now);
+    else {
+      const recent = recentTrendRange(now, params.get("end") ?? undefined);
+      range = trendRange(params.get("start") ?? recent.start, params.get("end") ?? recent.end, now);
+    }
   } catch { return NextResponse.json({ message: "日期范围无效，最早为 2026-10-08，最晚为今天" }, { status: 400 }); }
-  const key = `dataforseo-labs:snapshots-v3:${region}:${range.start}:${range.end}`;
+  const key = `${source}:checks-v4:${site}:${region}:${range.start}:${range.end}`;
   try {
     const saved = cache.get(key);
     if (params.get("refresh") !== "1" && saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });
     if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<TrendResult> => {
+      if (source === "dataforseo_serp") {
+        const [cohorts, tasks] = await Promise.all([
+          loadSerpTrendCohorts(region, range.start, range.end), loadSerpTasks(region, undefined, "desktop", range.start, range.end),
+        ]);
+        const value: TrendResult = { ...range, schemaVersion: 4, mode: "serp-checks", asOf: now.toISOString(),
+          points: serpCheckTrendPoints([], tasks, range.start, range.end, { cohorts, site }), snapshot: null };
+        cache.set(key, { value, expires: Date.now() + 30000 });
+        return value;
+      }
       const candidates = await prisma.$queryRaw<TrendKeyword[]>(Prisma.sql`
         /* labs-trends:cohort */
         SELECT sk."siteDomain", sk."keywordId", k.text, sk.active, k.active AS "keywordActive",

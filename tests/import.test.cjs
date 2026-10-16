@@ -454,9 +454,12 @@ test("display tiers handle all boundaries and cumulative statistics", () => {
   assert.equal(stats.ranked, 4);
   assert.equal(stats.unranked, 2);
   assert.equal(stats.pending, 1);
+  assert.equal(stats.outside, 1);
+  assert.equal(stats.checked, 5);
   assert.equal(
     stats.buckets.reduce((sum, row) => sum + row.count, 0),
-    6,
+    5,
+    "pending terms are not included in the confirmed no-ranking bucket",
   );
   assert.equal(rankingStats([], "US").percent(0), 0);
 });
