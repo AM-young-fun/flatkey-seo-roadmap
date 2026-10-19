@@ -36,6 +36,6 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
   return <div className="collectionProgress" role="status" aria-label="本轮排名采集进度">
     <div className="collectionProgressHeading"><strong>Flatkey · {progress.periodLabel} · {active ? "采集中" : complete ? "已完成" : "采集需处理"}</strong><span>{progress.completedQueries.toLocaleString()} / {progress.totalQueries.toLocaleString()} 次查询已完成</span></div>
     <div className="collectionProgressTrack" role="progressbar" aria-label="四国查询完成进度" aria-valuemin={0} aria-valuemax={progress.totalQueries} aria-valuenow={progress.completedQueries}><i style={{width:`${progress.totalQueries ? progress.completedQueries/progress.totalQueries*100 : 0}%`}} /></div>
-    <p>四国均完成 {progress.completedKeywords.toLocaleString()} / {progress.totalKeywords.toLocaleString()} 词{active ? ` · 待提交 ${progress.plannedQueries.toLocaleString()} · 等待返回 ${progress.waitingQueries.toLocaleString()}${progress.processingQueries ? ` · 正在整理 ${progress.processingQueries}` : ""}` : ""}{progress.failedQueries ? ` · 异常 ${progress.failedQueries}` : ""}{failed ? " · 进度更新暂时中断" : ""}</p>
+    <p>已完成四国查询：{progress.completedKeywords.toLocaleString()} / {progress.totalKeywords.toLocaleString()} 词{active ? ` · 待提交 ${progress.plannedQueries.toLocaleString()} · 等待返回 ${progress.waitingQueries.toLocaleString()}${progress.processingQueries ? ` · 正在整理 ${progress.processingQueries}` : ""}` : ""}{progress.failedQueries ? ` · 异常 ${progress.failedQueries}` : ""}{failed ? " · 进度更新暂时中断" : ""}</p>
   </div>;
 }
