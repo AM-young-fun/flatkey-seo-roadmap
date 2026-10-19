@@ -1,3 +1,5 @@
+import { timedRead } from "./read-profile";
+
 const TRANSIENT_ERRORS = new Set(["P1001", "P1002", "P1017", "P2024"]);
 const readPhases = new WeakMap<object, string>();
 
@@ -65,7 +67,7 @@ export async function retryDatabaseRead<T>(read: () => Promise<T>): Promise<T> {
 // Wait for every scheduled read before retrying, so failed requests do not
 // leave a second wave of queries competing with the retry for pool slots.
 export async function settleReads<T extends unknown[]>(tasks: [...{ [K in keyof T]: Promise<T[K]> }], phases?: readonly string[]): Promise<T> {
-  const results = await Promise.allSettled(tasks);
+  const results = await Promise.allSettled(tasks.map((task, index) => phases?.[index] ? timedRead(`database.${phases[index]}`, () => task) : task));
   const failedIndex = results.findIndex((result) => result.status === "rejected");
   const rejected = results[failedIndex];
   if (rejected?.status === "rejected") {

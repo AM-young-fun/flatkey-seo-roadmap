@@ -10,6 +10,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const cache = new Map<string, { value: DashboardResponse; expiresAt: number }>();
 const pending = new Map<string, Promise<DashboardResponse>>();
+const compactPayload = (value: DashboardResponse, compact: boolean) => !compact ? value : { ...value, keywords: value.keywords.map(keyword => {
+  const { volumeReview, ...row } = keyword;
+  return { ...row, volumeReviewLabel: volumeReview?.label };
+}) };
 
 export async function GET(request?: Request) {
   const started = performance.now();
@@ -33,7 +37,9 @@ export async function GET(request?: Request) {
   try {
     if (params.get("profile") === "1") {
       const { value, ...timing } = await profileRead(() => retryDatabaseRead(() => loadDashboard(site, source, period, new Date(), includeResearch, { currentOnly, keywordId })));
-      return NextResponse.json({ ...timing, payloadBytes: Buffer.byteLength(JSON.stringify(value)), keywords: value.keywords.length, topics: value.topics.length }, { headers: { "Cache-Control": "private, no-store" } });
+      const payload = compactPayload(value, compact);
+      return NextResponse.json({ ...timing, payloadBytes: Buffer.byteLength(JSON.stringify(payload)), keywords: value.keywords.length, topics: value.topics.length,
+        fieldBytes: Object.fromEntries(["latestRanks", "rankingEvidence", "targetUrls"].map(field => [field, Buffer.byteLength(JSON.stringify(payload.keywords.map(keyword => keyword[field as keyof typeof keyword])))])) }, { headers: { "Cache-Control": "private, no-store" } });
     }
     const cached = cache.get(key);
     const hit = params.get("refresh") !== "1" && Boolean(cached && cached.expiresAt > Date.now());
@@ -45,10 +51,7 @@ export async function GET(request?: Request) {
     const value = hit ? cached!.value : await pending.get(key);
     // The browser displays the review label only. Keep full regional review
     // details available to collectors without repeating them for every row.
-    const payload = compact && value ? { ...value, keywords: value.keywords.map(keyword => {
-      const { volumeReview, ...row } = keyword;
-      return { ...row, volumeReviewLabel: volumeReview?.label };
-    }) } : value;
+    const payload = value ? compactPayload(value, compact) : value;
     return NextResponse.json(payload, { headers: {
       "Cache-Control": "private, no-store",
       "Server-Timing": `dashboard;dur=${(performance.now() - started).toFixed(1)};desc="${hit ? "cache" : "database"}"`,

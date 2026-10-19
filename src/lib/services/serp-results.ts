@@ -65,7 +65,18 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
   return timedRead(`serp.tasks.${region}.${historical ? "history" : "current"}`, () => prisma.$queryRaw<SerpTaskRead[]>(Prisma.sql`
     /* serp-monitor:results */
     WITH market_tasks AS (
-      SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, t."normalizedJson", t."checkedAt",
+      SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, CASE WHEN t."normalizedJson" IS NOT NULL THEN jsonb_build_object(
+        'normalizationVersion', t."normalizedJson"->'normalizationVersion', 'captureComplete', t."normalizedJson"->'captureComplete',
+        'organicCount', t."normalizedJson"->'organicCount', 'coveredThroughRank', t."normalizedJson"->'coveredThroughRank',
+        'queryStatus', t."normalizedJson"->'queryStatus', 'correctedKeyword', t."normalizedJson"->'correctedKeyword',
+        'spellType', t."normalizedJson"->'spellType', 'pagesCount', t."normalizedJson"->'pagesCount',
+        'completeDepth', t."normalizedJson"->'completeDepth', 'rankingVerified', t."normalizedJson"->'rankingVerified', 'maxOrganicRank', t."normalizedJson"->'maxOrganicRank',
+        'checkedAt', t."normalizedJson"->'checkedAt', 'googleUrl', t."normalizedJson"->'googleUrl',
+        'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(t."normalizedJson"->'organicResults') = 'array' THEN t."normalizedJson"->'organicResults' ELSE '[]'::jsonb END
+        ) item WHERE item->>'domain' IN ('flatkey.ai','rackrate.org','modelfit.cc') OR
+          item->>'domain' LIKE '%.flatkey.ai' OR item->>'domain' LIKE '%.rackrate.org' OR item->>'domain' LIKE '%.modelfit.cc'), '[]'::jsonb)
+      ) END AS "normalizedJson", t."checkedAt",
         t."providerTaskId", t."errorCode", t."updatedAt", r."createdAt" AS "runCreatedAt",
         r."periodKey", r."periodLabel", r."periodStart", r."periodEnd", r.scope AS "runScope", r."targetCount" AS "runTargetCount"
       FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
@@ -98,34 +109,23 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
       ) AS n FROM expanded_tasks WHERE verified AND
         ("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date < ${start ?? "1970-01-01"}::date
     ), ranked_tasks AS (
-      SELECT t.*, ROW_NUMBER() OVER w AS n
+      SELECT t.id, ROW_NUMBER() OVER w AS n
       FROM expanded_tasks t WINDOW w AS (PARTITION BY region, "targetSite", "targetKeyword" ORDER BY "periodKey" DESC, "runCreatedAt" DESC, "updatedAt" DESC, id DESC ROWS UNBOUNDED PRECEDING)
     ), selected_tasks AS (
-      SELECT DISTINCT id FROM ranked_tasks WHERE
-        (${historical} AND (("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date >= ${start ?? "1970-01-01"}::date
-          OR ("checkedAt" IS NULL AND "periodEnd" >= ${start ?? "1970-01-01"}::date) OR (verified AND EXISTS (
-            SELECT 1 FROM prior_verified_periods p WHERE p.id = ranked_tasks.id AND p."targetSite" = ranked_tasks."targetSite"
-              AND p."targetKeyword" = ranked_tasks."targetKeyword" AND p.n <= 2
-          )))) OR
-        (${!historical} AND (n = 1 OR (verified AND EXISTS (
-          SELECT 1 FROM verified_periods p WHERE p.id = ranked_tasks.id AND p."targetSite" = ranked_tasks."targetSite"
-            AND p."targetKeyword" = ranked_tasks."targetKeyword" AND p.n <= 2
-        ))))
+      SELECT id FROM ranked_tasks WHERE ${!historical} AND n = 1
+      UNION
+      SELECT id FROM verified_periods WHERE ${!historical} AND n <= 2
+      UNION
+      SELECT id FROM expanded_tasks WHERE ${historical} AND (
+        ("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date >= ${start ?? "1970-01-01"}::date
+        OR ("checkedAt" IS NULL AND "periodEnd" >= ${start ?? "1970-01-01"}::date)
+      )
+      UNION
+      SELECT id FROM prior_verified_periods WHERE ${historical} AND n <= 2
     )
     SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."errorCode", t."runCreatedAt", t."updatedAt",
       t."periodKey", t."periodLabel", t."periodStart", t."periodEnd", t."runScope", t."runTargetCount",
-      CASE WHEN t."normalizedJson" IS NOT NULL THEN jsonb_build_object(
-        'normalizationVersion', t."normalizedJson"->'normalizationVersion', 'captureComplete', t."normalizedJson"->'captureComplete',
-        'organicCount', t."normalizedJson"->'organicCount', 'coveredThroughRank', t."normalizedJson"->'coveredThroughRank',
-        'queryStatus', t."normalizedJson"->'queryStatus', 'correctedKeyword', t."normalizedJson"->'correctedKeyword',
-        'spellType', t."normalizedJson"->'spellType', 'pagesCount', t."normalizedJson"->'pagesCount',
-        'completeDepth', t."normalizedJson"->'completeDepth', 'rankingVerified', t."normalizedJson"->'rankingVerified', 'maxOrganicRank', t."normalizedJson"->'maxOrganicRank',
-        'checkedAt', t."normalizedJson"->'checkedAt', 'googleUrl', t."normalizedJson"->'googleUrl',
-        'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements(
-          CASE WHEN jsonb_typeof(t."normalizedJson"->'organicResults') = 'array' THEN t."normalizedJson"->'organicResults' ELSE '[]'::jsonb END
-        ) item WHERE item->>'domain' IN ('flatkey.ai','rackrate.org','modelfit.cc') OR
-          item->>'domain' LIKE '%.flatkey.ai' OR item->>'domain' LIKE '%.rackrate.org' OR item->>'domain' LIKE '%.modelfit.cc'), '[]'::jsonb)
-      ) END AS "normalizedJson"
+      t."normalizedJson"
     FROM market_tasks t JOIN selected_tasks selected ON selected.id = t.id
     ORDER BY t."runCreatedAt" DESC, t."updatedAt" DESC, t.id DESC
   `));

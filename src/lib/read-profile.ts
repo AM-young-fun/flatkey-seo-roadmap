@@ -16,5 +16,7 @@ export async function timedRead<T>(phase: string, read: () => Promise<T>): Promi
 export async function profileRead<T>(read: () => Promise<T>) {
   const phases: ReadTiming[] = [], started = performance.now();
   const value = await profiles.run(phases, read);
-  return { value, durationMs: Math.round((performance.now() - started) * 10) / 10, phases };
+  let databaseRegion: string | null = null;
+  try { databaseRegion = new URL(process.env.DATABASE_URL ?? "").hostname.match(/\b((?:af|ap|ca|eu|il|me|mx|sa|us)-(?:[a-z]+-){1,2}\d)\./)?.[1] ?? null; } catch { /* Never expose a connection string. */ }
+  return { value, durationMs: Math.round((performance.now() - started) * 10) / 10, phases, applicationRegion: process.env.VERCEL_REGION ?? "local", databaseRegion };
 }
