@@ -49,3 +49,13 @@ export function keywordRankingTag(summary: Pick<RankSummary, "source" | "rank" |
   return outside ? { key: "UNRANKED", label: "暂无前100排名", color: "default", tooltip: "本轮已成功核验前100个自然结果，未找到本站页面；此标签不表示网页未收录。" }
     : { key: "PENDING", label: "待采集", color: "default", tooltip: "尚无本轮有效的 SERP 实测结果，不能据此确认没有排名。" };
 }
+
+// Keep collection diagnostics in the evidence view, separate from ranking results.
+export function keywordRankingResultTag(summary: Parameters<typeof keywordRankingTag>[0]):
+  { key: "TOP_10" | "TOP_30" | "TOP_50" | "TOP_100" | "UNRANKED" | "UNKNOWN"; label: string; color: string; tooltip: string } {
+  const tag = keywordRankingTag(summary);
+  switch (tag.key) {
+    case "TOP_10": case "TOP_30": case "TOP_50": case "TOP_100": case "UNRANKED": return { ...tag, key: tag.key };
+    default: return { key: "UNKNOWN", label: "暂无排名数据", color: "default", tooltip: tag.tooltip };
+  }
+}

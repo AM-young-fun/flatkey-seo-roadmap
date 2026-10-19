@@ -1,10 +1,9 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as echarts from "echarts";
-import Link from "next/link";
 import { REGION_CODES, REGIONS } from "@/lib/seo";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
-import { EARLIEST_TREND_DATE, marketTrendCount, multiRegionTrendPeriods, trendToday, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
+import { EARLIEST_TREND_DATE, marketTrendCount, trendToday, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
 
@@ -38,10 +37,8 @@ export function RankingTrend() {
   const [version, retry] = useState(0);
   const element = useRef<HTMLDivElement>(null);
   const markets = result?.key === key ? result.markets : null;
-  const periods = useMemo(() => multiRegionTrendPeriods(markets ?? []), [markets]);
   const points = result?.key === key ? result.points : null;
   const latest = points?.at(-1);
-  const latestCountries = periods.find(period => period.key === (latest?.periodKey ?? latest?.date)) ?? periods.at(-1);
   const failed = markets?.filter(market => market.status === "ERROR") ?? [];
   const hasPoints = points?.some(point => marketTrendCount(point) !== null) ?? false;
   useEffect(() => {
@@ -119,16 +116,10 @@ export function RankingTrend() {
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [points, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>每期排名趋势</h2><p className="chartNote">四国汇总 · 同一关键词只计一次 · 每月两期</p></div><Link href="/manage" className="textLink">管理采集计划 →</Link></div>
+    <div className="dailyHeading"><div><h2>每期排名趋势</h2><p className="chartNote">四国汇总 · 同一关键词只计一次 · 每月两期</p></div></div>
     {latest ? <p className="inventoryTrendTotal">{latest.periodLabel ?? latest.date} · 已查 <strong>{captured(latest).toLocaleString()}</strong> 词 · 检出前100排名 <strong>{latest.ranked.toLocaleString()}</strong> 词</p> : null}
     {error || failed.length ? <div className="loadError"><span>{error ? "趋势暂时无法读取" : `${failed.map(market => REGIONS[market.region].label).join("、")}趋势暂时无法读取`}</span><button onClick={() => retry(value => value + 1)}>重新加载</button></div> : null}
-    {!markets ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "尚无有效排名快照，采集完成后显示总趋势。"}</p> : <><div ref={element} className="rankingTrend" role="img" aria-label="四国汇总关键词总趋势，跨网站和国家去重，每词取最佳有效自然排名" /><p className="chartNote">跨网站与四国按关键词去重，取最佳有效自然排名；各区间互不重叠。未采集的期次不补零。</p></>}
-    {latestCountries ? <details className="simpleExplanation"><summary>查看最新一期各国明细与采集时间</summary><div className="serpPeriodTable"><table><thead><tr><th>国家 / 实测时间</th><th>当期词库 / 已采集</th><th>前10</th><th>11–30</th><th>31–50</th><th>51–100</th><th>前100合计</th><th>前100词数变化</th></tr></thead><tbody>{REGION_CODES.map(region => {
-      const point = latestCountries.points[region], count = marketTrendCount(point), failedMarket = failed.some(market => market.region === region);
-      const previous = markets?.find(market => market.region === region)?.points?.filter(item => (item.periodKey ?? item.date) < latestCountries.key && marketTrendCount(item) !== null).at(-1);
-      const difference = count !== null && previous ? count - previous.ranked : null;
-      return <tr key={region}><td><strong>{REGIONS[region].label}</strong><small>{failedMarket ? "读取失败" : captureTime(point)}</small></td><td>{point ? `${point.total} / ${captured(point)}` : "—"}</td>{[0, 1, 2, 3].map(index => <td key={index}>{count === null ? "—" : point!.counts[index]}</td>)}<td>{count ?? "—"}</td><td>{difference === null ? "暂无可比基线" : `${difference > 0 ? "+" : ""}${difference} 词`}</td></tr>;
-    })}</tbody></table></div></details> : null}
-    <details className="movementDetails"><summary>数据说明</summary><p className="chartNote">总趋势把四国和各网站的同名关键词合并，每词按最佳有效自然排名计入一个区间。各期使用当时冻结词库去重后的关键词数，历史基线不会随当前词库变动。四国分项保留在上方折叠表中。只使用DataForSEO SERP自然排名；未查询、失败、纠词和异常结果不算无排名。新采集仅包含页面就绪的正式词，全量付费定时仍未开启。</p></details>
+    {!markets ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "尚无有效排名快照，采集完成后显示总趋势。"}</p> : <><div ref={element} className="rankingTrend" role="img" aria-label="四国汇总关键词总趋势，跨网站和国家去重，每词取最佳有效自然排名" /></>}
+
   </section>;
 }

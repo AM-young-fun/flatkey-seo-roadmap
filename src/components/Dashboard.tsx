@@ -1,8 +1,6 @@
 "use client";
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { RankingTrend } from "@/components/RankingTrend";
-import { ArrowUpRight } from "lucide-react";
 import { KeywordGraph } from "@/components/KeywordGraph";
 import { PageHeader } from "@/components/PageHeader";
 import { useDashboard } from "@/components/useDashboard";
@@ -35,13 +33,10 @@ function KeywordNetwork() {
         <article className="graphPanel">
           <div className="panelHeader">
             <div>
-              <h2>关键词关系图</h2>
+              <h2>业务词库关系图</h2>
               <p>按四国最佳排名着色，缩放或悬停查看关联</p>
             </div>
-            <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label><Link href="/keywords" className="textLink">
-              查看明细
-              <ArrowUpRight size={15} />
-            </Link></div>
+            <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label></div>
           </div>
           <p className="chartNote">{ready ? graphKeywords.length.toLocaleString() : "—"} 个{graphSearch ? "匹配" : "业务"}关键词 · 已去重</p>
           <div className="rankLegend">
@@ -64,7 +59,6 @@ function KeywordNetwork() {
 }
 
 export function Dashboard() {
-  const [graphOpen, setGraphOpen] = useState(true);
   return (
     <main className="appShell">
       <PageHeader active="overview" />
@@ -72,11 +66,7 @@ export function Dashboard() {
       <SerpOverview site="all" />
       <RankingTrend />
 
-      <details className="simpleDisclosure keywordGraphDisclosure" open={graphOpen} onToggle={event => setGraphOpen(event.currentTarget.open)}><summary>业务词库关系图</summary>{graphOpen ? <KeywordNetwork /> : null}</details>
-      <footer className="overviewFooter">
-        <span>排名来自DataForSEO SERP实测；Labs、GSC、Ahrefs历史记录不计入主排名。</span>
-        <span>地区、采集时间及各排名页面详见关键词明细</span>
-      </footer>
+      <KeywordNetwork />
     </main>
   );
 }

@@ -6,7 +6,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
 const { groupKeywordDetails, keywordDetailCountryRanks, bestKeywordDetailRank, keywordDetailBestPosition } = require("../src/lib/keyword-details-group.ts");
-const { keywordRankingTag } = require("../src/lib/keyword-status-tags.ts");
+const { keywordRankingTag, keywordRankingResultTag } = require("../src/lib/keyword-status-tags.ts");
 const rank = (position, overrides = {}) => ({ source: "dataforseo_serp", rankStatus: "ranked", rank: position,
   checkedAt: "2026-10-16T02:30:00Z", url: "https://flatkey.ai/", ...overrides });
 const member = (id, siteDomain, text, latestRanks = {}) => ({ id: `${siteDomain}:${id}`, siteDomain, text,
@@ -61,4 +61,22 @@ test("autocorrect, failed captures and legacy averages never become sortable pos
     assert.equal(keywordDetailBestPosition(group, "all"), null);
     assert.notEqual(keywordRankingTag(bestKeywordDetailRank(group, "all")?.rank).key, "UNRANKED");
   }
+});
+
+test("ranking filters hide collection diagnostics without treating missing data as no ranking", () => {
+  for (const rankStatus of ["pending", "queued", "failed", "incomplete", "query_changed", "not_found_capture"]) {
+    const input = rank(null, { rankStatus });
+    const tag = keywordRankingResultTag(input);
+    assert.equal(tag.key, "UNKNOWN", rankStatus);
+    assert.equal(tag.label, "暂无排名数据");
+    assert.equal(tag.tooltip, keywordRankingTag(input).tooltip, "diagnostic evidence stays available");
+  }
+  assert.equal(keywordRankingResultTag(null).key, "UNKNOWN");
+  for (const [value, key] of [[1, "TOP_10"], [10, "TOP_10"], [11, "TOP_30"], [30, "TOP_30"], [31, "TOP_50"], [50, "TOP_50"], [51, "TOP_100"], [100, "TOP_100"]]) {
+    assert.equal(keywordRankingResultTag(rank(value)).key, key);
+  }
+  const outside = rank(null, { rankStatus: "outside_top100" });
+  const [partial] = groupKeywordDetails([member("a", "flatkey.ai", "same", { US: outside })]);
+  assert.equal(keywordRankingResultTag(bestKeywordDetailRank(partial, "US")?.rank).key, "UNRANKED");
+  assert.equal(keywordRankingResultTag(bestKeywordDetailRank(partial, "all")?.rank).key, "UNKNOWN");
 });
