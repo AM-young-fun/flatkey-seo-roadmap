@@ -93,32 +93,84 @@ function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
   </section>;
 }
 
+type ComparisonRow = { name: string; current: number; previous: number; detail?: string };
+function PeriodBarsTable({ rows, label, heading, complete }: { rows: ComparisonRow[]; label: string; heading: string; complete: boolean }) {
+  const maximum = Math.max(1, ...rows.flatMap(row => [row.current, row.previous]));
+  return <div className="channelChart" role="table" aria-label={label}>
+    <div className="channelChartRow channelChartHead" role="row"><span role="columnheader">{heading}</span><span role="columnheader" className="channelPeriodLegend"><span><i />上期</span><span><i />本期</span></span><span role="columnheader">增减人数</span><span role="columnheader">环比</span></div>
+    {rows.map(row => {
+      const difference = row.current - row.previous;
+      const rateLabel = !complete ? "—" : row.previous === 0 ? row.current > 0 ? "新增" : "0.0%" : change(relativeChange(row.current, row.previous));
+      const tone = complete ? difference > 0 ? "increase" : difference < 0 ? "decrease" : "" : "";
+      return <div className="channelChartRow" role="row" key={row.name}>
+        <span role="rowheader" className="channelName" title={row.detail}>{row.name}</span>
+        <div role="cell" className="channelPairedBars" aria-label={`上期 ${row.previous} 人，本期 ${row.current} 人`}>
+          {(["previous", "current"] as const).map(key => <div key={key} className={`channelBar ${key}`}><span><i style={{ width: `${row[key] / maximum * 100}%`, minWidth: row[key] ? 2 : 0 }} /></span><b>{row[key].toLocaleString()}</b></div>)}
+        </div>
+        <strong role="cell" className={`reportDelta ${tone}`}>{complete ? delta(difference) : "—"}</strong>
+        <span role="cell" className={`channelRate reportDelta ${tone}`}>{rateLabel}</span>
+      </div>;
+    })}
+  </div>;
+}
+
+function WeeklyChannelComparison({ evidence, period }: { evidence: WeeklyTrafficEvidence; period?: string }) {
+  const [metric, setMetric] = useState<"newUsers" | "registrations">("newUsers");
+  const names: Record<string, string> = { Direct: "直接访问", "Paid Search": "付费搜索", "Organic Search": "自然搜索", Referral: "外部推荐", "Organic Social": "自然社交", Unassigned: "未归类", "AI Assistant": "AI 助手", "Cross-network": "跨广告网络", "Organic Video": "自然视频", "Paid Social": "付费社交", "Paid Other": "其他付费" };
+  const channels = evidence.channels.map(channel => ({ name: names[channel.name] ?? channel.name, ...channel[metric] }))
+    .sort((a, b) => Math.max(b.current, b.previous) - Math.max(a.current, a.previous));
+  const remaining = channels.slice(5);
+  const rows = channels.slice(0, 5).map(row => ({ ...row, detail: row.name }));
+  if (remaining.length) rows.push({ name: "其他渠道", current: remaining.reduce((sum, row) => sum + row.current, 0), previous: remaining.reduce((sum, row) => sum + row.previous, 0), detail: remaining.map(row => `${row.name}：${row.previous} → ${row.current}`).join("；") });
+  return <section className="dailyPanel channelDashboard" aria-label="渠道对比">
+    <div className="dailyHeading"><div><h2>渠道对比</h2><p className="chartNote">Flatkey · 首次来源{period ? ` · ${period}` : ""}</p></div>
+      <div className="channelMetricSwitch" role="group" aria-label="渠道对比指标">{([{ key: "newUsers", label: "新用户" }, { key: "registrations", label: "注册用户" }] as const).map(item => <button key={item.key} type="button" aria-pressed={metric === item.key} onClick={() => setMetric(item.key)}>{item.label}</button>)}</div>
+    </div>
+    <PeriodBarsTable rows={rows} label={`${metric === "newUsers" ? "新用户" : "注册用户"}渠道环比`} heading="渠道" complete={evidence.complete} />
+  </section>;
+}
+
+function WeeklyFunnelComparison({ evidence }: { evidence: WeeklyTrafficEvidence }) {
+  const [path, setPath] = useState<"overall" | "form">("overall");
+  const funnel = path === "form" ? evidence.formFunnel : evidence.newVisitorFunnel;
+  if (!funnel) return null;
+  const rows = funnel.current.map((step, index) => ({ name: step.name, current: step.users, previous: funnel.previous[index]?.users ?? 0 }));
+  const currentRate = registrationRate(rows[0].current, rows.at(-1)!.current);
+  const previousRate = registrationRate(rows[0].previous, rows.at(-1)!.previous);
+  const points = currentRate != null && previousRate != null && evidence.complete ? (currentRate - previousRate) * 100 : null;
+  return <section className="dailyPanel channelDashboard funnelDashboard" aria-label="注册漏斗对比">
+    <div className="dailyHeading"><div><h2>新访客注册漏斗</h2><p className="chartNote">同一批新访客 · 按步骤先后统计</p></div>
+      {evidence.formFunnel ? <div className="channelMetricSwitch" role="group" aria-label="注册路径"><button type="button" aria-pressed={path === "overall"} onClick={() => setPath("overall")}>整体注册</button><button type="button" aria-pressed={path === "form"} onClick={() => setPath("form")}>表单路径</button></div> : null}
+    </div>
+    <div className="funnelRateSummary" aria-label="首次访问到注册成功的转化率"><span>注册转化率</span><div><small>上期</small><strong>{pct(previousRate)}</strong></div><span className="funnelRateArrow">→</span><div><small>本期</small><strong>{pct(currentRate)}</strong></div><b className={`reportDelta ${points != null ? points > 0 ? "increase" : points < 0 ? "decrease" : "" : ""}`}>{points == null ? "—" : `${points > 0 ? "+" : ""}${points.toFixed(2)} 个百分点`}</b></div>
+    <PeriodBarsTable rows={rows} label="注册步骤人数对比" heading="步骤" complete={evidence.complete} />
+    {path === "form" ? <p className="chartNote funnelScope">仅统计经过表单的路径，不含全部登录方式；表单事件可能包含其他站内表单。</p> : null}
+  </section>;
+}
+
 function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
   const evidence = data?.evidence;
   if (!evidence) return null;
-  const names: Record<string, string> = { Direct: "直接访问", "Paid Search": "付费搜索", "Organic Search": "自然搜索", Referral: "外部推荐", "Organic Social": "自然社交", Unassigned: "未归类", "AI Assistant": "AI 助手", "Cross-network": "跨广告网络", "Organic Video": "自然视频", "Paid Social": "付费社交", "Paid Other": "其他付费" };
-  const funnel = evidence.newVisitorFunnel;
   return <>
-    <section className="dailyPanel"><h2>流量与注册来自哪里</h2><p className="chartNote">Flatkey · 按首次来源渠道 · 注册为去重人数{data?.draft ? ` · ${data.draft.comparisonPeriods.current.start}—${data.draft.comparisonPeriods.current.end} 对比 ${data.draft.comparisonPeriods.previous.start}—${data.draft.comparisonPeriods.previous.end}` : !evidence.complete ? " · 本周更新中，暂不计算环比" : ""}</p>
-      <div className="siteTrafficTable"><table><thead><tr><th>渠道</th><th>上期新用户</th><th>本期新用户</th><th>上期注册</th><th>本期注册</th><th>注册变化</th></tr></thead><tbody>{evidence.channels.map(row => <tr key={row.name}><th>{names[row.name] ?? row.name}</th><td>{row.newUsers.previous}</td><td>{row.newUsers.current}</td><td>{row.registrations.previous}</td><td>{row.registrations.current}</td><td className={row.registrations.current < row.registrations.previous ? "metricDecrease" : "metricIncrease"}>{evidence.complete ? delta(row.registrations.current - row.registrations.previous) : "—"}</td></tr>)}</tbody></table></div>
-    </section>
-    {funnel ? <section className="dailyPanel"><h2>新访客注册漏斗</h2><p className="chartNote">GA4 按事件先后顺序统计 · 同一批首次访客 · 与全部注册人数口径不同</p><div className="siteTrafficTable"><table><thead><tr><th>路径</th><th>上期人数</th><th>本期人数</th><th>变化</th></tr></thead><tbody>{funnel.current.map((row,index)=><tr key={row.name}><th>{row.name}</th><td>{funnel.previous[index].users}</td><td>{row.users}</td><td>{delta(row.users - funnel.previous[index].users)}</td></tr>)}<tr><th>首次访问 → 注册成功</th><td>{pct(funnel.previous[0].completionRate)}</td><td>{pct(funnel.current[0].completionRate)}</td><td>{((funnel.current[0].completionRate! - funnel.previous[0].completionRate!) * 100).toFixed(2)} 个百分点</td></tr></tbody></table></div>
-      {evidence.formFunnel ? <div className="siteTrafficTable"><table><thead><tr><th>经过表单的路径</th><th>上期人数</th><th>本期人数</th></tr></thead><tbody>{evidence.formFunnel.current.map((row,index)=><tr key={row.name}><th>{row.name}</th><td>{evidence.formFunnel!.previous[index].users}</td><td>{row.users}</td></tr>)}</tbody></table></div> : null}
-      <p className="chartNote">表单路径不覆盖全部登录方式，form_start / form_submit 也可能包含站内其他表单。</p>
-    </section> : null}
+    <WeeklyChannelComparison evidence={evidence} period={data?.draft ? `${data.draft.comparisonPeriods.current.start}—${data.draft.comparisonPeriods.current.end} 对比 ${data.draft.comparisonPeriods.previous.start}—${data.draft.comparisonPeriods.previous.end}` : !evidence.complete ? "本周更新中，暂不计算环比" : undefined} />
+    {evidence.newVisitorFunnel ? <WeeklyFunnelComparison evidence={evidence} /> : null}
     {evidence.search?.decliningPages.length ? <section className="dailyPanel"><h2>自然搜索点击下降页面</h2><p className="chartNote">GSC 全站七天对比 · 点击下降与关键词跌出排名分别判断</p><div className="siteTrafficTable"><table><thead><tr><th>页面</th><th>上期点击</th><th>本期点击</th><th>平均位置：上期 → 本期</th></tr></thead><tbody>{evidence.search.decliningPages.map(page=><tr key={page.url}><td><a href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</a></td><td>{page.clicks.previous}</td><td>{page.clicks.current}</td><td>{page.position.previous ?? "—"} → {page.position.current ?? "—"}</td></tr>)}</tbody></table></div></section> : null}
   </>;
 }
 
-function WeeklySummary({ data }: { data: InsightData | null }) {
-  const traffic = data?.traffic, ranks = data?.comparison, ranking = data?.ranking;
-  const trafficChange = traffic?.comparable && traffic.current && traffic.previous
-    ? `新用户 ${delta(traffic.current.newUsers - traffic.previous.newUsers)} 人（${change(traffic.changes.newUsers)}），注册用户 ${delta(traffic.current.newRegistrations - traffic.previous.newRegistrations)} 人（${change(traffic.changes.newRegistrations)}）。${traffic.changes.ratePoints != null ? `注册人数 / 新用户数${traffic.changes.ratePoints < 0 ? "下降" : "上升"} ${Math.abs(traffic.changes.ratePoints).toFixed(2)} 个百分点。` : ""}`
-    : data?.draft ? `完整周尚未结束。已结束同星期区间内，新用户 ${delta(data.draft.evidence.totals.current.newUsers-data.draft.evidence.totals.previous.newUsers)} 人，注册 ${delta(data.draft.evidence.totals.current.newRegistrations-data.draft.evidence.totals.previous.newRegistrations)} 人；上述原因排查仅针对该等长区间，完整周结论待补齐。` : data ? traffic?.complete === false ? "本期流量尚未整理完成，暂不计算完整周环比。" : "两期流量数据尚不可比，暂不计算增减。" : "正在读取流量数据…";
-  const largest = ranks?.buckets.filter(row => row.delta !== 0).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))[0];
-  const rankChange = ranking?.waiting ? "关键词采集中，完成后更新总结。" : ranking?.baseline ? `首次基线：${ranks?.current ?? 0} 个有排名的关键词全部计为新增。` : ranking?.noNewCapture ? "本周未安排新的关键词采集，排名数据沿用最近一期，不计算新变化。" : ranks ? `前100关键词由 ${ranks.previous} 个变为 ${ranks.current} 个，新增 ${ranks.entered} 个、减少 ${ranks.removed} 个，净变化 ${delta(ranks.net)} 个。${largest ? `变化最多：${largest.label} ${delta(largest.delta)} 个。` : "各排名区间数量持平。"}`
-    : data ? "缺少相邻两期关键词报告，暂无法总结变化。" : "正在读取关键词数据…";
-  return <section className="dailyPanel reportSummary" aria-label="本周变化总结"><h2>本周变化</h2><div><span>流量与注册</span><p>{trafficChange}</p></div><div><span>关键词排名</span><p>{rankChange}</p></div>{ranks ? <div><span>重点页面</span><p>{ranks.pageLosses.length ? <>优先关注 {ranks.pageLosses.slice(0, 3).map((page, index) => <span key={page.url}>{index ? "、" : ""}<a href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</a>（流失 {page.lost} 词、下降 {page.declined} 词）</span>)}。</> : ranks.removed || ranks.unattributed ? "减少记录缺少同期页面证据，暂无法确定需关注的页面。" : "同期页面明细中暂无排名流失记录。"}</p></div> : null}</section>;
+function WeeklyDiagnosis({ diagnosis }: { diagnosis: WeeklyReportDiagnosis }) {
+  if (!diagnosis.significant) return null;
+  return <section className="dailyPanel reportDiagnosis compactDiagnosis" aria-label="大幅波动原因排查"><h2>波动原因排查</h2><div>{diagnosis.findings.map((finding, index) => {
+    const firstSentence = finding.evidence.split("。")[0];
+    const clauses = firstSentence.split("；");
+    let excerpt = clauses[0];
+    for (const clause of clauses.slice(1)) { if (excerpt.length + clause.length > 100) break; excerpt += `；${clause}`; }
+    return <article className={`diagnosisFinding ${finding.level}`} key={`${finding.title}:${finding.url ?? index}`}>
+      <div className="diagnosisTitle"><h3>{finding.title}</h3><span>{finding.level === "unresolved" ? "待确认" : finding.level === "issue" ? "需处理" : "已观察"}</span></div>
+      <p>{excerpt}。</p>
+      <details><summary>依据与下一步</summary>{finding.url ? <a href={finding.url} target="_blank" rel="noreferrer">{finding.url.replace(/^https?:\/\//, "")}</a> : null}<p>{finding.evidence}</p><p className="diagnosisAction">{finding.action}</p>{finding.checkedAt ? <small>检查于 {new Date(finding.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}</details>
+    </article>;
+  })}</div></section>;
 }
 
 export function TrafficReport() {
@@ -153,8 +205,7 @@ export function TrafficReport() {
     })}</section>
     <WeeklyEvidenceTables data={data} />
     <WeeklyKeywordChanges data={data} />
-    {data?.diagnosis?.significant ? <section className="dailyPanel reportDiagnosis" aria-label="大幅波动原因排查"><h2>波动原因排查</h2><div>{data.diagnosis.findings.map((finding, index) => <article className={`diagnosisFinding ${finding.level}`} key={`${finding.title}:${finding.url ?? index}`}><h3>{finding.title}</h3>{finding.url ? <a href={finding.url} target="_blank" rel="noreferrer">{finding.url.replace(/^https?:\/\//, "")}</a> : null}<p>{finding.evidence}</p><p className="diagnosisAction">{finding.action}</p>{finding.checkedAt ? <small>页面检查 {new Date(finding.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}</article>)}</div></section> : null}
+    {data?.diagnosis ? <WeeklyDiagnosis diagnosis={data.diagnosis} /> : null}
 
-    <WeeklySummary data={data} />
   </main>;
 }

@@ -2071,6 +2071,31 @@ a:focus-visible {
 .reportDelta { font-weight:600; color:#8795a9; }
 .reportDelta.increase { color:#10a780; }
 .reportDelta.decrease { color:#d26b59; }
+.channelDashboard .dailyHeading { margin-bottom:12px; }
+.channelDashboard .chartNote { margin-bottom:0; }
+.channelMetricSwitch { display:flex; flex-shrink:0; gap:4px; padding:4px; border-radius:9px; background:#f0f4f9; }
+.channelMetricSwitch button { padding:8px 16px; border:0; border-radius:6px; background:transparent; color:#788aa2; font-size:12px; cursor:pointer; }
+.channelMetricSwitch button[aria-pressed="true"] { background:#fff; color:#365f98; box-shadow:0 1px 4px #23395c12; font-weight:600; }
+.channelMetricSwitch button:focus-visible { outline:2px solid #4485d5; outline-offset:2px; }
+.channelChartRow { display:grid; grid-template-columns:120px minmax(120px,1fr) 90px 100px; gap:24px; align-items:center; padding:12px 0; border-bottom:1px solid #eef2f7; font-size:12px; font-variant-numeric:tabular-nums; }
+.channelChartRow:last-child { border-bottom:0; padding-bottom:0; }
+.channelChartHead { color:#8795a9; font-size:11px; padding:10px 0; }
+.channelChartRow > :nth-child(n+3) { text-align:right; }
+.channelName { color:#49617f; font-weight:600; }
+.channelPeriodLegend { display:flex; gap:18px; }
+.channelPeriodLegend > span { display:flex; align-items:center; gap:6px; }
+.channelPeriodLegend i { width:7px; height:7px; border-radius:50%; background:#c9d5e5; }
+.channelPeriodLegend > span:last-child i { background:#5488df; }
+.channelPairedBars { display:grid; gap:7px; }
+.channelBar { display:flex; align-items:center; gap:12px; min-width:0; }
+.channelBar > span { flex:1; height:7px; background:#f5f7fa; border-radius:4px; }
+.channelBar i { display:block; height:100%; border-radius:4px; background:#c9d5e5; }
+.channelBar.current i { background:#5488df; }
+.channelBar b { min-width:42px; text-align:right; font-size:11px; font-weight:500; color:#71839c; }
+.channelBar.current b { color:#365f98; font-weight:600; }
+.channelRate { font-size:12px; }
+@media(max-width:700px) { .channelDashboard .dailyHeading { flex-wrap:wrap; } .channelChartRow { grid-template-columns:78px minmax(80px,1fr) 56px 64px; gap:10px; } .channelMetricSwitch button { padding:7px 12px; } .channelBar { gap:6px; } .channelBar b { min-width:32px; } }
+@media(max-width:420px) { .channelDashboard { padding:18px 14px; } .channelChartRow { grid-template-columns:68px minmax(60px,1fr) 44px 54px; gap:6px; font-size:11px; } .channelChartHead { font-size:10px; } .channelRate { font-size:11px; } }
 .pageLossSummary { padding-top:24px; }
 .pageLossSummary h3 { font-size:14px; margin:0 0 14px; }
 .pageLossSummary td:first-child { min-width:260px; max-width:470px; white-space:normal; overflow-wrap:anywhere; }
@@ -2079,12 +2104,15 @@ a:focus-visible {
 .pageLossSummary td > strong { font-size:12px; font-weight:500; }
 @media (max-width:700px) { .keywordComparisonSummary { gap:28px; } .reportBarTrack { width:100px; } }
 
-.reportSummary h2 { font-size:16px; margin:0 0 18px; }
-.reportSummary > div { display:grid; grid-template-columns:90px 1fr; gap:16px; margin:12px 0; font-size:13px; line-height:1.8; }
-.reportSummary > div > span { color:#8795a9; }
-.reportSummary p { margin:0; color:#49617f; overflow-wrap:anywhere; }
-.reportSummary a { color:#547bac; }
-@media (max-width:700px) { .reportSummary > div { grid-template-columns:1fr; gap:3px; } }
+.funnelRateSummary { display:flex; align-items:center; gap:24px; flex-wrap:wrap; padding:18px 20px; margin-bottom:10px; border-radius:10px; background:#f7f9fd; }
+.funnelRateSummary > span:first-child { font-size:12px; color:#71839c; }
+.funnelRateSummary > div { display:flex; align-items:baseline; gap:10px; }
+.funnelRateSummary small { color:#8795a9; font-size:11px; }
+.funnelRateSummary strong { font-size:23px; color:#365f98; font-variant-numeric:tabular-nums; }
+.funnelRateArrow { color:#a5b4c9; }
+.funnelRateSummary > b { font-size:12px; margin-left:auto; }
+.funnelScope { margin:16px 0 0; }
+@media(max-width:600px) { .funnelRateSummary { gap:12px; padding:14px; } .funnelRateSummary > span:first-child { flex-basis:100%; } .funnelRateSummary > div { gap:6px; } .funnelRateSummary strong { font-size:20px; } .funnelDashboard .channelName { overflow-wrap:anywhere; } }
 
 .reportDiagnosis h2 { font-size:16px; margin:0 0 20px; }
 .reportDiagnosis > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
@@ -2096,6 +2124,14 @@ a:focus-visible {
 .diagnosisFinding p { margin:8px 0; }
 .diagnosisFinding .diagnosisAction { color:#405b7c; }
 .diagnosisFinding small { font-size:11px; color:#8795a9; }
+.compactDiagnosis .diagnosisFinding { padding:16px 18px; }
+.diagnosisTitle { display:flex; align-items:flex-start; gap:10px; }
+.diagnosisTitle h3 { flex:1; }
+.diagnosisTitle > span { flex-shrink:0; color:#71839c; font-size:10px; padding:3px 6px; border-radius:4px; background:#eaf0f8; }
+.compactDiagnosis .diagnosisFinding > p { margin:0 0 8px; }
+.compactDiagnosis details { font-size:11px; color:#8795a9; }
+.compactDiagnosis summary { cursor:pointer; width:fit-content; }
+.compactDiagnosis details[open] { margin-top:12px; }
 @media (max-width:700px) { .reportDiagnosis > div { grid-template-columns:1fr; } }
 
 .weeklyRankingState { margin:16px 0; padding:12px 16px; border-radius:10px; background:#eff5ff; color:#48678e; font-size:13px; line-height:1.7; }
