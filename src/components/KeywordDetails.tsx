@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, type Key } from "react";
+import { useEffect, useMemo, useState, type Key } from "react";
 import { Table, Tooltip, Select, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Search, RotateCcw } from "lucide-react";
@@ -82,6 +82,7 @@ export function KeywordDetails() {
   const okr = useKeywordOkr({ pool: pool === "RESEARCH" ? "RESEARCH" : "FORMAL" });
   const [country, setCountry] = useState<KeywordCountryScope>("all");
   const [search, setSearch] = useState(""), [site, setSite] = useState("all");
+  useEffect(() => { const query = new URLSearchParams(window.location.search).get("q"); if (query) setSearch(query); }, []);
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState(""), [selected, setSelected] = useState<Key[]>([]);
   const okrItems = useMemo(() => new Map((okr.data?.keywords ?? []).map(item => [item.id, item])), [okr.data]);
   const isFlatkey = (member: DashboardKeyword) => (member.siteDomain ?? "flatkey.ai") === "flatkey.ai";

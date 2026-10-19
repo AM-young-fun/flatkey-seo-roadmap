@@ -133,7 +133,7 @@ function taskResult(target: SerpTarget, task?: SerpTaskRead): SerpKeywordResult 
     periodKey: period?.key ?? null, periodLabel: period?.label ?? null, periodStart: period?.start ?? null, periodEnd: period?.end ?? null };
 }
 
-export function buildSerpKeywordResults(targets: SerpTarget[], tasks: SerpTaskRead[]): SerpKeywordResult[] {
+export function buildSerpKeywordResults(targets: SerpTarget[], tasks: SerpTaskRead[], options: {currentRunId?: string} = {}): SerpKeywordResult[] {
   const sorted = [...tasks].sort((a, b) => (Date.parse(date(b.runCreatedAt) ?? "") || 0) - (Date.parse(date(a.runCreatedAt) ?? "") || 0) ||
     (Date.parse(date(b.updatedAt) ?? "") || 0) - (Date.parse(date(a.updatedAt) ?? "") || 0) || b.id.localeCompare(a.id));
   const byTarget = new Map<string, SerpTaskRead[]>();
@@ -148,7 +148,8 @@ export function buildSerpKeywordResults(targets: SerpTarget[], tasks: SerpTaskRe
     }
   }
   return targets.map(target => {
-    const history = byTarget.get(serpTargetKey(target)) ?? [], result = taskResult(target, history[0]);
+    const history = byTarget.get(serpTargetKey(target)) ?? [];
+    const result = taskResult(target, options.currentRunId ? history.find(task => task.runId === options.currentRunId) : history[0]);
     // A correction/retry within one period is not a new comparison baseline.
     const previous = history.slice(1).map(task => taskResult(target, task)).find(row => row.periodKey && row.periodKey !== result.periodKey &&
       (row.status === "RANKED" || row.status === "OUTSIDE_TOP100"));

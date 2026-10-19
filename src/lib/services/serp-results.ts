@@ -139,7 +139,9 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
   // Never offer that broader display cohort to the paid-monitoring selector.
   const monitoring = existingMonitoring ?? await loadSerpMonitoringCohort(site, existingCohort ? undefined : cohort);
   const tasks = existingTasks ?? (cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : []);
-  const items = withSerpMonitoringEligibility(buildSerpKeywordResults(cohort.targets, tasks), monitoring);
+  const currentRunId = [...tasks].filter(task => task.runScope === "SCHEDULED")
+    .sort((a,b) => new Date(b.runCreatedAt).getTime()-new Date(a.runCreatedAt).getTime())[0]?.runId;
+  const items = withSerpMonitoringEligibility(buildSerpKeywordResults(cohort.targets, tasks, {currentRunId}), monitoring);
   const completeDates = items.filter(item => item.captureComplete).flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,
     summary: summarizeSerpResults(items), items, latestCompletedAt: completeDates.sort().at(-1) ?? null,

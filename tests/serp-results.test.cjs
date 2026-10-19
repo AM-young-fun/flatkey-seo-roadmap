@@ -522,3 +522,16 @@ test("a capture advanced to Oct19 appears before its Oct20 reporting slot withou
   assert.equal(points[0].periodKey,"2026-10-20");assert.equal(points[0].captured,1);
   assert.equal(points[0].periodLabel,"2026年10月第2期");
 });
+
+
+test("a current-run view never fills unreturned words with a previous issue's rankings", () => {
+  const a=target("current"),b=target("old-only");
+  const old=[a,b].map((model,index)=>task([model],{id:`old-${index}`,runId:"old-run",periodKey:"2026-10-2",runScope:"SAMPLE",normalizedJson:{completeDepth:true,organicResults:[page(model.targetUrls[0],3)]}}));
+  const queued=task([a],{id:"new-pending",runId:"new-run",runScope:"SCHEDULED",periodKey:"2026-10-20",state:"QUEUED",checkedAt:null,normalizedJson:null,runCreatedAt:"2026-10-19T07:00:00Z",updatedAt:"2026-10-19T07:00:00Z"});
+  const before=buildSerpKeywordResults([a,b],[...old,queued],{currentRunId:"new-run"});
+  assert.equal(before[0].status,"QUEUED");assert.equal(before[0].rank,null);assert.equal(before[1].status,"PENDING");assert.equal(before[1].rank,null);
+  const returned={...queued,state:"COMPLETE",checkedAt:"2026-10-19T08:00:00Z",normalizedJson:{normalizationVersion:2,captureComplete:true,queryStatus:"EXACT",rankingVerified:true,completeDepth:false,organicResults:[page(a.targetUrls[0],8)]}};
+  const after=buildSerpKeywordResults([a,b],[...old,returned],{currentRunId:"new-run"});
+  assert.equal(after[0].rank,8);assert.equal(after[0].periodKey,"2026-10-20");assert.equal(after[0].previousRank,3);
+  assert.equal(after[1].rank,null);assert.equal(summarizeSerpResults(after).ranked,1);
+});
