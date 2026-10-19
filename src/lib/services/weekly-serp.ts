@@ -6,14 +6,15 @@ import { REGION_CODES } from "@/lib/seo";
 import { serpPeriod } from "@/lib/serp-periods";
 import { weeklyKeywordComparison, type WeeklyPageRank, type WeeklyRankingReport } from "@/lib/weekly-keyword-comparison";
 import type { reportPeriods } from "@/lib/weekly-traffic";
+import { timedRead } from "@/lib/read-profile";
 
 const nextDay = (value: string) => new Date(Date.parse(`${value}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
 export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) {
   const publicationDay = nextDay(periods.current.end), previousPublicationDay = nextDay(periods.previous.end);
   const slot = serpPeriod(`${publicationDay}T02:30:00Z`), captureWeek = slot.start === publicationDay;
-  const cohort = await loadSerpTargetCohort();
+  const cohort = await timedRead("weekly.cohort", () => loadSerpTargetCohort());
   const previousSlot = serpPeriod(`${previousPublicationDay}T02:30:00Z`);
-  const [run, previousRun] = await Promise.all([slot,previousSlot].map(period=>prisma.serpMonitorRun.findUnique({where:{periodKey_scope:{periodKey:period.key,scope:"SCHEDULED"}}})));
+  const [run, previousRun] = await timedRead("weekly.run-metadata", () => Promise.all([slot,previousSlot].map(period=>prisma.serpMonitorRun.findUnique({where:{periodKey_scope:{periodKey:period.key,scope:"SCHEDULED"}}}))));
   const targets = new Map(cohort.targets.map(target=>[`${target.siteDomain}:${target.keywordId}`,target]));
   for (const saved of [run,previousRun]) for (const item of Array.isArray(saved?.cohortJson) ? saved.cohortJson : []) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;

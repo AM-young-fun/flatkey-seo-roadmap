@@ -12,6 +12,7 @@ import type { DashboardKeyword, DashboardResponse, DashboardTopic, RankingEviden
 import { loadSerpResults, loadSerpTasks, summarizeAllRegionResults } from "@/lib/services/serp-results";
 import { SERP_MARKET_LANGUAGE, serpRankSummary, serpRankingEvidence } from "@/lib/serp-results";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
+import { timedRead } from "@/lib/read-profile";
 
 const SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
 const NAMES: Record<string, string> = { "flatkey.ai": "Flatkey", "rackrate.org": "RackRate", "modelfit.cc": "ModelFit" };
@@ -169,7 +170,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
   `;
   // One set of flat reads serves every site. PostgreSQL reduces historical
   // observations to current values before transferring them to the server.
-  const [topics, keywords, ranks, volumes, latestImport, latestRun, pages] = await settleReads([
+  const [topics, keywords, ranks, volumes, latestImport, latestRun, pages] = await timedRead("dashboard.inventory", () => settleReads([
     prisma.$queryRaw<TopicRow[]>(Prisma.sql`
       /* dashboard:topics */
       SELECT st."siteDomain", t.id, t.text, t.type, t."parentId",
@@ -286,7 +287,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
           ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
         p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
     `),
-  ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages"]);
+  ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages"]));
   const dashboard = assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
     latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null,
     pages, reportingPeriod, source);
@@ -296,7 +297,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
     keyword: keyword.text, siteDomain: keyword.siteDomain!, targetUrls: [...new Set(keyword.targetUrls ?? [])].sort(),
   })).sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId)) };
   cohort.hash = createHash("sha256").update(JSON.stringify(cohort.targets)).digest("hex");
-  const [monitoring, tasks] = await settleReads([loadSerpMonitoringCohort(site, includeResearch ? undefined : cohort), loadSerpTasks("all")], ["monitoring", "serp-tasks"]);
+  const [monitoring, tasks] = await settleReads([timedRead("dashboard.page-readiness", () => loadSerpMonitoringCohort(site, includeResearch ? undefined : cohort)), loadSerpTasks("all")], ["monitoring", "serp-tasks"]);
   const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring, tasks.filter(task => task.region === region))), REGION_CODES.map(region => `serp:${region}`));
   if (!includeResearch && !options.keywordId) dashboard.serpOverview = summarizeAllRegionResults(site, cohort, monitoring, snapshots);
   for (const snapshot of snapshots) {

@@ -3,6 +3,7 @@ import { databaseErrorCategory, databaseErrorCode, databaseReadPhase, retryDatab
 import { loadDashboard } from "@/lib/services/dashboard-data";
 import type { DashboardResponse } from "@/lib/types";
 import { REGION_CODES } from "@/lib/seo";
+import { profileRead } from "@/lib/read-profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,10 @@ export async function GET(request?: Request) {
   // All countries share one payload, cache and in-flight read.
   const key = `${site}:${source}:${period}:${includeResearch ? "library" : "formal"}:${currentOnly ? "current" : "full"}:${keywordId ?? "all"}`;
   try {
+    if (params.get("profile") === "1") {
+      const { value, ...timing } = await profileRead(() => retryDatabaseRead(() => loadDashboard(site, source, period, new Date(), includeResearch, { currentOnly, keywordId })));
+      return NextResponse.json({ ...timing, payloadBytes: Buffer.byteLength(JSON.stringify(value)), keywords: value.keywords.length, topics: value.topics.length }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const cached = cache.get(key);
     const hit = params.get("refresh") !== "1" && Boolean(cached && cached.expiresAt > Date.now());
     if (!hit && !pending.has(key)) pending.set(key, retryDatabaseRead(() => loadDashboard(site, source, period, new Date(), includeResearch, { currentOnly, keywordId })).then(value => {

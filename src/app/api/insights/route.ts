@@ -9,6 +9,7 @@ import { weeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
 import { auditedWeeklyDiagnosis } from "@/lib/weekly-audit-diagnosis";
 import { weeklyReportDraftSchema } from "@/lib/weekly-report-draft";
 import { diagnoseWeeklyReport } from "@/lib/weekly-report-diagnosis";
+import { profileRead, timedRead } from "@/lib/read-profile";
 import { normalizeDomain, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import type { KeywordObservation, KeywordPageObservation } from "@prisma/client";
 
@@ -121,9 +122,9 @@ async function reportSummary(periods: ReturnType<typeof weeklyPeriods>) {
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
   const archiveEvidence = weeklyTrafficEvidence(periods.current.start);
   const [weekly, weeks, serp, savedDraft] = await settleReads([
-    prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { in: [new Date(periods.current.start), new Date(periods.previous.start)] } }, orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }] }),
+    timedRead("weekly.traffic", () => prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { in: [new Date(periods.current.start), new Date(periods.previous.start)] } }, orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }] })),
     prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { lte: new Date(weeklyPeriods().current.start) } }, distinct: ["periodStart"], select: { periodStart: true }, orderBy: { periodStart: "desc" } }),
-    loadWeeklySerp(periods),
+    timedRead("weekly.serp", () => loadWeeklySerp(periods)),
     prisma.weeklyReportDraft.findUnique({where:{siteDomain_periodStart:{siteDomain:"flatkey.ai",periodStart:new Date(periods.current.start)}}}),
   ]);
   const parsedDraft=weeklyReportDraftSchema.safeParse(savedDraft?.payload);
@@ -170,6 +171,11 @@ export async function GET(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
   const key = [url.searchParams.get("site") ?? "all",url.searchParams.get("source") ?? "combined",url.searchParams.get("region") ?? "US",url.searchParams.get("week") ?? "latest",weeklyPeriods().current.start].join(":");
   try {
+    if (url.searchParams.get("profile") === "1") {
+      const { value, ...timing } = await profileRead(() => retryDatabaseRead(() => readInsights(request)));
+      const body = await value.text();
+      return NextResponse.json({ ...timing, status: value.status, payloadBytes: Buffer.byteLength(body) }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const saved = insightCache.get(key);
     if (saved && saved.expiresAt > Date.now()) return new NextResponse(saved.body,{status:saved.status,headers:saved.headers});
     if (!insightPending.has(key)) insightPending.set(key,retryDatabaseRead(()=>readInsights(request)).then(async response=>{

@@ -5,6 +5,7 @@ import { aggregateSerpRegionResults, buildSerpKeywordResults, serpTaskPeriod, SE
 import { loadSerpTargetCohort, loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import type { SerpTarget } from "@/lib/serp-targets";
 import { serpPeriod } from "@/lib/serp-periods";
+import { timedRead } from "@/lib/read-profile";
 
 export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", start: string, end: string, languageCode = region === "all" ? "en" : SERP_MARKET_LANGUAGE[region], device = "desktop"): Promise<SerpTrendCohort[]> {
   const taskMarket = region === "all" ? Prisma.sql`t.region IN ('US','JP','ES','BR')
@@ -61,7 +62,7 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
     COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') =
       CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END`
     : Prisma.sql`t.region = ${region} AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}`;
-  return prisma.$queryRaw<SerpTaskRead[]>(Prisma.sql`
+  return timedRead(`serp.tasks.${region}.${historical ? "history" : "current"}`, () => prisma.$queryRaw<SerpTaskRead[]>(Prisma.sql`
     /* serp-monitor:results */
     WITH market_tasks AS (
       SELECT t.id, t."runId", t.keyword, t.region, t."targetsJson", t.state, t."normalizedJson", t."checkedAt",
@@ -127,7 +128,7 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
       ) END AS "normalizedJson"
     FROM market_tasks t JOIN selected_tasks selected ON selected.id = t.id
     ORDER BY t."runCreatedAt" DESC, t."updatedAt" DESC, t.id DESC
-  `);
+  `));
 }
 
 // Reads only our persisted SERP ledger. Opening a page never contacts a paid
