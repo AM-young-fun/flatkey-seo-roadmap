@@ -29,7 +29,7 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
     });
     void update(version > 0).finally(() => { completed = true; });
     const onVisible = () => { if (!document.hidden) void update(); };
-    const timer = window.setInterval(onVisible, 60000);
+    const timer = window.setInterval(onVisible, 5 * 60000);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     const onRankingsUpdated = () => { void update(true); };

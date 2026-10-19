@@ -58,7 +58,7 @@ const db = {
     deleteMany: async ({ where }) => { state.keywordTopics = state.keywordTopics.filter(row => !where.OR.some(old => old.keywordId === row.keywordId && old.topicId === row.topicId)); },
   },
   keyword: { createMany: async ({ data }) => { state.keywords.push(...data); return { count: data.length }; } },
-  siteKeyword: { findMany: async ({ where }) => state.links.filter(row => row.siteDomain === where.siteDomain).map(row => ({ ...row, keyword: state.keywords.find(word => word.id === row.keywordId) })) },
+  siteKeyword: { findMany: async ({ where }) => state.links.filter(row => row.siteDomain === where.siteDomain && (!where.pool || row.pool === where.pool) && (where.active === undefined || row.active === where.active) && (!where.keyword?.active || state.keywords.find(word => word.id === row.keywordId)?.active !== false)).map(row => ({ ...row, keyword: state.keywords.find(word => word.id === row.keywordId) })) },
   keywordContentTask: {
     createMany: async ({ data }) => { if (state.failTasks) throw new Error("simulated task failure"); state.tasks.push(...data); },
     findMany: async () => state.tasks.filter(row => row.status !== "RESTORED"),
@@ -80,6 +80,17 @@ beforeEach(() => {
     links: [defaults("flatkey.ai", "noise"), defaults("rackrate.org", "noise"), defaults("flatkey.ai", "kept", { targetUrls: ["https://flatkey.ai/blog/agent-tools-no-subscriptions"] }), defaults("flatkey.ai", "research")],
     siteTopics: [{ topicId: "original-topic" }], keywordTopics: [], topics: [], audits: [], tasks: [], observations: [{ siteDomain: "flatkey.ai", keywordId: "noise", rank: 14 }], pages: [],
   };
+});
+
+test("keyword-detail reads only the selected active pool and skips page-task construction without deleting any candidate", async () => {
+  await mutateKeywordOkr(input("apply"));
+  const before = structuredClone(state.links);
+  const all = await loadKeywordOkr("flatkey.ai");
+  const formal = await loadKeywordOkr("flatkey.ai", "FORMAL"), research = await loadKeywordOkr("flatkey.ai", "RESEARCH");
+  assert.deepEqual(formal.keywords.map(row=>row.id).sort(), all.keywords.filter(row=>row.active && row.pool === "FORMAL").map(row=>row.id).sort());
+  assert.deepEqual(research.keywords.map(row=>row.id).sort(), all.keywords.filter(row=>row.active && row.pool === "RESEARCH").map(row=>row.id).sort());
+  assert.deepEqual(formal.tasks, []); assert.deepEqual(research.tasks, []); assert.ok(all.tasks.length);
+  assert.deepEqual(state.links, before);
 });
 
 test("the approved target plan retains 1,512 goals, protects 95 models, and only marks the 42 verified links READY", () => {

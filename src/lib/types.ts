@@ -155,6 +155,7 @@ export type DashboardKeyword = {
   rankingEvidence?: Record<SearchRegionCode, RankingEvidence[]>;
   firstTrackedAt?: string | null;
   volumeReview?: KeywordVolumeReview;
+  volumeReviewLabel?: string;
   monitoringEligible?: boolean;
   monitoringHoldReason?: string | null;
   monitoringHoldCode?: string | null;
@@ -210,6 +211,7 @@ export type DashboardRun = {
 };
 
 export type DashboardResponse = {
+  serpOverview?: import("./serp-results").SerpAllRegionsResponse;
   reportingPeriod?: RankingReportingPeriod;
   latestImportAt?: string | null;
   usingDemoData: boolean;

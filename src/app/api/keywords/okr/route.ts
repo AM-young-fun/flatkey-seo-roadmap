@@ -14,8 +14,9 @@ const mutationSchema = z.object({ siteDomain: z.literal("flatkey.ai"), action: z
 export async function GET(request: Request) {
   if (!isDatabaseConfigured()) return NextResponse.json({ message: "数据库未配置，尚未应用正式目标清单" }, { status: 503, headers });
   try {
-    const site = new URL(request.url).searchParams.get("site") ?? "flatkey.ai";
-    return NextResponse.json(await loadKeywordOkr(site), { headers });
+    const params = new URL(request.url).searchParams, site = params.get("site") ?? "flatkey.ai", pool = params.get("pool");
+    if (pool !== null && pool !== "FORMAL" && pool !== "RESEARCH") return NextResponse.json({ message: "词库分类无效" }, { status: 400, headers });
+    return NextResponse.json(await loadKeywordOkr(site, pool ?? undefined), { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     const code = databaseErrorCode(error);

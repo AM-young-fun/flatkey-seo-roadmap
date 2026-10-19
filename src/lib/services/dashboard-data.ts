@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { settleReads } from "@/lib/database-read";
 import { isDatabaseConfigured } from "@/lib/env";
@@ -8,7 +9,7 @@ import { assessKeywordVolume, type VolumeReviewSample } from "@/lib/keyword-volu
 import { keywordRelevance } from "@/lib/keyword-relevance";
 import { loadRecentRankingReportPeriod } from "@/lib/services/ranking-report-period";
 import type { DashboardKeyword, DashboardResponse, DashboardTopic, RankingEvidence, RankingReportingPeriod, SyncRunSummary } from "@/lib/types";
-import { loadSerpResults } from "@/lib/services/serp-results";
+import { loadSerpResults, loadSerpTasks, summarizeAllRegionResults } from "@/lib/services/serp-results";
 import { SERP_MARKET_LANGUAGE, serpRankSummary, serpRankingEvidence } from "@/lib/serp-results";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 
@@ -289,10 +290,12 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
   if (source !== "dataforseo_serp") return dashboard;
   const cohort = { hash: "", targets: dashboard.keywords.map(keyword => ({
     keywordId: site === "all" ? keyword.id.slice((keyword.siteDomain?.length ?? 0) + 1) : keyword.id,
-    keyword: keyword.text, siteDomain: keyword.siteDomain!, targetUrls: keyword.targetUrls ?? [],
-  })) };
-  const monitoring = await loadSerpMonitoringCohort(site);
-  const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring)), REGION_CODES.map(region => `serp:${region}`));
+    keyword: keyword.text, siteDomain: keyword.siteDomain!, targetUrls: [...new Set(keyword.targetUrls ?? [])].sort(),
+  })).sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId)) };
+  cohort.hash = createHash("sha256").update(JSON.stringify(cohort.targets)).digest("hex");
+  const [monitoring, tasks] = await settleReads([loadSerpMonitoringCohort(site, includeResearch ? undefined : cohort), loadSerpTasks("all")], ["monitoring", "serp-tasks"]);
+  const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring, tasks.filter(task => task.region === region))), REGION_CODES.map(region => `serp:${region}`));
+  if (!includeResearch) dashboard.serpOverview = summarizeAllRegionResults(site, cohort, monitoring, snapshots);
   for (const snapshot of snapshots) {
     const results = new Map(snapshot.items.map(item => [`${item.siteDomain}:${item.keywordId}`, item]));
     for (const keyword of dashboard.keywords) {

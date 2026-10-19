@@ -52,8 +52,12 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", sta
   });
 }
 
-export async function loadSerpTasks(region: SearchRegionCode, languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop", start?: string, end?: string, includeRunId?: string): Promise<SerpTaskRead[]> {
+export async function loadSerpTasks(region: SearchRegionCode | "all", languageCode = region === "all" ? "en" : SERP_MARKET_LANGUAGE[region], device = "desktop", start?: string, end?: string, includeRunId?: string): Promise<SerpTaskRead[]> {
   const historical = Boolean(start || end);
+  const market = region === "all" ? Prisma.sql`t.region IN ('US','JP','ES','BR') AND
+    COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') =
+      CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END`
+    : Prisma.sql`t.region = ${region} AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}`;
   return prisma.$queryRaw<SerpTaskRead[]>(Prisma.sql`
     /* serp-monitor:results */
     WITH market_tasks AS (
@@ -61,8 +65,7 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
         t."providerTaskId", t."errorCode", t."updatedAt", r."createdAt" AS "runCreatedAt",
         r."periodKey", r."periodLabel", r."periodStart", r."periodEnd", r.scope AS "runScope", r."targetCount" AS "runTargetCount"
       FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
-      WHERE t.region = ${region}
-        AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}
+      WHERE ${market}
         AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
         AND (${!end} OR t."runId" = ${includeRunId ?? ""} OR (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end ?? "9999-12-31"}::date
@@ -82,17 +85,17 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
         CASE WHEN jsonb_typeof(t."targetsJson") = 'array' THEN t."targetsJson" ELSE '[]'::jsonb END
       ) target
     ), verified_periods AS (
-      SELECT id, "targetSite", "targetKeyword", DENSE_RANK() OVER (
-        PARTITION BY "targetSite", "targetKeyword" ORDER BY "periodKey" DESC
+      SELECT id, region, "targetSite", "targetKeyword", DENSE_RANK() OVER (
+        PARTITION BY region, "targetSite", "targetKeyword" ORDER BY "periodKey" DESC
       ) AS n FROM expanded_tasks WHERE verified
     ), prior_verified_periods AS (
-      SELECT id, "targetSite", "targetKeyword", DENSE_RANK() OVER (
-        PARTITION BY "targetSite", "targetKeyword" ORDER BY "periodKey" DESC
+      SELECT id, region, "targetSite", "targetKeyword", DENSE_RANK() OVER (
+        PARTITION BY region, "targetSite", "targetKeyword" ORDER BY "periodKey" DESC
       ) AS n FROM expanded_tasks WHERE verified AND
         ("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date < ${start ?? "1970-01-01"}::date
     ), ranked_tasks AS (
       SELECT t.*, ROW_NUMBER() OVER w AS n
-      FROM expanded_tasks t WINDOW w AS (PARTITION BY "targetSite", "targetKeyword" ORDER BY "periodKey" DESC, "runCreatedAt" DESC, "updatedAt" DESC, id DESC ROWS UNBOUNDED PRECEDING)
+      FROM expanded_tasks t WINDOW w AS (PARTITION BY region, "targetSite", "targetKeyword" ORDER BY "periodKey" DESC, "runCreatedAt" DESC, "updatedAt" DESC, id DESC ROWS UNBOUNDED PRECEDING)
     ), selected_tasks AS (
       SELECT DISTINCT id FROM ranked_tasks WHERE
         (${historical} AND (("checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date >= ${start ?? "1970-01-01"}::date
@@ -127,12 +130,12 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
 // Reads only our persisted SERP ledger. Opening a page never contacts a paid
 // provider, creates a run or treats a Labs/GSC/Ahrefs record as a SERP check.
 export async function loadSerpResults(site = "all", region: SearchRegionCode = "US", languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop",
-  existingCohort?: { targets: SerpTarget[]; hash: string }, existingMonitoring?: SerpMonitoringReadCohort): Promise<SerpResultsResponse> {
+  existingCohort?: { targets: SerpTarget[]; hash: string }, existingMonitoring?: SerpMonitoringReadCohort, existingTasks?: SerpTaskRead[]): Promise<SerpResultsResponse> {
   const cohort = existingCohort ?? await loadSerpTargetCohort(site);
   // The dashboard may include research candidates for its historical drawer.
   // Never offer that broader display cohort to the paid-monitoring selector.
   const monitoring = existingMonitoring ?? await loadSerpMonitoringCohort(site, existingCohort ? undefined : cohort);
-  const tasks = cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : [];
+  const tasks = existingTasks ?? (cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : []);
   const items = withSerpMonitoringEligibility(buildSerpKeywordResults(cohort.targets, tasks), monitoring);
   const completeDates = items.filter(item => item.captureComplete).flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,
@@ -143,8 +146,13 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
 
 export async function loadSerpAllRegionResults(site = "all"): Promise<SerpAllRegionsResponse> {
   const cohort = await loadSerpTargetCohort(site);
-  const monitoring = await loadSerpMonitoringCohort(site, cohort);
-  const results = await Promise.all(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring)));
+  const [monitoring, tasks] = await Promise.all([loadSerpMonitoringCohort(site, cohort), cohort.targets.length ? loadSerpTasks("all") : Promise.resolve([])]);
+  const results = await Promise.all(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring, tasks.filter(task => task.region === region))));
+  return summarizeAllRegionResults(site, cohort, monitoring, results);
+}
+
+export function summarizeAllRegionResults(site: string, cohort: { targets: SerpTarget[]; hash: string }, monitoring: SerpMonitoringReadCohort,
+  results: SerpResultsResponse[]): SerpAllRegionsResponse {
   const aggregated = aggregateSerpRegionResults(results, cohort.targets);
   // Display deduplication never changes the original site memberships, task
   // evidence, monitoring hash, paid query quote or immutable reporting cohort.

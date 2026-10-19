@@ -38,10 +38,15 @@ export async function GET(request: Request) {
         // One shared immutable inventory read and one Lambda for all markets.
         // A failed market stays unavailable; it never becomes a zero trend.
         const cohorts = await loadSerpTrendCohorts("all", range.start, range.end);
+        // The transaction pool has one connection per function. Four parallel
+        // queries still queue there; read all markets once, then split locally.
+        // If that read fails, isolate country failures rather than showing zero.
+        let sharedTasks: Awaited<ReturnType<typeof loadSerpTasks>> | null = null;
+        try { sharedTasks = cohorts.length ? await loadSerpTasks("all", undefined, "desktop", range.start, range.end) : []; } catch { /* Isolate below. */ }
         const reads = await Promise.all(REGION_CODES.map(async (market): Promise<{ market: MarketTrend; frames: SerpTrendFrame[] }> => {
           try {
             const scoped = cohorts.filter(cohort => !cohort.regions || cohort.regions.includes(market));
-            const tasks = scoped.length ? await retryDatabaseRead(() => loadSerpTasks(market, undefined, "desktop", range.start, range.end)) : [];
+            const tasks = scoped.length ? sharedTasks?.filter(task => task.region === market) ?? await retryDatabaseRead(() => loadSerpTasks(market, undefined, "desktop", range.start, range.end)) : [];
             const frames = serpCheckTrendFrames([], tasks, range.start, range.end, { cohorts: scoped, site });
             return { market: { region: market, status: "READY", points: uniqueMarketTrendPoints(market, frames) }, frames };
           } catch { return { market: { region: market, status: "ERROR", points: null }, frames: [] }; }

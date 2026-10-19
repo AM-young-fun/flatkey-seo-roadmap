@@ -8,6 +8,7 @@ import type { WeeklyKeywordComparison } from "@/lib/weekly-keyword-comparison";
 import type { WeeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
 import type { WeeklyReportDiagnosis } from "@/lib/weekly-report-diagnosis";
 import type { WeeklyReportDraftPayload } from "@/lib/weekly-report-draft";
+import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
@@ -22,12 +23,16 @@ type InsightData = {
 
 function useInsights(week: string) {
   const key = week;
-  const [result, setResult] = useState<{ key: string; data: InsightData } | null>(null);
+  const url = `/api/insights?site=all&source=combined&region=all${week ? `&week=${encodeURIComponent(week)}` : ""}`;
+  const [result, setResult] = useState<{ key: string; data: InsightData } | null>(() => {
+    const data = clientReadCache.peek<InsightData>(url);
+    return data ? { key, data } : null;
+  });
   const [error, setError] = useState<string | null>(null);
   const [version, retry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    let busy = false;
+    let busy = false, forceNext = version > 0;
     const update = async () => {
       if (busy || document.hidden) return;
       busy = true;
@@ -35,32 +40,30 @@ function useInsights(week: string) {
         let data: InsightData | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            const response = await fetch(`/api/insights?site=all&source=combined&region=all${week ? `&week=${encodeURIComponent(week)}` : ""}`, { cache: "no-store", signal: controller.signal });
-            if (response.status === 401) { window.location.assign("/login"); return; }
-            if (!response.ok) {
-              const failure = await response.json().catch(()=>({})) as {code?:string};
-              throw Object.assign(new Error(`周报暂时无法读取${failure.code ? `（${failure.code}）` : ""}`), { retryable: response.status >= 500 });
-            }
-            data = await response.json() as InsightData;
+            data = await clientReadCache.read<InsightData>(url, forceNext);
+            forceNext = false;
             break;
           } catch (error) {
-            if (controller.signal.aborted || attempt === 1 || (error instanceof Error && "retryable" in error && error.retryable === false)) throw error;
+            if (controller.signal.aborted || attempt === 1 || error instanceof ClientReadError && error.status < 500) throw error;
             await new Promise(resolve=>setTimeout(resolve,600));
           }
         }
         if (!data) return;
         if (!controller.signal.aborted) { setResult({ key, data }); setError(null); }
       } catch (error) {
+        if (error instanceof ClientReadError && error.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
         if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "加载失败");
       } finally { busy = false; }
     };
     void update();
-    const timer = setInterval(() => void update(), 60_000);
+    const timer = setInterval(() => void update(), 5 * 60_000);
+    const onUpdated = () => { forceNext = true; void update(); };
     document.addEventListener("visibilitychange", update);
     window.addEventListener("focus", update);
-    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", update); window.removeEventListener("focus", update); };
-  }, [key, week, version]);
-  return { data: result?.key === key ? result.data : null, error, retry: () => retry((n) => n + 1) };
+    window.addEventListener("seo-rankings-updated", onUpdated);
+    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", update); window.removeEventListener("focus", update); window.removeEventListener("seo-rankings-updated", onUpdated); };
+  }, [key, url, version]);
+  return { data: result?.key === key ? result.data : clientReadCache.peek<InsightData>(url), error, retry: () => retry((n) => n + 1) };
 }
 
 const pct = (value: number | null | undefined) => value == null ? "待导入" : `${(value * 100).toFixed(1)}%`;

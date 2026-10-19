@@ -13,8 +13,8 @@ const payloadHash = createHash("sha256").update(JSON.stringify(okrAudit)).digest
 const auditInfo = { id: KEYWORD_OKR_AUDIT_ID, asOf: okrAudit.asOf, formalKeywords: okrAudit.keywords.length, tasks: okrAudit.tasks.length };
 const iso = (value: Date | string | null | undefined) => value == null ? null : new Date(value).toISOString();
 
-async function readState(tx: Prisma.TransactionClient): Promise<CurationState[]> {
-  const rows = await tx.siteKeyword.findMany({ where: { siteDomain: OKR_SITE }, include: { keyword: { select: { text: true } } }, orderBy: { keywordId: "asc" } });
+async function readState(tx: Prisma.TransactionClient, pool?: "FORMAL" | "RESEARCH"): Promise<CurationState[]> {
+  const rows = await tx.siteKeyword.findMany({ where: { siteDomain: OKR_SITE, ...(pool ? { pool, active: true, keyword: { active: true } } : {}) }, include: { keyword: { select: { text: true } } }, orderBy: { keywordId: "asc" } });
   return rows.map(row => ({
     keywordId: row.keywordId, text: row.keyword.text, active: row.active, topicId: row.topicId, origin: row.origin,
     targetUrls: row.targetUrls, pool: row.pool as CurationState["pool"], reviewStatus: row.reviewStatus,
@@ -138,12 +138,12 @@ export async function mutateKeywordOkr(input: KeywordOkrMutation): Promise<Keywo
   }, { timeout: 55_000, maxWait: 5000 });
 }
 
-export async function loadKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
+export async function loadKeywordOkr(siteDomain: string, pool?: "FORMAL" | "RESEARCH"): Promise<KeywordOkrResponse> {
   if (siteDomain !== OKR_SITE) throw new ImportRequestError("当前正式目标审计仅适用于 Flatkey", 400);
-  return retryDatabaseRead(() => readKeywordOkr(siteDomain));
+  return retryDatabaseRead(() => readKeywordOkr(siteDomain, pool));
 }
 
-async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
+async function readKeywordOkr(siteDomain: string, pool?: "FORMAL" | "RESEARCH"): Promise<KeywordOkrResponse> {
   type AuditSummary = { id: string; status: string; appliedAt: Date; restoredAt: Date | null; changed: number };
   // Before/after payloads contain the entire site inventory. Count in PostgreSQL
   // so viewing audit history never transfers multi-megabyte recovery snapshots.
@@ -155,9 +155,9 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
     ORDER BY "appliedAt" DESC, id DESC LIMIT 10
   `);
   const initialized = audits.some(row => row.status === "APPLIED");
-  const rows = initialized ? await readState(prisma) : [];
+  const rows = initialized ? await readState(prisma, pool) : [];
   const pageAudits = await loadLatestPageAudits(rows.map(row => row.keywordId));
-  const tasks = initialized ? (await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { notIn: ["RESTORED", "MERGED"] } }, orderBy: { id: "asc" } })).filter(row => !["RESTORED", "MERGED"].includes(row.status)) : [];
+  const tasks = initialized && !pool ? (await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { notIn: ["RESTORED", "MERGED"] } }, orderBy: { id: "asc" } })).filter(row => !["RESTORED", "MERGED"].includes(row.status)) : [];
   const workItems: PageTaskWorkItem[] = rows.flatMap(row => {
     const plan = pageAudits.get(row.keywordId)?.workPlan;
     return row.active && row.pool === "FORMAL" && plan ? [{ ...plan, keyword: row.text, keywordId: row.keywordId }] : [];
@@ -168,6 +168,7 @@ async function readKeywordOkr(siteDomain: string): Promise<KeywordOkrResponse> {
     SELECT DISTINCT ON ("keywordId", source, region, url) "keywordId", url, source, region,
       "periodStart", "periodEnd", "collectedAt", rank
     FROM "KeywordPageObservation" WHERE "siteDomain" = ${siteDomain} AND source IN ('gsc','ahrefs')
+      ${pool ? Prisma.sql`AND "keywordId" IN (SELECT "keywordId" FROM "SiteKeyword" WHERE "siteDomain" = ${siteDomain} AND pool = ${pool} AND active = true)` : Prisma.empty}
     ORDER BY "keywordId", source, region, url, "periodEnd" DESC NULLS LAST, "collectedAt" DESC
   `) : [];
   const byKeyword = new Map<string, KeywordOkrItem["actualPages"]>();

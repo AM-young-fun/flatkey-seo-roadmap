@@ -174,6 +174,14 @@ test("biweekly Tuesday slots retain legacy snapshots and cross month/year bounda
   assert.throws(() => serpPeriodFromKey("2026-13-1"));
 });
 
+test("October's initial sample is displayed as issue one while ledger keys and actual capture dates remain intact", () => {
+  const model=target("first-sample"), record=task([model], {runScope:"SAMPLE",periodKey:"2026-10-2",checkedAt:"2026-10-16T03:00:00Z"});
+  const result=buildSerpKeywordResults([model],[record])[0];
+  assert.equal(result.periodLabel,"2026年10月第1期"); assert.equal(result.periodKey,"2026-10-2");
+  assert.equal(result.checkedAt,"2026-10-16T03:00:00.000Z");
+  assert.equal(serpPeriodFromKey("2026-10-20").label,"2026年10月第2期");
+});
+
 test("period comparisons distinguish first check, real new entries and dropouts; failures cannot count as lost rankings", () => {
   const models = ["up", "down", "new", "drop", "first", "same", "failed", "same-period-correction"].map(id => target(id));
   const capture = (model, rank, current, overrides = {}) => task([model], { id: `${model.keywordId}-${current ? "current" : "previous"}`, runId: current ? "current-run" : "previous-run",
@@ -307,7 +315,7 @@ const db = {
     if (query.sql.includes("serp-monitor:cohort")) return cohortRows;
     if (query.sql.includes("serp-monitor:page-readiness-evidence")) return readinessRows;
     if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
-    if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.values.includes(row.region ?? "US"));
+    if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.sql.includes("t.region IN ('US','JP','ES','BR')") || query.values.includes(row.region ?? "US")).map(row => ({ region: "US", ...row }));
     if (query.sql.includes("dashboard:keywords")) return cohortRows.map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
     if (query.sql.includes("dashboard:ranks")) return [{ keywordId: "claude", siteDomain: "flatkey.ai", region: "US", source: "dataforseo_labs", rank: 1, rankStatus: "ranked", rankReported: true, captureStatus: "COMPLETE", periodStart: null, periodEnd: null, collectedAt: new Date("2026-10-16T01:00:00Z"), dataUpdatedAt: new Date("2026-10-01T01:00:00Z") }];
     return [];
@@ -416,7 +424,10 @@ test("all-country overview counts business targets once, shares readiness reads 
   assert.deepEqual(body.regions.map(result => result.monitoring.pendingTargetCount), [2, 1, 2, 2]);
   assert.equal(queried.filter(query => query.sql.includes("serp-monitor:cohort")).length, 1);
   assert.equal(queried.filter(query => query.sql.includes("serp-monitor:page-readiness-evidence")).length, 1);
-  assert.equal(queried.filter(query => query.sql.includes("serp-monitor:results")).length, 4);
+  assert.equal(queried.filter(query => query.sql.includes("serp-monitor:results")).length, 1);
+  const batched = queried.find(query => query.sql.includes("serp-monitor:results"));
+  assert.match(batched.sql, /PARTITION BY region, "targetSite", "targetKeyword"/);
+  assert.match(batched.sql, /WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt'/);
   for (const field of ["rawResponse", "requestJson", "encryptedCredentials", "submissionRaw", "organicResults", "\"items\""])
     assert.ok(!JSON.stringify(body).includes(field), `${field} must not leave the aggregate endpoint`);
   assert.equal((await GET(new Request("https://flatkey.test/api/serp-monitor/results?region=all&language=en"))).status, 400);
@@ -434,6 +445,25 @@ test("SERP read API requires a session, reads only the selected market ledger an
   for (const field of ["rawResponse", "requestJson", "encryptedCredentials", "submissionRaw"]) assert.ok(!JSON.stringify(body).includes(field));
   assert.equal((await GET(new Request("https://flatkey.test/api/serp-monitor/results?site=evil.example"))).status, 400);
   const jp = await loadSerpResults("all", "JP"); assert.equal(jp.summary.pending, 1); assert.equal(jp.summary.outside, 0);
+});
+
+test("compact browser responses preserve every keyword, page and country rank, while full review evidence remains available", async () => {
+  const { GET: dashboardGet } = require("../src/app/api/dashboard/route.ts");
+  taskRows = [task([target("claude")], { normalizedJson: { completeDepth:true, organicResults:[page("https://flatkey.ai/models/claude",8)] } })];
+  const response=await dashboardGet(new Request("https://flatkey.test/api/dashboard?site=all&refresh=1"));
+  const full=await response.json();
+  const compactResponse=await dashboardGet(new Request("https://flatkey.test/api/dashboard?site=all&compact=1"));
+  const compact=await compactResponse.json();
+  assert.equal(compactResponse.headers.get("Cache-Control"),"private, no-store");
+  assert.deepEqual(compact.keywords.map(row=>row.id),full.keywords.map(row=>row.id));
+  for(let i=0;i<full.keywords.length;i++) {
+    assert.deepEqual(compact.keywords[i].latestRanks,full.keywords[i].latestRanks);
+    assert.deepEqual(compact.keywords[i].rankingEvidence,full.keywords[i].rankingEvidence);
+    assert.equal(compact.keywords[i].volumeReviewLabel,full.keywords[i].volumeReview.label);
+    assert.equal(compact.keywords[i].volumeReview,undefined);
+  }
+  assert.deepEqual(compact.serpOverview,full.serpOverview);
+  assert.ok(JSON.stringify(compact).length<JSON.stringify(full).length);
 });
 
 test("default dashboard keeps Labs as historical evidence and does not invent SERP positions or no-ranking counts", async () => {

@@ -8,7 +8,7 @@ const original=Module._load;
 Module._load=function(request,parent,main){
  if(request==="@/lib/prisma")return {prisma:{serpMonitorRun:{findUnique:async()=>run}}};
  if(request==="@/lib/services/serp-targets")return {loadSerpTargetCohort:async()=>({targets:[model]})};
- if(request==="@/lib/services/serp-results")return {loadSerpTasks:async(region,_lang,_device,_start,end,runId)=>{includes.push(runId);return mode==="baseline"&&end==="2026-10-13"?[]:[saved(mode==="missing"&&end==="2026-10-20"?null:region==="US"?3:9,mode==="missing"&&end==="2026-10-20"?"PENDING":"RANKED")];}};
+ if(request==="@/lib/services/serp-results")return {loadSerpTasks:async(region,_lang,_device,_start,end,runId)=>{includes.push(runId);return mode==="baseline"&&end==="2026-10-13"?[]:(region==="all"?["US","JP","ES","BR"]:[region]).map(market=>({...saved(mode==="missing"&&end==="2026-10-20"?null:market==="US"?3:9,mode==="missing"&&end==="2026-10-20"?"PENDING":"RANKED"),region:market}));}};
  if(request==="@/lib/serp-results")return {buildSerpKeywordResults:(_targets,tasks)=>tasks};
  if(request.startsWith("@/"))return original.call(this,path.resolve(__dirname,"../src",request.slice(2)),parent,main);
  return original.call(this,request,parent,main);
@@ -39,7 +39,7 @@ test("missing captures do not turn the preceding week's actual rank into a confi
 });
 test("saved channel and sequential funnel evidence passes validation, event-count substitutions do not",()=>{
  const archive=require("../src/lib/data/weekly-traffic-evidence.json");const data=archive.weeks["2026-10-06"];
- const {registrationCountries,...supported}=data;assert.equal(weeklyEvidenceSchema.safeParse(supported).success,true);
+ const supported={...data};delete supported.registrationCountries;assert.equal(weeklyEvidenceSchema.safeParse(supported).success,true);
  const wrong=structuredClone(supported);wrong.channels[0].registrations.current+=10;
  assert.equal(weeklyEvidenceSchema.safeParse(wrong).success,false);
  const badFunnel=structuredClone(supported);badFunnel.newVisitorFunnel.current[1].users=999999;

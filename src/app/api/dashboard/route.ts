@@ -19,6 +19,7 @@ export async function GET(request?: Request) {
   const researchParam = params.get("includeResearch") ?? "0";
   if (researchParam !== "0" && researchParam !== "1") return NextResponse.json({ message: "词池范围无效" }, { status: 400 });
   const includeResearch = researchParam === "1";
+  const compact = params.get("compact") === "1";
   if (period !== "week" && period !== "history") return NextResponse.json({ message: "统计区间无效" }, { status: 400 });
   if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site) || !["gsc", "ahrefs", "dataforseo_labs", "dataforseo_serp", "combined"].includes(source))
     return NextResponse.json({ message: "参数无效" }, { status: 400 });
@@ -34,7 +35,13 @@ export async function GET(request?: Request) {
       return value;
     }).finally(() => pending.delete(key)));
     const value = hit ? cached!.value : await pending.get(key);
-    return NextResponse.json(value, { headers: {
+    // The browser displays the review label only. Keep full regional review
+    // details available to collectors without repeating them for every row.
+    const payload = compact && value ? { ...value, keywords: value.keywords.map(keyword => {
+      const { volumeReview, ...row } = keyword;
+      return { ...row, volumeReviewLabel: volumeReview?.label };
+    }) } : value;
+    return NextResponse.json(payload, { headers: {
       "Cache-Control": "private, no-store",
       "Server-Timing": `dashboard;dur=${(performance.now() - started).toFixed(1)};desc="${hit ? "cache" : "database"}"`,
     } });

@@ -6,6 +6,7 @@ import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { EARLIEST_TREND_DATE, marketTrendCount, trendToday, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
+import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 
 const trendResults = new Map<string, MultiRegionTrendResult>();
 const COLORS = ["#19283f", ...DISPLAY_BUCKETS.slice(0, 4).map(bucket => bucket.color)];
@@ -43,7 +44,7 @@ export function RankingTrend() {
   const hasPoints = points?.some(point => marketTrendCount(point) !== null) ?? false;
   useEffect(() => {
     const controller = new AbortController();
-    let busy = false, completed = false;
+    let busy = false, completed = false, forceNext = version > 0 || dashboardStore.revision() > 0;
     const remembered = trendResults.get(key);
     if (remembered) setResult(previous => previous?.key === key ? previous : { ...remembered, key });
     void dashboardSession.load(`trend:${key}`).then(saved => {
@@ -59,10 +60,9 @@ export function RankingTrend() {
       busy = true;
       setRange(previous => { const next = reportRange(); return next.start === previous.start && next.end === previous.end ? previous : next; });
       try {
-        const response = await fetch(`/api/seo/trends?region=all&start=${range.start}&end=${range.end}${version > 0 || dashboardStore.revision() > 0 ? "&refresh=1" : ""}`, { signal: controller.signal, cache: "no-store" });
-        if (response.status === 401) { window.location.assign("/login"); return; }
-        if (!response.ok) throw new Error("加载失败");
-        const data = await response.json() as MultiRegionTrendResult;
+        const url = `/api/seo/trends?region=all&start=${range.start}&end=${range.end}${forceNext ? "&refresh=1" : ""}`;
+        const data = await clientReadCache.read<MultiRegionTrendResult>(url, forceNext);
+        forceNext = false;
         if (!isTrendResult(data)) throw new Error("统计口径已更新，请重新加载");
         if (!controller.signal.aborted) {
           trendResults.set(key, data);
@@ -70,11 +70,14 @@ export function RankingTrend() {
           setResult({ ...data, key }); setError(false);
           void dashboardSession.save(`trend:${key}`, JSON.stringify(data), Date.now());
         }
-      } catch { if (!controller.signal.aborted) setError(true); }
+      } catch (error) {
+        if (error instanceof ClientReadError && error.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
+        if (!controller.signal.aborted) setError(true);
+      }
       finally { busy = false; completed = true; }
     };
     void read();
-    const timer = setInterval(() => void read(), 60000);
+    const timer = setInterval(() => void read(), 5 * 60000);
     const onUpdated = () => retry(value => value + 1);
     document.addEventListener("visibilitychange", read);
     window.addEventListener("focus", read);

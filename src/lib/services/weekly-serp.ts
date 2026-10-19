@@ -20,12 +20,13 @@ export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) 
     if (typeof item.keywordId === "string" && typeof item.keyword === "string" && typeof item.siteDomain === "string" && ["flatkey.ai","rackrate.org","modelfit.cc"].includes(item.siteDomain))
       targets.set(`${item.siteDomain}:${item.keywordId}`,{keywordId:item.keywordId,keyword:item.keyword,siteDomain:item.siteDomain,targetUrls:Array.isArray(item.targetUrls)?item.targetUrls.filter((value):value is string=>typeof value === "string"):[]});
   }
-  const markets = await Promise.all(REGION_CODES.map(async region => {
-    const [current, previous] = await Promise.all([
-      loadSerpTasks(region, undefined, undefined, periods.current.start, publicationDay, run?.id),
-      loadSerpTasks(region, undefined, undefined, periods.previous.start, previousPublicationDay, previousRun?.id),
-    ]);
-    return { region, current: buildSerpKeywordResults([...targets.values()], current), previous: buildSerpKeywordResults([...targets.values()], previous) };
+  const [currentTasks, previousTasks] = await Promise.all([
+    loadSerpTasks("all", undefined, undefined, periods.current.start, publicationDay, run?.id),
+    loadSerpTasks("all", undefined, undefined, periods.previous.start, previousPublicationDay, previousRun?.id),
+  ]);
+  const markets = REGION_CODES.map(region => ({ region,
+    current: buildSerpKeywordResults([...targets.values()], currentTasks.filter(task => task.region === region)),
+    previous: buildSerpKeywordResults([...targets.values()], previousTasks.filter(task => task.region === region)),
   }));
   const reports: WeeklyRankingReport[] = [], pages: WeeklyPageRank[] = [], eligible = new Set<string>();
   const capturedWords = new Set<string>(), dates: string[] = [];

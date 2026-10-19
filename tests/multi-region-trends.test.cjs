@@ -34,8 +34,9 @@ mockFile("src/lib/services/serp-results.ts", {
   },
   loadSerpTasks: async region => {
     calls.push(["tasks", region]);
+    if (region === "all" && failMarket) throw new Error("fictional batch unavailable");
     if (region === failMarket) throw new Error("fictional market unavailable");
-    return region === "ES" ? [] : [{ ...task(region, region === "BR" ? null : region === "JP" ? 20 : 3), ...(scopedHistory && region === "JP" ? { runId: "frozen-jp-run", runCreatedAt: "2026-10-16T01:00:00Z" } : {}) }];
+    return (region === "all" ? ["US", "JP", "BR"] : region === "ES" ? [] : [region]).map(market => ({ ...task(market, market === "BR" ? null : market === "JP" ? 20 : 3), ...(scopedHistory && market === "JP" ? { runId: "frozen-jp-run", runCreatedAt: "2026-10-16T01:00:00Z" } : {}) }));
   },
 });
 const { GET } = require("../src/app/api/seo/trends/route.ts");
@@ -50,7 +51,7 @@ test("one four-market read shares the immutable cohort and keeps failed, missing
   assert.equal(response.status, 200); assert.equal(body.schemaVersion, 5); assert.equal(body.mode, "serp-markets");
   assert.deepEqual(body.markets.map(market => market.region), REGION_CODES);
   assert.deepEqual(calls.filter(call => call[0] === "cohort"), [["cohort", "all", "2026-10-08", "2026-10-16"]]);
-  assert.deepEqual(calls.filter(call => call[0] === "tasks").map(call => call[1]).sort(), [...REGION_CODES].sort());
+  assert.deepEqual(calls.filter(call => call[0] === "tasks").map(call => call[1]).sort(), ["all", ...REGION_CODES].sort());
   const markets = Object.fromEntries(body.markets.map(market => [market.region, market]));
   assert.equal(markets.US.points[0].total, 2, "frozen full inventory stays the historical denominator even though only one word was selected");
   assert.equal(markets.US.points[0].ranked, 1, "multiple ranking pages count once within one country");
@@ -67,6 +68,7 @@ test("the total trend counts a keyword once across countries and websites while 
   frozenTargets.push({ ...frozenTargets[0], siteDomain: "rackrate.org", targetUrls: ["https://rackrate.org/models/claude"] });
   t.after(() => frozenTargets.pop());
   const response = await GET(request()), body = await response.json(), [period] = multiRegionTrendPeriods(body.markets);
+  assert.deepEqual(calls.filter(call => call[0] === "tasks"), [["tasks", "all"]], "one healthy ledger query serves all four countries");
   assert.equal(marketTrendCount(period.points.US), 1); assert.equal(marketTrendCount(period.points.JP), 1);
   assert.equal(period.points.US.total, 2); assert.equal(period.points.JP.total, 2);
   assert.equal(period.points.US.captureStartAt, "2026-10-16T03:00:00.000Z");

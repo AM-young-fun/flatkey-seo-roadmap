@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type Key } from "react";
+import { useMemo, useState, type Key } from "react";
 import { Table, Tooltip, Select, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Search, RotateCcw } from "lucide-react";
@@ -56,18 +56,16 @@ function HistoryEvidence({ evidence, region }: { evidence: RankingEvidence; regi
 }
 
 export function KeywordDetails() {
-  const { data, error, loading, refreshing, refresh } = useDashboard("all", "dataforseo_serp", true);
-  const okr = useKeywordOkr();
+  const [view, setView] = useState("FORMAL"), [pool, setPool] = useState<KeywordPool>("FORMAL"), [mapping, setMapping] = useState("ALL");
+  const { data, error, loading, refreshing, refresh } = useDashboard("all", "dataforseo_serp", pool === "RESEARCH");
+  const okr = useKeywordOkr({ pool: pool === "RESEARCH" ? "RESEARCH" : "FORMAL" });
   const [country, setCountry] = useState<KeywordCountryScope>("all");
   const [search, setSearch] = useState(""), [site, setSite] = useState("all");
-  const [view, setView] = useState("FORMAL"), [pool, setPool] = useState<KeywordPool>("FORMAL"), [mapping, setMapping] = useState("ALL");
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState(""), [selected, setSelected] = useState<Key[]>([]);
-  const okrItems = new Map((okr.data?.keywords ?? []).map(item => [item.id, item]));
+  const okrItems = useMemo(() => new Map((okr.data?.keywords ?? []).map(item => [item.id, item])), [okr.data]);
   const isFlatkey = (member: DashboardKeyword) => (member.siteDomain ?? "flatkey.ai") === "flatkey.ai";
   const originalId = (id: string) => id.startsWith("flatkey.ai:") ? id.slice("flatkey.ai:".length) : id;
   const okrFor = (member: DashboardKeyword) => isFlatkey(member) ? okrItems.get(originalId(member.id)) : undefined;
-  const appliedAt = okr.data?.initialized ? okr.data.audits.find(audit => audit.status === "APPLIED")?.appliedAt : null;
-  useEffect(() => { if (appliedAt) refresh(); }, [appliedAt, refresh]);
   const loaded = (data?.keywords ?? []).filter(member => !data?.usingDemoData || !isFlatkey(member));
   const loadedIds = new Set(loaded.filter(isFlatkey).map(member => originalId(member.id)));
   const targetOnly: DashboardKeyword[] = okr.data?.initialized ? [...okrItems.values()].filter(item => !loadedIds.has(item.id)).map(item => ({
@@ -145,7 +143,7 @@ export function KeywordDetails() {
     <section className="tablePanel"><Table className="keywordTable" columns={columns} dataSource={loading || okr.loading ? [] : rows} rowKey="id" loading={loading || okr.loading}
       rowSelection={site === "all" || site === "flatkey.ai" ? undefined : { selectedRowKeys: selected, onChange: keys => setSelected(keys.slice(0, 500)), getCheckboxProps: group => ({ disabled: group.members.some(isFlatkey) }) }}
       expandable={{ expandedRowRender: group => <div className="keywordEvidenceDetails">{group.members.map(member => <section key={`${member.siteDomain}:${member.id}`}><h3>{siteName(member)} · {member.text}</h3><p>{okrFor(member)?.latestPageAuditReason ?? okrFor(member)?.reason ?? "页面与排名分别核对"}</p>{paused(member) ? <p>{holdReason(member)}；已存排名与页面证据保留。</p> : null}<TargetPages urls={[...new Set(targetUrls(member))]} />{okrFor(member)?.candidateUrls.length ? <details><summary>尚未确认关联的候选页面</summary><TargetPages urls={okrFor(member)!.candidateUrls} /></details> : null}{okrFor(member)?.actualPages.length ? <details><summary>审计保留的历史来源页面</summary><ul>{okrFor(member)!.actualPages.map((page, index) => <li key={`${page.url}:${index}`}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {page.source} · {page.region} · {page.periodStart ?? "来源区间未提供"}{page.periodEnd ? ` 至${page.periodEnd}` : ""}</li>)}</ul></details> : null}
-        <p>月搜索量：{detailRegions(country).map(region => `${REGIONS[region].label} ${number(member.marketVolumes[region])}`).join(" · ")} · {member.volumeReview?.label ?? "历史不足，保留观察"}</p>
+        <p>月搜索量：{detailRegions(country).map(region => `${REGIONS[region].label} ${number(member.marketVolumes[region])}`).join(" · ")} · {member.volumeReviewLabel ?? member.volumeReview?.label ?? "历史不足，保留观察"}</p>
         {detailRegions(country).map(region => { const rank = rankFor(member, region), pages = keywordRankingPages(rank, keywordEvidence(member, region), member.siteDomain ?? "flatkey.ai").map(page => ({ ...page, region, siteName: siteName(member), memberId: member.id })); const historical = keywordEvidence(member, region).filter(item => item.source !== "dataforseo_serp"); return <section key={region}><strong>{REGIONS[region].label} · {tagFor({ id: member.id, text: member.text, members: [member] }, region).label}</strong>{rank ? <><p>采集记录：{keywordRankingTag(rank).label} · 采集于 {localDate(rank.checkedAt)} · {rank.periodLabel ?? "未记录期次"} · {coverage(rank)}</p>{pages.length ? <ObservedPages pages={pages} compact /> : <p>本次未取得独立页面排名。</p>}</> : <p>{paused(member) ? holdReason(member) : "尚未采集"}</p>}{historical.length ? <details className="historicalEvidence"><summary>历史参考（{historical.length} 条）</summary><p className="chartNote">历史来源不参与主表排名与区间筛选。</p>{historical.map((evidence, index) => <HistoryEvidence evidence={evidence} region={region} key={`${evidence.source}:${index}`} />)}</details> : null}<a href={`https://www.google.com/search?${new URLSearchParams({ q: member.text, gl: REGIONS[region].gl, hl: REGIONS[region].hl, pws: "0" })}`} target="_blank" rel="noreferrer">在Google复核{REGIONS[region].label}结果 ↗</a></section>; })}
       </section>)}</div> }} pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: total => `共 ${total} 个关键词（已去重）` }} scroll={{ x: 1300 }} size="middle" /></section>
   </main>;

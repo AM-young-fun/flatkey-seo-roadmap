@@ -836,7 +836,7 @@ test("dashboard navigation shares pending reads, reuses fresh data and refreshes
   assert.equal(first,second);
   assert.equal(await store.read("all","combined"),first);
   assert.equal(requests,1);
-  now+=31000;
+  now+=61000;
   assert.equal(await store.read("all","combined"),first);
   assert.equal(requests,2);
   await store.read("all","combined",true);

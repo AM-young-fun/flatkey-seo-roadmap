@@ -64,7 +64,12 @@ const urlIdentity = (value: string) => {
   const url = new URL(value); url.hash = ""; return url.href;
 };
 export function serpTaskPeriod(task: SerpTaskRead): SerpPeriod | null {
-  try { return task.periodKey ? serpPeriodFromKey(task.periodKey) : storedSerpPeriod(task.runCreatedAt); } catch { return null; }
+  try {
+    const period = task.periodKey ? serpPeriodFromKey(task.periodKey) : storedSerpPeriod(task.runCreatedAt);
+    // The initial October sample is issue 1. Keep its immutable ledger key,
+    // boundaries and capture timestamps; the next scheduled issue is Oct 20.
+    return task.runScope === "SAMPLE" && period.key === "2026-10-2" ? { ...period, label: "2026年10月第1期" } : period;
+  } catch { return null; }
 }
 
 function targeted(task: SerpTaskRead, target: SerpTarget): boolean {

@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
 import { dashboardStore } from "@/lib/dashboard-client";
+import { clientReadCache } from "@/lib/client-read-cache";
 
 export function PageHeader({
   active,
@@ -42,7 +43,7 @@ export function PageHeader({
           <Settings2 size={16} />
           数据管理
         </Link>
-        <form action="/api/auth/logout" method="post" onSubmit={() => dashboardStore.clear()}>
+        <form action="/api/auth/logout" method="post" onSubmit={() => { dashboardStore.clear(); clientReadCache.clear(); }}>
           <button className="iconButton" title="退出登录" aria-label="退出登录">
             <LogOut size={16} />
           </button>
