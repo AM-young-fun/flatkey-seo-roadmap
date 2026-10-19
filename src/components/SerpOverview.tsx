@@ -6,7 +6,7 @@ import { CollectionProgress } from "@/components/CollectionProgress";
 
 const percentage = (value: number | null) => value == null ? "—" : `${value.toFixed(1)}%`;
 
-type RingSegment = { count: number; color: string; label: string };
+type RingSegment = { count: number; color: string; label: string; description?: string };
 function SummaryRing({ segments, value, label, basis }: { segments: RingSegment[]; value: number; label: string; basis: string }) {
   const total = segments.reduce((sum, segment) => sum + segment.count, 0), circumference = 2 * Math.PI * 40;
   let offset = 0;
@@ -16,7 +16,7 @@ function SummaryRing({ segments, value, label, basis }: { segments: RingSegment[
       const point = (distance: number) => { const angle = distance / circumference * Math.PI * 2 - Math.PI / 2; return `${50 + 40 * Math.cos(angle)} ${50 + 40 * Math.sin(angle)}`; };
       const arc = length >= circumference - .001 ? "M 50 10 A 40 40 0 1 1 50 90 A 40 40 0 1 1 50 10"
         : `M ${point(start)} A 40 40 0 ${length > circumference/2 ? 1 : 0} 1 ${point(start+length)}`;
-      const tip = `${segment.label}：${segment.count.toLocaleString()} 词 · 占${basis} ${total ? (segment.count/total*100).toFixed(1) : "0.0"}%`;
+      const tip = `${segment.label}：${segment.count.toLocaleString()} 词 · 占${basis} ${total ? (segment.count/total*100).toFixed(1) : "0.0"}%${segment.description ? `；${segment.description}` : ""}`;
       return length > 0 ? <Tooltip key={segment.label} title={tip}><path tabIndex={0} aria-label={tip} className="summaryRingSegment" d={arc} fill="none" stroke={segment.color} strokeWidth="10" /></Tooltip> : null;
     })}</svg><div className="summaryRingCenter"><Tooltip title={`${label}：${value.toLocaleString()} 词；同一关键词跨网站、国家去重。`}><strong tabIndex={0}>{value.toLocaleString()}</strong></Tooltip><span>{label}</span></div>
   </div>;
@@ -26,6 +26,11 @@ const MARKET_FLAGS: Record<string, string> = { US: "🇺🇸", JP: "🇯🇵", E
 
 export function SerpOverview({ site }: { site: string }) {
   const { data, error, loading, refresh } = useSerpOverviewResults(site);
+  const totalKeywords = data?.monitoring.allTargetCount ?? 0;
+  const rankingCoverage: RingSegment[] = [
+    { count: data?.summary.rankedInAnyRegion ?? 0, color: "#5988e8", label: "有排名", description: "本期至少一个国家检出前100自然排名；同一关键词跨国家、网站只计一次。" },
+    { count: Math.max(0, totalKeywords - (data?.summary.rankedInAnyRegion ?? 0)), color: "#dce4f1", label: "没有排名", description: "本期尚未检出前100排名，包含尚未完成采集的关键词；不等同于已确认在前100之外。" },
+  ];
   return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label="四国目标词排名汇总">
     <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">四国综合</span></h2><p className="serpScope">四国汇总 · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
     <CollectionProgress site={site} />
@@ -33,8 +38,8 @@ export function SerpOverview({ site }: { site: string }) {
       <div className="overviewVisualGrid">
         <article className="overviewVisualCard">
           <h3>业务词库</h3>
-          <SummaryRing value={data.monitoring.allTargetCount} label="目标关键词" basis="总词库" segments={[{ count: data.monitoring.eligibleTargetCount, color: "#5988e8", label: "已有页面" }, { count: data.monitoring.heldTargetCount, color: "#dce4f1", label: "暂不监控" }]} />
-          <div className="visualChartLegend"><Tooltip title={`已有合适页面：${data.monitoring.eligibleTargetCount.toLocaleString()} 词，可参与排名监控；占总词库 ${percentage(data.monitoring.allTargetCount ? data.monitoring.eligibleTargetCount/data.monitoring.allTargetCount*100 : null)}。`}><div tabIndex={0}><i style={{ background: "#5988e8" }} /><span>已有页面</span><strong>{data.monitoring.eligibleTargetCount.toLocaleString()}</strong><small>{percentage(data.monitoring.allTargetCount ? data.monitoring.eligibleTargetCount / data.monitoring.allTargetCount * 100 : null)}</small></div></Tooltip><Tooltip title={`暂不监控：${data.monitoring.heldTargetCount.toLocaleString()} 词；占总词库 ${percentage(data.monitoring.allTargetCount ? data.monitoring.heldTargetCount/data.monitoring.allTargetCount*100 : null)}。页面就绪后加入，不表示没有排名。`}><div tabIndex={0}><i style={{ background: "#dce4f1" }} /><span>暂不监控</span><strong>{data.monitoring.heldTargetCount.toLocaleString()}</strong><small>{percentage(data.monitoring.allTargetCount ? data.monitoring.heldTargetCount / data.monitoring.allTargetCount * 100 : null)}</small></div></Tooltip></div>
+          <SummaryRing value={totalKeywords} label="目标关键词" basis="总词库" segments={rankingCoverage} />
+          <div className="visualChartLegend">{rankingCoverage.map(segment => <Tooltip key={segment.label} title={`${segment.label}：${segment.count.toLocaleString()} 词；占总词库 ${percentage(totalKeywords ? segment.count/totalKeywords*100 : 0)}。${segment.description}`}><div tabIndex={0}><i style={{ background: segment.color }} /><span>{segment.label}</span><strong>{segment.count.toLocaleString()}</strong><small>{percentage(totalKeywords ? segment.count/totalKeywords*100 : 0)}</small></div></Tooltip>)}</div>
         </article>
         <article className="overviewVisualCard">
           <h3>已实测排名</h3>
