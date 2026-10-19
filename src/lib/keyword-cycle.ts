@@ -1,11 +1,11 @@
-import { serpPeriod } from "./serp-periods";
+import { serpPeriod, serpPeriodFromKey } from "./serp-periods";
 import { REGION_CODES } from "./seo";
 import { SERP_TARGET_SITES } from "./serp-targets";
 import { quoteForLimit, buildRankedKeywordsTask } from "./dataforseo-labs.cjs";
 import { keywordRelevance, normalizeKeywordText } from "./keyword-relevance";
 
-export function keywordCyclePlan(now = new Date()) {
-  const period = serpPeriod(now), limit = 1000;
+export function keywordCyclePlan(now = new Date(), periodKey?: string) {
+  const period = periodKey ? serpPeriodFromKey(periodKey) : serpPeriod(now), limit = 1000;
   const jobs = SERP_TARGET_SITES.flatMap(targetDomain => REGION_CODES.map(region => {
     const requestId = `discovery-${period.key}-${targetDomain.replace(/\./g, "-")}-${region}`;
     return { requestId, targetDomain, region, limit, task: buildRankedKeywordsTask(limit, requestId, { targetDomain, region }) };

@@ -5,7 +5,7 @@ import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { envBool } from "@/lib/env";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { loadSerpMonitoringCohort as loadSerpTargetCohort } from "@/lib/services/serp-targets";
-import { nextSerpPeriodKey, periodDue, serpPeriod } from "@/lib/serp-periods";
+import { nextSerpPeriodKey, periodDue, serpPeriod, serpPeriodFromKey } from "@/lib/serp-periods";
 import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegion, normalizeSerpAdvanced, providerCostMicros, providerIdIsSafe, providerTaskEnvelope,
   quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_NORMALIZATION_VERSION, SERP_PRICE_PER_QUERY_MICROS, SERP_TASK_GET_URL, SERP_TASK_POST_URL,
   serpTaskId, type SerpMonitorMutation } from "@/lib/dataforseo-serp";
@@ -21,7 +21,10 @@ const requestTimeout = (deadline: number | undefined, maximum: number) => Math.m
 // ledger paused for review rather than burning through later batches.
 const accountCode = (code: number) => [40100, 40104].includes(code) || (code >= 40200 && code < 40300);
 const connectionFingerprint = (ciphertext: string) => createHash("sha256").update(ciphertext).digest("hex");
-export const isSerpPaidEnvironmentEnabled = () => process.env.DATAFORSEO_SERP_PAID_ENABLED === "true" && !envBool("DISABLE_EXTERNAL_FETCH");
+// The authenticated management page owns normal authorization. Deployment
+// configuration retains the emergency stop, not a second hidden paid switch.
+export const isSerpPaidEnvironmentEnabled = () => !envBool("DISABLE_EXTERNAL_FETCH");
+export const isSerpScheduleAuthorized = (row: { paidEnabled: boolean; authorizationVersion?: number } | null) => row?.paidEnabled === true && row.authorizationVersion === 1;
 function configuration(row: SerpMonitorConfig | null): SerpMonitorConfiguration {
   if (!row) return { ...SERP_DEFAULT_CONFIG };
   return { region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840,
@@ -51,7 +54,7 @@ export async function loadSerpMonitorStatus(): Promise<SerpMonitorStatus> {
   const config = configuration(row), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS), environmentEnabled = isSerpPaidEnvironmentEnabled();
   const bySite: Record<string, number> = {};
   for (const target of cohort.targets) bySite[target.siteDomain] = (bySite[target.siteDomain] ?? 0) + 1;
-  return { config, cronConfigured: Boolean(process.env.CRON_SECRET), gate: { environmentEnabled, persistedEnabled: config.paidEnabled, canSpend: environmentEnabled && config.paidEnabled },
+  return { config, cronConfigured: Boolean(process.env.CRON_SECRET), gate: { environmentEnabled, persistedEnabled: isSerpScheduleAuthorized(row), canSpend: environmentEnabled && isSerpScheduleAuthorized(row) },
     connection: { configured: Boolean(connection), loginMasked: connection?.loginMasked ?? null },
     cohort: { hash: cohort.hash, targetCount: quote.targetCount, queryCount: quote.queryCount, allTargetCount: cohort.allTargetCount, heldTargetCount: cohort.heldTargetCount, bySite }, quote,
     budget: { monthReservedCostMicros: reserved, monthLimitMicros: config.maxMonthCostMicros }, runs: await Promise.all(runs.map(runDto)) };
@@ -66,8 +69,8 @@ async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
     const current = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
     if (input.expectedRevision !== undefined && input.expectedRevision !== (current?.revision ?? 0)) throw new ImportRequestError("配置已变化，请刷新后重试", 409);
-    // This product release intentionally has no enable mutation. The explicit
-    // false is enforced by both Zod and this write path, including reconnects.
+    // The legacy setup route can only pause. Enabling requires a signed fee
+    // preview through the authenticated operations controls.
     const values = { paidEnabled: false, region: "US", languageCode: "en", locationCode: 2840, device: "desktop", depth: 100, schedule: "BIWEEKLY_TUESDAY", intervalDays: 14,
       maxRunCostMicros: input.maxRunCostMicros ?? current?.maxRunCostMicros ?? SERP_DEFAULT_CONFIG.maxRunCostMicros,
       maxMonthCostMicros: input.maxMonthCostMicros ?? current?.maxMonthCostMicros ?? SERP_DEFAULT_CONFIG.maxMonthCostMicros };
@@ -78,12 +81,12 @@ async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "
 function requirePaidEnvironment() {
   if (!isSerpPaidEnvironmentEnabled()) throw new ImportRequestError("付费SERP抓取尚未启用，本次未请求供应商", 409);
 }
-async function reserveRun(id: string, expectedCohortHash: string) {
+async function reserveRun(id: string, expectedCohortHash: string, earlyPeriodKey?: string) {
   requirePaidEnvironment();
-  const cohort = await loadSerpTargetCohort(), groups = groupSerpMarketQueries(cohort.targets), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS), period = serpPeriod(new Date());
+  const cohort = await loadSerpTargetCohort(), groups = groupSerpMarketQueries(cohort.targets), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS), period = earlyPeriodKey ? serpPeriodFromKey(earlyPeriodKey) : serpPeriod(new Date());
   if (expectedCohortHash !== cohort.hash) throw new ImportRequestError("正式目标已变化，请重新预览目标和费用", 409);
   if (groups.length === 0) throw new ImportRequestError("没有可监控的正式目标", 409);
-  return prisma.$transaction(async tx => {
+  const reservation = await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
     const existing = await tx.serpMonitorRun.findUnique({ where: { id } });
     if (existing) {
@@ -92,10 +95,16 @@ async function reserveRun(id: string, expectedCohortHash: string) {
     }
     if (await tx.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: period.key, scope: "SCHEDULED" } } })) throw new ImportRequestError("本期已有SERP采集账本，请查看或续跑原记录，不能重复扣费", 409);
     const row = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), config = configuration(row);
-    if (!row?.paidEnabled) throw new ImportRequestError("付费SERP抓取保持关闭，本次未请求供应商", 409);
-    if (row.nextDueAt && row.nextDueAt.getTime() > Date.now()) throw new ImportRequestError("尚未到下次隔周周二的采集时间", 409);
+    if (!isSerpScheduleAuthorized(row)) throw new ImportRequestError("请先在数据管理开启隔周自动更新，本次未请求供应商", 409);
+    if (earlyPeriodKey && (!row?.nextDueAt || row.nextDueAt.toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000)) throw new ImportRequestError("只能提前执行24小时内的下一计划期", 409);
+    if (!earlyPeriodKey && row?.nextDueAt && row.nextDueAt.getTime() > Date.now()) throw new ImportRequestError("尚未到下次隔周周二的采集时间", 409);
     if (await tx.serpMonitorRun.findFirst({ where: { status: { in: OPEN_RUNS } }, select: { id: true } })) throw new ImportRequestError("已有未完成或结果不明的SERP采集，请续跑原账本，不能重复扣费", 409);
-    if (quote.maxCostMicros > config.maxRunCostMicros || await monthReserved(tx) + quote.maxCostMicros > config.maxMonthCostMicros) throw new ImportRequestError("SERP采集超过单轮或月度预算上限，本次未请求供应商", 409);
+    if (quote.maxCostMicros > config.maxRunCostMicros || await monthReserved(tx) + quote.maxCostMicros > config.maxMonthCostMicros) {
+      // Commit the pause rather than rolling it back with the error. Otherwise
+      // the next discovery cycle could keep spending while SERP is over cap.
+      await tx.serpMonitorConfig.updateMany({ where: { id: SERP_CONFIG_ID }, data: { paidEnabled: false, authorizationVersion: 0, revision: { increment: 1 } } });
+      return { run: null, duplicate: false };
+    }
     const connection = await tx.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
     if (!connection) throw new ImportRequestError("请先保存DataForSEO连接", 409);
     decryptDataForSeoCredentials(connection.encryptedCredentials);
@@ -112,6 +121,8 @@ async function reserveRun(id: string, expectedCohortHash: string) {
     await tx.serpMonitorTask.createMany({ data: tasks });
     return { run, duplicate: false };
   }, { maxWait: 10_000, timeout: 30_000 });
+  if (!reservation.run) throw new ImportRequestError("SERP采集超过单轮或月度预算上限，自动更新已暂停，本次未请求供应商", 409);
+  return { run: reservation.run, duplicate: reservation.duplicate };
 }
 async function credentials() {
   const connection = await prisma.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
@@ -151,7 +162,7 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
     const config = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
     const run = await tx.serpMonitorRun.findUniqueOrThrow({ where: { id: runId } });
     if (sampleAuthorizationHash) {
-      if (isSerpPaidEnvironmentEnabled() || config?.paidEnabled || run.scope !== "SAMPLE" || run.sampleAuthorizationHash !== sampleAuthorizationHash) throw new ImportRequestError("小批授权不匹配，或全量计划未保持关闭", 409);
+      if (process.env.DATAFORSEO_SERP_PAID_ENABLED === "true" || config?.paidEnabled || run.scope !== "SAMPLE" || run.sampleAuthorizationHash !== sampleAuthorizationHash) throw new ImportRequestError("小批授权不匹配，或全量计划未保持关闭", 409);
       const approved = rawRecord(run.configJson), cap = approved.sampleMaxBudgetMicros, balance = approved.sampleBalanceBeforeMicros;
       const expiration = Date.parse(String(approved.sampleAuthorizationExpiresAt ?? ""));
       if (approved.sampleAuthorizationHash !== sampleAuthorizationHash || !Number.isFinite(expiration) || expiration < Date.now() ||
@@ -188,7 +199,7 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
       if ([...marketCoverage.values()].some(coverage => coverage.size !== SERP_MARKETS.length || SERP_MARKETS.some(region => !coverage.has(region)))) throw new ImportRequestError("小批必须完整覆盖四个国家，未提交任务", 409);
       const allowed = Array.isArray(approved.selectedTargetIds) ? approved.selectedTargetIds : [];
       if (allowed.length !== targetIds.size || new Set(allowed).size !== targetIds.size || run.targetCount !== targetIds.size || allowed.some(id => typeof id !== "string" || !targetIds.has(id))) throw new ImportRequestError("小批目标超出授权范围", 409);
-    } else if (!config?.paidEnabled || (run.scope ?? "SCHEDULED") !== "SCHEDULED") throw new ImportRequestError("全量付费SERP抓取已关闭或任务范围不符", 409);
+    } else if (!isSerpScheduleAuthorized(config) || (run.scope ?? "SCHEDULED") !== "SCHEDULED") throw new ImportRequestError("全量付费SERP抓取已关闭或任务范围不符", 409);
     if (run.status === "UNKNOWN") throw new ImportRequestError("供应商接收结果不明，禁止重复提交", 409);
     if (run.connectionVersion !== connection.connectionVersion || rawRecord(run.configJson).connectionHash !== connection.connectionHash) throw new ImportRequestError("采集期间连接已变化，请先核对原账本", 409);
     const active = await tx.serpMonitorTask.findFirst({ where: { runId, state: { in: ["SUBMITTING", "UNKNOWN"] } } });
@@ -528,6 +539,14 @@ export async function mutateSerpMonitor(input: SerpMonitorMutation) {
   return { action: "start", duplicate: reserved.duplicate, run: await runDto(await finalizeRun(reserved.run.id)) };
 }
 
+// Authenticated cycle worker only: this advances the already configured slot,
+// preserving the same period key so tomorrow's cron cannot bill it again.
+export async function startSerpScheduledPeriod(periodKey: string, expectedCohortHash: string, deadline: number) {
+  const reserved = await reserveRun(`serp-cycle-${periodKey}`, expectedCohortHash, periodKey);
+  if (!reserved.duplicate) await submitOneBatch(reserved.run.id, undefined, deadline);
+  return runDto(await finalizeRun(reserved.run.id));
+}
+
 export async function runSerpMonitorCron(options: { maxDurationMs?: number; allowStart?: boolean } = {}) {
   // Count reservation/DB time too, leaving the enclosing 300s route a safety
   // margin. The global external stop still blocks both paid and free traffic.
@@ -535,7 +554,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
   if (envBool("DISABLE_EXTERNAL_FETCH")) return { status: "DISABLED", reason: "EXTERNAL_FETCH_DISABLED", paidRequests: 0 };
   if (!hasTime(deadline)) return { status: "TIME_BUDGET_EXHAUSTED", paidRequests: 0, continuationRequired: true };
   const row = await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
-  const canSpend = isSerpPaidEnvironmentEnabled() && row?.paidEnabled === true;
+  const canSpend = isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(row);
   // A paused scheduled ledger may still contain paid tasks whose IDs are safe
   // to retrieve. Never include the separately authorized sample in this cron.
   let run = await prisma.serpMonitorRun.findFirst({ where: { scope: "SCHEDULED", status: { in: OPEN_RUNS } }, orderBy: { createdAt: "asc" } });
@@ -565,7 +584,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
     const latest = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: run.id } });
     let submitted = 0;
     const liveConfig = await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
-    if (latest.status !== "UNKNOWN" && isSerpPaidEnvironmentEnabled() && liveConfig?.paidEnabled && hasTime(deadline, 75_000)) {
+    if (latest.status !== "UNKNOWN" && isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(liveConfig) && hasTime(deadline, 75_000)) {
       submitted = await submitOneBatch(run.id, undefined, deadline);
       if (submitted) paidRequests++;
     }
@@ -573,7 +592,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
   }
   const finished = await finalizeRun(run.id), dto = await runDto(finished);
   const remaining = (dto.taskCounts.PLANNED ?? 0) + (dto.taskCounts.SUBMITTING ?? 0) + (dto.taskCounts.QUEUED ?? 0) + (dto.taskCounts.RECEIVED ?? 0) + (dto.taskCounts.UNKNOWN ?? 0);
-  const stillEnabled = isSerpPaidEnvironmentEnabled() && (await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }))?.paidEnabled === true;
+  const stillEnabled = isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }));
   return { status: finished.status === "UNKNOWN" ? "NEEDS_REVIEW" : remaining ? stillEnabled ? "ACTIVE" : "PAUSED" : "FINISHED",
     runId: run.id, paidRequests, freeResultsChecked, remainingQueries: remaining, continuationRequired: remaining > 0, run: dto };
 }

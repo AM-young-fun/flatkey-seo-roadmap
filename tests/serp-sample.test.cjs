@@ -73,7 +73,7 @@ mockFile("src/lib/services/serp-monitor.ts", {
   },
   resumeSerpMonitorRun: async id => { resumes++; return dto(state.runs.find(row => row.id === id)); },
 });
-const { previewSerpSample, startSerpSample, loadSerpSampleEvidence } = require("../src/lib/services/serp-sample.ts");
+const { previewSerpSample, startSerpSample, loadSerpSampleEvidence, mutateSerpSample } = require("../src/lib/services/serp-sample.ts");
 const start = (preview, id = "fictional-sample-request-1") => startSerpSample({ action: "startSample", idempotencyKey: id,
   expectedSubsetHash: preview.subsetHash, authorizationToken: preview.authorizationToken, maxBudgetMicros: preview.maxBudgetMicros });
 beforeEach(t => {
@@ -97,6 +97,13 @@ test("free balance parser fails closed on invalid, negative, mismatched or unexp
   for (const raw of [{}, { ...valid, cost: 0.001 }, { ...valid, tasks: [] },
     { ...valid, tasks: [{ ...valid.tasks[0], result: [{ money: { balance: -1 } }] }] },
     { ...valid, tasks: [{ ...valid.tasks[0], result: [{ money: { balance: "1" } }] }] }]) assert.throws(() => sample.parseSerpSampleBalance(raw));
+});
+
+test("free account verification remains usable during an authorized schedule without starting or pausing jobs", async () => {
+  state.config.paidEnabled = true; state.config.authorizationVersion = 1;
+  const result = await mutateSerpSample({ action: "sampleBalance" });
+  assert.equal(result.balanceMicros, 978280); assert.equal(result.scheduledPaidEnabled, true);
+  assert.equal(calls.length, 1); assert.equal(submits, 0); assert.equal(state.runs.length, 0); assert.equal(state.config.paidEnabled, true);
 });
 
 test("sample budget always leaves a safety reserve and deduplicates shared query targets", () => {

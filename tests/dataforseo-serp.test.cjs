@@ -123,6 +123,7 @@ const db = {
   },
   serpMonitorConfig: model("config", { revision: 1, nextDueAt: null }), serpMonitorRun: model("runs", { scope: "SCHEDULED", sampleAuthorizationHash: null }), serpMonitorTask: model("tasks"),
   dataForSeoConnection: { findUnique: async () => state.connection ? { loginMasked: "f***", encryptedCredentials: "fictional-ciphertext", connectionVersion: 1 } : null },
+  schedulerCheck: { create: async ({ data }) => data, update: async ({ data }) => data },
 };
 function mockFile(relative, exports) { const name = path.join(root, relative); require.cache[name] = { id: name, filename: name, loaded: true, exports }; }
 mockFile("src/lib/prisma.ts", { prisma: db });
@@ -134,7 +135,7 @@ mockFile("src/lib/dataforseo-credentials.ts", { decryptDataForSeoCredentials: ()
 const { SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_MARKET_CONFIG, configForSerpRegion, groupSerpQueries, groupSerpMarketQueries, quoteSerpTargets, buildSerpTask, normalizeSerpAdvanced, serpMonitorMutationSchema } = require("../src/lib/dataforseo-serp.ts");
 const { periodDue, nextSerpPeriodKey, serpPeriod } = require("../src/lib/serp-periods.ts");
 const { SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_AUTHORIZATION_ID } = require("../src/lib/serp-sample.ts");
-const { loadSerpMonitorStatus, mutateSerpMonitor, runSerpMonitorCron, submitSerpSampleBatch } = require("../src/lib/services/serp-monitor.ts");
+const { loadSerpMonitorStatus, mutateSerpMonitor, runSerpMonitorCron, submitSerpSampleBatch, startSerpScheduledPeriod } = require("../src/lib/services/serp-monitor.ts");
 
 function target(keyword, siteDomain = "flatkey.ai") { return { keyword, keywordId: `id-${keyword}`, siteDomain, targetUrls: [`https://${siteDomain}/models/example`] }; }
 function advanced(task, count = 100, overrides = {}) {
@@ -148,7 +149,7 @@ const start = (id = "fictional-serp-run-1") => mutateSerpMonitor({ action: "star
 beforeEach(t => {
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED; delete process.env.DISABLE_EXTERNAL_FETCH;
   targets = [target("model api price"), target("brand key")];
-  state = { config: { id: "default", ...SERP_DEFAULT_CONFIG, revision: 1 }, connection: true, runs: [], tasks: [] };
+  state = { config: { id: "default", ...SERP_DEFAULT_CONFIG, revision: 1, authorizationVersion: 1 }, connection: true, runs: [], tasks: [] };
   queue = Promise.resolve(); inTransaction = false; fetches = []; events = []; balanceRequests = []; liveBalance = 100;
   respond = async (url, init) => init.method === "POST" ? new Response(JSON.stringify({ status_code: 20000, tasks: JSON.parse(init.body).map((data, index) => ({ id: `provider-${index}-${fetches.length}`, status_code: 20100, cost: 0.006, data })) })) :
     new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)))));
@@ -178,6 +179,28 @@ test("SERP setup, status and preview are offline; neither flag alone can spend a
   assert.equal(saved.config.paidEnabled, false); assert.equal(saved.config.intervalDays, 14); assert.equal(saved.config.depth, 100);
   assert.equal(saved.config.nextDueAt, null); assert.equal(fetches.length, 0);
   assert.ok(!JSON.stringify(saved).includes("fictional-ciphertext"));
+});
+
+test("management authorization works without deployment paid flags while an unversioned legacy flag cannot spend", async () => {
+  state.config.paidEnabled = true; state.config.authorizationVersion = 0;
+  await assert.rejects(start(), error => error.status === 409); assert.equal(fetches.length, 0);
+  state.config.authorizationVersion = 1;
+  await start(); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+});
+
+test("advancing Oct20 keeps its single ledger and completion schedules Nov3 rather than another run tomorrow", async t => {
+  state.config.paidEnabled = true; state.config.nextDueAt = new Date("2026-10-20T02:30:00Z");
+  t.mock.method(Date, "now", () => Date.parse("2026-10-19T12:00:00Z"));
+  const deadline = Date.now() + 230000;
+  const first = await startSerpScheduledPeriod("2026-10-20", "a".repeat(64), deadline);
+  assert.equal(first.periodKey, "2026-10-20");
+  await mutateSerpMonitor({ action: "resume", runId: first.id });
+  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-03T02:30:00.000Z");
+  assert.equal(state.config.paidEnabled, true);
+  await startSerpScheduledPeriod("2026-10-20", "a".repeat(64), deadline);
+  assert.equal(state.runs.length, 1); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+  await assert.rejects(startSerpScheduledPeriod("2026-11-03", "a".repeat(64), deadline), /24小时/);
+  assert.equal(state.runs.length, 1);
 });
 
 test("every daily cron while paused is a zero-provider-call no-op, including no DB configuration", async () => {

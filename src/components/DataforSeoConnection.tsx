@@ -66,7 +66,7 @@ export function DataforSeoConnection({ onChanged }: { onChanged: () => void }) {
       if (response.status === 401) { window.location.assign("/login"); return; }
       const result = await response.json();
       if (!response.ok) throw new Error(result.message ?? "连接与余额验证失败，请检查 API 凭据后重试。");
-      if (result.action !== "sampleBalance" || !Number.isSafeInteger(result.balanceMicros) || result.balanceMicros < 0 || typeof result.checkedAt !== "string" || !Number.isFinite(Date.parse(result.checkedAt)) || result.scheduledPaidEnabled !== false) throw new Error("验证回执不完整，尚未确认账户余额。");
+      if (result.action !== "sampleBalance" || !Number.isSafeInteger(result.balanceMicros) || result.balanceMicros < 0 || typeof result.checkedAt !== "string" || !Number.isFinite(Date.parse(result.checkedAt)) || typeof result.scheduledPaidEnabled !== "boolean") throw new Error("验证回执不完整，尚未确认账户余额。");
       setVerification({ balanceMicros: result.balanceMicros, checkedAt: result.checkedAt });
     } catch (failure) { setError(failure instanceof Error ? failure.message : "连接与余额验证失败"); }
     finally { setBusy(""); }

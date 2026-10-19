@@ -141,9 +141,10 @@ export async function startSerpSample(input: Extract<SerpSampleMutation, { actio
 
 export async function mutateSerpSample(input: SerpSampleMutation) {
   if (input.action === "sampleBalance") {
-    await requireScheduledPaused();
-    const balanceMicros = await fetchBalance(await connection());
-    return { action: "sampleBalance", balanceMicros, checkedAt: new Date().toISOString(), scheduledPaidEnabled: false };
+    // Authentication and balance lookup are free even while the normal
+    // schedule is enabled. This branch can never submit a SERP task.
+    const [balanceMicros, config] = await Promise.all([fetchBalance(await connection()), prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } })]);
+    return { action: "sampleBalance", balanceMicros, checkedAt: new Date().toISOString(), scheduledPaidEnabled: config?.paidEnabled === true && config.authorizationVersion === 1 };
   }
   return input.action === "previewSample" ? previewSerpSample() : startSerpSample(input);
 }

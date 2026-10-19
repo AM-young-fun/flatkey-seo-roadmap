@@ -9,9 +9,10 @@ import { buildDataForSeoImportPlan } from "@/lib/dataforseo-import-plan";
 import { rankingImportSchema } from "@/lib/ranking-import";
 import { importSeo } from "@/lib/services/seo-import";
 import { keywordRelevance, normalizeKeywordText } from "@/lib/keyword-relevance";
+import { SERP_CONFIG_ID } from "@/lib/dataforseo-serp";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-const enabled = () => process.env.DATAFORSEO_DISCOVERY_PAID_ENABLED === "true" && !envBool("DISABLE_EXTERNAL_FETCH");
+const enabled = () => !envBool("DISABLE_EXTERNAL_FETCH");
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 async function verifyPage(site: string, keyword: string, value: string) {
   let url: URL;
@@ -113,15 +114,18 @@ async function applyDiscovery(snapshot: DataForSeoNormalized, requestId: string,
 }
 
 /** One resumable market per worker pass. A paid POST is never retried. */
-export async function runKeywordDiscoveryCycle(options: { deadline?: number; now?: Date } = {}) {
-  const now = options.now ?? new Date(), plan = keywordCyclePlan(now), deadline = options.deadline ?? Date.now()+210000;
+export async function runKeywordDiscoveryCycle(options: { deadline?: number; now?: Date; periodKey?: string } = {}) {
+  const now = options.now ?? new Date(), plan = keywordCyclePlan(now, options.periodKey), deadline = options.deadline ?? Date.now()+210000;
   if (!enabled()) return {status:"DISABLED",ready:false,paidRequests:0};
+  const config = await prisma.serpMonitorConfig.findUnique({where:{id:SERP_CONFIG_ID}});
+  if (!config?.paidEnabled || config.authorizationVersion !== 1) return {status:"DISABLED",ready:false,paidRequests:0};
   const connection = await prisma.dataForSeoConnection.findUnique({where:{siteDomain:"flatkey.ai"}});
   if (!connection?.scheduleEnabled) return {status:"DISABLED",ready:false,paidRequests:0};
   const existing = await prisma.dataForSeoRun.findMany({where:{requestId:{in:plan.jobs.map(job=>job.requestId)}}});
   const unresolved = await prisma.dataForSeoRun.findFirst({where:{requestId:{startsWith:"discovery-",notIn:plan.jobs.map(job=>job.requestId)},status:{in:["PENDING","UNKNOWN","RECEIVED","IMPORT_FAILED"]}},select:{requestId:true}});
   if (unresolved) return {status:"NEEDS_REVIEW",ready:false,paidRequests:0,requestId:unresolved.requestId};
-  if (!existing.length && !plan.mayStart) return {status:"NOT_DUE",ready:false,paidRequests:0};
+  const earlyAllowed = options.periodKey && config.nextDueAt?.toISOString() === plan.period.dueAt && Date.parse(plan.period.dueAt) - now.getTime() <= 86400000;
+  if (!existing.length && !plan.mayStart && !earlyAllowed) return {status:"NOT_DUE",ready:false,paidRequests:0};
   const job = plan.jobs.find(job=>existing.find(row=>row.requestId===job.requestId)?.status !== "COMPLETED");
   if (!job) return {status:"COMPLETE",ready:true,paidRequests:0};
   let run = existing.find(row=>row.requestId===job.requestId), paidRequests = 0;
@@ -139,8 +143,8 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
     run = reserved;
     try {
       if (!enabled()) throw new Error("DISCOVERY_DISABLED_BEFORE_SUBMIT");
-      const live = await prisma.dataForSeoConnection.findUnique({where:{siteDomain:"flatkey.ai"}});
-      if (!live?.scheduleEnabled || live.connectionVersion !== connection.connectionVersion || live.encryptedCredentials !== connection.encryptedCredentials) throw new Error("DISCOVERY_CONNECTION_CHANGED");
+      const [live, liveConfig] = await Promise.all([prisma.dataForSeoConnection.findUnique({where:{siteDomain:"flatkey.ai"}}),prisma.serpMonitorConfig.findUnique({where:{id:SERP_CONFIG_ID}})]);
+      if (!liveConfig?.paidEnabled || liveConfig.authorizationVersion !== 1 || !live?.scheduleEnabled || live.connectionVersion !== connection.connectionVersion || live.encryptedCredentials !== connection.encryptedCredentials) throw new Error("DISCOVERY_CONNECTION_CHANGED");
       const auth = decryptDataForSeoCredentials(live.encryptedCredentials);
       paidRequests=1;
       const response = await fetch(ENDPOINT,{method:"POST",redirect:"error",cache:"no-store",signal:AbortSignal.timeout(30000),

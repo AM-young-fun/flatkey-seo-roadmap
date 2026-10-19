@@ -96,6 +96,6 @@ Vercel 运行时每个实例限制为 1 个数据库连接；识别到 Supabase 
 - `GET /api/serp-monitor/results`：正式目标实测结果、逐页自然名次与采集时间
 - `POST /api/sync/run`：已退役，返回410，不再调用SerpApi
 - `POST /api/dataforseo`的`action:update`：旧Labs付费更新已停用，返回410；连接与历史缓存兼容保留
-- `GET /api/cron/daily-rankings`：鉴权后的Vercel每日10:30计划／来源健康检查，双闸关闭时无供应商请求
-- `GET /api/cron/serp-monitor`：复用相同SERP到期流程，需Cron鉴权；不另设重复日程
+- `GET /api/cron/daily-rankings`：Vercel每30分钟推进已授权任务；新排名周期为隔周周二10:30，接收真实执行回执，不重复创建周期
+- `GET/POST /api/operations`：登录管理页的运行记录、免费费用预览、隔周更新开关与本轮提前执行；付费默认关闭，旧授权不自动启用
 - `GET /api/health`：健康检查

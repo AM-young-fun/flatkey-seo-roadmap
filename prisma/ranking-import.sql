@@ -378,4 +378,17 @@ CREATE TABLE IF NOT EXISTS "WeeklyReportDraft" (
   PRIMARY KEY ("siteDomain", "periodStart")
 );
 
+ALTER TABLE "SerpMonitorConfig" ADD COLUMN IF NOT EXISTS "authorizationVersion" INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS "SchedulerCheck" (
+  id TEXT PRIMARY KEY,
+  "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "completedAt" TIMESTAMP(3),
+  status TEXT NOT NULL DEFAULT 'RUNNING',
+  "discoveryStatus" TEXT,
+  "serpStatus" TEXT,
+  "paidRequests" INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS "SchedulerCheck_startedAt_idx" ON "SchedulerCheck" ("startedAt" DESC);
+
 COMMIT;

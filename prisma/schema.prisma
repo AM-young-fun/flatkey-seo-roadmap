@@ -469,9 +469,8 @@ model DataForSeoRun {
   @@index([siteDomain, createdAt(sort: Desc)])
 }
 
-// Independent from the Labs discovery connection: storing credentials never
-// authorizes a paid SERP request. Both this flag and the server kill switch
-// must be explicitly enabled in a later authorized operation.
+// Storing credentials never authorizes paid requests. Management activation
+// persists an explicit, versioned authorization with reviewed budget caps.
 model SerpMonitorConfig {
   id String @id @default("default")
   region String @default("US")
@@ -482,6 +481,7 @@ model SerpMonitorConfig {
   schedule String @default("SEMI_MONTHLY")
   intervalDays Int @default(14)
   paidEnabled Boolean @default(false)
+  authorizationVersion Int @default(0)
   maxRunCostMicros Int @default(50000000)
   maxMonthCostMicros Int @default(100000000)
   revision Int @default(1)
@@ -545,4 +545,16 @@ model SerpMonitorTask {
   @@index([runId, state])
   @@index([checkedAt(sort: Desc)])
   @@index([region, checkedAt(sort: Desc)])
+}
+
+// A scheduler heartbeat is distinct from a paid collection or a source read.
+model SchedulerCheck {
+  id String @id
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  status String @default("RUNNING")
+  discoveryStatus String?
+  serpStatus String?
+  paidRequests Int @default(0)
+  @@index([startedAt(sort: Desc)])
 }

@@ -26,11 +26,12 @@ test("historical foreign-market results are rejected and business intent must ma
  assert.throws(()=>normalizeRankedKeywords(raw,{runId:"market-test",collectedAt:"2026-10-19T03:00:00Z"}));
 });
 
-let runs=[], fetches=0, failTransport=false;
+let runs=[], fetches=0, failTransport=false, scheduleEnabled=false;
 const connection={scheduleEnabled:true,connectionVersion:1,encryptedCredentials:"test-only"};
 const db={
  $executeRaw:async()=>0,$transaction:async fn=>fn(db),siteKeyword:{findMany:async()=>[]},
  dataForSeoConnection:{findUnique:async()=>connection},
+ serpMonitorConfig:{findUnique:async()=>({paidEnabled:scheduleEnabled,authorizationVersion:1,nextDueAt:new Date("2026-10-20T02:30:00Z")})},
  dataForSeoRun:{
  findFirst:async()=>null,
  findMany:async({where})=>runs.filter(row=>where.requestId.in.includes(row.requestId)),
@@ -58,7 +59,7 @@ test("disabled discovery never reads credentials or calls the paid provider",asy
 });
 
 test("a twelve-market cycle records each POST once and an uncertain response never resubmits",async()=>{
- const originalFetch=global.fetch;process.env.DATAFORSEO_DISCOVERY_PAID_ENABLED="true";
+ const originalFetch=global.fetch;scheduleEnabled=true;
  global.fetch=async(_url,options)=>{
   fetches++;if(failTransport)throw Error("lost response");const task=JSON.parse(options.body)[0];
   return new Response(JSON.stringify({status_code:20000,tasks_error:0,tasks_count:1,cost:.012,tasks:[{status_code:20000,result:[{target:task.target,location_code:task.location_code,language_code:task.language_code,items:[],items_count:0,total_count:0}]}]}));
@@ -72,5 +73,5 @@ test("a twelve-market cycle records each POST once and an uncertain response nev
   const first=await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
   const retry=await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
   assert.equal(first.status,"NEEDS_REVIEW");assert.equal(retry.status,"NEEDS_REVIEW");assert.equal(fetches,1);assert.equal(runs[0].status,"UNKNOWN");
- }finally{global.fetch=originalFetch;delete process.env.DATAFORSEO_DISCOVERY_PAID_ENABLED;}
+ }finally{global.fetch=originalFetch;scheduleEnabled=false;}
 });
