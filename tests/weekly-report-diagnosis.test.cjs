@@ -45,6 +45,17 @@ test("old periods never use current page availability as their historical root c
   assert.ok(result.findings.every(row => row.title !== "页面返回 HTTP 404"));
 });
 
+test("a material registration-ratio shift triggers an investigation without claiming a proven cause", async () => {
+  const result = await diagnoseWeeklyReport(traffic({ current: { newUsers: 2572, newRegistrations: 417 }, previous: { newUsers: 2087, newRegistrations: 433 }, siteTraffic: [
+    { siteDomain: "flatkey.ai", current: { newUsers: 2572, newRegistrations: 417 }, previous: { newUsers: 2087, newRegistrations: 433 } },
+  ] }), null, "2026-10-12", { now });
+  assert.equal(result.significant, true);
+  const finding = result.findings.find(row => row.title === "注册比例变化需要渠道与流程证据");
+  assert.match(finding.evidence, /20.7% 变为 16.2%/);
+  assert.match(finding.action, /当前汇总尚不能确认具体原因/);
+  assert.equal(finding.level, "unresolved");
+});
+
 test("public-page checks detect HTTP, robots and canonical evidence with anonymous bounded requests", async () => {
   const missing = await checkWeeklyReportPage("https://flatkey.ai/model", { now, fetch: async (_url, init) => {
     assert.equal(init.redirect, "manual"); assert.equal(init.headers.Authorization, undefined); assert.equal(init.headers.Cookie, undefined);

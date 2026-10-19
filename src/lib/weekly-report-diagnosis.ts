@@ -74,8 +74,12 @@ function cachedPageCheck(url: string) {
 }
 export async function diagnoseWeeklyReport(traffic: DiagnosisTraffic, ranks: WeeklyKeywordComparison | null, periodEnd: string,
   options: { checkPage?: (url: string) => Promise<PageCheck>; now?: Date } = {}): Promise<WeeklyReportDiagnosis> {
+  const currentRatio = traffic.current?.newUsers ? traffic.current.newRegistrations / traffic.current.newUsers : null;
+  const previousRatio = traffic.previous?.newUsers ? traffic.previous.newRegistrations / traffic.previous.newUsers : null;
+  const ratioLarge = currentRatio != null && previousRatio != null && Math.abs(currentRatio - previousRatio) >= .02 &&
+    (previousRatio === 0 || Math.abs(currentRatio - previousRatio) / previousRatio >= .2);
   const trafficLarge = Boolean(traffic.comparable && traffic.current && traffic.previous &&
-    (significant(traffic.current.newUsers, traffic.previous.newUsers, 500, 20) || significant(traffic.current.newRegistrations, traffic.previous.newRegistrations, 50, 5)));
+    (significant(traffic.current.newUsers, traffic.previous.newUsers, 500, 20) || significant(traffic.current.newRegistrations, traffic.previous.newRegistrations, 50, 5) || ratioLarge));
   const ranksLarge = Boolean(ranks && (significant(ranks.current, ranks.previous, 50, 10) || ranks.entered + ranks.removed >= 20 ||
     ranks.buckets.some(row => significant(row.current, row.previous, 30, 10)) ||
     ranks.pageLosses.some(page => page.lost >= 5 || page.declined >= 10) || ranks.pageGains.some(page => page.gained + page.improved >= 10)));
@@ -87,6 +91,7 @@ export async function diagnoseWeeklyReport(traffic: DiagnosisTraffic, ranks: Wee
     result.findings.push({ title: "流量变化集中位置", evidence: sites.map(site => `${site.site}：新用户 ${site.users > 0 ? "+" : ""}${site.users}，注册 ${site.registrations > 0 ? "+" : ""}${site.registrations}`).join("；"),
       action: "按变化最大的站点检查 GA4 自然搜索、付费、推荐与直接访问渠道，并对照近期投放和埋点变更。现有全渠道汇总不足以认定流量波动由 SEO 导致。", level: "finding" });
   }
+  if (traffic.comparable && ratioLarge && currentRatio != null && previousRatio != null) result.findings.push({ title: "注册比例变化需要渠道与流程证据", evidence: `注册人数 / 新用户数由 ${(previousRatio * 100).toFixed(1)}% 变为 ${(currentRatio * 100).toFixed(1)}%。该比例不等于同一批新用户的转化率。`, action: "核对各渠道的新用户与注册人数、注册漏斗及注册事件采集状态，区分流量结构变化、注册流程异常和埋点变化；当前汇总尚不能确认具体原因。", level: "unresolved" });
   if (ranksLarge && ranks) {
     if (ranks.comparedMarkets < 12) result.findings.push({ title: "历史数据覆盖不完整", evidence: `两期只有 ${ranks.comparedMarkets}/12 个网站与国家组合可比；缺失范围未按零排名计算。`, action: "补齐缺失的同期原始报告后再确认整体变化。", level: "unresolved" });
     const losses = ranks.pageLosses.slice(0, 3), gains = ranks.pageGains.slice(0, 3);
