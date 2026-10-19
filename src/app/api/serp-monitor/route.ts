@@ -8,7 +8,8 @@ import { serpSampleMutationSchema } from "@/lib/serp-sample";
 import { loadSerpSampleEvidence, mutateSerpSample } from "@/lib/services/serp-sample";
 import { serpMonitorMutationSchema } from "@/lib/dataforseo-serp";
 import { loadSerpMonitorStatus, mutateSerpMonitor } from "@/lib/services/serp-monitor";
-import { loadSerpQueryEvidence } from "@/lib/services/serp-query-evidence";
+import type { SerpRegion } from "@/lib/serp-monitor-types";
+import { downloadSerpQueryEvidence, loadSerpQueryEvidence } from "@/lib/services/serp-query-evidence";
 import { loadSerpCollectionProgress } from "@/lib/services/serp-collection-progress";
 
 export const runtime = "nodejs";
@@ -32,6 +33,10 @@ export async function GET(request: Request) {
     if (params?.has("queryEvidence")) {
       const keyword = params.get("queryEvidence")?.trim() ?? "", region = params.get("region") ?? "US";
       if (!keyword || keyword.length > 700 || !["US", "JP", "ES", "BR"].includes(region)) return NextResponse.json({ message: "查询参数无效" }, { status: 400, headers });
+      if (params.get("format") === "html") {
+        const evidence = await downloadSerpQueryEvidence(keyword, region as SerpRegion);
+        return new NextResponse(JSON.stringify(evidence), { headers: { ...headers, "Content-Type": "application/json; charset=utf-8", "Content-Disposition": 'attachment; filename="serp-evidence.json"', "X-Content-Type-Options": "nosniff" } });
+      }
       return NextResponse.json({ evidence: await retryDatabaseRead(() => loadSerpQueryEvidence(keyword, region)) }, { headers });
     }
     if (params && params.get("progress") === "1") {

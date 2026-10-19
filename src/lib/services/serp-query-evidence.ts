@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
+import { providerIdIsSafe, providerTaskEnvelope, serpQueryKey, SERP_MARKET_CONFIG } from "@/lib/dataforseo-serp";
+import type { SerpRegion } from "@/lib/serp-monitor-types";
+import { ImportRequestError } from "@/lib/ranking-import";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : null;
@@ -31,4 +35,29 @@ export async function loadSerpQueryEvidence(keyword: string, region: string) {
     request: { keyword: text(request.keyword), locationCode: integer(request.location_code), languageCode: text(request.language_code),
       device: text(request.device), os: text(request.os), depth: integer(request.depth), searchDomain: text(request.se_domain) },
     snapshot: publicSerpSnapshot(task.rawResponse) };
+}
+
+/** Read an already-paid task only. This path has no task submission or database writes. */
+export async function downloadSerpQueryEvidence(keyword: string, region: SerpRegion) {
+  const run = await prisma.serpMonitorRun.findFirst({ where: { scope: "SCHEDULED" }, orderBy: { createdAt: "desc" }, select: { id: true, periodLabel: true } });
+  if (!run) throw new ImportRequestError("本期尚无采集记录", 404);
+  const task = await prisma.serpMonitorTask.findFirst({ where: { runId: run.id, region, keyword: { equals: keyword, mode: "insensitive" } },
+    select: { keyword: true, region: true, state: true, checkedAt: true, providerTaskId: true, rawResponse: true } });
+  if (!task || task.state !== "COMPLETE" || !providerIdIsSafe(task.providerTaskId)) throw new ImportRequestError("该词尚无已完成的供应商任务", 409);
+  const connection = await prisma.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" }, select: { encryptedCredentials: true } });
+  if (!connection) throw new ImportRequestError("DataForSEO连接不存在", 409);
+  const credentials = decryptDataForSeoCredentials(connection.encryptedCredentials);
+  const response = await fetch(`https://api.dataforseo.com/v3/serp/google/organic/task_get/html/${task.providerTaskId}`, {
+    method: "GET", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(20_000),
+    headers: { Authorization: `Basic ${Buffer.from(`${credentials.apiLogin}:${credentials.apiPassword}`).toString("base64")}` },
+  });
+  if (!response.ok) throw new ImportRequestError("供应商原始HTML暂时无法读取", 502);
+  const raw: unknown = await response.json(), receipt = providerTaskEnvelope(raw, task.providerTaskId);
+  if (object(raw).cost !== 0 || receipt.status_code !== 20000 || receipt.cost !== 0) throw new ImportRequestError("原始HTML响应异常；未提交任何新任务", 502);
+  const results = Array.isArray(receipt.result) ? receipt.result.map(object) : [], market = SERP_MARKET_CONFIG[region];
+  if (results.length !== 1 || serpQueryKey(String(results[0].keyword)) !== serpQueryKey(task.keyword) || results[0].location_code !== market.locationCode || results[0].language_code !== market.languageCode) throw new ImportRequestError("供应商HTML与原任务范围不符", 502);
+  const pages = Array.isArray(results[0].items) ? results[0].items.map(object).filter(page => typeof page.html === "string").map(page => ({ page: integer(page.page), date: text(page.date), html: text(page.html) })) : [];
+  if (!pages.length) throw new ImportRequestError("供应商未返回原始HTML（仅保留7天）", 404);
+  return { keyword: task.keyword, region: task.region, providerTaskId: task.providerTaskId, periodLabel: run.periodLabel,
+    checkedAt: task.checkedAt?.toISOString() ?? null, retrievalCost: 0, snapshot: publicSerpSnapshot(task.rawResponse), pages };
 }
