@@ -2366,3 +2366,13 @@ a:focus-visible {
 .collectionPendingWords { display:grid; gap:10px; border-top:1px solid #edf1f6; margin-top:14px; padding-top:12px; max-height:180px; overflow-y:auto; }
 .collectionPendingWords strong { display:block; font-size:11px; font-weight:500; line-height:1.5; overflow-wrap:anywhere; }
 .collectionPendingWords span { display:block; margin-top:4px; font-size:10px; color:#99a5b6; }
+
+.collectionActivityIcon { position:relative; display:inline-flex; color:#4c88d6; }
+.collectionActivityIcon > i { position:absolute; width:5px; height:5px; border-radius:50%; background:#4f91eb; right:-2px; top:-2px; box-shadow:0 0 0 3px #e8f1ff; }
+.collectionFloat.isActive .collectionActivityIcon > i { animation:collectionPulse 2.2s ease-out infinite; }
+.collectionFloat.isActive .collectionFloatButton { border-color:#c9dcf6; }
+.collectionFloat.isActive .collectionProgressTrack { position:relative; overflow:hidden; }
+.collectionFloat.isActive .collectionProgressTrack::after { content:""; position:absolute; top:0; bottom:0; width:35%; background:linear-gradient(90deg,transparent,#ffffff9c,transparent); animation:collectionSweep 2.8s linear infinite; }
+@keyframes collectionPulse { 0%,100% { opacity:1; box-shadow:0 0 0 2px #4f91eb24; } 60% { opacity:.75; box-shadow:0 0 0 7px #4f91eb00; } }
+@keyframes collectionSweep { from { transform:translateX(-110%); } to { transform:translateX(400%); } }
+@media(prefers-reduced-motion:reduce) { .collectionFloat.isActive .collectionActivityIcon > i,.collectionFloat.isActive .collectionProgressTrack::after { animation:none; } }

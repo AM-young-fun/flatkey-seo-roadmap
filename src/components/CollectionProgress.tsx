@@ -45,7 +45,7 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
   const active = collectionIsActive(progress.status), complete = progress.status === "COMPLETED";
   const percent = progress.totalQueries ? Math.min(100, progress.completedQueries / progress.totalQueries * 100) : 0;
   const label = active ? "排名采集中" : complete ? "排名已更新" : "采集需处理";
-  return <div ref={container} className="collectionFloat">
+  return <div ref={container} className={`collectionFloat ${active ? "isActive" : ""}`}>
     {open ? <section className="collectionFloatDetails" id="collection-progress-details" aria-label="排名采集详情">
       <div className="collectionFloatTitle"><strong>{progress.periodLabel}</strong><button type="button" aria-label="收起采集详情" onClick={() => setOpen(false)}><X size={15} /></button></div>
       <dl><div><dt>四国查询</dt><dd>{progress.completedQueries.toLocaleString()} / {progress.totalQueries.toLocaleString()}</dd></div>
@@ -57,7 +57,7 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
       {failed ? <p>进度暂未刷新</p> : null}
     </section> : null}
     <button type="button" className="collectionFloatButton" aria-expanded={open} aria-controls="collection-progress-details" onClick={() => setOpen(value => !value)}>
-      {complete ? <CheckCircle2 size={16} /> : <Activity size={16} />}<span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
+      {complete ? <CheckCircle2 size={16} /> : <span className="collectionActivityIcon"><Activity size={16} />{active ? <i aria-hidden="true" /> : null}</span>}<span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
     </button>
   </div>;
 }
