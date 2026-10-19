@@ -33,7 +33,7 @@ const db={
  dataForSeoConnection:{findUnique:async()=>connection},
  serpMonitorConfig:{findUnique:async()=>({paidEnabled:scheduleEnabled,authorizationVersion:1,nextDueAt:new Date("2026-10-20T02:30:00Z")})},
  dataForSeoRun:{
- findFirst:async()=>null,
+ findFirst:async({where})=>where.requestId.in ? runs.find(row=>where.requestId.in.includes(row.requestId))??null : null,
  findMany:async({where})=>runs.filter(row=>where.requestId.in.includes(row.requestId)),
  findUnique:async({where})=>runs.find(row=>row.requestId===where.requestId)??null,
  findUniqueOrThrow:async({where})=>{const row=runs.find(row=>row.requestId===where.requestId);if(!row)throw Error("missing");return row;},
@@ -50,7 +50,7 @@ Module._load=function(request,parent,isMain){
  if(request.startsWith("@/"))return originalLoad.call(this,path.resolve(__dirname,"../src",request.slice(2)),parent,isMain);
  return originalLoad.call(this,request,parent,isMain);
 };
-const {runKeywordDiscoveryCycle}=require("../src/lib/services/keyword-cycle.ts");
+const {runKeywordDiscoveryCycle,replayDiscoveryRun,inspectDiscoveryRun}=require("../src/lib/services/keyword-cycle.ts");
 
 test("disabled discovery never reads credentials or calls the paid provider",async()=>{
  delete process.env.DATAFORSEO_DISCOVERY_PAID_ENABLED;
@@ -74,4 +74,35 @@ test("a twelve-market cycle records each POST once and an uncertain response nev
   const retry=await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
   assert.equal(first.status,"NEEDS_REVIEW");assert.equal(retry.status,"NEEDS_REVIEW");assert.equal(fetches,1);assert.equal(runs[0].status,"UNKNOWN");
  }finally{global.fetch=originalFetch;scheduleEnabled=false;}
+});
+
+test("the server continues an already advanced cycle after the browser closes, but never advances a merely enabled schedule",async()=>{
+ const originalFetch=global.fetch;scheduleEnabled=true;runs=[];fetches=0;failTransport=false;
+ global.fetch=async(_url,options)=>{
+  fetches++;const task=JSON.parse(options.body)[0];
+  return new Response(JSON.stringify({status_code:20000,tasks_error:0,tasks_count:1,cost:.012,tasks:[{status_code:20000,result:[{target:task.target,location_code:task.location_code,language_code:task.language_code,items:[],items_count:0,total_count:0}]}]}));
+ };
+ const now=new Date("2026-10-19T12:00:00Z");
+ try{
+  assert.equal((await runKeywordDiscoveryCycle({now})).status,"NOT_DUE");assert.equal(fetches,0);
+  await runKeywordDiscoveryCycle({now,periodKey:"2026-10-20"});assert.equal(fetches,1);
+  const resumed=await runKeywordDiscoveryCycle({now});assert.equal(fetches,2);assert.equal(resumed.periodKey,"2026-10-20");
+  assert.ok(runs.every(row=>row.requestId.startsWith("discovery-2026-10-20-")));
+  scheduleEnabled=false;assert.equal((await runKeywordDiscoveryCycle({now})).status,"DISABLED");assert.equal(fetches,2);
+ }finally{global.fetch=originalFetch;scheduleEnabled=false;}
+});
+
+test("a cached discovery import can be diagnosed and repaired without a second paid request",async()=>{
+ const job=keywordCyclePlan(new Date("2026-10-20T02:30:00Z")).jobs[2], originalFetch=global.fetch;
+ let requests=0;
+ global.fetch=async()=>{requests++;throw Error("cached replay must not fetch a provider");};
+ const receipt=(location,language)=>JSON.stringify({status_code:20000,tasks_error:0,tasks_count:1,cost:.012,tasks:[{status_code:20000,result:[{target:job.targetDomain,location_code:location,language_code:language,items:[],items_count:0,total_count:0}]}]});
+ const row={requestId:job.requestId,status:"IMPORT_FAILED",siteDomain:job.targetDomain,rawResponse:receipt(2392,"ja"),collectedAt:new Date("2026-10-19T07:00:00Z"),importedBatches:0,importPayload:null,normalized:null,budgetCostMicros:132000};runs=[row];
+ try{
+  const invalid=await replayDiscoveryRun(job.requestId);assert.equal(invalid.status,"IMPORT_FAILED");assert.match(invalid.errorCode,/^DISCOVERY_/);
+  row.rawResponse=receipt(2724,"es");
+  const fixed=await replayDiscoveryRun(job.requestId);assert.equal(fixed.status,"COMPLETED");assert.equal(fixed.errorCode,null);assert.equal(fixed.hasNormalizedResult,true);assert.equal(requests,0);
+  const details=JSON.stringify(await inspectDiscoveryRun(job.requestId));
+  for(const secret of ["rawResponse","encryptedCredentials","apiPassword"])assert.ok(!details.includes(secret));
+ }finally{global.fetch=originalFetch;}
 });

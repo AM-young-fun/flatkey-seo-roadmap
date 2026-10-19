@@ -9,7 +9,7 @@ import { parseSerpSampleBalance, SERP_USER_DATA_URL } from "@/lib/serp-sample";
 import { keywordCyclePlan } from "@/lib/keyword-cycle";
 import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey } from "@/lib/serp-periods";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
-import { runKeywordDiscoveryCycle } from "@/lib/services/keyword-cycle";
+import { runKeywordDiscoveryCycle, inspectDiscoveryRun, replayDiscoveryRun } from "@/lib/services/keyword-cycle";
 import { runSerpMonitorCron, startSerpScheduledPeriod } from "@/lib/services/serp-monitor";
 import type { CollectionControlMutation, CollectionSchedulePreview, CollectionCycleProgress } from "@/lib/collection-control";
 
@@ -60,6 +60,8 @@ export async function previewCollectionSchedule(): Promise<CollectionSchedulePre
 }
 
 export async function mutateCollectionControl(input: CollectionControlMutation) {
+  if (input.action === "inspectDiscovery") return inspectDiscoveryRun(input.requestId);
+  if (input.action === "replayDiscovery") return replayDiscoveryRun(input.requestId);
   if (input.action === "previewSchedule") return previewCollectionSchedule();
   if (input.action === "pauseSchedule") {
     await prisma.$transaction(async tx => {

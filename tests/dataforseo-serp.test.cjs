@@ -203,6 +203,16 @@ test("advancing Oct20 keeps its single ledger and completion schedules Nov3 rath
   assert.equal(state.runs.length, 1);
 });
 
+test("cron can start the period already advanced by discovery and keeps the next fixed Tuesday", async t => {
+  state.config.paidEnabled = true; state.config.nextDueAt = new Date("2026-10-20T02:30:00Z");
+  t.mock.method(Date, "now", () => Date.parse("2026-10-19T12:00:00Z"));
+  assert.equal((await runSerpMonitorCron()).status, "NOT_DUE");
+  const result = await runSerpMonitorCron({ periodKey: "2026-10-20" });
+  assert.equal(result.status, "FINISHED"); assert.equal(state.runs[0].periodKey, "2026-10-20");
+  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-03T02:30:00.000Z");
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+});
+
 test("every daily cron while paused is a zero-provider-call no-op, including no DB configuration", async () => {
   state.config = null;
   assert.equal((await runSerpMonitorCron()).status, "DISABLED");

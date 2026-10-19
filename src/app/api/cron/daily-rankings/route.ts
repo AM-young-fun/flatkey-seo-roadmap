@@ -35,7 +35,7 @@ async function handleCron(request: Request) {
   catch { return NextResponse.json({ status: "UNAVAILABLE", message: "调度记录无法保存，未开始采集" }, { status: 503 }); }
   try {
   const discovery = await runKeywordDiscoveryCycle({ deadline: startedAt + 180000 }).catch(() => ({ status: "UNAVAILABLE", ready: false, paidRequests: 0 }));
-  const [serp, sourceHealth] = await Promise.allSettled([runSerpMonitorCron({ allowStart: discovery.ready, maxDurationMs: Math.max(0, 240000-(Date.now()-startedAt)) }), loadSourceSyncHealth()]);
+  const [serp, sourceHealth] = await Promise.allSettled([runSerpMonitorCron({ allowStart: discovery.ready, periodKey: discovery.ready && "periodKey" in discovery ? discovery.periodKey : undefined, maxDurationMs: Math.max(0, 240000-(Date.now()-startedAt)) }), loadSourceSyncHealth()]);
   const needsReview = serp.status === "rejected" || ["NEEDS_REVIEW", "UNAVAILABLE"].includes(discovery.status) || (serp.status === "fulfilled" && serp.value.status === "NEEDS_REVIEW");
   await prisma.schedulerCheck.update({ where: { id: checkId }, data: { completedAt: new Date(), status: needsReview ? "NEEDS_REVIEW" : "COMPLETED", discoveryStatus: discovery.status,
     serpStatus: serp.status === "fulfilled" ? serp.value.status : "NEEDS_REVIEW", paidRequests: discovery.paidRequests + (serp.status === "fulfilled" ? serp.value.paidRequests : 0) } });

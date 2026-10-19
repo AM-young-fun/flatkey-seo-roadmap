@@ -547,7 +547,7 @@ export async function startSerpScheduledPeriod(periodKey: string, expectedCohort
   return runDto(await finalizeRun(reserved.run.id));
 }
 
-export async function runSerpMonitorCron(options: { maxDurationMs?: number; allowStart?: boolean } = {}) {
+export async function runSerpMonitorCron(options: { maxDurationMs?: number; allowStart?: boolean; periodKey?: string } = {}) {
   // Count reservation/DB time too, leaving the enclosing 300s route a safety
   // margin. The global external stop still blocks both paid and free traffic.
   const startedAt = Date.now(), deadline = startedAt + Math.min(240_000, Math.max(0, options.maxDurationMs ?? 240_000));
@@ -562,12 +562,13 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
     if (!canSpend) return { status: "DISABLED", reason: "PAID_SERP_DISABLED", paidRequests: 0 };
     if (options.allowStart === false) return { status: "WAITING_FOR_DISCOVERY", paidRequests: 0 };
     if (!row?.nextDueAt) return { status: "NOT_SCHEDULED", paidRequests: 0 };
-    if (row.nextDueAt.getTime() > Date.now()) return { status: "NOT_DUE", nextDueAt: row.nextDueAt.toISOString(), paidRequests: 0 };
-    const existingPeriod = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: serpPeriod(new Date()).key, scope: "SCHEDULED" } } });
+    if (row.nextDueAt.getTime() > Date.now() && !options.periodKey) return { status: "NOT_DUE", nextDueAt: row.nextDueAt.toISOString(), paidRequests: 0 };
+    const requestedPeriod = options.periodKey ? serpPeriodFromKey(options.periodKey) : serpPeriod(new Date());
+    const existingPeriod = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: requestedPeriod.key, scope: "SCHEDULED" } } });
     if (existingPeriod) return { status: "PERIOD_ALREADY_CAPTURED", runId: existingPeriod.id, paidRequests: 0 };
     if (!hasTime(deadline, 90_000)) return { status: "TIME_BUDGET_EXHAUSTED", paidRequests: 0, continuationRequired: true };
     const cohort = await loadSerpTargetCohort();
-    run = (await reserveRun(`serp-${randomUUID()}`, cohort.hash)).run;
+    run = (await reserveRun(`serp-${randomUUID()}`, cohort.hash, options.periodKey)).run;
   }
   let paidRequests = 0, freeResultsChecked = 0;
   // Fix the due cutoff for this invocation. A not-ready response is tried once

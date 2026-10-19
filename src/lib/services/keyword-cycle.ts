@@ -10,9 +10,15 @@ import { rankingImportSchema } from "@/lib/ranking-import";
 import { importSeo } from "@/lib/services/seo-import";
 import { keywordRelevance, normalizeKeywordText } from "@/lib/keyword-relevance";
 import { SERP_CONFIG_ID } from "@/lib/dataforseo-serp";
+import { serpPeriod } from "@/lib/serp-periods";
+import { ImportRequestError } from "@/lib/ranking-import";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const enabled = () => !envBool("DISABLE_EXTERNAL_FETCH");
+const discoveryFailureCode = (error: unknown) => {
+  const value = error as { code?: unknown; status?: unknown } | null;
+  return typeof value?.code === "string" && /^[A-Z0-9_]{1,70}$/.test(value.code) ? `DISCOVERY_${value.code}` : error instanceof ImportRequestError ? `DISCOVERY_IMPORT_HTTP_${error.status}` : "DISCOVERY_CACHED_RESULT_REQUIRES_REVIEW";
+};
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 async function verifyPage(site: string, keyword: string, value: string) {
   let url: URL;
@@ -109,25 +115,34 @@ async function applyDiscovery(snapshot: DataForSeoNormalized, requestId: string,
         update:{}});
     });
   }
-  await prisma.dataForSeoRun.update({where:{requestId},data:{status:"COMPLETED",completedAt:new Date(),summary:json({...plan.summary,newResearchWords:newRows.length})}});
+  await prisma.dataForSeoRun.update({where:{requestId},data:{status:"COMPLETED",completedAt:new Date(),errorCode:null,summary:json({...plan.summary,newResearchWords:newRows.length})}});
   return true;
 }
 
 /** One resumable market per worker pass. A paid POST is never retried. */
 export async function runKeywordDiscoveryCycle(options: { deadline?: number; now?: Date; periodKey?: string } = {}) {
-  const now = options.now ?? new Date(), plan = keywordCyclePlan(now, options.periodKey), deadline = options.deadline ?? Date.now()+210000;
+  const now = options.now ?? new Date(), deadline = options.deadline ?? Date.now()+210000;
+  let plan = keywordCyclePlan(now, options.periodKey);
   if (!enabled()) return {status:"DISABLED",ready:false,paidRequests:0};
   const config = await prisma.serpMonitorConfig.findUnique({where:{id:SERP_CONFIG_ID}});
   if (!config?.paidEnabled || config.authorizationVersion !== 1) return {status:"DISABLED",ready:false,paidRequests:0};
   const connection = await prisma.dataForSeoConnection.findUnique({where:{siteDomain:"flatkey.ai"}});
   if (!connection?.scheduleEnabled) return {status:"DISABLED",ready:false,paidRequests:0};
+  // An administrator may already have advanced the next slot. Its durable
+  // first reservation lets the server continue even after the page closes;
+  // merely enabling a future schedule must never start it early.
+  if (!options.periodKey && config.nextDueAt && config.nextDueAt.getTime() > now.getTime()) {
+    const upcoming = keywordCyclePlan(now, serpPeriod(config.nextDueAt).key);
+    const started = await prisma.dataForSeoRun.findFirst({where:{requestId:{in:upcoming.jobs.map(job=>job.requestId)}},select:{requestId:true}});
+    if (started) plan = upcoming;
+  }
   const existing = await prisma.dataForSeoRun.findMany({where:{requestId:{in:plan.jobs.map(job=>job.requestId)}}});
   const unresolved = await prisma.dataForSeoRun.findFirst({where:{requestId:{startsWith:"discovery-",notIn:plan.jobs.map(job=>job.requestId)},status:{in:["PENDING","UNKNOWN","RECEIVED","IMPORT_FAILED"]}},select:{requestId:true}});
   if (unresolved) return {status:"NEEDS_REVIEW",ready:false,paidRequests:0,requestId:unresolved.requestId};
   const earlyAllowed = options.periodKey && config.nextDueAt?.toISOString() === plan.period.dueAt && Date.parse(plan.period.dueAt) - now.getTime() <= 86400000;
   if (!existing.length && !plan.mayStart && !earlyAllowed) return {status:"NOT_DUE",ready:false,paidRequests:0};
   const job = plan.jobs.find(job=>existing.find(row=>row.requestId===job.requestId)?.status !== "COMPLETED");
-  if (!job) return {status:"COMPLETE",ready:true,paidRequests:0,completedMarkets:plan.jobs.length};
+  if (!job) return {status:"COMPLETE",ready:true,paidRequests:0,completedMarkets:plan.jobs.length,periodKey:plan.period.key};
   let run = existing.find(row=>row.requestId===job.requestId), paidRequests = 0;
   if (run && !["RECEIVED","IMPORT_FAILED"].includes(run.status)) return {status:"NEEDS_REVIEW",ready:false,paidRequests:0,requestId:job.requestId};
   if (!run) {
@@ -162,9 +177,40 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
     await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{normalized:json(snapshot),actualCostMicros:snapshot.actualCostMicros}});
     const done = await applyDiscovery(snapshot,job.requestId,deadline);
     const completedMarkets = existing.filter(row=>row.status === "COMPLETED").length + Number(done);
-    return {status:"ACTIVE",ready:completedMarkets === plan.jobs.length,paidRequests,requestId:job.requestId,completedMarkets};
-  } catch {
-    await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{status:"IMPORT_FAILED",errorCode:"DISCOVERY_CACHED_RESULT_REQUIRES_REVIEW"}});
+    return {status:"ACTIVE",ready:completedMarkets === plan.jobs.length,paidRequests,requestId:job.requestId,completedMarkets,periodKey:plan.period.key};
+  } catch (error) {
+    await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{status:"IMPORT_FAILED",errorCode:discoveryFailureCode(error)}});
     return {status:"NEEDS_REVIEW",ready:false,paidRequests,requestId:job.requestId};
   }
+}
+
+/** Local replay can never reserve a new job or call the paid Labs endpoint. */
+export async function inspectDiscoveryRun(requestId: string) {
+  const run = await prisma.dataForSeoRun.findUniqueOrThrow({where:{requestId}});
+  const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  let raw: Record<string, unknown> = {};
+  try { raw = record(JSON.parse(run.rawResponse ?? "{}")); } catch { /* No raw receipt leaves the server. */ }
+  const task = record(Array.isArray(raw.tasks) ? raw.tasks[0] : null), result = record(Array.isArray(task.result) ? task.result[0] : null), normalized = record(run.normalized);
+  return { requestId, status: run.status, errorCode: run.errorCode, actualCostMicros: run.actualCostMicros, hasSavedResponse: Boolean(run.rawResponse),
+    hasNormalizedResult: Boolean(run.normalized), importedBatches: run.importedBatches, plannedBatches: Array.isArray(run.importPayload) ? run.importPayload.length : 0,
+    providerStatus: typeof raw.status_code === "number" ? raw.status_code : null, taskStatus: typeof task.status_code === "number" ? task.status_code : null,
+    resultLocationCode: typeof result.location_code === "number" ? result.location_code : null, resultLanguageCode: typeof result.language_code === "string" ? result.language_code.slice(0,5) : null,
+    parsedRows: Array.isArray(normalized.rows) ? normalized.rows.length : null };
+}
+export async function replayDiscoveryRun(requestId: string) {
+  if (!enabled()) throw new ImportRequestError("外部请求已紧急暂停", 409);
+  const match = /^discovery-(\d{4}-\d{2}-\d{2})-/.exec(requestId);
+  if (!match) throw new ImportRequestError("发现记录标识无效", 400);
+  const job = keywordCyclePlan(new Date(), match[1]).jobs.find(job=>job.requestId === requestId);
+  if (!job) throw new ImportRequestError("发现记录不在本站计划中", 400);
+  const run = await prisma.dataForSeoRun.findUniqueOrThrow({where:{requestId}});
+  if (run.status === "COMPLETED") return inspectDiscoveryRun(requestId);
+  if (!["RECEIVED","IMPORT_FAILED"].includes(run.status) || !run.rawResponse || !run.collectedAt) throw new ImportRequestError("原响应尚未确认，不能重放或重新扣费", 409);
+  try {
+    const snapshot = normalizeRankedKeywords(JSON.parse(run.rawResponse),{runId:requestId,collectedAt:run.collectedAt.toISOString(),limit:job.limit,scope:job});
+    if (snapshot.actualCostMicros == null || snapshot.costWithinEstimate !== true) throw new Error("DISCOVERY_COST_UNCONFIRMED");
+    await prisma.dataForSeoRun.update({where:{requestId},data:{normalized:json(snapshot),actualCostMicros:snapshot.actualCostMicros}});
+    await applyDiscovery(snapshot,requestId,Date.now()+210_000);
+  } catch (error) { await prisma.dataForSeoRun.update({where:{requestId},data:{status:"IMPORT_FAILED",errorCode:discoveryFailureCode(error)}}); }
+  return inspectDiscoveryRun(requestId);
 }

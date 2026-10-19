@@ -5,7 +5,7 @@ export type OperationsStatus = {
   controls: { enabled: boolean; emergencyStopped: boolean; maxRunCostMicros: number; maxMonthCostMicros: number };
   scheduler: { configured: boolean; cadence: "每30分钟检查到期任务"; state: "UNCONFIRMED" | "HEALTHY" | "OVERDUE" | "ERROR"; lastStartedAt: string | null; lastCompletedAt: string | null };
   plans: { id: string; name: string; location: string; cadence: string; state: string; nextAt: string | null; note: string }[];
-  records: { id: string; name: string; state: string; startedAt: string; completedAt: string | null; detail: string }[];
+  records: { id: string; name: string; state: string; startedAt: string; completedAt: string | null; detail: string; failedDiscoveryId?: string }[];
 };
 
 export function schedulerState(last: { startedAt: Date; completedAt: Date | null; status: string } | null, now: Date): OperationsStatus["scheduler"]["state"] {
