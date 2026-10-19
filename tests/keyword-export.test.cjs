@@ -19,10 +19,8 @@ const db = {
   siteKeyword: { findMany: async ({ where }) => {
     reads++;
     assert.equal(where.active, true); assert.deepEqual(where.keyword, { active: true });
-    assert.deepEqual(where.OR[0], { siteDomain: "flatkey.ai", pool: "FORMAL" });
-    assert.deepEqual(where.OR[1].topicId, { not: null });
-    return state.members.filter(row => where.siteDomain.in.includes(row.siteDomain) && row.active && row.keyword.active
-      && (row.siteDomain === "flatkey.ai" ? row.pool === "FORMAL" : row.topicId !== null));
+    assert.equal(where.OR, undefined, "all active pools and topic assignments are included");
+    return state.members.filter(row => where.siteDomain.in.includes(row.siteDomain) && row.active && row.keyword.active);
   } },
   keywordContentTask: { findMany: async ({ where }) => state.tasks.filter(row => where.siteDomain.in.includes(row.siteDomain) && !where.status.notIn.includes(row.status)) },
   keywordSourceRow: { findMany: async ({ where }) => state.audits.filter(row => where.siteDomain.in.includes(row.siteDomain) && where.rowKey.in.includes(row.rowKey)) },
@@ -116,7 +114,7 @@ test("site-scoped keys default to their site, cannot escalate, and both export f
   assert.match(await csv.text(), /rackrate/);
 });
 
-test("opportunities retain page and task states until the ranking goal is met, excluding only non-target and invalid-identity keywords", async () => {
+test("all active keywords remain eligible regardless of pool, topic, page identity and task states", async () => {
   state.members = [member("unassigned"), member("todo"), member("in-progress"), member("done"), member("blocked"), member("unknown"), member("expansion-task"),
     member("expand"), member("verified"), member("missing"), member("needs-review"), member("mismatch"), member("legacy", { mappingStatus: "UNMAPPED" }),
     member("research", { pool: "RESEARCH" }), member("inactive", { active: false }), member("inactive-word", { keyword: { text: "inactive-word", active: false, defaultVolume: 10 } }),
@@ -128,7 +126,7 @@ test("opportunities retain page and task states until the ranking goal is met, e
     task("t5", ["unknown"], { status: "UNKNOWN" }), task("t6", ["expansion-task"], { type: "EXPAND" }), task("t7", ["retired"], { status: "MERGED" }), task("t8", ["retired"], { status: "RESTORED" })];
   state.serpTasks = noRankTasks(state.members);
   const rows = await loadContentOpportunities(null);
-  assert.deepEqual(rows.filter(row => row.siteDomain === "flatkey.ai").map(row => row.keyword).sort(), ["blocked", "candidate", "done", "expand", "expansion-task", "in-progress", "legacy", "mismatch", "missing", "needs-review", "retired", "todo", "unassigned", "unknown", "verified"]);
+  assert.deepEqual(rows.filter(row => row.siteDomain === "flatkey.ai").map(row => row.keyword).sort(), ["bad-identity", "blocked", "candidate", "done", "expand", "expansion-task", "in-progress", "legacy", "mismatch", "missing", "needs-review", "research", "retired", "todo", "unassigned", "unknown", "verified"]);
   assert.equal(rows.find(row => row.keyword === "todo" && row.siteDomain === "flatkey.ai").taskStatus, "TODO");
   assert.equal(rows.find(row => row.siteDomain === "rackrate.org").taskStatus, "UNASSIGNED");
   assert.equal(rows.find(row => row.keyword === "unassigned").taskStatus, "UNASSIGNED");
@@ -154,7 +152,7 @@ test("shared-page progress is returned so callers can avoid duplicate work; vali
 
 test("CSV escapes quotes, newlines and spreadsheet formulas", () => {
   const { opportunitiesCsv } = require("../src/lib/keyword-export.ts");
-  const csv = opportunitiesCsv([{ keywordId: "id", keyword: ' =SUM(1,2)\n"quoted"', siteDomain: "flatkey.ai", searchVolume: 1, hasPage: true, pageStatus: "MATCHED", pageUrls: ["https://flatkey.ai/guide"], candidateUrls: [], currentRank: null, isTop100: false, opportunityStatus: "OUTSIDE_TOP100", recommendedAction: "OPTIMIZE", rankingEvidence: [], taskStatus: "UNASSIGNED", taskStatuses: [], taskIds: [], plannedUrls: [], proposedTitle: null, requirements: [], acceptance: [] }]);
+  const csv = opportunitiesCsv([{ keywordId: "id", keyword: ' =SUM(1,2)\n"quoted"', siteDomain: "flatkey.ai", pool: "FORMAL", searchVolume: 1, hasPage: true, pageStatus: "MATCHED", pageUrls: ["https://flatkey.ai/guide"], candidateUrls: [], currentRank: null, isTop100: false, opportunityStatus: "OUTSIDE_TOP100", recommendedAction: "OPTIMIZE", rankingEvidence: [], taskStatus: "UNASSIGNED", taskStatuses: [], taskIds: [], plannedUrls: [], proposedTitle: null, requirements: [], acceptance: [] }]);
   assert.ok(csv.startsWith("\uFEFF")); assert.match(csv, /"' =SUM\(1,2\)\n""quoted"""/);
   assert.match(csv, /是否有页面/); assert.match(csv, /是否前100/); assert.match(csv, /"","否","OUTSIDE_TOP100"/);
 });
@@ -169,40 +167,44 @@ function noRankTasks(members, regions = ["US", "JP", "ES", "BR"]) {
   return members.flatMap(member => regions.map(region => serpTask(member.keywordId, null, { region, siteDomain: member.siteDomain, keywordId: member.keywordId, keyword: member.keyword.text })));
 }
 
-test("all top100 ranks are excluded, including 50, 51 and exactly 100; only confirmed absence is returned", async () => {
+test("all top100 ranks are excluded, including 50, 51 and exactly 100; unmeasured words are retained", async () => {
   state.members = [member("rank1"), member("rank50"), member("rank51"), member("rank100"), member("outside"), member("unmeasured")];
   state.serpTasks = [serpTask("rank1", 1), serpTask("rank50", 50), serpTask("rank51", 51), serpTask("rank100", 100), serpTask("outside", null)];
   const rows = await loadContentOpportunities(null, "US");
-  assert.deepEqual(rows.map(row => row.keyword), ["outside"]);
-  const outside = rows[0];
+  assert.deepEqual(rows.map(row => row.keyword).sort(), ["outside", "unmeasured"]);
+  assert.equal(rows.find(row => row.keyword === "unmeasured").isTop100, null);
+  const outside = rows.find(row => row.keyword === "outside");
   assert.equal(outside.currentRank, null); assert.equal(outside.isTop100, false); assert.equal(outside.hasPage, false);
   assert.equal(outside.recommendedAction, "BUILD"); assert.equal(outside.opportunityStatus, "OUTSIDE_TOP100");
 });
 
-test("bound and unbound keywords without rankings are both exported regardless of task completion; unmeasured words are excluded", async () => {
+test("bound, unbound and unmeasured keywords are exported regardless of task completion", async () => {
   state.members = [member("existing", { mappingStatus: "READY", targetUrls: ["https://flatkey.ai/existing"] }), member("unbound"),
     member("unmeasured", { mappingStatus: "READY", targetUrls: ["https://flatkey.ai/unmeasured"] })];
   state.tasks = [task("done", ["existing"], { type: "EXPAND", status: "DONE", plannedUrl: "https://flatkey.ai/existing" })];
   state.serpTasks = [serpTask("existing", null), serpTask("unbound", null)];
   const rows = await loadContentOpportunities(null, "US");
-  assert.deepEqual(rows.map(row => row.keyword).sort(), ["existing", "unbound"]);
+  assert.deepEqual(rows.map(row => row.keyword).sort(), ["existing", "unbound", "unmeasured"]);
+  assert.equal(rows.find(row => row.keyword === "unmeasured").opportunityStatus, "NEEDS_VERIFICATION");
   const existing = rows.find(row => row.keyword === "existing");
   assert.equal(existing.hasPage, true); assert.deepEqual(existing.pageUrls, ["https://flatkey.ai/existing"]);
   assert.equal(existing.isTop100, false); assert.equal(existing.recommendedAction, "OPTIMIZE"); assert.equal(existing.taskStatus, "DONE");
   assert.equal(rows.find(row => row.keyword === "unbound").hasPage, false);
 });
 
-test("all-region exports require confirmed absence in every market and isolate the same keyword across sites", async () => {
+test("all-region exports exclude any positive rank, retain incomplete coverage, and isolate sites", async () => {
   state.members = [member("regional"), member("regional", { keywordId: "rack-id", siteDomain: "rackrate.org" }), member("incomplete-markets")];
   state.serpTasks = [...noRankTasks(state.members.slice(0, 2)), serpTask("regional", 100, { region: "JP", date: "2026-10-19T09:00:00Z" }), serpTask("incomplete-markets", null)];
   const rows = await loadContentOpportunities(null);
-  assert.deepEqual(rows.map(row => row.keywordId), ["rack-id"]);
-  assert.equal(rows[0].rankingEvidence.length, 4); assert.ok(rows[0].rankingEvidence.every(row => row.status === "OUTSIDE_TOP100"));
+  assert.deepEqual(rows.map(row => row.keywordId).sort(), ["incomplete-markets", "rack-id"]);
+  const rack = rows.find(row => row.keywordId === "rack-id");
+  assert.equal(rack.rankingEvidence.length, 4); assert.ok(rack.rankingEvidence.every(row => row.status === "OUTSIDE_TOP100"));
+  assert.equal(rows.find(row => row.keywordId === "incomplete-markets").isTop100, null);
   const us = await loadContentOpportunities(null, "US");
   assert.deepEqual(us.map(row => row.keywordId).sort(), ["incomplete-markets", "rack-id", "regional"]);
 });
 
-test("missing, failed, corrected, shallow and queued results never count as no ranking, even when an older receipt confirmed absence", async () => {
+test("missing, failed, corrected, shallow and queued results remain exported with their actual unknown states", async () => {
   state.members = [member("failed"), member("corrected"), member("shallow"), member("partial50"), member("partial-hit"), member("queued"), member("unmeasured"), member("outside")];
   state.serpTasks = [serpTask("failed", null, { date: "2026-10-18T08:00:00Z" }), serpTask("failed", null, { state: "FAILED" }),
     serpTask("corrected", 3, { normalized: { queryStatus: "AUTOCORRECTED" } }),
@@ -210,7 +212,9 @@ test("missing, failed, corrected, shallow and queued results never count as no r
     serpTask("partial50", null, { normalized: { completeDepth: false, coveredThroughRank: 50 } }),
     serpTask("partial-hit", 50, { normalized: { completeDepth: false, coveredThroughRank: 50 } }), serpTask("queued", null, { state: "QUEUED" }), serpTask("outside", null)];
   const rows = await loadContentOpportunities(null, "US");
-  assert.deepEqual(rows.map(row => row.keyword), ["outside"]);
+  assert.deepEqual(rows.map(row => row.keyword).sort(), ["corrected", "failed", "outside", "partial50", "queued", "shallow", "unmeasured"]);
+  assert.equal(rows.find(row => row.keyword === "outside").isTop100, false);
+  assert.ok(rows.filter(row => row.keyword !== "outside").every(row => row.isTop100 === null && row.opportunityStatus === "NEEDS_VERIFICATION"));
 });
 
 test("endpoint declares the top100 boundary, validates region, and fails closed if ranking evidence cannot be read", async () => {
@@ -219,9 +223,22 @@ test("endpoint declares the top100 boundary, validates region, and fails closed 
   assert.equal((await endpoint.GET(request(secret, "?region=CN"))).status, 400);
   const body = await (await endpoint.GET(request(secret, "?region=US"))).json();
   assert.equal(body.targetRank, 100); assert.equal(body.region, "US"); assert.equal(body.rankingSource, "dataforseo_serp");
-  assert.deepEqual(body.summary, { outsideTop100: 1 }); assert.equal(body.rows[0].isTop100, false);
+  assert.deepEqual(body.summary, { outsideTop100: 1, needsVerification: 0 }); assert.equal(body.rows[0].isTop100, false);
   state.serpFailure = true;
   assert.equal((await endpoint.GET(request(secret))).status, 503);
+});
+
+test("a single confirmed miss does not limit the export to one: unmeasured research and topicless words are also returned", async () => {
+  state.members = Array.from({ length: 103 }, (_, i) => member(`word-${i}`, { pool: i % 2 ? "RESEARCH" : "FORMAL", topicId: null }));
+  state.serpTasks = [serpTask("word-0", null), serpTask("word-1", 1), serpTask("word-2", 100)];
+  const rows = await loadContentOpportunities(null);
+  assert.equal(rows.length, 101);
+  assert.ok(!rows.some(row => ["word-1", "word-2"].includes(row.keyword)));
+  assert.ok(rows.some(row => row.pool === "RESEARCH"));
+  assert.ok(rows.every(row => row.opportunityStatus === "NEEDS_VERIFICATION"));
+  const usRows = await loadContentOpportunities(null, "US");
+  assert.equal(usRows.length, 101);
+  assert.equal(usRows.filter(row => row.opportunityStatus === "OUTSIDE_TOP100").length, 1);
 });
 
 test("proxy allows only the exact export path to reach API-key authentication", async () => {

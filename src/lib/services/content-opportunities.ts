@@ -16,9 +16,8 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
   const domains = sites.map(site => site.domain);
   if (!domains.length) return [];
   const [members, tasks] = await Promise.all([
-    prisma.siteKeyword.findMany({ where: { siteDomain: { in: domains }, active: true, keyword: { active: true },
-      OR: [{ siteDomain: "flatkey.ai", pool: "FORMAL" }, { siteDomain: { in: domains.filter(domain => domain !== "flatkey.ai") }, topicId: { not: null } }] },
-      select: { siteDomain: true, keywordId: true, mappingStatus: true, targetUrls: true, candidateUrls: true,
+    prisma.siteKeyword.findMany({ where: { siteDomain: { in: domains }, active: true, keyword: { active: true } },
+      select: { siteDomain: true, keywordId: true, pool: true, mappingStatus: true, targetUrls: true, candidateUrls: true,
         keyword: { select: { text: true, defaultVolume: true } } } }),
     prisma.keywordContentTask.findMany({ where: { siteDomain: { in: domains }, status: { notIn: ["MERGED", "RESTORED"] } },
       select: { id: true, siteDomain: true, keywords: true, plannedUrl: true, type: true, status: true, targetUrls: true } }),
@@ -38,9 +37,9 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
   const rows: ContentOpportunity[] = [];
   for (const member of members) {
     const raw = snapshots.get(`${member.siteDomain}:keyword:${member.keywordId}`);
-    const snapshot = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+    let snapshot = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
     if (snapshot && ((snapshot.keywordId !== undefined && snapshot.keywordId !== member.keywordId)
-      || (typeof snapshot.keyword === "string" && normalizeKeywordText(snapshot.keyword) !== normalizeKeywordText(member.keyword.text)))) continue;
+      || (typeof snapshot.keyword === "string" && normalizeKeywordText(snapshot.keyword) !== normalizeKeywordText(member.keyword.text)))) snapshot = null;
     const evidence = rankings.map(market => {
       const result = market.results.get(`${member.siteDomain}:${member.keywordId}`)!;
       return { region: market.region, status: result.status, rank: result.rank, url: result.url, checkedAt: result.checkedAt,
@@ -49,8 +48,9 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
     const validRanks = evidence.filter(row => row.status === "RANKED" && row.rank !== null);
     const currentRank = validRanks.length ? Math.min(...validRanks.map(row => row.rank!)) : null;
     if (currentRank !== null && currentRank <= CONTENT_TARGET_RANK) continue;
-    // Missing/failed/shallow/corrected captures cannot prove no ranking.
-    if (!evidence.every(row => row.status === "OUTSIDE_TOP100")) continue;
+    // Only a positive rank excludes a word. Unknown/failed captures stay in
+    // the export, with their actual evidence state rather than a false absence claim.
+    const confirmedOutside = evidence.every(row => row.status === "OUTSIDE_TOP100");
     const verdict = snapshot ? readPageAuditVerdict(snapshot) : null;
     const pageStatus = keywordPageTag({ ...member, latestPageAuditVerdict: verdict }).key;
     const parsed = keywordWorkPlanSchema.safeParse(snapshot?.workPlan);
@@ -69,9 +69,9 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
     const taskStatuses = [...new Set(related.map(task => task.status))].sort();
     const recommendedAction = pageStatus === "MISMATCH" || pageStatus === "REVIEW" ? "REVIEW_PAGE"
       : hasPage ? "OPTIMIZE" : "BUILD";
-    rows.push({ keywordId: member.keywordId, keyword: member.keyword.text, siteDomain: member.siteDomain,
+    rows.push({ keywordId: member.keywordId, keyword: member.keyword.text, siteDomain: member.siteDomain, pool: member.pool,
       searchVolume: member.keyword.defaultVolume, hasPage, pageStatus, pageUrls, candidateUrls: member.candidateUrls,
-      currentRank: null, isTop100: false, opportunityStatus: "OUTSIDE_TOP100", recommendedAction, rankingEvidence: evidence,
+      currentRank: null, isTop100: confirmedOutside ? false : null, opportunityStatus: confirmedOutside ? "OUTSIDE_TOP100" : "NEEDS_VERIFICATION", recommendedAction, rankingEvidence: evidence,
       taskStatus: taskStatuses.length === 0 ? "UNASSIGNED" : taskStatuses.length === 1 ? taskStatuses[0] : "MIXED", taskStatuses,
       taskIds: related.map(task => task.id).sort(), plannedUrls: [...new Set([...(plan?.action === "BUILD" && destination ? [destination] : []), ...related.filter(task => task.type === "NEW").map(task => task.plannedUrl)])].sort(),
       proposedTitle: plan?.proposedTitle ?? null, requirements: plan?.requirements ?? [], acceptance: plan?.acceptance ?? [] });

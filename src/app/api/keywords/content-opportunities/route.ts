@@ -32,7 +32,8 @@ export async function GET(request: Request) {
       "Content-Disposition": `attachment; filename="content-opportunities-${siteDomain ?? "all"}.csv"` } });
     return NextResponse.json({ kind: "content-opportunities", generatedAt: new Date().toISOString(), siteDomain, region: region.data,
       targetRank: CONTENT_TARGET_RANK, rankingSource: "dataforseo_serp", total: rows.length,
-      summary: { outsideTop100: rows.length }, rows }, { headers });
+      summary: { outsideTop100: rows.filter(row => row.opportunityStatus === "OUTSIDE_TOP100").length,
+        needsVerification: rows.filter(row => row.opportunityStatus === "NEEDS_VERIFICATION").length }, rows }, { headers });
   } catch {
     return NextResponse.json({ message: "关键词导出暂时不可用，请稍后重试" }, { status: 503, headers });
   }
