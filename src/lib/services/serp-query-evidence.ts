@@ -53,11 +53,12 @@ export async function downloadSerpQueryEvidence(keyword: string, region: SerpReg
   });
   if (!response.ok) throw new ImportRequestError("供应商原始HTML暂时无法读取", 502);
   const raw: unknown = await response.json(), receipt = providerTaskEnvelope(raw, task.providerTaskId);
-  if (object(raw).cost !== 0 || receipt.status_code !== 20000) throw new ImportRequestError(`原始HTML不可用（供应商状态 ${integer(receipt.status_code) ?? "未提供"}；本次费用 ${typeof object(raw).cost === "number" ? object(raw).cost : "未提供"}；任务费用 ${typeof receipt.cost === "number" ? receipt.cost : "未提供"}）；未提交新任务`, 502);
+  if (receipt.status_code !== 20000) throw new ImportRequestError(`原始HTML不可用（供应商状态 ${integer(receipt.status_code) ?? "未提供"}）；未提交新任务`, 502);
   const results = Array.isArray(receipt.result) ? receipt.result.map(object) : [], market = SERP_MARKET_CONFIG[region];
   if (results.length !== 1 || serpQueryKey(String(results[0].keyword)) !== serpQueryKey(task.keyword) || results[0].location_code !== market.locationCode || results[0].language_code !== market.languageCode) throw new ImportRequestError("供应商HTML与原任务范围不符", 502);
   const pages = Array.isArray(results[0].items) ? results[0].items.map(object).filter(page => typeof page.html === "string").map(page => ({ page: integer(page.page), date: text(page.date), html: text(page.html) })) : [];
   if (!pages.length) throw new ImportRequestError("供应商未返回原始HTML（仅保留7天）", 404);
   return { keyword: task.keyword, region: task.region, providerTaskId: task.providerTaskId, periodLabel: run.periodLabel,
-    checkedAt: task.checkedAt?.toISOString() ?? null, retrievalCost: 0, snapshot: publicSerpSnapshot(task.rawResponse), pages };
+    checkedAt: task.checkedAt?.toISOString() ?? null, newTaskSubmitted: false, providerReportedCost: typeof object(raw).cost === "number" ? object(raw).cost : null,
+    providerTaskReportedCost: typeof receipt.cost === "number" ? receipt.cost : null, snapshot: publicSerpSnapshot(task.rawResponse), pages };
 }

@@ -20,10 +20,10 @@ test("query evidence reads saved current-run results without provider requests o
 });
 
 test("HTML audit can only GET the existing task and never returns account credentials",async t=>{
- const calls=[]; t.mock.method(globalThis,"fetch",async(url,options)=>{calls.push({url,options});return Response.json({status_code:20000,cost:0,tasks:[{id:"existing-task-id",status_code:20000,cost:0,result:[{keyword:"API key not found in cookies",location_code:2840,language_code:"en",items:[{page:1,date:"2026-10-19",html:"<html>saved search</html>"}]}]}]});});
+ const calls=[]; t.mock.method(globalThis,"fetch",async(url,options)=>{calls.push({url,options});return Response.json({status_code:20000,cost:0.0024,tasks:[{id:"existing-task-id",status_code:20000,cost:0.0024,result:[{keyword:"API key not found in cookies",location_code:2840,language_code:"en",items:[{page:1,date:"2026-10-19",html:"<html>saved search</html>"}]}]}]});});
  const evidence=await downloadSerpQueryEvidence("API key not found in cookies","US");
  assert.equal(calls.length,1);assert.equal(calls[0].url,"https://api.dataforseo.com/v3/serp/google/organic/task_get/html/existing-task-id");assert.equal(calls[0].options.method,"GET");assert.equal(calls[0].options.redirect,"error");
- assert.equal(evidence.retrievalCost,0);assert.equal(evidence.pages[0].html,"<html>saved search</html>");assert.ok(!JSON.stringify(evidence).includes("fixture-password"));
+ assert.equal(evidence.newTaskSubmitted,false);assert.equal(evidence.providerReportedCost,0.0024);assert.equal(evidence.pages[0].html,"<html>saved search</html>");assert.ok(!JSON.stringify(evidence).includes("fixture-password"));
 });
 test("HTML audit rejects a wrong task or a different market instead of using it as ranking evidence",async t=>{
  t.mock.method(globalThis,"fetch",async()=>Response.json({status_code:20000,cost:0,tasks:[{id:"existing-task-id",status_code:20000,cost:0,result:[{keyword:"API key not found in cookies",location_code:2392,language_code:"ja",items:[{page:1,html:"wrong market"}]}]}]}));
