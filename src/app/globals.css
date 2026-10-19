@@ -2104,14 +2104,8 @@ a:focus-visible {
 .pageLossSummary td > strong { font-size:12px; font-weight:500; }
 @media (max-width:700px) { .keywordComparisonSummary { gap:28px; } .reportBarTrack { width:100px; } }
 
-.funnelRateSummary { display:flex; align-items:center; gap:24px; flex-wrap:wrap; padding:18px 20px; margin-bottom:10px; border-radius:10px; background:#f7f9fd; }
-.funnelRateSummary > span:first-child { font-size:12px; color:#71839c; }
-.funnelRateSummary > div { display:flex; align-items:baseline; gap:10px; }
-.funnelRateSummary small { color:#8795a9; font-size:11px; }
-.funnelRateSummary strong { font-size:23px; color:#365f98; font-variant-numeric:tabular-nums; }
-.funnelRateArrow { color:#a5b4c9; }
-.funnelRateSummary > b { font-size:12px; margin-left:auto; }
-@media(max-width:600px) { .funnelRateSummary { gap:12px; padding:14px; } .funnelRateSummary > span:first-child { flex-basis:100%; } .funnelRateSummary > div { gap:6px; } .funnelRateSummary strong { font-size:20px; } .funnelDashboard .channelName { overflow-wrap:anywhere; } }
+.conversionBasis { border-top:1px solid #edf1f6; padding-top:12px; margin-top:16px; color:#8290a5; font-size:11px; line-height:1.7; }
+.conversionBasis p { margin:3px 0; }
 
 .reportDiagnosis h2 { font-size:16px; margin:0 0 20px; }
 .reportDiagnosis > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }

@@ -2,7 +2,6 @@
 import { Tooltip } from "antd";
 import { REGIONS } from "@/lib/seo";
 import { useSerpOverviewResults } from "@/components/useSerpOverviewResults";
-import { CollectionProgress } from "@/components/CollectionProgress";
 
 const percentage = (value: number | null) => value == null ? "—" : `${value.toFixed(1)}%`;
 
@@ -33,7 +32,6 @@ export function SerpOverview({ site }: { site: string }) {
   ];
   return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label="四国目标词排名汇总">
     <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">四国综合</span></h2><p className="serpScope">四国汇总 · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
-    <CollectionProgress site={site} />
     {loading ? <p className="muted">正在读取四国排名汇总…</p> : error ? <div className="loadError" role="alert"><span>{error}</span><button onClick={refresh}>重新加载</button></div> : data ? <>
       <div className="overviewVisualGrid">
         <article className="overviewVisualCard">
