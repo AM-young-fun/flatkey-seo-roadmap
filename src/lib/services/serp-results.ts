@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { aggregateSerpRegionResults, buildSerpKeywordResults, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, summarizeSerpMonitoring, withSerpMonitoringEligibility, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope, type SerpMonitoringReadCohort, type SerpAllRegionsResponse } from "@/lib/serp-results";
+import { aggregateSerpRegionResults, buildSerpKeywordResults, serpTaskPeriod, SERP_MARKET_LANGUAGE, SERP_SOURCE, summarizeSerpMovements, summarizeSerpResults, summarizeSerpSampleResults, summarizeSerpMonitoring, withSerpMonitoringEligibility, type SerpResultsResponse, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope, type SerpMonitoringReadCohort, type SerpAllRegionsResponse } from "@/lib/serp-results";
 import { loadSerpTargetCohort, loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import type { SerpTarget } from "@/lib/serp-targets";
 import { serpPeriod } from "@/lib/serp-periods";
@@ -141,11 +141,12 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
   const tasks = existingTasks ?? (cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : []);
   const currentRunId = [...tasks].filter(task => task.runScope === "SCHEDULED")
     .sort((a,b) => new Date(b.runCreatedAt).getTime()-new Date(a.runCreatedAt).getTime())[0]?.runId;
+  const currentTask = currentRunId ? tasks.find(task=>task.runId === currentRunId) : null;
   const items = withSerpMonitoringEligibility(buildSerpKeywordResults(cohort.targets, tasks, {currentRunId}), monitoring);
   const completeDates = items.filter(item => item.captureComplete).flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,
     summary: summarizeSerpResults(items), items, latestCompletedAt: completeDates.sort().at(-1) ?? null,
-    currentPeriod: serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items),
+    currentPeriod: currentTask ? serpTaskPeriod(currentTask) ?? serpPeriod() : serpPeriod(), movementSummary: summarizeSerpMovements(items), sampleSummary: summarizeSerpSampleResults(items),
     monitoring: summarizeSerpMonitoring(items, monitoring) };
 }
 
@@ -161,7 +162,8 @@ export function summarizeAllRegionResults(site: string, cohort: { targets: SerpT
   const aggregated = aggregateSerpRegionResults(results, cohort.targets);
   // Display deduplication never changes the original site memberships, task
   // evidence, monitoring hash, paid query quote or immutable reporting cohort.
-  return { schemaVersion: 1, source: SERP_SOURCE, site, region: "all", cohortHash: cohort.hash, currentPeriod: serpPeriod(),
+  const currentPeriod = results.map(result=>result.currentPeriod).sort((a,b)=>b.dueAt.localeCompare(a.dueAt))[0] ?? serpPeriod();
+  return { schemaVersion: 1, source: SERP_SOURCE, site, region: "all", cohortHash: cohort.hash, currentPeriod,
     summary: aggregated.summary, latestCompletedAt: results.flatMap(result => result.latestCompletedAt ? [result.latestCompletedAt] : []).sort().at(-1) ?? null,
     monitoring: { ...aggregated.monitoring, hash: monitoring.hash },
     regions: aggregated.countries.map(country => {

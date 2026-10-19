@@ -144,7 +144,7 @@ export function KeywordDetails() {
     { title: "实际排名页面", key: "pages", width: 330, render: (_, group) => { const pages = pagesFor(group); return pages.length ? <ObservedPages pages={pages} compact /> : <span className="muted">—</span>; } },
   ];
   return <main className="appShell"><PageHeader active="keywords" />
-    <div className="pageIntro"><h1>关键词明细</h1><p>关键词去重展示，展开查看各国排名与关联页面。</p></div>
+    <div className="pageIntro"><h1>关键词明细</h1><p>{data?.serpOverview?.currentPeriod.label ? `${data.serpOverview.currentPeriod.label} · ` : ""}关键词去重展示，展开查看各国排名与关联页面。</p></div>
     {data?.usingDemoData ? <p className="loadError" role="alert">当前为演示数据，不能用于判断实际排名。</p> : null}
     {refreshing ? <p className="cacheNotice" role="status">正在获取最新词库与证据…</p> : null}
     {error ? <div className="loadError" role="alert"><span>{error}</span><button onClick={() => void refresh()}>重新加载</button></div> : null}
