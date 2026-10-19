@@ -54,4 +54,3 @@ export async function buildWeeklyReport(periods: ReturnType<typeof weeklyPeriods
     }},...movements,diagnosis,pages:[],
   };
 }
-

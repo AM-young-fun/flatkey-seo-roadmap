@@ -1,3 +1,4 @@
+import { logReadTiming } from "./read-timing-client";
 import { hydrateOverviewPayload, type OverviewPayload } from "./overview-payload";
 import type { DashboardResponse } from "@/lib/types";
 import { dashboardSession, type DashboardPersistence } from "@/lib/dashboard-session";
@@ -43,13 +44,16 @@ export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.n
         let payload: DashboardResponse | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const response = await fetcher(`${source === "dataforseo_serp" ? "/api/views?view=dashboard" : `/api/dashboard?source=${encodeURIComponent(source)}`}&site=${encodeURIComponent(site)}${includeResearch ? "&includeResearch=1" : ""}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
+            const readStarted = performance.now();
+            const url = `${source === "dataforseo_serp" ? "/api/views?view=dashboard" : `/api/dashboard?source=${encodeURIComponent(source)}`}&site=${encodeURIComponent(site)}${includeResearch ? "&includeResearch=1" : ""}${force ? "&refresh=1" : ""}`;
+            const response = await fetcher(url,{cache:"no-store"});
             if (!response.ok) {
               if (response.status === 401) clear();
               const failure = await response.json().catch(() => ({})) as { code?: string };
               throw new DashboardReadError(`数据加载失败${failure.code ? `（${failure.code}）` : `（${response.status}）`}，请重试`, response.status);
             }
             const body = await response.text();
+            logReadTiming(url,response,readStarted,body);
             payload = entry.body === body && entry.value ? entry.value : hydrateOverviewPayload(JSON.parse(body) as DashboardResponse | OverviewPayload);
             entry.body = body;
             break;

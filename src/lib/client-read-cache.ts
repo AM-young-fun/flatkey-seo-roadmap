@@ -1,3 +1,4 @@
+import { logReadTiming } from "./read-timing-client";
 // Memory only, scoped to this tab. Never cache POSTs, credentials, failures or
 // use a public/CDN cache for authenticated business data.
 export class ClientReadError extends Error {
@@ -16,8 +17,10 @@ export function createClientReadCache(fetcher: typeof fetch = fetch, now = Date.
       if (pending.has(url)) return pending.get(url) as Promise<T>;
       const started = generation;
       const request = (async () => {
+        const readStarted = performance.now();
         const response = await fetcher(url, { cache: "no-store" });
         const data = await response.json();
+        logReadTiming(url,response,readStarted,data);
         if (!response.ok) throw new ClientReadError(data.message ?? "数据读取失败，请重试", response.status);
         if (started === generation) {
           entries.set(url, { value: data, expires: now() + (data?.displaySnapshot?.pending ? Math.min(ttl,4000) : ttl) });
