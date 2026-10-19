@@ -229,6 +229,7 @@ model WeeklyTraffic {
   newRegistrations Int
   registrationMetric String @default("sign_up_distinct_users")
   ga4PropertyId String?
+  analysis Json?
   collectedAt DateTime
   importedAt DateTime @default(now())
   @@unique([importId, periodStart, periodEnd])

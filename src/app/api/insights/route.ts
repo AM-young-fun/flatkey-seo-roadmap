@@ -1,10 +1,12 @@
 import { databaseErrorCode, settleReads, retryDatabaseRead } from "@/lib/database-read";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { weeklyPeriods, reportPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
+import { weeklyPeriods, activeReportPeriods, reportPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
 import { compareCaptures } from "@/lib/daily-changes";
-import { compareWeeklyRankings } from "@/lib/weekly-keywords";
-import type { WeeklyPageRank } from "@/lib/weekly-keyword-comparison";
+import { loadWeeklySerp } from "@/lib/services/weekly-serp";
+import { weeklyEvidenceSchema } from "@/lib/weekly-evidence-schema";
+import { weeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
+import { auditedWeeklyDiagnosis } from "@/lib/weekly-audit-diagnosis";
 import { diagnoseWeeklyReport } from "@/lib/weekly-report-diagnosis";
 import { normalizeDomain, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import type { KeywordObservation, KeywordPageObservation } from "@prisma/client";
@@ -19,10 +21,10 @@ async function readInsights(request: Request): Promise<NextResponse> {
   const region = (params.get("region") ?? "US") as SearchRegionCode;
   let source = params.get("source") ?? "combined";
   const week = params.get("week");
-  let periods = weeklyPeriods();
+  let periods = activeReportPeriods();
   if (week) {
     try { periods = reportPeriods(week); } catch { return NextResponse.json({ message: "周报日期无效" }, { status: 400 }); }
-    if (periods.current.start > weeklyPeriods().current.start) return NextResponse.json({ message: "周报尚未结束" }, { status: 400 });
+    if (periods.current.start > activeReportPeriods().current.start) return NextResponse.json({ message: "周报尚未结束" }, { status: 400 });
   }
   if (siteDomain === "all" && params.get("region") === "all") return reportSummary(periods);
   if (!REGION_CODES.includes(region) || !["gsc", "ahrefs", "combined"].includes(source)) return NextResponse.json({ message: "参数无效" }, { status: 400 });
@@ -116,13 +118,15 @@ async function summary(request: Request, region: SearchRegionCode, source: strin
 
 async function reportSummary(periods: ReturnType<typeof weeklyPeriods>) {
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
-  const [weekly, reports, weeks] = await settleReads([
+  const archiveEvidence = weeklyTrafficEvidence(periods.current.start);
+  const [weekly, weeks, serp] = await settleReads([
     prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { in: [new Date(periods.current.start), new Date(periods.previous.start)] } }, orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }] }),
-    prisma.dailyRankingReport.findMany({ where: { siteDomain: { in: domains }, publishedWeek: new Date(periods.current.start), date: { in: [new Date(periods.previous.end), new Date(periods.current.end)] } }, orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }] }),
     prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { lte: new Date(weeklyPeriods().current.start) } }, distinct: ["periodStart"], select: { periodStart: true }, orderBy: { periodStart: "desc" } }),
+    loadWeeklySerp(periods),
   ]);
+  const draft = archiveEvidence && !archiveEvidence.complete ? { siteDomain: "flatkey.ai", ...archiveEvidence.totals.current, periodStart: new Date(periods.current.start), periodEnd: new Date(periods.current.end), collectedAt: new Date(archiveEvidence.collectedAt), timezone: archiveEvidence.timezone, ga4PropertyId: archiveEvidence.propertyId, registrationMetric: "sign_up_success_distinct_users" } : null;
   const siteTraffic = domains.map(siteDomain=>({ siteDomain,
-    current: weekly.find(row=>row.siteDomain===siteDomain && row.periodStart.toISOString().slice(0,10)===periods.current.start && row.periodEnd.toISOString().slice(0,10)===periods.current.end) ?? null,
+    current: weekly.find(row=>row.siteDomain===siteDomain && row.periodStart.toISOString().slice(0,10)===periods.current.start && row.periodEnd.toISOString().slice(0,10)===periods.current.end) ?? (siteDomain === "flatkey.ai" ? draft : null),
     previous: weekly.find(row=>row.siteDomain===siteDomain && row.periodStart.toISOString().slice(0,10)===periods.previous.start && row.periodEnd.toISOString().slice(0,10)===periods.previous.end) ?? null,
   }));
   const total = (period: "current"|"previous") => {
@@ -133,35 +137,20 @@ async function reportSummary(periods: ReturnType<typeof weeklyPeriods>) {
   };
   const current=total("current"), previous=total("previous");
   const currentSites=siteTraffic.filter(site=>site.current).map(site=>site.siteDomain), previousSites=siteTraffic.filter(site=>site.previous).map(site=>site.siteDomain);
-  const comparable=Boolean(current && previous && currentSites.join()===previousSites.join() && siteTraffic.every(site=>!site.current || (site.previous && site.current.timezone===site.previous.timezone && site.current.ga4PropertyId===site.previous.ga4PropertyId && site.current.registrationMetric===site.previous.registrationMetric)));
-  const volumes = reports.length ? await prisma.$queryRaw<Array<{siteDomain:string;region:string;text:string;volume:number}>>`
-    WITH latest AS (
-      SELECT DISTINCT ON ("keywordId", region) "keywordId", region, volume FROM (
-        SELECT "keywordId", region, volume, "fetchedAt" AS date, CASE WHEN source='ahrefs' THEN 0 ELSE 1 END AS priority FROM "KeywordVolume" WHERE region IS NOT NULL AND source IN ('csv','ahrefs')
-        UNION ALL SELECT "keywordId", region, volume, "collectedAt" AS date, 0 AS priority FROM "KeywordObservation" WHERE source='ahrefs' AND volume IS NOT NULL
-      ) v ORDER BY "keywordId", region, priority, date DESC
-    ) SELECT sk."siteDomain", latest.region::text AS region, k.text, latest.volume FROM latest
-      JOIN "Keyword" k ON k.id=latest."keywordId" JOIN "SiteKeyword" sk ON sk."keywordId"=k.id
-      WHERE k.active=true AND sk.active=true AND sk.pool='FORMAL' AND sk."topicId" IS NOT NULL AND latest.volume>0
-  ` : [];
-  const pageRanks = reports.length ? await prisma.$queryRaw<WeeklyPageRank[]>`
-    WITH evidence AS (
-      SELECT "siteDomain", region, source, "keywordId", url, rank, "periodStart", "periodEnd", "dataUpdatedAt", "collectedAt", "importedAt" FROM "KeywordPageObservation"
-      UNION ALL
-      SELECT "siteDomain", region, source, "keywordId", url, rank, "periodStart", "periodEnd", "dataUpdatedAt", "collectedAt", "importedAt" FROM "KeywordObservation" WHERE url IS NOT NULL AND "rankReported"=true
-    ), dated AS (
-      SELECT e.*, CASE WHEN "periodStart"="periodEnd" THEN "periodEnd"
-        WHEN source='ahrefs' THEN ("dataUpdatedAt" AT TIME ZONE 'UTC')::date END AS day
-      FROM evidence e WHERE "siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc') AND source IN ('gsc','ahrefs')
-    ) SELECT d."siteDomain", d.region::text AS region, d.source, to_char(d.day, 'YYYY-MM-DD') AS date, k.text AS keyword, d.url, d.rank
-      FROM dated d JOIN "Keyword" k ON k.id=d."keywordId"
-      WHERE d.day IN (${periods.previous.end}::date, ${periods.current.end}::date)
-      ORDER BY d."collectedAt" DESC, d."importedAt" DESC
-  ` : [];
-  const movements=compareWeeklyRankings(reports,new Set(volumes.map(row=>`${row.siteDomain}:${row.region}:${row.text.toLowerCase()}`)),periods.previous.end,periods.current.end,pageRanks);
-  const diagnosis = await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, movements.comparison, periods.current.end);
-  return NextResponse.json({periods,history:[...new Set([weeklyPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
-    traffic:{current,previous,currentSites,previousSites,comparable,siteTraffic:siteTraffic.map(site=>({siteDomain:site.siteDomain,current:site.current ? {newUsers:site.current.newUsers,newRegistrations:site.current.newRegistrations,registrationRate:registrationRate(site.current.newUsers,site.current.newRegistrations)}:null})),changes:{
+  const complete = Boolean(current) && (!draft || weekly.some(row=>row.siteDomain === "flatkey.ai" && row.periodStart.toISOString().slice(0,10) === periods.current.start));
+  const flatkey = weekly.find(row=>row.siteDomain === "flatkey.ai" && row.periodStart.toISOString().slice(0,10) === periods.current.start);
+  const parsedEvidence = weeklyEvidenceSchema.safeParse(flatkey?.analysis);
+  const candidateEvidence = parsedEvidence.success && flatkey ? { ...parsedEvidence.data, siteDomain:"flatkey.ai", timezone:flatkey.timezone, propertyId:flatkey.ga4PropertyId ?? "", collectedAt:flatkey.collectedAt.toISOString() }
+    : complete && archiveEvidence?.complete === false ? null : archiveEvidence;
+  const flatkeyPrevious = siteTraffic.find(row=>row.siteDomain === "flatkey.ai")?.previous;
+  const evidence = candidateEvidence && flatkey && flatkeyPrevious &&
+    candidateEvidence.totals.current.newUsers === flatkey.newUsers && candidateEvidence.totals.current.newRegistrations === flatkey.newRegistrations &&
+    candidateEvidence.totals.previous.newUsers === flatkeyPrevious.newUsers && candidateEvidence.totals.previous.newRegistrations === flatkeyPrevious.newRegistrations ? candidateEvidence : null;
+  const comparable=Boolean(complete && current && previous && currentSites.join()===previousSites.join() && siteTraffic.every(site=>!site.current || (site.previous && site.current.timezone===site.previous.timezone && site.current.ga4PropertyId===site.previous.ga4PropertyId && site.current.registrationMetric===site.previous.registrationMetric)));
+  const movements = serp;
+  const diagnosis = evidence?.complete ? auditedWeeklyDiagnosis(evidence) : await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, movements.comparison, periods.current.end);
+  return NextResponse.json({periods,evidence,history:[...new Set([activeReportPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
+    traffic:{current,previous,complete,currentSites,previousSites,comparable,siteTraffic:siteTraffic.map(site=>({siteDomain:site.siteDomain,current:site.current ? {newUsers:site.current.newUsers,newRegistrations:site.current.newRegistrations,registrationRate:registrationRate(site.current.newUsers,site.current.newRegistrations)}:null})),changes:{
       newUsers:comparable?relativeChange(current!.newUsers,previous!.newUsers):null,newRegistrations:comparable?relativeChange(current!.newRegistrations,previous!.newRegistrations):null,
       registrationRate:comparable?relativeChange(current!.registrationRate,previous!.registrationRate):null,
       ratePoints:comparable && current!.registrationRate!==null && previous!.registrationRate!==null?(current!.registrationRate-previous!.registrationRate)*100:null,

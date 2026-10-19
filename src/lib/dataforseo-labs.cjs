@@ -42,9 +42,16 @@ function parseCliArgs(argv) {
   validateRunId(options.runId); quoteForLimit(options.limit);
   return options;
 }
-function buildRankedKeywordsTask(limit, runId) {
+const MARKETS = { US: [2840, "en"], JP: [2392, "ja"], ES: [2724, "es"], BR: [2076, "pt"] };
+function discoveryScope(scope = {}) {
+  const targetDomain = scope.targetDomain ?? "flatkey.ai", region = scope.region ?? "US", market = MARKETS[region];
+  if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(targetDomain) || !market) fail("INVALID_SCOPE", "Unapproved discovery domain or market.");
+  return { targetDomain, region, locationCode: market[0], languageCode: market[1] };
+}
+function buildRankedKeywordsTask(limit, runId, scope) {
+  const approved = discoveryScope(scope);
   quoteForLimit(limit); validateRunId(runId);
-  return { target: "flatkey.ai", location_code: 2840, language_code: "en", limit, offset: 0,
+  return { target: approved.targetDomain, location_code: approved.locationCode, language_code: approved.languageCode, limit, offset: 0,
     item_types: ["organic"], historical_serp_mode: "live", include_clickstream_data: false,
     filters: [["ranked_serp_element.serp_item.type", "=", "organic"], "and", ["ranked_serp_element.serp_item.rank_group", "<=", 100]],
     order_by: ["ranked_serp_element.serp_item.rank_group,asc"], tag: runId };
@@ -63,23 +70,24 @@ function providerDate(value) {
 const nonNegativeInteger = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const costMicros = value => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value * 1000000) : null;
 const normalizedWord = value => value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
-function isTargetUrl(value) {
+function isTargetUrl(value, targetDomain) {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
     return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password && !url.port
-      && (url.hostname === "flatkey.ai" || url.hostname.endsWith(".flatkey.ai"));
+      && (url.hostname === targetDomain || url.hostname.endsWith(`.${targetDomain}`));
   } catch { return false; }
 }
 
-function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000 }) {
+function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000, scope }) {
+  const approved = discoveryScope(scope);
   const quote = quoteForLimit(limit); validateRunId(runId);
   if (!Number.isFinite(Date.parse(collectedAt))) fail("INVALID_COLLECTION_TIME", "An actual collection timestamp is required.");
   if (raw?.status_code !== 20000 || raw?.tasks_error !== 0 || raw?.tasks_count !== 1 || !Array.isArray(raw.tasks) || raw.tasks.length !== 1) fail("PROVIDER_STATUS", "DataForSEO did not confirm one successful task; inspect the saved response without resubmitting.");
   const task = raw.tasks[0];
   if (task.status_code !== 20000 || !Array.isArray(task.result) || task.result.length !== 1) fail("TASK_STATUS", "DataForSEO task did not return one successful result; inspect the saved response without resubmitting.");
   const result = task.result[0];
-  if (result.target !== "flatkey.ai" || result.location_code !== 2840 || result.language_code !== "en" || (result.se_type && result.se_type !== "google")) fail("RESPONSE_SCOPE", "Response target or market differs from the approved flatkey.ai US English trial.");
+  if (result.target !== approved.targetDomain || result.location_code !== approved.locationCode || result.language_code !== approved.languageCode || (result.se_type && result.se_type !== "google")) fail("RESPONSE_SCOPE", "Response target or market differs from the approved domain and market.");
   const totalCount = nonNegativeInteger(result.total_count), itemsCount = nonNegativeInteger(result.items_count);
   const items = result.items === null && itemsCount === 0 ? [] : result.items;
   if (!Array.isArray(items) || itemsCount !== items.length || items.length > limit || totalCount === null || totalCount < items.length) fail("RESPONSE_ITEMS", "Response item counts are invalid or exceed the approved single-request limit.");
@@ -91,8 +99,8 @@ function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000 }) {
     else if (serp?.type !== "organic") reason = "not_organic";
     else if (!Number.isInteger(serp.rank_group) || serp.rank_group < 1 || serp.rank_group > 100) reason = "outside_or_invalid_rank_group";
     else if (ranked.is_lost === true) reason = "lost_result";
-    else if (!isTargetUrl(serp.url)) reason = "foreign_or_invalid_url";
-    else if ((data.location_code !== undefined && data.location_code !== 2840) || (data.language_code !== undefined && data.language_code !== "en")) reason = "item_market_mismatch";
+    else if (!isTargetUrl(serp.url, approved.targetDomain)) reason = "foreign_or_invalid_url";
+    else if ((data.location_code !== undefined && data.location_code !== approved.locationCode) || (data.language_code !== undefined && data.language_code !== approved.languageCode)) reason = "item_market_mismatch";
     if (reason) { rejectedItems.push({ itemIndex, reason }); continue; }
     const rankedDate = providerDate(ranked.last_updated_time), keywordSerpDate = providerDate(data.serp_info?.last_updated_time);
     const sourceSerpUpdatedAt = rankedDate ?? keywordSerpDate;
@@ -100,7 +108,7 @@ function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000 }) {
     const identity = JSON.stringify([keyword, serp.url, serp.rank_group, sourceSerpUpdatedAt]);
     if (seen.has(identity)) { rejectedItems.push({ itemIndex, reason: "duplicate_observation" }); continue; }
     seen.add(identity);
-    rows.push({ source: SOURCE, keyword, rawKeyword: data.keyword, region: "US", locationCode: 2840, languageCode: "en", itemIndex,
+    rows.push({ source: SOURCE, keyword, rawKeyword: data.keyword, region: approved.region, locationCode: approved.locationCode, languageCode: approved.languageCode, itemIndex,
       rank_group: serp.rank_group, rank_absolute: Number.isInteger(serp.rank_absolute) && serp.rank_absolute >= 1 ? serp.rank_absolute : null,
       url: serp.url, title: typeof serp.title === "string" ? serp.title : null,
       sourceSerpUpdatedAt, sourceSerpUpdatedAtRaw: rankedDate ? ranked.last_updated_time : keywordSerpDate ? data.serp_info.last_updated_time : null,
@@ -111,7 +119,7 @@ function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000 }) {
   }
   rows.sort((a, b) => a.rank_group - b.rank_group || a.keyword.localeCompare(b.keyword) || a.url.localeCompare(b.url));
   const actualCostMicros = costMicros(raw.cost) ?? costMicros(task.cost);
-  return { schemaVersion: 1, source: SOURCE, datasetType: "provider_ranked_keywords_snapshot", runId, targetDomain: "flatkey.ai", region: "US", languageCode: "en",
+  return { schemaVersion: 1, source: SOURCE, datasetType: "provider_ranked_keywords_snapshot", runId, targetDomain: approved.targetDomain, region: approved.region, languageCode: approved.languageCode,
     collectedAt: new Date(collectedAt).toISOString(), historicalSerpMode: "live", realTimeSerpFetch: false,
     taskId: typeof task.id === "string" ? task.id : null, estimatedMaxCostUsd: quote.maxCostUsd,
     actualCostMicros, actualCostUsd: actualCostMicros === null ? null : (actualCostMicros / 1000000).toFixed(6),

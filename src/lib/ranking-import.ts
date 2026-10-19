@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { weeklyEvidenceSchema } from "@/lib/weekly-evidence-schema";
 import { isWeeklyPeriod, reportPeriods, weeklyPeriods } from "@/lib/weekly-traffic";
 
 export const MAX_IMPORT_BYTES = 2_000_000;
@@ -164,8 +165,10 @@ export const rankingImportSchema = z
       scope: z.literal("all_users"),
       registrationMetric: z.enum(["sign_up_distinct_users", "sign_up_success_distinct_users"]),
       ga4PropertyId: z.string().regex(/^\d+$/),
+      analysis: weeklyEvidenceSchema.optional(),
       collectedAt: z.iso.datetime({ offset: true }),
     }).strict().superRefine((row, ctx) => {
+      if (row.analysis && (row.analysis.totals.current.newUsers !== row.newUsers || row.analysis.totals.current.newRegistrations !== row.newRegistrations)) ctx.addIssue({code:"custom",message:"渠道与漏斗分析必须属于本次流量汇总"});
       if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周二至周一的连续 7 天" });
       let closedEnd: string;
       try { closedEnd = weeklyPeriods(new Date(row.collectedAt), row.timezone).current.end; } catch { ctx.addIssue({ code: "custom", message: "报告时区或采集时间无效" }); return; }

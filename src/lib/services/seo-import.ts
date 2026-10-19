@@ -160,6 +160,7 @@ export async function importSeo(payload: RankingImportPayload) {
       if (payload.traffic.length) await tx.weeklyTraffic.createMany({ data: payload.traffic.map((row) => ({
         siteDomain, importId: batch.id, periodStart: day(row.periodStart)!, periodEnd: day(row.periodEnd)!, timezone: row.timezone,
         newUsers: row.newUsers, newRegistrations: row.newRegistrations, registrationMetric: row.registrationMetric, ga4PropertyId: row.ga4PropertyId, collectedAt: new Date(row.collectedAt),
+        ...(row.analysis ? { analysis: row.analysis as Prisma.InputJsonValue } : {}),
       })) });
       if (payload.dailyRankings.length) await tx.dailyRankingReport.createMany({ data: payload.dailyRankings.map((row) => ({
         siteDomain, importId: batch.id, date: day(row.date)!, publishedWeek: day(row.publishForWeek), region: row.region, source: row.source,

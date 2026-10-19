@@ -68,7 +68,7 @@ test("ranking filters hide collection diagnostics without treating missing data 
     const input = rank(null, { rankStatus });
     const tag = keywordRankingResultTag(input);
     assert.equal(tag.key, "UNKNOWN", rankStatus);
-    assert.equal(tag.label, "暂无排名数据");
+    assert.equal(tag.label, keywordRankingTag(input).key === "PENDING" ? "未采集" : "暂无有效结果");
     assert.equal(tag.tooltip, keywordRankingTag(input).tooltip, "diagnostic evidence stays available");
   }
   assert.equal(keywordRankingResultTag(null).key, "UNKNOWN");

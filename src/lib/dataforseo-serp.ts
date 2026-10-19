@@ -23,7 +23,7 @@ export function configForSerpRegion(region: SerpRegion, base: SerpMonitorConfigu
 export const SERP_DEFAULT_CONFIG: SerpMonitorConfiguration = {
   region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840, device: "desktop", depth: 100,
   intervalDays: 14, paidEnabled: false, maxRunCostMicros: 50_000_000,
-  schedule: "SEMI_MONTHLY", scheduleDays: [1, 16], timezone: "Asia/Shanghai", localTime: "10:30",
+  schedule: "BIWEEKLY_TUESDAY", scheduleDays: [2], timezone: "Asia/Shanghai", localTime: "10:30",
   maxMonthCostMicros: 100_000_000, revision: 0, nextDueAt: null,
 };
 export const SERP_PRICE_PER_QUERY_MICROS = 6_000;
@@ -52,14 +52,14 @@ export function quoteSerpTargets(targets: SerpTarget[], regions: SerpRegion[] = 
   return { targetCount: targets.length, queryCount: queries.length, sharedQueriesSaved: (targets.length - groups.length) * regions.length,
     keywordQueryCount: groups.length, markets: [...regions], marketCount: regions.length,
     perQueryMaxCostMicros: SERP_PRICE_PER_QUERY_MICROS, maxCostMicros,
-    annualRuns: 24, annual24RunsMicros: maxCostMicros * 24, monthlyAverageMicros: maxCostMicros * 2,
+    annualRuns: 26, annualCostMicros: maxCostMicros * 26, monthlyAverageMicros: Math.ceil(maxCostMicros * 26 / 12),
     batchCount: Math.ceil(queries.length / 100), provider: "dataforseo_serp", mode: "standard",
     pricingUrl: "https://dataforseo.com/pricing/google-serp/google-organic-serp-api", pricedAt: "2026-10-16" };
 }
 export function buildSerpTask(query: SerpQuery, tag: string, config: SerpMonitorConfiguration) {
   if (!query.keyword || query.keyword.length > 700 || [...query.keyword].some(character => character.charCodeAt(0) < 32)) throw new Error("INVALID_QUERY");
   if (hasPaidSearchOperator(query.keyword)) throw new Error("PAID_OPERATOR_REQUIRES_REVIEW");
-  if (!isSerpRegion(config.region) || config.locationCode !== SERP_MARKET_CONFIG[config.region].locationCode || config.languageCode !== SERP_MARKET_CONFIG[config.region].languageCode || config.device !== "desktop" || config.depth !== 100 || config.schedule !== "SEMI_MONTHLY") throw new Error("UNAPPROVED_CONFIGURATION");
+  if (!isSerpRegion(config.region) || config.locationCode !== SERP_MARKET_CONFIG[config.region].locationCode || config.languageCode !== SERP_MARKET_CONFIG[config.region].languageCode || config.device !== "desktop" || config.depth !== 100 || !["BIWEEKLY_TUESDAY", "SEMI_MONTHLY"].includes(config.schedule)) throw new Error("UNAPPROVED_CONFIGURATION");
   return {
     // DataForSEO decodes literal '+' and '%xx' in keyword input. Escape exactly
     // these characters so C++/percent terms are searched as the original text.

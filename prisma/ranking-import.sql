@@ -368,4 +368,6 @@ ALTER TABLE "SerpMonitorTask" ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFA
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_region_checkedAt_idx" ON "SerpMonitorTask"(region, "checkedAt" DESC);
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_runId_state_idx" ON "SerpMonitorTask"("runId", state);
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_checkedAt_idx" ON "SerpMonitorTask"("checkedAt" DESC);
+ALTER TABLE "WeeklyTraffic" ADD COLUMN IF NOT EXISTS "analysis" JSONB;
+
 COMMIT;

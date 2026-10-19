@@ -26,7 +26,7 @@ function configuration(row: SerpMonitorConfig | null): SerpMonitorConfiguration 
   if (!row) return { ...SERP_DEFAULT_CONFIG };
   return { region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840,
     device: row.device as "desktop", depth: row.depth as 100, intervalDays: row.intervalDays as 14, paidEnabled: row.paidEnabled,
-    schedule: row.schedule as "SEMI_MONTHLY", scheduleDays: [1, 16], timezone: "Asia/Shanghai", localTime: "10:30",
+    schedule: "BIWEEKLY_TUESDAY", scheduleDays: [2], timezone: "Asia/Shanghai", localTime: "10:30",
     maxRunCostMicros: row.maxRunCostMicros, maxMonthCostMicros: row.maxMonthCostMicros, revision: row.revision,
     nextDueAt: row.nextDueAt?.toISOString() ?? null };
 }
@@ -59,7 +59,7 @@ export async function loadSerpMonitorStatus(): Promise<SerpMonitorStatus> {
 export async function previewSerpMonitor(): Promise<SerpMonitorPreview> {
   const [row, cohort] = await Promise.all([prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), loadSerpTargetCohort()]);
   return { action: "preview", cohortHash: cohort.hash, quote: quoteSerpTargets(cohort.targets, SERP_MARKETS), configuration: configuration(row), paidEnabled: false,
-    message: "仅预览目标、去重查询及费用；未提交供应商任务。每月1日和16日10:30上海时间采集，每月两期，付费抓取保持关闭。" };
+    message: "仅预览目标、去重查询及费用；未提交供应商任务。隔周周二10:30上海时间采集，付费抓取保持关闭。" };
 }
 async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "configure" }>) {
   await prisma.$transaction(async tx => {
@@ -68,7 +68,7 @@ async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "
     if (input.expectedRevision !== undefined && input.expectedRevision !== (current?.revision ?? 0)) throw new ImportRequestError("配置已变化，请刷新后重试", 409);
     // This product release intentionally has no enable mutation. The explicit
     // false is enforced by both Zod and this write path, including reconnects.
-    const values = { paidEnabled: false, region: "US", languageCode: "en", locationCode: 2840, device: "desktop", depth: 100, schedule: "SEMI_MONTHLY", intervalDays: 14,
+    const values = { paidEnabled: false, region: "US", languageCode: "en", locationCode: 2840, device: "desktop", depth: 100, schedule: "BIWEEKLY_TUESDAY", intervalDays: 14,
       maxRunCostMicros: input.maxRunCostMicros ?? current?.maxRunCostMicros ?? SERP_DEFAULT_CONFIG.maxRunCostMicros,
       maxMonthCostMicros: input.maxMonthCostMicros ?? current?.maxMonthCostMicros ?? SERP_DEFAULT_CONFIG.maxMonthCostMicros };
     await tx.serpMonitorConfig.upsert({ where: { id: SERP_CONFIG_ID }, create: { id: SERP_CONFIG_ID, ...values }, update: { ...values, revision: { increment: 1 } } });
@@ -93,7 +93,7 @@ async function reserveRun(id: string, expectedCohortHash: string) {
     if (await tx.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: period.key, scope: "SCHEDULED" } } })) throw new ImportRequestError("本期已有SERP采集账本，请查看或续跑原记录，不能重复扣费", 409);
     const row = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), config = configuration(row);
     if (!row?.paidEnabled) throw new ImportRequestError("付费SERP抓取保持关闭，本次未请求供应商", 409);
-    if (row.nextDueAt && row.nextDueAt.getTime() > Date.now()) throw new ImportRequestError("尚未到下次每月1日或16日的采集时间", 409);
+    if (row.nextDueAt && row.nextDueAt.getTime() > Date.now()) throw new ImportRequestError("尚未到下次隔周周二的采集时间", 409);
     if (await tx.serpMonitorRun.findFirst({ where: { status: { in: OPEN_RUNS } }, select: { id: true } })) throw new ImportRequestError("已有未完成或结果不明的SERP采集，请续跑原账本，不能重复扣费", 409);
     if (quote.maxCostMicros > config.maxRunCostMicros || await monthReserved(tx) + quote.maxCostMicros > config.maxMonthCostMicros) throw new ImportRequestError("SERP采集超过单轮或月度预算上限，本次未请求供应商", 409);
     const connection = await tx.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
@@ -528,7 +528,7 @@ export async function mutateSerpMonitor(input: SerpMonitorMutation) {
   return { action: "start", duplicate: reserved.duplicate, run: await runDto(await finalizeRun(reserved.run.id)) };
 }
 
-export async function runSerpMonitorCron(options: { maxDurationMs?: number } = {}) {
+export async function runSerpMonitorCron(options: { maxDurationMs?: number; allowStart?: boolean } = {}) {
   // Count reservation/DB time too, leaving the enclosing 300s route a safety
   // margin. The global external stop still blocks both paid and free traffic.
   const startedAt = Date.now(), deadline = startedAt + Math.min(240_000, Math.max(0, options.maxDurationMs ?? 240_000));
@@ -541,6 +541,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number } = {
   let run = await prisma.serpMonitorRun.findFirst({ where: { scope: "SCHEDULED", status: { in: OPEN_RUNS } }, orderBy: { createdAt: "asc" } });
   if (!run) {
     if (!canSpend) return { status: "DISABLED", reason: "PAID_SERP_DISABLED", paidRequests: 0 };
+    if (options.allowStart === false) return { status: "WAITING_FOR_DISCOVERY", paidRequests: 0 };
     if (!row?.nextDueAt) return { status: "NOT_SCHEDULED", paidRequests: 0 };
     if (row.nextDueAt.getTime() > Date.now()) return { status: "NOT_DUE", nextDueAt: row.nextDueAt.toISOString(), paidRequests: 0 };
     const existingPeriod = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: serpPeriod(new Date()).key, scope: "SCHEDULED" } } });

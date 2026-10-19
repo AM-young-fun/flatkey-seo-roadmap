@@ -47,7 +47,7 @@ export function SourceSyncStatus() {
     </article>)}</div> : null}
     <details className="sourceSyncDetails"><summary>同步明细与筛选规则</summary>
       {health ? <ul>{health.sources.map(source => <li key={source.sourceId}><strong>{source.label} · {source.sheetName}</strong>：最近内容入库 {time(source.lastChangedAt)}；已变更行的来源读取时间 {time(source.lastChangedSourceReadAt)}。</li>)}</ul> : null}
-      <p className="chartNote">刷新状态只读取已存数据，不会重新读取协作表。未变化行不重写，因此上述时间不代表最近每日检查。新增和变化逐词核实业务相关性、完成状态、实际页面与意图；表格缺行不会删除词库或覆盖人工关联。排名计划独立安排在每月 1 日和 16 日，付费执行尚未开启。</p>
+      <p className="chartNote">刷新状态只读取已存数据，不会重新读取协作表。未变化行不重写，因此上述时间不代表最近每日检查。新增和变化逐词核实业务相关性、完成状态、实际页面与意图；表格缺行不会删除词库或覆盖人工关联。排名与新词发现独立安排在隔周周二 10:30，付费执行尚未开启。</p>
     </details>
   </section>;
 }

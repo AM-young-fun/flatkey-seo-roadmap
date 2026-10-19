@@ -55,7 +55,8 @@ export function keywordRankingResultTag(summary: Parameters<typeof keywordRankin
   { key: "TOP_10" | "TOP_30" | "TOP_50" | "TOP_100" | "UNRANKED" | "UNKNOWN"; label: string; color: string; tooltip: string } {
   const tag = keywordRankingTag(summary);
   switch (tag.key) {
-    case "TOP_10": case "TOP_30": case "TOP_50": case "TOP_100": case "UNRANKED": return { ...tag, key: tag.key };
-    default: return { key: "UNKNOWN", label: "暂无排名数据", color: "default", tooltip: tag.tooltip };
+    case "TOP_10": case "TOP_30": case "TOP_50": case "TOP_100": return { ...tag, key: tag.key };
+    case "UNRANKED": return { ...tag, key: tag.key, label: "100之外" };
+    default: return { key: "UNKNOWN", label: tag.key === "PENDING" ? "未采集" : "暂无有效结果", color: "default", tooltip: tag.tooltip };
   }
 }

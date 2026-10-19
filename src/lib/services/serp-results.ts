@@ -52,7 +52,7 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", sta
   });
 }
 
-export async function loadSerpTasks(region: SearchRegionCode, languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop", start?: string, end?: string): Promise<SerpTaskRead[]> {
+export async function loadSerpTasks(region: SearchRegionCode, languageCode = SERP_MARKET_LANGUAGE[region], device = "desktop", start?: string, end?: string, includeRunId?: string): Promise<SerpTaskRead[]> {
   const historical = Boolean(start || end);
   return prisma.$queryRaw<SerpTaskRead[]>(Prisma.sql`
     /* serp-monitor:results */
@@ -65,7 +65,7 @@ export async function loadSerpTasks(region: SearchRegionCode, languageCode = SER
         AND COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') = ${languageCode}
         AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
-        AND (${!end} OR (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end ?? "9999-12-31"}::date
+        AND (${!end} OR t."runId" = ${includeRunId ?? ""} OR (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end ?? "9999-12-31"}::date
           OR (t."checkedAt" IS NULL AND r."periodStart" <= ${end ?? "9999-12-31"}::date))
     ), expanded_tasks AS (
       SELECT t.*, target->>'siteDomain' AS "targetSite", target->>'keywordId' AS "targetKeyword",

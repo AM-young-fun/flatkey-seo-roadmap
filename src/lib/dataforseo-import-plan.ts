@@ -18,7 +18,7 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
   if ((snapshot.returnedItems > 0 && snapshot.rows.length === 0) || (snapshot.returnedItems === 0 && snapshot.totalMatchingCount > 0)) {
     throw new ImportRequestError("供应商返回行未通过排名证据解析，已保留原始结果，不能将词库误写为无数据", 422);
   }
-  const eligible = memberships.filter(row => row.active && row.keyword.active && ["FORMAL", "RESEARCH"].includes(row.pool) && keywordRelevance("flatkey.ai", row.keyword.text).status !== "unrelated");
+  const eligible = memberships.filter(row => row.active && row.keyword.active && ["FORMAL", "RESEARCH"].includes(row.pool) && keywordRelevance(snapshot.targetDomain, row.keyword.text).status !== "unrelated");
   const groups = new Map<string, DataForSeoMembership[]>();
   for (const row of eligible) { const text = normalizeKeywordText(row.keyword.text); groups.set(text, [...(groups.get(text) ?? []), row]); }
   const best = new Map<string, DataForSeoObservation>();
@@ -26,7 +26,7 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
   const candidates = [], matched = new Set<string>();
   let unrelatedFiltered = 0;
   for (const row of snapshot.rows) {
-    const policy = keywordRelevance("flatkey.ai", row.keyword);
+    const policy = keywordRelevance(snapshot.targetDomain, row.keyword);
     if (policy.status === "unrelated") { unrelatedFiltered++; continue; }
     const links = groups.get(row.keyword) ?? [];
     if (links.length !== 1) {
@@ -38,14 +38,14 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
     if (!priorPage || preferObservation(row, priorPage)) pageResults.set(pageKey, row);
     matched.add(links[0].keywordId);
   }
-  const observations: RankingImportPayload["observations"] = [...best].map(([text, row]): RankingImportPayload["observations"][number] => ({ keyword: groups.get(text)![0].keyword.text, region: "US", source: "dataforseo_labs",
+  const observations: RankingImportPayload["observations"] = [...best].map(([text, row]): RankingImportPayload["observations"][number] => ({ keyword: groups.get(text)![0].keyword.text, region: snapshot.region, source: "dataforseo_labs",
     collectedAt: snapshot.collectedAt, rankStatus: "ranked", rank: row.rank_group, url: row.url,
     ...(row.sourceSerpUpdatedAt ? { dataUpdatedAt: row.sourceSerpUpdatedAt } : {}), ...(row.volume !== null ? { volume: row.volume } : {}) }));
   // Preserve every actual ranking URL with its own position and provider date.
   // These page records intentionally omit search volume to avoid counting one
   // query's volume once per page, and never change manually assigned targets.
   const pages: RankingImportPayload["pages"] = [...pageResults.values()].map(row => ({ keyword: groups.get(row.keyword)![0].keyword.text,
-    region: "US", source: "dataforseo_labs", collectedAt: snapshot.collectedAt, rankStatus: "ranked", rank: row.rank_group, url: row.url,
+    region: snapshot.region, source: "dataforseo_labs", collectedAt: snapshot.collectedAt, rankStatus: "ranked", rank: row.rank_group, url: row.url,
     ...(row.sourceSerpUpdatedAt ? { dataUpdatedAt: row.sourceSerpUpdatedAt } : {}) }));
   const previouslyRanked = new Set(previousRankedKeywords.map(normalizeKeywordText));
   let missingFormal = 0, missingResearch = 0;
@@ -54,7 +54,7 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
     // A lost research result must not retain its previous positive rank, while
     // research that has never appeared receives no invented observations.
     if (matched.has(row.keywordId) || groups.get(text)!.length !== 1 || (row.pool !== "FORMAL" && !previouslyRanked.has(text))) continue;
-    observations.push({ keyword: row.keyword.text, region: "US", source: "dataforseo_labs", collectedAt: snapshot.collectedAt, rankStatus: "no_data", rank: null });
+    observations.push({ keyword: row.keyword.text, region: snapshot.region, source: "dataforseo_labs", collectedAt: snapshot.collectedAt, rankStatus: "no_data", rank: null });
     if (row.pool === "FORMAL") missingFormal++;
     else missingResearch++;
   }
@@ -63,9 +63,9 @@ export function buildDataForSeoImportPlan(snapshot: DataForSeoNormalized, member
   const records = [...observations.map(row => ({ kind: "observation" as const, row })), ...pages.map(row => ({ kind: "page" as const, row }))];
   for (let offset = 0; offset < records.length; offset += 500) {
     const slice = records.slice(offset, offset + 500);
-    batches.push(rankingImportSchema.parse({ requestId: `dfs-${requestId}-part-${Math.floor(offset / 500) + 1}`, targetDomain: "flatkey.ai", allowNewKeywords: false,
+    batches.push(rankingImportSchema.parse({ requestId: `dfs-${requestId}-part-${Math.floor(offset / 500) + 1}`, targetDomain: snapshot.targetDomain, allowNewKeywords: false,
       observations: slice.filter(record => record.kind === "observation").map(record => record.row), pages: slice.filter(record => record.kind === "page").map(record => record.row),
-      capture: { id: `dfs-${requestId}`, date: captureDate, source: "dataforseo_labs", region: "US", coverage: "tracked", complete: offset + 500 >= records.length } }));
+      capture: { id: `dfs-${requestId}`, date: captureDate, source: "dataforseo_labs", region: snapshot.region, coverage: "tracked", complete: offset + 500 >= records.length } }));
   }
   const summary: DataForSeoSummary = { returnedItems: snapshot.returnedItems, normalizedRows: snapshot.rows.length, matchedExisting: matched.size,
     matchedPages: pages.length,

@@ -1,0 +1,635 @@
+{
+  "schemaVersion": 1,
+  "siteDomain": "flatkey.ai",
+  "timezone": "America/Los_Angeles",
+  "propertyId": "541304395",
+  "registrationMetric": "sign_up_success_distinct_users",
+  "collectedAt": "2026-10-19T03:48:05.246Z",
+  "weeks": {
+    "2026-10-06": {
+      "complete": true,
+      "totals": {
+        "current": {
+          "newUsers": 2572,
+          "newRegistrations": 417
+        },
+        "previous": {
+          "newUsers": 2087,
+          "newRegistrations": 433
+        }
+      },
+      "channels": [
+        {
+          "name": "Direct",
+          "newUsers": {
+            "current": 1819,
+            "previous": 1534
+          },
+          "registrations": {
+            "current": 218,
+            "previous": 295
+          }
+        },
+        {
+          "name": "Paid Search",
+          "newUsers": {
+            "current": 334,
+            "previous": 175
+          },
+          "registrations": {
+            "current": 117,
+            "previous": 56
+          }
+        },
+        {
+          "name": "Organic Search",
+          "newUsers": {
+            "current": 317,
+            "previous": 238
+          },
+          "registrations": {
+            "current": 50,
+            "previous": 56
+          }
+        },
+        {
+          "name": "Referral",
+          "newUsers": {
+            "current": 46,
+            "previous": 71
+          },
+          "registrations": {
+            "current": 14,
+            "previous": 14
+          }
+        },
+        {
+          "name": "Organic Social",
+          "newUsers": {
+            "current": 32,
+            "previous": 31
+          },
+          "registrations": {
+            "current": 11,
+            "previous": 3
+          }
+        },
+        {
+          "name": "Unassigned",
+          "newUsers": {
+            "current": 10,
+            "previous": 22
+          },
+          "registrations": {
+            "current": 2,
+            "previous": 1
+          }
+        },
+        {
+          "name": "AI Assistant",
+          "newUsers": {
+            "current": 5,
+            "previous": 7
+          },
+          "registrations": {
+            "current": 1,
+            "previous": 2
+          }
+        },
+        {
+          "name": "Cross-network",
+          "newUsers": {
+            "current": 4,
+            "previous": 2
+          },
+          "registrations": {
+            "current": 2,
+            "previous": 1
+          }
+        },
+        {
+          "name": "Organic Video",
+          "newUsers": {
+            "current": 2,
+            "previous": 6
+          },
+          "registrations": {
+            "current": 2,
+            "previous": 5
+          }
+        },
+        {
+          "name": "Paid Social",
+          "newUsers": {
+            "current": 2,
+            "previous": 1
+          },
+          "registrations": {
+            "current": 0,
+            "previous": 0
+          }
+        },
+        {
+          "name": "Paid Other",
+          "newUsers": {
+            "current": 1,
+            "previous": 0
+          },
+          "registrations": {
+            "current": 0,
+            "previous": 0
+          }
+        }
+      ],
+      "formFunnel": {
+        "current": [
+          {
+            "name": "首次访问",
+            "users": 2555,
+            "completionRate": 0.11779999999999999
+          },
+          {
+            "name": "开始填写表单",
+            "users": 301,
+            "completionRate": 0.3455
+          },
+          {
+            "name": "提交表单",
+            "users": 104,
+            "completionRate": 0.5481
+          },
+          {
+            "name": "注册成功",
+            "users": 57,
+            "completionRate": null
+          }
+        ],
+        "previous": [
+          {
+            "name": "首次访问",
+            "users": 2075,
+            "completionRate": 0.1523
+          },
+          {
+            "name": "开始填写表单",
+            "users": 316,
+            "completionRate": 0.18350000000000002
+          },
+          {
+            "name": "提交表单",
+            "users": 58,
+            "completionRate": 0.431
+          },
+          {
+            "name": "注册成功",
+            "users": 25,
+            "completionRate": null
+          }
+        ]
+      },
+      "newVisitorFunnel": {
+        "current": [
+          {
+            "name": "首次访问",
+            "users": 2555,
+            "completionRate": 0.1472
+          },
+          {
+            "name": "注册成功",
+            "users": 376,
+            "completionRate": null
+          }
+        ],
+        "previous": [
+          {
+            "name": "首次访问",
+            "users": 2075,
+            "completionRate": 0.1865
+          },
+          {
+            "name": "注册成功",
+            "users": 387,
+            "completionRate": null
+          }
+        ]
+      },
+      "registrationCountries": {
+        "Brazil": {
+          "current": 133,
+          "previous": 65
+        },
+        "China": {
+          "current": 112,
+          "previous": 175
+        },
+        "(not set)": {
+          "current": 33,
+          "previous": 34
+        },
+        "United States": {
+          "current": 26,
+          "previous": 41
+        },
+        "Japan": {
+          "current": 18,
+          "previous": 15
+        },
+        "Indonesia": {
+          "current": 19,
+          "previous": 13
+        },
+        "Philippines": {
+          "current": 14,
+          "previous": 7
+        },
+        "Singapore": {
+          "current": 12,
+          "previous": 9
+        },
+        "India": {
+          "current": 9,
+          "previous": 9
+        },
+        "Hong Kong": {
+          "current": 7,
+          "previous": 16
+        },
+        "Taiwan": {
+          "current": 6,
+          "previous": 5
+        },
+        "Russia": {
+          "current": 5,
+          "previous": 2
+        },
+        "Algeria": {
+          "current": 2,
+          "previous": 4
+        },
+        "Morocco": {
+          "current": 2,
+          "previous": 0
+        },
+        "Vietnam": {
+          "current": 2,
+          "previous": 3
+        },
+        "Albania": {
+          "current": 1,
+          "previous": 0
+        },
+        "Belgium": {
+          "current": 1,
+          "previous": 0
+        },
+        "Canada": {
+          "current": 1,
+          "previous": 1
+        },
+        "Colombia": {
+          "current": 1,
+          "previous": 2
+        },
+        "Dominican Republic": {
+          "current": 1,
+          "previous": 0
+        },
+        "France": {
+          "current": 1,
+          "previous": 1
+        },
+        "Greece": {
+          "current": 1,
+          "previous": 0
+        },
+        "Malaysia": {
+          "current": 1,
+          "previous": 0
+        },
+        "Mexico": {
+          "current": 1,
+          "previous": 1
+        },
+        "Myanmar (Burma)": {
+          "current": 1,
+          "previous": 0
+        },
+        "Netherlands": {
+          "current": 1,
+          "previous": 0
+        },
+        "Oman": {
+          "current": 1,
+          "previous": 0
+        },
+        "Pakistan": {
+          "current": 1,
+          "previous": 1
+        },
+        "Romania": {
+          "current": 1,
+          "previous": 1
+        },
+        "Réunion": {
+          "current": 1,
+          "previous": 0
+        },
+        "South Korea": {
+          "current": 1,
+          "previous": 3
+        },
+        "Spain": {
+          "current": 1,
+          "previous": 0
+        },
+        "Thailand": {
+          "current": 1,
+          "previous": 1
+        },
+        "Türkiye": {
+          "current": 1,
+          "previous": 0
+        },
+        "Australia": {
+          "current": 0,
+          "previous": 1
+        },
+        "Bangladesh": {
+          "current": 0,
+          "previous": 1
+        },
+        "Belarus": {
+          "current": 0,
+          "previous": 1
+        },
+        "Egypt": {
+          "current": 0,
+          "previous": 7
+        },
+        "Germany": {
+          "current": 0,
+          "previous": 2
+        },
+        "Iran": {
+          "current": 0,
+          "previous": 1
+        },
+        "Italy": {
+          "current": 0,
+          "previous": 1
+        },
+        "Jordan": {
+          "current": 0,
+          "previous": 1
+        },
+        "Lebanon": {
+          "current": 0,
+          "previous": 1
+        },
+        "Nigeria": {
+          "current": 0,
+          "previous": 2
+        },
+        "Poland": {
+          "current": 0,
+          "previous": 1
+        },
+        "Saudi Arabia": {
+          "current": 0,
+          "previous": 1
+        },
+        "Trinidad & Tobago": {
+          "current": 0,
+          "previous": 1
+        },
+        "Tunisia": {
+          "current": 0,
+          "previous": 1
+        },
+        "United Kingdom": {
+          "current": 0,
+          "previous": 1
+        },
+        "Uruguay": {
+          "current": 0,
+          "previous": 1
+        },
+        "Venezuela": {
+          "current": 0,
+          "previous": 1
+        }
+      },
+      "directRegistrationCountries": {
+        "China": {
+          "current": 83,
+          "previous": 153
+        },
+        "(not set)": {
+          "current": 21,
+          "previous": 22
+        },
+        "United States": {
+          "current": 21,
+          "previous": 35
+        },
+        "Philippines": {
+          "current": 14,
+          "previous": 6
+        },
+        "Japan": {
+          "current": 14,
+          "previous": 12
+        },
+        "Brazil": {
+          "current": 15,
+          "previous": 4
+        },
+        "Indonesia": {
+          "current": 12,
+          "previous": 9
+        },
+        "Singapore": {
+          "current": 9,
+          "previous": 9
+        },
+        "India": {
+          "current": 6,
+          "previous": 7
+        },
+        "Taiwan": {
+          "current": 5,
+          "previous": 4
+        },
+        "Hong Kong": {
+          "current": 4,
+          "previous": 12
+        },
+        "Russia": {
+          "current": 4,
+          "previous": 2
+        },
+        "Algeria": {
+          "current": 2,
+          "previous": 2
+        },
+        "Albania": {
+          "current": 1,
+          "previous": 0
+        },
+        "Colombia": {
+          "current": 1,
+          "previous": 0
+        },
+        "Dominican Republic": {
+          "current": 1,
+          "previous": 0
+        },
+        "Morocco": {
+          "current": 1,
+          "previous": 0
+        },
+        "Myanmar (Burma)": {
+          "current": 1,
+          "previous": 0
+        },
+        "Netherlands": {
+          "current": 1,
+          "previous": 0
+        },
+        "South Korea": {
+          "current": 1,
+          "previous": 3
+        },
+        "Thailand": {
+          "current": 1,
+          "previous": 0
+        },
+        "Vietnam": {
+          "current": 1,
+          "previous": 1
+        },
+        "Belarus": {
+          "current": 0,
+          "previous": 1
+        },
+        "Canada": {
+          "current": 0,
+          "previous": 1
+        },
+        "Egypt": {
+          "current": 0,
+          "previous": 3
+        },
+        "France": {
+          "current": 0,
+          "previous": 1
+        },
+        "Germany": {
+          "current": 0,
+          "previous": 2
+        },
+        "Lebanon": {
+          "current": 0,
+          "previous": 1
+        },
+        "Mexico": {
+          "current": 0,
+          "previous": 1
+        },
+        "Nigeria": {
+          "current": 0,
+          "previous": 1
+        },
+        "Poland": {
+          "current": 0,
+          "previous": 1
+        },
+        "Saudi Arabia": {
+          "current": 0,
+          "previous": 1
+        },
+        "Trinidad & Tobago": {
+          "current": 0,
+          "previous": 1
+        },
+        "United Kingdom": {
+          "current": 0,
+          "previous": 1
+        }
+      },
+      "search": {
+        "clicks": {
+          "current": 274,
+          "previous": 252
+        },
+        "impressions": {
+          "current": 14347,
+          "previous": 15160
+        },
+        "decliningPages": [
+          {
+            "url": "https://flatkey.ai/ru/blog/openai-api-access-ai-model-pricing-comparison",
+            "clicks": {
+              "current": 1,
+              "previous": 10
+            },
+            "position": {
+              "current": 8.06,
+              "previous": 6.95
+            }
+          },
+          {
+            "url": "https://flatkey.ai/es/blog/free-llm-apis-2026",
+            "clicks": {
+              "current": 1,
+              "previous": 5
+            },
+            "position": {
+              "current": 5.56,
+              "previous": 6.34
+            }
+          },
+          {
+            "url": "https://flatkey.ai/ru/blog/free-llm-apis-2026",
+            "clicks": {
+              "current": 0,
+              "previous": 4
+            },
+            "position": {
+              "current": 6.24,
+              "previous": 6.13
+            }
+          },
+          {
+            "url": "https://flatkey.ai/vi/blog/deepseek-api-pricing",
+            "clicks": {
+              "current": 4,
+              "previous": 6
+            },
+            "position": {
+              "current": 4.82,
+              "previous": 5.14
+            }
+          },
+          {
+            "url": "https://flatkey.ai/about",
+            "clicks": {
+              "current": 0,
+              "previous": 2
+            },
+            "position": {
+              "current": 2.2,
+              "previous": 1.83
+            }
+          }
+        ]
+      },
+      "sources": [
+        "https://analytics.google.com/analytics/web/#/a248149353p541304395/reports/explorer?params=_r.explorerCard..selmet%3D%5B%22newUsers%22%5D%26_r.explorerCard..seldim%3D%5B%22firstUserPrimaryChannelGroup%22%5D%26_u..nav%3Dmaui%26_u.comparisonOption%3DlastPeriodMdw%26_u.date00%3D20261006%26_u.date01%3D20261012%26_r.explorerCard..columnFilters%3D%7B%22event%22:%22sign_up_success%22,%22userConversionRate%22:%22sign_up_success%22%7D%26_r.explorerCard..startRow%3D0%26_r.explorerCard..rowsPerPage%3D250&r=lifecycle-user-acquisition-v2",
+        "https://analytics.google.com/analytics/web/#/a248149353p541304395/reports/explorer?params=_u..nav%3Dmaui%26_u.comparisonOption%3DlastPeriodMdw%26_u.date00%3D20261006%26_u.date01%3D20261012%26_r.explorerCard..startRow%3D0%26_r.explorerCard..rowsPerPage%3D250%26_r.explorerCard..filterTerm%3Dsign_up_success%26_r.explorerCard..seldim%3D%5B%22eventName%22,%22firstUserPrimaryChannelGroup%22%5D&r=top-events&ruid=top-events,business-objectives,examine-user-behavior&collectionId=business-objectives",
+        "https://analytics.google.com/analytics/web/#/a248149353p541304395/reports/explorer?params=_u..nav%3Dmaui%26_u.comparisonOption%3DlastPeriodMdw%26_u.date00%3D20261006%26_u.date01%3D20261012%26_r.explorerCard..startRow%3D0%26_r.explorerCard..rowsPerPage%3D250%26_r.explorerCard..filterTerm%3Dsign_up_success%26_r.explorerCard..seldim%3D%5B%22eventName%22,%22country%22%5D%26_r..dataFilters%3D%5B%7B%22type%22:1,%22fieldName%22:%22firstUserPrimaryChannelGroup%22,%22evaluationType%22:1,%22expressionList%22:%5B%22Direct%22%5D,%22complement%22:false,%22isCaseSensitive%22:true,%22expression%22:%22%22%7D%5D&r=top-events&ruid=top-events,business-objectives,examine-user-behavior&collectionId=business-objectives",
+        "https://analytics.google.com/analytics/web/#/analysis/a248149353p541304395/edit/Rj9nEUlEQIGYlksuuDPznQ"
+      ]
+    }
+  }
+}

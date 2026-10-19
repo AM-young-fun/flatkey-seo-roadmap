@@ -9,7 +9,7 @@ export async function loadRankingDiscovery(site: string, region: SearchRegionCod
   // This endpoint deliberately reads only already completed paid results. It
   // cannot access credentials, request a provider update or mutate the library.
   const [run, memberships] = await Promise.all([
-    prisma.dataForSeoRun.findFirst({ where: { siteDomain: "flatkey.ai", status: "COMPLETED", collectedAt: { not: null } },
+    prisma.dataForSeoRun.findFirst({ where: { siteDomain: "flatkey.ai", status: "COMPLETED", collectedAt: { not: null }, normalized: { path: ["region"], equals: "US" } },
       orderBy: [{ collectedAt: "desc" }, { createdAt: "desc" }], select: { normalized: true } }),
     prisma.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai" },
       select: { keywordId: true, active: true, pool: true, excludedAt: true, reviewStatus: true, keyword: { select: { text: true, active: true } } } }),

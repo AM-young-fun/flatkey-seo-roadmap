@@ -3,7 +3,7 @@ import { normalizeKeywordText } from "./keyword-relevance";
 import { serpTargetKey, type SerpTarget } from "./serp-targets";
 import { validSitePage } from "./keyword-volume-review";
 import type { RankingEvidence, RankingPageEvidence, RankSummary } from "./types";
-import { serpPeriod, serpPeriodFromKey, type SerpPeriod } from "./serp-periods";
+import { storedSerpPeriod, serpPeriodFromKey, type SerpPeriod } from "./serp-periods";
 
 export const SERP_SOURCE = "dataforseo_serp" as const;
 export const SERP_MARKET_LANGUAGE: Record<SearchRegionCode, string> = { US: "en", JP: "ja", ES: "es", BR: "pt" };
@@ -64,7 +64,7 @@ const urlIdentity = (value: string) => {
   const url = new URL(value); url.hash = ""; return url.href;
 };
 export function serpTaskPeriod(task: SerpTaskRead): SerpPeriod | null {
-  try { return task.periodKey ? serpPeriodFromKey(task.periodKey) : serpPeriod(task.runCreatedAt); } catch { return null; }
+  try { return task.periodKey ? serpPeriodFromKey(task.periodKey) : storedSerpPeriod(task.runCreatedAt); } catch { return null; }
 }
 
 function targeted(task: SerpTaskRead, target: SerpTarget): boolean {

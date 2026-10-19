@@ -217,7 +217,7 @@ test("query quote deduplicates shared normalized terms across sites without losi
   const groups = groupSerpQueries(pool), quote = quoteSerpTargets(pool);
   assert.equal(groups.length, 2); assert.equal(groups.find(row => row.queryKey === "model api").targets.length, 2);
   assert.equal(quote.targetCount, 3); assert.equal(quote.queryCount, 2); assert.equal(quote.sharedQueriesSaved, 1);
-  assert.equal(quote.maxCostMicros, 12000); assert.equal(quote.annual24RunsMicros, 288000);
+  assert.equal(quote.maxCostMicros, 12000); assert.equal(quote.annualCostMicros, 312000);
 });
 
 test("requests use exact approved scope, full depth, no stop-on-match or paid extras, preserving plus and percent", () => {

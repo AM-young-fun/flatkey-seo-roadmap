@@ -161,15 +161,16 @@ test("limited misses and corrected queries finish the period capture without inv
   assert.equal(latest.movementSummary.newInTop100, 0);
 });
 
-test("monthly reporting periods use Shanghai 1st/16th boundaries, retain the year and handle leap years and year transitions", () => {
-  assert.equal(serpPeriod("2026-10-15T15:59:59Z").key, "2026-10-1");
-  assert.equal(serpPeriod("2026-10-15T16:00:00Z").key, "2026-10-2");
-  assert.deepEqual(serpPeriodFromKey("2026-10-1"), { key: "2026-10-1", label: "2026年10月第1期", start: "2026-10-01", end: "2026-10-15", dueAt: "2026-10-01T02:30:00.000Z" });
+test("biweekly Tuesday slots retain legacy snapshots and cross month/year boundaries", () => {
+  assert.equal(serpPeriod("2026-10-19T03:00:00Z").key, "2026-10-06");
+  assert.equal(serpPeriod("2026-10-20T02:30:00Z").key, "2026-10-20");
+  assert.equal(serpPeriodFromKey("2026-10-20").label, "2026年10月第2期");
+  assert.equal(nextSerpPeriodDue("2026-10-19T03:00:00Z").toISOString(), "2026-10-20T02:30:00.000Z");
+  assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-03T02:30:00.000Z");
+  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-26T02:30:00.000Z");
+  assert.equal(periodDue("2026-10-2").toISOString(), "2026-10-16T02:30:00.000Z", "historical keys retain their actual dates");
   assert.equal(serpPeriodFromKey("2028-02-2").end, "2028-02-29");
-  assert.equal(serpPeriodFromKey("2027-02-2").end, "2027-02-28");
-  assert.equal(nextSerpPeriodDue("2026-12-20T03:00:00Z").toISOString(), "2027-01-01T02:30:00.000Z");
-  assert.equal(nextSerpPeriodDue("2026-10-01T03:00:00Z").toISOString(), "2026-10-16T02:30:00.000Z");
-  assert.equal(periodDue("2026-10-2").toISOString(), "2026-10-16T02:30:00.000Z");
+  assert.throws(() => serpPeriodFromKey("2026-10-21"));
   assert.throws(() => serpPeriodFromKey("2026-13-1"));
 });
 

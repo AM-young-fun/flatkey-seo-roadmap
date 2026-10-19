@@ -5,14 +5,14 @@ export type SerpMonitorConfiguration = {
   region: SerpRegion; languageCode: "en" | "ja" | "es" | "pt"; locationCode: 2840 | 2392 | 2724 | 2076; device: "desktop";
   regions: SerpRegion[];
   depth: 100; intervalDays: 14; paidEnabled: boolean;
-  schedule: "SEMI_MONTHLY"; scheduleDays: [1, 16]; timezone: "Asia/Shanghai"; localTime: "10:30";
+  schedule: "BIWEEKLY_TUESDAY"; scheduleDays: [2]; timezone: "Asia/Shanghai"; localTime: "10:30";
   maxRunCostMicros: number; maxMonthCostMicros: number; revision: number; nextDueAt: string | null;
 };
 export type SerpQuote = {
   targetCount: number; queryCount: number; sharedQueriesSaved: number;
   keywordQueryCount: number; markets: SerpRegion[]; marketCount: number;
   perQueryMaxCostMicros: number; maxCostMicros: number;
-  annualRuns: 24; annual24RunsMicros: number; monthlyAverageMicros: number;
+  annualRuns: 26; annualCostMicros: number; monthlyAverageMicros: number;
   batchCount: number; provider: "dataforseo_serp"; mode: "standard";
   pricingUrl: string; pricedAt: "2026-10-16";
 };

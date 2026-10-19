@@ -27,6 +27,14 @@ export function reportPeriods(start: string) {
   return { current: { start, end: shift(start, 6) }, previous: { start: shift(start, -7), end: shift(start, -1) } };
 }
 
+// On Monday show the report being prepared for Tuesday, without calling the
+// still-open GA4 week complete. Imports continue to use weeklyPeriods().
+export function activeReportPeriods(now = new Date()) {
+  const closed = weeklyPeriods(now);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
+  return new Date(`${today}T00:00:00Z`).getUTCDay() === 1 ? reportPeriods(shift(closed.current.start, 7)) : closed;
+}
+
 export function isWeeklyPeriod(start: string, end: string): boolean {
   return new Date(`${start}T00:00:00Z`).getUTCDay() === 2 && shift(start, 6) === end;
 }

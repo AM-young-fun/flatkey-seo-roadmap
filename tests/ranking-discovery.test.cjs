@@ -17,7 +17,7 @@ let sessionToken, runs, memberships, reads;
 const db = {
   dataForSeoRun: { findFirst: async ({ where, orderBy, select }) => {
     reads.push("run");
-    assert.deepEqual(where, { siteDomain: "flatkey.ai", status: "COMPLETED", collectedAt: { not: null } });
+    assert.deepEqual(where, { siteDomain: "flatkey.ai", status: "COMPLETED", collectedAt: { not: null }, normalized: { path: ["region"], equals: "US" } });
     assert.deepEqual(select, { normalized: true }, "the endpoint cannot read credentials, request JSON or raw responses");
     assert.deepEqual(orderBy, [{ collectedAt: "desc" }, { createdAt: "desc" }]);
     const run = runs.filter(row => row.siteDomain === where.siteDomain && row.status === where.status && row.collectedAt)
