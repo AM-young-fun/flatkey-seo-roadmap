@@ -1,3 +1,4 @@
+import { hydrateOverviewPayload, type OverviewPayload } from "./overview-payload";
 import type { DashboardResponse } from "@/lib/types";
 import { dashboardSession, type DashboardPersistence } from "@/lib/dashboard-session";
 
@@ -9,7 +10,7 @@ export class DashboardReadError extends Error {
 // another full database read whenever a dashboard component mounts.
 export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.now, persistence?: DashboardPersistence) {
   const entries = new Map<string, { value?: DashboardResponse; updatedAt: number; body?: string; pending?: Promise<DashboardResponse> }>();
-  const keyFor = (site: string, source: string, includeResearch = false) => `serp-rankings-v3:${site}:${source}:${includeResearch ? "library" : "formal"}`;
+  const keyFor = (site: string, source: string, includeResearch = false) => `serp-rankings-v4:${site}:${source}:${includeResearch ? "library" : "formal"}`;
   let generation = 0;
   const clear = () => { generation++; entries.clear(); persistence?.clear(); };
   return {
@@ -23,7 +24,7 @@ export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.n
       try {
         const saved = await persistence?.load(key);
         if (!saved || started !== generation || now() - saved.savedAt > 15 * 60000) return null;
-        const value = JSON.parse(saved.body) as DashboardResponse;
+        const value = hydrateOverviewPayload(JSON.parse(saved.body) as DashboardResponse | OverviewPayload);
         if (!Array.isArray(value.keywords) || !Array.isArray(value.topics)) return null;
         const entry = entries.get(key) ?? { updatedAt: 0 };
         // A network response that finished during decompression wins.
@@ -35,21 +36,21 @@ export function createDashboardStore(fetcher: typeof fetch = fetch, now = Date.n
       const key = keyFor(site, source, includeResearch);
       const entry = entries.get(key) ?? { updatedAt: 0 };
       if (entry.pending) return entry.pending;
-      if (!force && entry.value && now() - entry.updatedAt < 60000) return Promise.resolve(entry.value);
+      if (!force && entry.value && now() - entry.updatedAt < (entry.value.displaySnapshot?.pending ? 4000 : 60000)) return Promise.resolve(entry.value);
       entries.set(key, entry);
       const started = generation;
       entry.pending = (async () => {
         let payload: DashboardResponse | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const response = await fetcher(`/api/dashboard?site=${encodeURIComponent(site)}&source=${encodeURIComponent(source)}${includeResearch ? "&includeResearch=1" : ""}${source === "dataforseo_serp" ? "&compact=1&currentOnly=1" : ""}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
+            const response = await fetcher(`${source === "dataforseo_serp" ? "/api/views?view=dashboard" : `/api/dashboard?source=${encodeURIComponent(source)}`}&site=${encodeURIComponent(site)}${includeResearch ? "&includeResearch=1" : ""}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
             if (!response.ok) {
               if (response.status === 401) clear();
               const failure = await response.json().catch(() => ({})) as { code?: string };
               throw new DashboardReadError(`数据加载失败${failure.code ? `（${failure.code}）` : `（${response.status}）`}，请重试`, response.status);
             }
             const body = await response.text();
-            payload = entry.body === body && entry.value ? entry.value : JSON.parse(body) as DashboardResponse;
+            payload = entry.body === body && entry.value ? entry.value : hydrateOverviewPayload(JSON.parse(body) as DashboardResponse | OverviewPayload);
             entry.body = body;
             break;
           } catch (error) {

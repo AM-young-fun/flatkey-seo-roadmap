@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { importFailure } from "@/lib/import-failure";
 import { NextResponse } from "next/server";
 import { importSeo } from "@/lib/services/seo-import";
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
     if (!parsed.success) return NextResponse.json({ message: "数据格式错误", errors: parsed.error.issues }, { status: 400 });
     requestId = parsed.data.requestId;
     const result = await importSeo(parsed.data);
+    if (!result.duplicate) await displayDataChanged();
     return NextResponse.json(result, { status: result.duplicate ? 200 : 201 });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status });

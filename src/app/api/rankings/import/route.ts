@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { importFailure } from "@/lib/import-failure";
 import { importSeo } from "@/lib/services/seo-import";
 import { NextResponse } from "next/server";
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
       );
     requestId = parsed.data.requestId;
     const result = await importSeo(parsed.data);
+    if (!result.duplicate) await displayDataChanged();
     return NextResponse.json(result, { status: result.duplicate ? 200 : 201 });
   } catch (error) {
     if (error instanceof ImportRequestError)

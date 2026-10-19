@@ -1,6 +1,6 @@
 "use client";
 import { Tooltip } from "antd";
-import { REGIONS } from "@/lib/seo";
+import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { useSerpOverviewResults } from "@/components/useSerpOverviewResults";
 
 const percentage = (value: number | null) => value == null ? "—" : `${value.toFixed(1)}%`;
@@ -23,17 +23,22 @@ function SummaryRing({ segments, value, label, basis }: { segments: RingSegment[
 const MARKET_COLORS: Record<string, string> = { US: "#588bf5", JP: "#8b7bdd", ES: "#e6aa54", BR: "#47b49a" };
 const MARKET_FLAGS: Record<string, string> = { US: "🇺🇸", JP: "🇯🇵", ES: "🇪🇸", BR: "🇧🇷" };
 
-export function SerpOverview({ site }: { site: string }) {
-  const { data, error, loading, refresh } = useSerpOverviewResults(site);
+export function SerpOverview({ site, region = "all" }: { site: string; region?: "all" | SearchRegionCode }) {
+  const { data: allData, error, loading, refresh } = useSerpOverviewResults(site);
+  const country = region === "all" ? null : allData?.regions.find(value=>value.region === region);
+  const data = allData && country ? {...allData, latestCompletedAt:country.latestCompletedAt, summary:{...allData.summary,...country.summary,
+    rankedInAnyRegion:country.summary.ranked,capturedInAnyRegion:country.summary.captured,plannedUnranked:region === "all" ? allData.summary.plannedUnranked : allData.summary.plannedByRegion?.[region] ?? 0}} : allData;
+  const countryLabel = region === "all" ? "四国汇总" : REGIONS[region].label;
   const totalKeywords = data?.monitoring.allTargetCount ?? 0;
   const rankingCoverage: RingSegment[] = [
-    { count: data?.summary.rankedInAnyRegion ?? 0, color: "#5988e8", label: "有排名", description: "本期至少一个国家检出前100自然排名；同一关键词跨国家、网站只计一次。" },
-    { count: Math.max(0, totalKeywords - (data?.summary.rankedInAnyRegion ?? 0)), color: "#dce4f1", label: "没有排名", description: "本期尚未检出前100排名，包含尚未完成采集的关键词；不等同于已确认在前100之外。" },
+    { count: data?.summary.rankedInAnyRegion ?? 0, color: "#5988e8", label: "有排名", description: `${countryLabel}本期检出前100自然排名；同一关键词只计一次。` },
+    { count: Math.max(0, totalKeywords - (data?.summary.rankedInAnyRegion ?? 0) - (data?.summary.plannedUnranked ?? 0)), color: "#dce4f1", label: "没有排名", description: "已有合适页面，本期尚未检出前100排名；未采完不代表已确认在100之外。" },
+    { count: data?.summary.plannedUnranked ?? 0, color: "#e8b75e", label: "规划词", description: "暂未建设对应页面，且本期没有排名的正式目标词。" },
   ];
-  return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label="四国目标词排名汇总">
-    <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">四国综合</span></h2><p className="serpScope">四国汇总 · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
+  return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label={`${countryLabel}目标词排名汇总`}>
+    <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">{countryLabel}</span></h2><p className="serpScope">{countryLabel} · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
     {loading ? <p className="muted">正在读取四国排名汇总…</p> : error ? <div className="loadError" role="alert"><span>{error}</span><button onClick={refresh}>重新加载</button></div> : data ? <>
-      <div className="overviewVisualGrid">
+      <div className={`overviewVisualGrid ${region !== "all" ? "singleCountryOverview" : ""}`}>
         <article className="overviewVisualCard">
           <h3>业务词库</h3>
           <SummaryRing value={totalKeywords} label="目标关键词" basis="总词库" segments={rankingCoverage} />
@@ -42,10 +47,10 @@ export function SerpOverview({ site }: { site: string }) {
         <article className="overviewVisualCard">
           <h3>已实测排名</h3>
           <SummaryRing value={data.summary.rankedInAnyRegion} label="词已检出排名" basis="有排名词" segments={data.summary.buckets.map(bucket => ({ count: bucket.count, color: bucket.color, label: bucket.min === 1 ? "前10名" : `${bucket.range}名` }))} />
-          <div className="visualRankLegend">{data.summary.buckets.map(bucket => <Tooltip key={bucket.key} title={`${bucket.range} 名：${bucket.count} 词，占有排名词 ${percentage(data.summary.rankedInAnyRegion ? bucket.count/data.summary.rankedInAnyRegion*100 : null)}；同词取四国最佳有效排名，只计一次。`}><div tabIndex={0}><i style={{ background: bucket.color }} /><span>{bucket.min === 1 ? "前10" : bucket.range}</span><strong>{data.summary.captured ? bucket.count : "—"}</strong></div></Tooltip>)}</div>
+          <div className="visualRankLegend">{data.summary.buckets.map(bucket => <Tooltip key={bucket.key} title={`${bucket.range} 名：${bucket.count} 词，占有排名词 ${percentage(data.summary.rankedInAnyRegion ? bucket.count/data.summary.rankedInAnyRegion*100 : null)}；同词取{countryLabel}最佳有效排名，只计一次。`}><div tabIndex={0}><i style={{ background: bucket.color }} /><span>{bucket.min === 1 ? "前10" : bucket.range}</span><strong>{data.summary.captured ? bucket.count : "—"}</strong></div></Tooltip>)}</div>
           <div className="visualChartFootnote">可用结果 {data.summary.capturedInAnyRegion} 词 · 检出排名 {data.summary.rankedInAnyRegion} 词</div>
         </article>
-        <article className="overviewVisualCard countryVisualCard">
+        {region === "all" ? <article className="overviewVisualCard countryVisualCard">
           <h3>各国排名占比</h3>
           <div className="countryChartHead"><span>国家 / 排名词</span><span>四国排名份额</span><span>占总词库</span></div>
           <div className="countryBarChart">{data.regions.map(result => <div className="countryBarRow" key={result.region}>
@@ -54,7 +59,7 @@ export function SerpOverview({ site }: { site: string }) {
             <span className="countryTargetShare">{result.summary.captured ? percentage(result.targetSharePercent) : "—"}</span>
           </div>)}</div>
           <div className="visualChartFootnote">{data.summary.rankedRecords} 条国家排名记录 · {data.summary.rankedInAnyRegion} 个去重词</div>
-        </article>
+        </article> : null}
       </div>
       <div className="serpOverviewFooter"><span className="visualLastUpdated">{data.latestCompletedAt ? `最近采集 ${new Date(data.latestCompletedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}` : "尚未采集"}</span></div>
     </> : null}

@@ -404,4 +404,19 @@ CREATE TABLE IF NOT EXISTS "KeywordExportApiKey" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "KeywordExportApiKey_keyHash_key" ON "KeywordExportApiKey" ("keyHash");
 
+-- Derived display data only. Original imports, tasks and evidence remain intact.
+CREATE TABLE IF NOT EXISTS "DisplaySnapshot" (
+  key TEXT PRIMARY KEY,
+  body BYTEA,
+  revision INTEGER NOT NULL DEFAULT 1,
+  "builtRevision" INTEGER NOT NULL DEFAULT 0,
+  "keywordRows" JSONB,
+  "builtAt" TIMESTAMP(3),
+  "leaseToken" TEXT,
+  "leaseUntil" TIMESTAMP(3),
+  "lastError" TEXT
+);
+
+ALTER TABLE "DisplaySnapshot" ADD COLUMN IF NOT EXISTS "keywordRows" JSONB;
+
 COMMIT;

@@ -1,4 +1,5 @@
 "use client";
+import { CollectionProgress } from "./CollectionProgress";
 import Link from "next/link";
 import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
 import { dashboardStore } from "@/lib/dashboard-client";
@@ -10,7 +11,7 @@ export function PageHeader({
   active: "overview" | "keywords" | "manage" | "traffic";
 }) {
   return (
-    <header className="siteHeader">
+    <> <CollectionProgress /><header className="siteHeader">
       <Link href="/" className="brand">
         <span className="brandIcon">
           <ChartNoAxesCombined size={20} />
@@ -49,6 +50,6 @@ export function PageHeader({
           </button>
         </form>
       </nav>
-    </header>
+    </header></>
   );
 }

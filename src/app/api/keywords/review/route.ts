@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
         keywords: links.map((link) => ({ id: link.keywordId, text: link.keyword.text, active })),
       };
     }, { timeout: 55_000, maxWait: 5000 });
+    await displayDataChanged();
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status });

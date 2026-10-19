@@ -20,7 +20,7 @@ export function createClientReadCache(fetcher: typeof fetch = fetch, now = Date.
         const data = await response.json();
         if (!response.ok) throw new ClientReadError(data.message ?? "数据读取失败，请重试", response.status);
         if (started === generation) {
-          entries.set(url, { value: data, expires: now() + ttl });
+          entries.set(url, { value: data, expires: now() + (data?.displaySnapshot?.pending ? Math.min(ttl,4000) : ttl) });
           if (entries.size > 32) entries.delete(entries.keys().next().value!);
         }
         return data as T;

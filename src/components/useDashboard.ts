@@ -9,9 +9,11 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
   const refresh = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
     let active = true;
+    let pendingTimer: ReturnType<typeof setTimeout>;
     const update = async (force = false) => {
       try {
         const data = await dashboardStore.read(site, source, force, includeResearch);
+        if (active && data.displaySnapshot?.pending) {clearTimeout(pendingTimer);pendingTimer = setTimeout(() => void update(true),5000);}
         if (active) setState(previous => previous.key === key && previous.data === data && !previous.error && !previous.cached ? previous : { key, data, error: null, cached: false });
       } catch (error) {
         if (!active) return;
@@ -35,7 +37,7 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
     const onRankingsUpdated = () => { void update(true); };
     window.addEventListener("seo-rankings-updated", onRankingsUpdated);
     return () => {
-      active = false;
+      active = false; clearTimeout(pendingTimer);
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);

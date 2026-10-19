@@ -13,6 +13,7 @@ import { weeklyFunnelMetrics } from "@/lib/weekly-funnel-metrics";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
+  displaySnapshot?: {pending?:boolean};
   periods: ReturnType<typeof activeReportPeriods>; history: string[];
   traffic: { current: Week | null; previous: Week | null; currentSites: string[]; previousSites: string[]; comparable: boolean; complete?: boolean; siteTraffic?: {siteDomain:string;current:Pick<Week,"newUsers"|"newRegistrations"|"registrationRate">|null}[]; changes: { newUsers: number | null; newRegistrations: number | null; registrationRate: number | null; ratePoints: number | null } };
   comparison: WeeklyKeywordComparison | null;
@@ -24,7 +25,7 @@ type InsightData = {
 
 function useInsights(week: string) {
   const key = week;
-  const url = `/api/insights?site=all&source=combined&region=all${week ? `&week=${encodeURIComponent(week)}` : ""}`;
+  const url = `/api/views?view=traffic${week ? `&week=${encodeURIComponent(week)}` : ""}`;
   const [result, setResult] = useState<{ key: string; data: InsightData } | null>(() => {
     const data = clientReadCache.peek<InsightData>(url);
     return data ? { key, data } : null;
@@ -33,6 +34,7 @@ function useInsights(week: string) {
   const [version, retry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
+    let pendingTimer: ReturnType<typeof setTimeout>;
     let busy = false, forceNext = version > 0;
     const update = async () => {
       if (busy || document.hidden) return;
@@ -50,6 +52,7 @@ function useInsights(week: string) {
           }
         }
         if (!data) return;
+        if (data.displaySnapshot?.pending) pendingTimer=setTimeout(()=>{forceNext=true;void update();},5000);
         if (!controller.signal.aborted) { setResult({ key, data }); setError(null); }
       } catch (error) {
         if (error instanceof ClientReadError && error.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
@@ -62,7 +65,7 @@ function useInsights(week: string) {
     document.addEventListener("visibilitychange", update);
     window.addEventListener("focus", update);
     window.addEventListener("seo-rankings-updated", onUpdated);
-    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", update); window.removeEventListener("focus", update); window.removeEventListener("seo-rankings-updated", onUpdated); };
+    return () => { controller.abort(); clearTimeout(pendingTimer); clearInterval(timer); document.removeEventListener("visibilitychange", update); window.removeEventListener("focus", update); window.removeEventListener("seo-rankings-updated", onUpdated); };
   }, [key, url, version]);
   return { data: result?.key === key ? result.data : clientReadCache.peek<InsightData>(url), error, retry: () => retry((n) => n + 1) };
 }

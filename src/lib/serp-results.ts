@@ -263,6 +263,8 @@ export function aggregateSerpRegionResults(regional: ReadonlyArray<{ region: Sea
   const rankedRecords = countryResults.reduce((sum, country) => sum + country.summary.ranked, 0);
   const summary = summarizeSerpResults(items), eligibleTargetCount = items.filter(item => item.monitoringEligible).length;
   return { items, summary: { ...summary, rankedInAnyRegion: summary.ranked, capturedInAnyRegion: summary.captured,
+    plannedByRegion: Object.fromEntries(countryResults.map(country => [country.region,country.items.filter(item => !validRankedResult(item) && item.monitoringEligible === false).length])) as Record<SearchRegionCode,number>,
+    plannedUnranked: items.filter(item => !validRankedResult(item) && item.monitoringEligible === false).length,
     rankedRecords, coveragePercent: summary.total ? summary.ranked / summary.total * 100 : null },
     countries: countryResults.map(country => ({ ...country, rankedCount: country.summary.ranked,
       targetSharePercent: summary.total ? country.summary.ranked / summary.total * 100 : null,

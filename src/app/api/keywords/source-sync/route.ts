@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { isDatabaseConfigured } from "@/lib/env";
@@ -39,7 +40,9 @@ export async function POST(request: Request) {
   try {
     const parsed = sourceSyncSchema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "协作表增量数据格式无效", errors: parsed.error.issues }, { status: 400, headers });
-    return NextResponse.json(await syncKeywordSources(parsed.data), { headers });
+    const result = await syncKeywordSources(parsed.data);
+    if (parsed.data.action !== "preview") await displayDataChanged();
+    return NextResponse.json(result, { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     const code = databaseErrorCode(error);

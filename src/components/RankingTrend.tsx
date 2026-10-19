@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type * as echarts from "echarts";
-import { REGION_CODES, REGIONS } from "@/lib/seo";
+import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { EARLIEST_TREND_DATE, marketTrendCount, trendToday, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
 import { dashboardSession } from "@/lib/dashboard-session";
@@ -27,7 +27,7 @@ function isTrendResult(data: MultiRegionTrendResult) {
       (market.status === "ERROR" && market.points === null || market.status === "READY" && Array.isArray(market.points))));
 }
 
-export function RankingTrend() {
+export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}) {
   const [range, setRange] = useState(() => reportRange());
   const key = `serp-markets-v5:${dashboardStore.revision()}:${range.start}:${range.end}`;
   const [result, setResult] = useState<(MultiRegionTrendResult & { key: string }) | null>(() => {
@@ -39,12 +39,13 @@ export function RankingTrend() {
   const element = useRef<HTMLDivElement>(null);
   const selectedLines = useRef<Record<string, boolean>>({});
   const markets = result?.key === key ? result.markets : null;
-  const points = result?.key === key ? result.points : null;
+  const points = result?.key === key ? region === "all" ? result.points : result.markets.find(value=>value.region === region)?.points ?? null : null;
   const latest = points?.at(-1);
-  const failed = markets?.filter(market => market.status === "ERROR") ?? [];
+  const failed = markets?.filter(market => market.status === "ERROR" && (region === "all" || market.region === region)) ?? [];
   const hasPoints = points?.some(point => marketTrendCount(point) !== null) ?? false;
   useEffect(() => {
     const controller = new AbortController();
+    let pendingTimer: ReturnType<typeof setTimeout>;
     let busy = false, completed = false, forceNext = version > 0 || dashboardStore.revision() > 0;
     const remembered = trendResults.get(key);
     if (remembered) setResult(previous => previous?.key === key ? previous : { ...remembered, key });
@@ -61,9 +62,10 @@ export function RankingTrend() {
       busy = true;
       setRange(previous => { const next = reportRange(); return next.start === previous.start && next.end === previous.end ? previous : next; });
       try {
-        const url = `/api/seo/trends?region=all&start=${range.start}&end=${range.end}${forceNext ? "&refresh=1" : ""}`;
+        const url = `/api/views?view=trends&start=${range.start}&end=${range.end}${forceNext ? "&refresh=1" : ""}`;
         const data = await clientReadCache.read<MultiRegionTrendResult>(url, forceNext);
         forceNext = false;
+        if ((data as MultiRegionTrendResult & {displaySnapshot?:{pending?:boolean}}).displaySnapshot?.pending) pendingTimer=setTimeout(()=>{forceNext=true;void read();},5000);
         if (!isTrendResult(data)) throw new Error("统计口径已更新，请重新加载");
         if (!controller.signal.aborted) {
           trendResults.set(key, data);
@@ -83,7 +85,7 @@ export function RankingTrend() {
     document.addEventListener("visibilitychange", read);
     window.addEventListener("focus", read);
     window.addEventListener("seo-rankings-updated", onUpdated);
-    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); window.removeEventListener("seo-rankings-updated", onUpdated); };
+    return () => { controller.abort(); clearTimeout(pendingTimer); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); window.removeEventListener("seo-rankings-updated", onUpdated); };
   }, [key, range.start, range.end, version]);
   useEffect(() => {
     if (!element.current || !hasPoints) return;
@@ -121,10 +123,10 @@ export function RankingTrend() {
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [points, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>每期排名趋势</h2><p className="chartNote">四国汇总 · 同一关键词只计一次 · 隔周周二10:30</p></div></div>
+    <div className="dailyHeading"><div><h2>每期排名趋势</h2><p className="chartNote">{region === "all" ? "四国汇总" : REGIONS[region].label} · 同一关键词只计一次 · 隔周周二10:30</p></div></div>
     {latest ? <p className="inventoryTrendTotal">{latest.periodLabel ?? latest.date} · 已查 <strong>{captured(latest).toLocaleString()}</strong> 词 · 检出前100排名 <strong>{latest.ranked.toLocaleString()}</strong> 词</p> : null}
     {error || failed.length ? <div className="loadError"><span>{error ? "趋势暂时无法读取" : `${failed.map(market => REGIONS[market.region].label).join("、")}趋势暂时无法读取`}</span><button onClick={() => retry(value => value + 1)}>重新加载</button></div> : null}
-    {!markets ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "尚无有效排名快照，采集完成后显示总趋势。"}</p> : <><div ref={element} className="rankingTrend" role="img" aria-label="四国汇总关键词排名区间趋势，点击图例隐藏或显示对应曲线" /></>}
+    {!markets ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "尚无有效排名快照，采集完成后显示总趋势。"}</p> : <><div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "四国汇总" : REGIONS[region].label}关键词排名区间趋势，点击图例隐藏或显示对应曲线`} /></>}
 
   </section>;
 }

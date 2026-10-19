@@ -4,7 +4,6 @@ import { CalendarClock, ChevronDown, Cloud, History, RefreshCw } from "lucide-re
 import { Switch } from "antd";
 import type { OperationsStatus } from "@/lib/operations";
 import type { CollectionSchedulePreview, CollectionCycleProgress } from "@/lib/collection-control";
-import { CollectionProgress } from "@/components/CollectionProgress";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "尚无记录";
 const heartbeat = { UNCONFIRMED: "调度待确认", HEALTHY: "调度正常", OVERDUE: "调度超时", ERROR: "执行异常" };
@@ -84,7 +83,6 @@ export function OperationsPanel() {
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     {!data && !error ? <p className="managementLoading" role="status">正在读取运行计划…</p> : null}
     {data ? <>
-      <CollectionProgress />
       <div className="operationsControl"><div><strong>隔周自动更新</strong><span>Flatkey · 四国排名与新词发现</span></div><div className="operationsToggle"><span>{data.controls.enabled ? "已开启" : "已关闭"}</span><Switch aria-label="隔周自动更新" checked={data.controls.enabled} disabled={!data.controls.enabled && Boolean(working)} onChange={() => data.controls.enabled ? void pause() : void showPreview()} /></div></div>
       {preview ? <div className="operationsPreview"><h3>{preview.periodLabel}</h3><div className="operationsPreviewMetrics"><div><span>关键词</span><strong>{preview.keywordCount.toLocaleString()}</strong></div><div><span>查询次数</span><strong>{preview.queryCount.toLocaleString()}</strong></div><div><span>本轮费用上限</span><strong>{money(preview.totalMaxCostMicros)}</strong></div><div><span>可用余额</span><strong>{money(preview.balanceMicros)}</strong></div></div><p>新词发现 {money(preview.discoveryMaxCostMicros)} + 排名查询 {money(preview.serpMaxCostMicros)} · SERP 月度上限 {money(preview.maxMonthSerpCostMicros)}，超限自动暂停。</p><div className="dataforseoActions"><button type="button" className="managePrimary" disabled={Boolean(working)} onClick={() => void enable(true)}>{working === "run" ? "后台采集中…" : "开启并执行本期"}</button><button type="button" className="okrRefresh" disabled={Boolean(working)} onClick={() => void enable(false)}>仅开启定时</button><button type="button" className="okrRefresh" disabled={Boolean(working)} onClick={() => setPreview(null)}>取消</button></div></div> : null}
       <div className="operationsGrid">{data.plans.map(plan => <article key={plan.id}><div className="operationsCardHeading"><h3>{plan.name}</h3><span>{plan.state}</span></div><strong className="operationsCadence">{plan.cadence}</strong>{plan.currentExecution ? <p>{plan.currentExecution}</p> : null}<div className="operationsNext"><span>下次执行</span><span>{plan.nextAt ? time(plan.nextAt) : "—"}</span></div></article>)}</div>

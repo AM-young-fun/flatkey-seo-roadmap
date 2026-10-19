@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isDatabaseConfigured } from "@/lib/env";
@@ -19,7 +20,9 @@ export async function POST(request: Request) {
   try {
     const parsed = schema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "页面任务合并参数无效", errors: parsed.error.issues }, { status: 400, headers });
-    return NextResponse.json(await mergeKeywordPageTasks(parsed.data), { headers });
+    const result = await mergeKeywordPageTasks(parsed.data);
+    if (parsed.data.action !== "preview") await displayDataChanged();
+    return NextResponse.json(result, { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     const code = databaseErrorCode(error), category = databaseErrorCategory(error), stage = pageTaskMergeFailureStage(error);

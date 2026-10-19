@@ -1,4 +1,6 @@
 "use client";
+import { Select } from "antd";
+import { REGIONS, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { useMemo, useState } from "react";
 import { RankingTrend } from "@/components/RankingTrend";
 import { KeywordGraph } from "@/components/KeywordGraph";
@@ -9,7 +11,7 @@ import { SerpOverview } from "@/components/SerpOverview";
 import { groupKeywordDetails, keywordDetailCountryRanks } from "@/lib/keyword-details-group";
 import type { DashboardKeyword } from "@/lib/types";
 
-function KeywordNetwork() {
+function KeywordNetwork({region}:{region:"all" | SearchRegionCode}) {
   const { data, loading, error, refresh } = useDashboard("all", "dataforseo_serp");
   const ready = Boolean(data);
   const keywords = useMemo(() => {
@@ -34,7 +36,7 @@ function KeywordNetwork() {
           <div className="panelHeader">
             <div>
               <h2>业务词库关系图</h2>
-              <p>按四国最佳排名着色，缩放或悬停查看关联</p>
+              <p>按{region === "all" ? "四国最佳" : REGIONS[region].label}排名着色，缩放或悬停查看关联</p>
             </div>
             <div className="graphTools"><label className="searchField graphSearch"><input aria-label="搜索图中关键词" placeholder="搜索图中关键词…" value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} /></label></div>
           </div>
@@ -52,21 +54,22 @@ function KeywordNetwork() {
           ) : error && !data ? (
             <div className="loadingState">词库读取失败，请点击上方「重新加载」</div>
           ) : (
-            <KeywordGraph keywords={graphKeywords} />
+            <KeywordGraph keywords={graphKeywords} region={region} />
           )}
         </article>
       </section>;
 }
 
 export function Dashboard() {
+  const [region,setRegion] = useState<"all" | SearchRegionCode>("all");
   return (
     <main className="appShell">
       <PageHeader active="overview" />
-      <div className="rankingPageToolbar"><h1>排名概览</h1><span className="chartNote">美国、日本、西班牙、巴西 · 四国汇总</span></div>
-      <SerpOverview site="all" />
-      <RankingTrend />
+      <div className="rankingPageToolbar"><h1>排名概览</h1><Select className="overviewCountrySelect" aria-label="概览国家筛选" value={region} onChange={setRegion} options={[{value:"all",label:"四国汇总"},...REGION_CODES.map(code=>({value:code,label:REGIONS[code].label}))]} /></div>
+      <SerpOverview site="all" region={region} />
+      <RankingTrend region={region} />
 
-      <KeywordNetwork />
+      <KeywordNetwork region={region} />
     </main>
   );
 }

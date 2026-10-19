@@ -1,11 +1,20 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { Activity, CheckCircle2, ChevronUp, X } from "lucide-react";
 import { collectionIsActive, type SerpCollectionProgress } from "@/lib/serp-collection-progress";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 
 export function CollectionProgress({site = "all"}: {site?: string}) {
   const [progress,setProgress] = useState<SerpCollectionProgress | null>(null);
-  const [failed,setFailed] = useState(false);
+  const [failed,setFailed] = useState(false), [open,setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => { if (!container.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", close); document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
+  }, [open]);
   const previousStatus = useRef<string | null>(null);
   useEffect(() => {
     let disposed = false, busy = false, timer: ReturnType<typeof setTimeout>;
@@ -31,11 +40,22 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
     void read();
     return () => { disposed = true; clearTimeout(timer); };
   },[site]);
-  if (!progress) return failed ? <p className="chartNote">本轮采集进度暂时无法读取。</p> : null;
+  if (!progress) return null;
   const active = collectionIsActive(progress.status), complete = progress.status === "COMPLETED";
-  return <div className="collectionProgress" role="status" aria-label="本轮排名采集进度">
-    <div className="collectionProgressHeading"><strong>Flatkey · {progress.periodLabel} · {active ? "采集中" : complete ? "已完成" : "采集需处理"}</strong><span>{progress.completedQueries.toLocaleString()} / {progress.totalQueries.toLocaleString()} 次查询已完成</span></div>
-    <div className="collectionProgressTrack" role="progressbar" aria-label="四国查询完成进度" aria-valuemin={0} aria-valuemax={progress.totalQueries} aria-valuenow={progress.completedQueries}><i style={{width:`${progress.totalQueries ? progress.completedQueries/progress.totalQueries*100 : 0}%`}} /></div>
-    <p>已完成四国查询：{progress.completedKeywords.toLocaleString()} / {progress.totalKeywords.toLocaleString()} 词{active ? ` · 待提交 ${progress.plannedQueries.toLocaleString()} · 等待返回 ${progress.waitingQueries.toLocaleString()}${progress.processingQueries ? ` · 正在整理 ${progress.processingQueries}` : ""}` : ""}{progress.failedQueries ? ` · 异常 ${progress.failedQueries}` : ""}{failed ? " · 进度更新暂时中断" : ""}</p>
+  const percent = progress.totalQueries ? Math.min(100, progress.completedQueries / progress.totalQueries * 100) : 0;
+  const label = active ? "排名采集中" : complete ? "排名已更新" : "采集需处理";
+  return <div ref={container} className="collectionFloat">
+    {open ? <section className="collectionFloatDetails" id="collection-progress-details" aria-label="排名采集详情">
+      <div className="collectionFloatTitle"><strong>{progress.periodLabel}</strong><button type="button" aria-label="收起采集详情" onClick={() => setOpen(false)}><X size={15} /></button></div>
+      <dl><div><dt>四国查询</dt><dd>{progress.completedQueries.toLocaleString()} / {progress.totalQueries.toLocaleString()}</dd></div>
+        <div><dt>四国均已完成</dt><dd>{progress.completedKeywords.toLocaleString()} / {progress.totalKeywords.toLocaleString()} 词</dd></div>
+        {active ? <><div><dt>等待返回</dt><dd>{progress.waitingQueries.toLocaleString()}</dd></div>{progress.plannedQueries ? <div><dt>待提交</dt><dd>{progress.plannedQueries.toLocaleString()}</dd></div> : null}{progress.processingQueries ? <div><dt>正在整理</dt><dd>{progress.processingQueries.toLocaleString()}</dd></div> : null}</> : null}
+        {progress.failedQueries ? <div><dt>异常查询</dt><dd>{progress.failedQueries.toLocaleString()}</dd></div> : null}</dl>
+      <div className="collectionProgressTrack" role="progressbar" aria-label="四国查询完成进度" aria-valuemin={0} aria-valuemax={progress.totalQueries} aria-valuenow={progress.completedQueries}><i style={{width:`${percent}%`}} /></div>
+      {failed ? <p>进度暂未刷新</p> : null}
+    </section> : null}
+    <button type="button" className="collectionFloatButton" aria-expanded={open} aria-controls="collection-progress-details" onClick={() => setOpen(value => !value)}>
+      {complete ? <CheckCircle2 size={16} /> : <Activity size={16} />}<span>{label}</span><strong>{Math.floor(percent)}%</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
+    </button>
   </div>;
 }

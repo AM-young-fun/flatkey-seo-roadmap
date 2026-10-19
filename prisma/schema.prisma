@@ -571,3 +571,16 @@ model SchedulerCheck {
   paidRequests Int @default(0)
   @@index([startedAt(sort: Desc)])
 }
+
+// Precomputed, compressed page data. It never replaces source evidence.
+model DisplaySnapshot {
+  keywordRows Json?
+  key String @id
+  body Bytes?
+  revision Int @default(1)
+  builtRevision Int @default(0)
+  builtAt DateTime?
+  leaseToken String?
+  leaseUntil DateTime?
+  lastError String?
+}

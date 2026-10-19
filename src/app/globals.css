@@ -2336,3 +2336,29 @@ a:focus-visible {
 .collectionProgressTrack i{display:block;height:100%;background:#588bf5;border-radius:6px;transition:width .25s}
 .collectionProgress p{margin:0;font-size:12px;line-height:1.6}
 @media(max-width:680px){.collectionProgressHeading{align-items:flex-start;flex-direction:column;gap:5px}}
+
+/* Shared card baselines, without fixing the height of expanded content. */
+.managementColumns { align-items:stretch; }
+.managementColumns > .managementSection { display:flex; flex-direction:column; min-width:0; }
+.managementColumns .apiKeyDocs,.managementColumns .sourceSyncDetails { margin-top:auto; padding-top:18px; }
+.managementColumns .apiKeyTableWrap,.managementColumns .sourceSyncList { margin-bottom:20px; }
+.collectionFloat { position:fixed; left:22px; bottom:22px; z-index:1100; max-width:calc(100vw - 32px); color:#526985; }
+.collectionFloatButton { display:flex; align-items:center; gap:9px; padding:11px 14px; border:1px solid #dce5ef; border-radius:12px; background:#fff; color:#526985; box-shadow:0 4px 22px #233b5c14; font-size:12px; cursor:pointer; }
+.collectionFloatButton > svg:first-child { color:#4c88d6; }
+.collectionFloatButton strong { font-size:11px; color:#8a9ab0; font-variant-numeric:tabular-nums; }
+.collectionFloatDetails { width:300px; max-width:calc(100vw - 32px); padding:17px; margin-bottom:9px; background:#fff; border:1px solid #dce5ef; border-radius:13px; box-shadow:0 5px 28px #233b5c1c; font-size:12px; }
+.collectionFloatTitle { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.collectionFloatTitle strong { color:#314b6b; }
+.collectionFloatTitle button { display:flex; padding:3px; border:0; background:transparent; color:#8a9ab0; cursor:pointer; }
+.collectionFloatDetails dl { margin:17px 0; display:grid; gap:12px; }
+.collectionFloatDetails dl > div { display:flex; justify-content:space-between; gap:16px; }
+.collectionFloatDetails dt { color:#91a0b3; }
+.collectionFloatDetails dd { margin:0; font-variant-numeric:tabular-nums; }
+.collectionFloatDetails p { margin:12px 0 0; color:#a67c4e; }
+@media(max-width:600px) { .collectionFloat { left:16px; bottom:16px; } }
+
+.graphTools .ant-select { width:112px; height:34px; flex-shrink:0; }
+
+.overviewCountrySelect { width:150px; height:36px; }
+.singleCountryOverview { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media(max-width:760px) { .singleCountryOverview { grid-template-columns:1fr; } }

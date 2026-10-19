@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { Prisma } from "@prisma/client";
@@ -26,6 +27,7 @@ export async function POST(request:Request) {
       await tx.weeklyReportDraft.upsert({where:{siteDomain_periodStart:{siteDomain:payload.siteDomain,periodStart}},create:{siteDomain:payload.siteDomain,periodStart,...data},update:data});
       return true;
     });
+    if (changed) await displayDataChanged();
     return NextResponse.json({draft:true,duplicate:!changed,imported:changed?1:0});
   }catch(error){
     if(error instanceof ImportRequestError)return NextResponse.json({message:error.message},{status:error.status});

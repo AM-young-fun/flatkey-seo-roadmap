@@ -211,6 +211,7 @@ export type DashboardRun = {
 };
 
 export type DashboardResponse = {
+  displaySnapshot?: {generatedAt:string;revision?:number;pending?:boolean};
   serpOverview?: import("./serp-results").SerpAllRegionsResponse;
   reportingPeriod?: RankingReportingPeriod;
   latestImportAt?: string | null;

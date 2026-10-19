@@ -1,9 +1,10 @@
+import { buildDisplayTrends } from "@/lib/services/display-trends";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { combinedSerpTrendPoints, eligibleTrendKeywords, labsSnapshotTrendPoints, multiRegionTrendResult, recentTrendRange, serpCheckTrendFrames, serpCheckTrendPoints, serpTrendRange, trendRange, uniqueMarketTrendPoints, type TrendKeyword, type TrendResult, type MultiRegionTrendResult, type MarketTrend, type SerpTrendFrame } from "@/lib/ranking-trends";
+import { eligibleTrendKeywords, labsSnapshotTrendPoints, recentTrendRange, serpCheckTrendPoints, serpTrendRange, trendRange, type TrendKeyword, type TrendResult, type MultiRegionTrendResult } from "@/lib/ranking-trends";
 import type { RankingObservationRow } from "@/lib/ranking-evidence";
 import { loadSerpTasks, loadSerpTrendCohorts } from "@/lib/services/serp-results";
 
@@ -35,24 +36,7 @@ export async function GET(request: Request) {
     if (params.get("refresh") !== "1" && saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });
     if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<TrendResult | MultiRegionTrendResult> => {
       if (source === "dataforseo_serp" && region === "all") {
-        // One shared immutable inventory read and one Lambda for all markets.
-        // A failed market stays unavailable; it never becomes a zero trend.
-        const cohorts = await loadSerpTrendCohorts("all", range.start, range.end);
-        // The transaction pool has one connection per function. Four parallel
-        // queries still queue there; read all markets once, then split locally.
-        // If that read fails, isolate country failures rather than showing zero.
-        let sharedTasks: Awaited<ReturnType<typeof loadSerpTasks>> | null = null;
-        try { sharedTasks = cohorts.length ? await loadSerpTasks("all", undefined, "desktop", range.start, range.end) : []; } catch { /* Isolate below. */ }
-        const reads = await Promise.all(REGION_CODES.map(async (market): Promise<{ market: MarketTrend; frames: SerpTrendFrame[] }> => {
-          try {
-            const scoped = cohorts.filter(cohort => !cohort.regions || cohort.regions.includes(market));
-            const tasks = scoped.length ? sharedTasks?.filter(task => task.region === market) ?? await retryDatabaseRead(() => loadSerpTasks(market, undefined, "desktop", range.start, range.end)) : [];
-            const frames = serpCheckTrendFrames([], tasks, range.start, range.end, { cohorts: scoped, site });
-            return { market: { region: market, status: "READY", points: uniqueMarketTrendPoints(market, frames) }, frames };
-          } catch { return { market: { region: market, status: "ERROR", points: null }, frames: [] }; }
-        }));
-        const value = multiRegionTrendResult(reads.map(read => read.market), range, now.toISOString(),
-          combinedSerpTrendPoints(reads.map(read => ({ region: read.market.region, frames: read.frames })), cohorts, site));
+        const value = await buildDisplayTrends(site, range, now);
         cache.set(key, { value, expires: Date.now() + 30000 });
         return value;
       }

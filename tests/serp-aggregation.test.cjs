@@ -77,3 +77,13 @@ test("empty inventories have undefined percentages while immutable unqueried wor
   const result = aggregateSerpRegionResults([], frozen);
   assert.equal(result.summary.total, 2); assert.equal(result.summary.pending, 2); assert.equal(result.summary.rankedRecords, 0);
 });
+
+test("planned words are only unranked held targets, globally and in each country", () => {
+  const a=target("has-page"), b=target("planned"), c=target("held-but-ranked");
+  const records=regions.map(region=>({region,items:[observation(a,"PENDING",null,{monitoringEligible:true}),observation(b,"PENDING",null,{monitoringEligible:false}),observation(c,region === "US" ? "RANKED" : "PENDING",region === "US" ? 2 : null,{monitoringEligible:false})]}));
+  const result=aggregateSerpRegionResults(records,[a,b,c]);
+  assert.equal(result.summary.plannedUnranked,1);
+  assert.equal(result.summary.rankedInAnyRegion,1);
+  assert.deepEqual(result.summary.plannedByRegion,{US:1,JP:2,ES:2,BR:2});
+  assert.equal(result.summary.total-result.summary.rankedInAnyRegion-result.summary.plannedUnranked,1);
+});

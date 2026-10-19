@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
@@ -32,7 +33,9 @@ export async function POST(request: Request) {
   try {
     const parsed = pageAuditSchema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "逐词页面复核格式无效", errors: parsed.error.issues }, { status: 400, headers });
-    return NextResponse.json(await auditKeywordPages(parsed.data), { headers });
+    const result = await auditKeywordPages(parsed.data);
+    if (parsed.data.action !== "preview") await displayDataChanged();
+    return NextResponse.json(result, { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     const code = databaseErrorCode(error), category = databaseErrorCategory(error), stage = pageAuditFailureStage(error);
