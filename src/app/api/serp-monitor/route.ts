@@ -8,6 +8,7 @@ import { serpSampleMutationSchema } from "@/lib/serp-sample";
 import { loadSerpSampleEvidence, mutateSerpSample } from "@/lib/services/serp-sample";
 import { serpMonitorMutationSchema } from "@/lib/dataforseo-serp";
 import { loadSerpMonitorStatus, mutateSerpMonitor } from "@/lib/services/serp-monitor";
+import { loadSerpCollectionProgress } from "@/lib/services/serp-collection-progress";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,12 @@ function failure(error: unknown) {
 export async function GET(request: Request) {
   const denied = await authorize(); if (denied) return denied;
   try {
+    const params = request && new URL(request.url).searchParams;
+    if (params && params.get("progress") === "1") {
+      const site = params.get("site") ?? "all";
+      if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site)) return NextResponse.json({message:"网站无效"},{status:400,headers});
+      return NextResponse.json({progress:await retryDatabaseRead(() => loadSerpCollectionProgress(site))},{headers});
+    }
     const evidence = request && new URL(request.url).searchParams.get("sampleEvidence") === "1";
     const value = evidence ? await retryDatabaseRead(loadSerpSampleEvidence) : await retryDatabaseRead(loadSerpMonitorStatus);
     return NextResponse.json(value, { headers });

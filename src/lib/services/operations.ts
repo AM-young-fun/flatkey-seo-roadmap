@@ -37,7 +37,7 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
   return {
     checkedAt: now.toISOString(),
     controls: { enabled: rankingEnabled && discoveryEnabled, emergencyStopped: stopped, maxRunCostMicros: config?.maxRunCostMicros ?? 0, maxMonthCostMicros: config?.maxMonthCostMicros ?? 0, discoveryMaxCostMicros: cycle.maxDiscoveryCostMicros },
-    scheduler: { configured: Boolean(process.env.CRON_SECRET), cadence: "每30分钟检查到期任务", state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
+    scheduler: { configured: Boolean(process.env.CRON_SECRET), cadence: "每5分钟检查及续跑任务", state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
     plans: [
       { id: "rankings", name: "关键词排名", location: "线上项目 · Vercel", cadence: "隔周周二 10:30", state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "仅Flatkey：先发现业务新词，再查询已有合适页面的正式词；美国、日本、西班牙、巴西。" },
       { id: "sheets", name: "三张协作表", location: "外部已登录采集器", cadence: "每日 10:30（计划）", state: "未接入线上自动读取", nextAt: null, note: "线上接收新增和变更。下方同步状态表示已保存数据，不代表当天检查成功。" },

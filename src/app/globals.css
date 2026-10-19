@@ -2103,3 +2103,11 @@ a:focus-visible {
 .summaryRingSegment { pointer-events:visibleStroke; cursor:help; outline:none; }
 .summaryRingSegment:hover,.summaryRingSegment:focus-visible { filter:brightness(1.08); stroke-width:12; }
 .visualChartLegend [tabindex],.visualRankLegend [tabindex] { cursor:help; }
+
+.collectionProgress{margin:16px 0 22px;padding:16px 18px;background:#f5f8fd;border:1px solid #e3eaf5;border-radius:12px;color:#59708f}
+.collectionProgressHeading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}
+.collectionProgressHeading strong{color:#2b476c;font-size:14px}
+.collectionProgressTrack{height:6px;overflow:hidden;background:#e5ebf5;border-radius:6px;margin:12px 0 9px}
+.collectionProgressTrack i{display:block;height:100%;background:#588bf5;border-radius:6px;transition:width .25s}
+.collectionProgress p{margin:0;font-size:12px;line-height:1.6}
+@media(max-width:680px){.collectionProgressHeading{align-items:flex-start;flex-direction:column;gap:5px}}

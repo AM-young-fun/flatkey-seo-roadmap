@@ -3,7 +3,7 @@ import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod } from "./s
 export type OperationsStatus = {
   checkedAt: string;
   controls: { enabled: boolean; emergencyStopped: boolean; maxRunCostMicros: number; maxMonthCostMicros: number; discoveryMaxCostMicros: number };
-  scheduler: { configured: boolean; cadence: "每30分钟检查到期任务"; state: "UNCONFIRMED" | "HEALTHY" | "OVERDUE" | "ERROR"; lastStartedAt: string | null; lastCompletedAt: string | null };
+  scheduler: { configured: boolean; cadence: "每5分钟检查及续跑任务"; state: "UNCONFIRMED" | "HEALTHY" | "OVERDUE" | "ERROR"; lastStartedAt: string | null; lastCompletedAt: string | null };
   plans: { id: string; name: string; location: string; cadence: string; state: string; nextAt: string | null; note: string; currentExecution?: string }[];
   records: { id: string; name: string; state: string; startedAt: string; completedAt: string | null; detail: string; failedDiscoveryId?: string }[];
 };

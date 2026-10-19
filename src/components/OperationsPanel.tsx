@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarClock, Cloud, History, RefreshCw } from "lucide-react";
 import type { OperationsStatus } from "@/lib/operations";
 import type { CollectionSchedulePreview, CollectionCycleProgress } from "@/lib/collection-control";
+import { CollectionProgress } from "@/components/CollectionProgress";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "尚无记录";
 const heartbeat = { UNCONFIRMED: "尚未确认调度成功", HEALTHY: "线上调度正常", OVERDUE: "较长时间未收到调度记录", ERROR: "最近执行异常" };
@@ -79,6 +80,7 @@ export function OperationsPanel() {
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     {!data && !error ? <p className="muted">正在读取运行计划…</p> : null}
     {data ? <>
+      <CollectionProgress />
       <div className="operationsControl"><div><strong>隔周自动更新</strong><p>仅Flatkey · 已有合适页面的正式词 · 四国前100</p></div><button type="button" role="switch" aria-checked={data.controls.enabled} aria-label="隔周自动更新" className={`operationsSwitch ${data.controls.enabled ? "isOn" : ""}`} disabled={!data.controls.enabled && Boolean(working)} onClick={() => data.controls.enabled ? void pause() : void showPreview()}><span />{data.controls.enabled ? "已开启" : "已关闭"}</button></div>
       {data.controls.enabled ? <p className="chartNote">SERP单轮上限 {money(data.controls.maxRunCostMicros)} · 月度上限 {money(data.controls.maxMonthCostMicros)} · 新词发现另计，每轮最多 {money(data.controls.discoveryMaxCostMicros)}。</p> : null}
       {!preview ? <button type="button" className="okrRefresh" disabled={Boolean(working) || data.controls.emergencyStopped} onClick={() => void showPreview()}>{working === "preview" ? "正在核对范围与余额…" : working ? "本轮执行中…" : "预览本轮范围与费用"}</button> : null}

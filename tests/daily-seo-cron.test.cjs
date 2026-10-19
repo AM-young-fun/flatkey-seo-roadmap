@@ -57,5 +57,5 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
 });
 test("Vercel has one resumable coordinator; paid starts are gated by the biweekly cycle", () => {
   const config = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
-  assert.deepEqual(config.crons, [{ path: "/api/cron/daily-rankings", schedule: "*/30 * * * *" }]);
+  assert.deepEqual(config.crons, [{ path: "/api/cron/daily-rankings", schedule: "*/5 * * * *" }]);
 });

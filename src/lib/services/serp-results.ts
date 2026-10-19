@@ -32,7 +32,10 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", sta
     ) OR (
       ${configuredMarket}
       AND r."configJson"->>'device' = ${device} AND r."configJson"->>'depth' = '100'
-    )) AND r."periodStart" <= ${end}::date AND r."periodEnd" >= ${start}::date
+    )) AND ((r."periodStart" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end}::date OR EXISTS (
+      SELECT 1 FROM "SerpMonitorTask" early WHERE early."runId" = r.id
+        AND (early."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date BETWEEN ${start}::date AND ${end}::date
+    )) AND r."periodEnd" >= ${start}::date
     ORDER BY r."periodKey", r."createdAt"
   `);
   return rows.map(row => {

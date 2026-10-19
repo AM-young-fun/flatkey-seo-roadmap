@@ -1,5 +1,5 @@
 {
   "crons": [
-    { "path": "/api/cron/daily-rankings", "schedule": "*/30 * * * *" }
+    { "path": "/api/cron/daily-rankings", "schedule": "*/5 * * * *" }
   ]
 }

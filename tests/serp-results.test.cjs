@@ -511,3 +511,14 @@ test("default trend API reads only actual SERP checks with a 90-day window and n
     assert.equal((await trendGET(new Request("https://flatkey.test/api/seo/trends?end=2026-10-17"))).status, 400);
   } finally { global.Date = NativeDate; }
 });
+
+
+test("a capture advanced to Oct19 appears before its Oct20 reporting slot without changing issue identity", () => {
+  const model = target("advanced");
+  const current = task([model], {id:"advanced-task",runId:"advanced-run",region:"US",runScope:"SCHEDULED",periodKey:"2026-10-20",
+    periodLabel:"2026年10月第2期",checkedAt:"2026-10-19T07:40:00Z",runCreatedAt:"2026-10-19T07:30:00Z",updatedAt:"2026-10-19T07:40:00Z"});
+  const points = serpCheckTrendPoints([], [current], "2026-10-08", "2026-10-19", {cohorts:[{runId:"advanced-run",periodKey:"2026-10-20",runScope:"SCHEDULED",targets:[model]}]});
+  assert.equal(points.length,1);assert.equal(points[0].date,"2026-10-19");
+  assert.equal(points[0].periodKey,"2026-10-20");assert.equal(points[0].captured,1);
+  assert.equal(points[0].periodLabel,"2026年10月第2期");
+});

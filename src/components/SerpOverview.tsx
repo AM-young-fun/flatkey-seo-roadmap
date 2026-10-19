@@ -2,6 +2,7 @@
 import { Tooltip } from "antd";
 import { REGIONS } from "@/lib/seo";
 import { useSerpOverviewResults } from "@/components/useSerpOverviewResults";
+import { CollectionProgress } from "@/components/CollectionProgress";
 
 const percentage = (value: number | null) => value == null ? "—" : `${value.toFixed(1)}%`;
 
@@ -26,7 +27,8 @@ const MARKET_FLAGS: Record<string, string> = { US: "🇺🇸", JP: "🇯🇵", E
 export function SerpOverview({ site }: { site: string }) {
   const { data, error, loading, refresh } = useSerpOverviewResults(site);
   return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label="四国目标词排名汇总">
-    <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">四国综合</span></h2><p className="serpScope">四国汇总 · 隔周周二10:30{data ? ` · 已查 ${data.summary.capturedInAnyRegion} / ${data.summary.total.toLocaleString()} 词` : ""}</p></div></div>
+    <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">四国综合</span></h2><p className="serpScope">四国汇总 · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
+    <CollectionProgress site={site} />
     {loading ? <p className="muted">正在读取四国排名汇总…</p> : error ? <div className="loadError" role="alert"><span>{error}</span><button onClick={refresh}>重新加载</button></div> : data ? <>
       <div className="overviewVisualGrid">
         <article className="overviewVisualCard">
@@ -38,7 +40,7 @@ export function SerpOverview({ site }: { site: string }) {
           <h3>已实测排名</h3>
           <SummaryRing value={data.summary.rankedInAnyRegion} label="词已检出排名" basis="有排名词" segments={data.summary.buckets.map(bucket => ({ count: bucket.count, color: bucket.color, label: bucket.min === 1 ? "前10名" : `${bucket.range}名` }))} />
           <div className="visualRankLegend">{data.summary.buckets.map(bucket => <Tooltip key={bucket.key} title={`${bucket.range} 名：${bucket.count} 词，占有排名词 ${percentage(data.summary.rankedInAnyRegion ? bucket.count/data.summary.rankedInAnyRegion*100 : null)}；同词取四国最佳有效排名，只计一次。`}><div tabIndex={0}><i style={{ background: bucket.color }} /><span>{bucket.min === 1 ? "前10" : bucket.range}</span><strong>{data.summary.captured ? bucket.count : "—"}</strong></div></Tooltip>)}</div>
-          <div className="visualChartFootnote">已查 {data.summary.capturedInAnyRegion} 词 · 检出 {data.summary.rankedInAnyRegion} 词</div>
+          <div className="visualChartFootnote">可用结果 {data.summary.capturedInAnyRegion} 词 · 检出排名 {data.summary.rankedInAnyRegion} 词</div>
         </article>
         <article className="overviewVisualCard countryVisualCard">
           <h3>各国排名占比</h3>
