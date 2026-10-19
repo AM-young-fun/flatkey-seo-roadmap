@@ -1951,8 +1951,10 @@ a:focus-visible {
 .operationsRecords strong,.operationsRecords span { font-size:12px; color:#516c8d; }
 @media(max-width:800px) { .operationsGrid { grid-template-columns:1fr; } .operationsPanel { padding:18px; } }
 .managementDisclosureBody .dataforseoPanel { border:0; padding:0; margin:0; }
-.apiKeyCreate { display:flex; align-items:end; flex-wrap:wrap; gap:14px; margin:20px 0; }
-.apiKeyCreate .manageField { flex:1; min-width:180px; }
+.apiKeyCreate { display:grid; grid-template-columns:minmax(0,1fr) 190px auto; align-items:end; gap:12px; margin:22px 0; }
+.apiKeyCreate .manageField { min-width:0; }
+.apiKeyCreate .ant-select { width:100%; height:40px; }
+.apiKeyCreate .managePrimary { padding:0 16px; margin:0; white-space:nowrap; }
 .apiKeySecret { display:flex; align-items:end; gap:12px; padding:14px; background:#f4f7fb; border-radius:8px; margin-bottom:18px; }
 .apiKeySecret .manageField { flex:1; min-width:0; }
 .apiKeySecret input { font-family:monospace; }
@@ -1963,7 +1965,7 @@ a:focus-visible {
 .apiKeyTable td small { display:block; color:#64748b; margin-top:5px; }
 .apiKeyRowActions { display:flex; flex-wrap:wrap; gap:8px; min-width:190px; }
 .apiKeyDocs { margin-top:20px; color:#526985; font-size:13px; line-height:1.8; }
-.apiKeyDocs summary { cursor:pointer; font-weight:600; }
+.apiKeyDocs summary { cursor:pointer; font-weight:500; }
 .apiKeyDocs code { overflow-wrap:anywhere; }
 .apiKeyDocs pre { overflow:auto; padding:14px; border-radius:8px; background:#f4f7fb; font-size:12px; }
 .serpPlanStats { grid-template-columns:repeat(3,minmax(0,1fr)); }
@@ -2103,6 +2105,200 @@ a:focus-visible {
 .summaryRingSegment { pointer-events:visibleStroke; cursor:help; outline:none; }
 .summaryRingSegment:hover,.summaryRingSegment:focus-visible { filter:brightness(1.08); stroke-width:12; }
 .visualChartLegend [tabindex],.visualRankLegend [tabindex] { cursor:help; }
+
+/* Data management */
+.managementPage { max-width:1320px; }
+.managementIntro { display:flex; justify-content:space-between; align-items:center; padding:30px 0 24px; }
+.managementIntro h1 { margin:0; font-size:25px; font-weight:650; letter-spacing:-.6px; }
+.managementIntro > span { color:#8a96a6; font-size:12px; }
+.managementColumns { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(340px,1fr); gap:20px; align-items:start; }
+.managementPage .managementSection { margin:0; padding:22px; border-color:#e3e8ef; border-radius:12px; box-shadow:0 2px 4px #1b2c4502; min-width:0; }
+.managementPage .operationsPanel { margin-bottom:20px; }
+.managementSectionHeading,.managementSectionTitle,.managementHeadingActions { display:flex; align-items:center; gap:10px; }
+.managementSectionHeading { justify-content:space-between; gap:16px; }
+.managementSectionTitle { min-width:0; }
+.managementSectionTitle h2 { margin:0; color:#26364c; font-size:15px; font-weight:650; white-space:nowrap; }
+.managementIcon { display:grid; place-items:center; width:34px; height:34px; color:#5476a3; background:#f0f4fa; border:1px solid #e8eef7; border-radius:9px; flex-shrink:0; }
+.managementBadge { display:inline-flex; align-items:center; gap:5px; color:#7b8b9e; font-size:11px; font-weight:400; background:#f3f5f8; padding:3px 7px; border-radius:5px; white-space:nowrap; }
+.managementBadge.isPending { color:#987c47; background:#fbf6ec; }
+.managementPage .okrRefresh,.managementIconButton { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid #e0e6ee; background:#fff; color:#61748e; border-radius:7px; padding:7px 11px; font-size:12px; line-height:1.4; transition:background .15s,border-color .15s,color .15s; white-space:nowrap; }
+.managementIconButton { width:32px; height:32px; padding:0; flex-shrink:0; }
+.managementPage .okrRefresh:hover:not(:disabled),.managementIconButton:hover:not(:disabled) { color:#365f9c; background:#f6f9fd; border-color:#cdd9e9; }
+.managementIconButton:disabled { opacity:.45; }
+.managementPage .managePrimary { padding:0 16px; background:#304e76; transition:background .15s; }
+.managementPage .managePrimary:hover:not(:disabled) { background:#243f63; }
+.managementPage .managePrimary:disabled { background:#e9edf3; color:#96a3b5; cursor:not-allowed; }
+.managementPage .manageField > span { font-size:12px; font-weight:500; color:#6e7e93; }
+.managementPage .manageField input { border-color:#dfe5ed; font-size:13px; color:#33445d; }
+.managementPage .manageField input::placeholder { color:#a4aebb; }
+.managementPage .manageField input:focus { border-color:#92abd0; box-shadow:0 0 0 2px #365f9c0b; }
+.managementLoading { margin:20px 0; color:#8b98a9; font-size:12px; }
+.managementPage .loadError,.managementPage .cacheNotice { margin:14px 0; padding:10px 12px; border-radius:7px; font-size:12px; }
+.managementPage .operationsControl { margin:18px 0; padding:14px 16px; border:1px solid #e8edf4; border-radius:9px; background:#f8fafc; }
+.managementPage .operationsControl > div:first-child { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.managementPage .operationsControl strong { font-size:13px; font-weight:600; color:#334762; }
+.managementPage .operationsControl > div:first-child > span { color:#8794a7; font-size:12px; }
+.operationsToggle { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.operationsToggle > span { font-size:12px; color:#8391a4; }
+.managementPage .operationsGrid { gap:14px; }
+.managementPage .operationsGrid article { padding:16px; border-color:#e8edf3; border-radius:9px; }
+.managementPage .operationsGrid h3 { color:#52657e; font-size:12px; font-weight:500; }
+.managementPage .operationsCardHeading > span { padding:3px 6px; border-radius:4px; font-size:10px; background:#f1f5f9; color:#7f90a5; }
+.managementPage .operationsCadence { margin:16px 0 14px; font-size:19px; color:#2c405e; font-weight:600; letter-spacing:-.3px; }
+.operationsNext { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid #f0f3f7; padding-top:12px; color:#8795a9; font-size:11px; }
+.operationsNext > span:last-child { color:#61758f; font-variant-numeric:tabular-nums; }
+.managementPage .operationsHeartbeat { gap:8px; padding:0; margin:17px 0; background:none; font-size:11px; color:#93a0b0; }
+.managementPage .operationsHeartbeat strong { font-size:11px; color:#73869f; }
+.managementPage .operationsHeartbeat.state-healthy > svg { color:#52917b; }
+.managementPage .operationsHeartbeat.state-error > svg,.managementPage .operationsHeartbeat.state-overdue > svg { color:#b28a4e; }
+.managementPage .operationsHeartbeat > span { padding-left:10px; margin-left:3px; border-left:1px solid #e5eaf1; }
+.operationsFooters { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); border-top:1px solid #edf1f6; gap:24px; }
+.managementPage .operationsHistory { border:0; margin:0; padding-top:14px; }
+.operationsPlanDetails { padding-top:14px; }
+.managementPage .operationsHistory summary,.operationsPlanDetails summary,.managementPage .sourceSyncDetails > summary,.apiKeyDocs > summary { display:flex; justify-content:space-between; align-items:center; gap:10px; color:#72849b; font-size:12px; font-weight:400; cursor:pointer; list-style:none; }
+.managementPage summary::-webkit-details-marker { display:none; }
+.managementPage summary > span { display:inline-flex; align-items:center; gap:7px; }
+.managementPage details > summary > svg:last-child,.managementPage details > summary > span:last-child > svg:last-child { transition:transform .15s; }
+.managementPage details[open] > summary > svg:last-child,.managementPage details[open] > summary > span:last-child > svg:last-child { transform:rotate(180deg); }
+.managementPage .operationsHistory em { font-size:10px; font-style:normal; color:#8a9aae; background:#f1f4f8; border-radius:4px; padding:1px 5px; }
+.managementPage .operationsRecords article { padding:14px 0; }
+.operationsPlanNotes { color:#8492a4; font-size:12px; line-height:1.7; padding-top:10px; }
+.operationsPlanNotes > div { margin:10px 0; }
+.operationsPlanNotes strong { color:#60758f; font-weight:500; }
+.operationsPlanNotes p { margin:4px 0; }
+.operationsDiagnostic { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; padding:12px; background:#f7f9fc; border-radius:7px; }
+.managementPage .operationsPreview { background:#f7faff; padding:18px; }
+.operationsPreviewMetrics { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:18px 0; }
+.operationsPreviewMetrics > div { display:grid; gap:6px; }
+.operationsPreviewMetrics span { color:#8b99ab; font-size:11px; }
+.operationsPreviewMetrics strong { color:#365375; font-size:20px; font-weight:600; }
+.managementPage .operationsPreview > p { font-size:11px; }
+.managementPage .operationsPreview .dataforseoActions { margin:14px 0 0; }
+.managementPage .apiKeyCreate { grid-template-columns:minmax(150px,1fr) minmax(140px,190px) auto; gap:10px; margin:20px 0 18px; }
+.apiKeyEmpty { display:flex; align-items:center; gap:14px; padding:20px 16px; border:1px dashed #e2e8f0; border-radius:8px; color:#a0aec0; background:#fcfdff; }
+.apiKeyEmpty > div { display:grid; gap:5px; }
+.apiKeyEmpty strong { color:#71839c; font-size:12px; font-weight:500; }
+.apiKeyEmpty span { color:#a0acbc; font-size:11px; }
+.managementPage .apiKeySecret { padding:12px; border:1px solid #e1eaf6; background:#f7faff; border-radius:8px; margin-bottom:16px; }
+.managementPage .apiKeySecret input { font-size:12px; }
+.managementPage .apiKeyTable { font-size:12px; }
+.managementPage .apiKeyTable th { color:#94a1b2; font-size:11px; padding:10px 8px; border-color:#edf1f6; }
+.managementPage .apiKeyTable td { padding:13px 8px; border-color:#edf1f6; vertical-align:middle; color:#76879d; font-size:11px; }
+.managementPage .apiKeyTable td:first-child strong { color:#405571; font-size:12px; font-weight:500; }
+.managementPage .apiKeyTable td small { font-family:monospace; color:#9aa8ba; font-size:10px; }
+.apiKeyName { display:flex; align-items:center; gap:7px; }
+.apiKeyState { color:#508a75; font-size:9px; background:#eff7f3; border-radius:4px; padding:2px 5px; white-space:nowrap; }
+.apiKeyState.isRevoked { color:#99a5b5; background:#f2f4f7; }
+.managementPage .apiKeyRowActions { gap:6px; min-width:170px; }
+.managementPage .apiKeyRowActions .okrRefresh { font-size:10px; padding:5px 7px; border-color:transparent; }
+.managementPage .apiKeyRowActions .apiKeyCopy { color:#5378a8; background:#eff4fb; }
+.managementPage .apiKeyRowActions .apiKeyRevoke { color:#a18b87; }
+.managementPage .apiKeyRowActions .apiKeyRevoke:hover { color:#b65b58; background:#fff5f3; border-color:transparent; }
+.managementPage .apiKeyDocs { border-top:1px solid #edf1f6; padding-top:15px; margin-top:18px; }
+.managementSummaryMeta { font-size:11px; color:#9aa6b6; }
+.apiKeyDocsBody { padding-top:14px; color:#8493a7; font-size:12px; }
+.apiKeyEndpoint { display:flex; gap:9px; align-items:baseline; color:#657b98; }
+.apiKeyEndpoint > span { color:#4c927b; background:#edf7f2; padding:2px 5px; border-radius:4px; font-size:10px; font-weight:600; }
+.apiKeyEndpoint code { font-size:11px; overflow-wrap:anywhere; }
+.apiKeyDocsBody pre { background:#f6f8fb; border:1px solid #edf1f7; font-size:11px; line-height:1.8; padding:12px; }
+.apiKeyDocsBody dl > div { display:grid; grid-template-columns:90px 1fr; gap:10px; margin:7px 0; font-size:11px; }
+.apiKeyDocsBody dt { color:#607896; font-family:monospace; }
+.apiKeyDocsBody dd { margin:0; }
+.sourceSyncSchedule { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:20px 0 10px; }
+.sourceSyncSchedule > span:first-child { color:#8393a8; font-size:12px; }
+.sourceSyncList article { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:15px 0; border-bottom:1px solid #edf1f6; }
+.sourceSyncList article:last-child { border-bottom:0; }
+.sourceSyncList article > div { display:grid; gap:6px; }
+.sourceSyncList a { display:inline-flex; gap:5px; align-items:center; color:#526b8b; font-size:12px; font-weight:500; }
+.sourceSyncList a svg { color:#a0aec0; }
+.sourceSyncList small { color:#9aa7b7; font-size:11px; }
+.sourceSyncList article > strong { font-size:21px; font-weight:550; color:#354d6c; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.sourceSyncList article > strong > span { font-size:10px; color:#9aa7b7; font-weight:400; margin-left:6px; }
+.managementPage .sourceSyncDetails { border-top:1px solid #edf1f6; margin-top:14px; padding-top:14px; color:#8a99ae; font-size:11px; }
+.managementPage .sourceSyncDetails .chartNote { font-size:11px; line-height:1.9; }
+.managementPage .sourceSyncDetails ul { padding-left:16px; }
+.managementPage .managementConnection { margin:20px 0 0; padding:19px 22px; border-color:#e3e8ef; border-radius:12px; }
+.managementConnection > summary { display:flex; align-items:center; justify-content:space-between; gap:14px; list-style:none; }
+.managementConnectionTitle { color:#526781; font-size:13px; gap:10px !important; }
+.managementConnectionTitle > svg { color:#8294ae; }
+.managementConnectionAction { color:#94a2b4; font-size:11px; }
+.managementConnection .dataforseoHeading .manageCardHeading { display:none; }
+.managementConnection .dataforseoHeading { justify-content:flex-end; }
+.managementConnection .dataforseoHeading > button { font-size:11px; }
+.managementConnection .dataforseoStats { grid-template-columns:1fr; margin:12px 0 18px; }
+.managementConnection .dataforseoStats > div { display:flex; align-items:center; gap:12px; padding:12px 14px; background:#f8fafc; border-color:#e9eef4; }
+.managementConnection .dataforseoStats strong { font-size:13px; }
+.managementConnection .dataforseoCredentials { gap:12px; }
+.managementConnection .dataforseoCredentials label { flex-basis:240px; }
+.managementConnection .dataforseoActions { margin:14px 0 0; }
+.managementConnection .chartNote { font-size:11px; }
+@media(max-width:1150px) {
+  .managementColumns { grid-template-columns:minmax(0,1.3fr) minmax(300px,1fr); }
+  .managementPage .apiKeyCreate { grid-template-columns:1fr 1fr; }
+  .managementPage .apiKeyCreate .managePrimary { grid-column:1/-1; justify-self:start; }
+  .managementPage .apiKeyTable th:nth-child(3),.managementPage .apiKeyTable td:nth-child(3) { display:none; }
+}
+@media(max-width:900px) {
+  .managementColumns { grid-template-columns:minmax(0,1fr); }
+  .managementPage .apiKeyCreate { grid-template-columns:minmax(0,1fr) 220px auto; }
+  .managementPage .apiKeyCreate .managePrimary { grid-column:auto; }
+  .managementPage .apiKeyTable th:nth-child(3),.managementPage .apiKeyTable td:nth-child(3) { display:table-cell; }
+  .managementPage .operationsGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .managementPage .operationsCardHeading { flex-direction:column; }
+  .managementPage .operationsCadence { font-size:16px; }
+  .operationsNext { flex-direction:column; align-items:flex-start; gap:6px; }
+}
+@media(max-width:600px) {
+  .managementPage { width:calc(100% - 28px); }
+  .managementIntro { padding:24px 0 20px; }
+  .managementIntro h1 { font-size:23px; }
+  .managementIntro > span { font-size:10px; }
+  .managementPage .managementSection { padding:18px 16px; }
+  .managementPage .operationsControl { padding:12px; }
+  .managementPage .operationsControl > div:first-child { gap:5px; flex-direction:column; align-items:flex-start; }
+  .managementPage .operationsControl > div:first-child > span { font-size:10px; }
+  .managementPage .operationsGrid { grid-template-columns:1fr; gap:10px; }
+  .managementPage .operationsGrid article { padding:14px; }
+  .managementPage .operationsCardHeading { flex-direction:row; }
+  .managementPage .operationsCadence { margin:12px 0; }
+  .operationsNext { flex-direction:row; align-items:center; }
+  .operationsFooters { grid-template-columns:1fr; gap:14px; }
+  .operationsPlanDetails { padding-top:0; }
+  .operationsPreviewMetrics { grid-template-columns:1fr 1fr; }
+  .managementPage .apiKeyCreate { grid-template-columns:minmax(0,1fr); gap:14px; }
+  .managementPage .apiKeyCreate .managePrimary { justify-self:stretch; }
+  .apiKeyTable,.apiKeyTable tbody,.apiKeyTable tr,.apiKeyTable td { display:block; }
+  .apiKeyTable thead { display:none; }
+  .managementPage .apiKeyTable tr { padding:12px 0; border-bottom:1px solid #edf1f6; }
+  .managementPage .apiKeyTable td { border:0; padding:6px 0; }
+  .managementPage .apiKeyTable td:nth-child(3) { display:block; }
+  .apiKeyTable td[data-label]::before { content:attr(data-label); display:inline-block; width:70px; color:#a0acbc; }
+  .apiKeyTable td:last-child { padding-top:10px; }
+  .managementPage .apiKeyRowActions .okrRefresh { font-size:11px; padding:7px 10px; }
+  .managementPage .apiKeySecret { align-items:center; }
+  .managementPage .managementConnection { padding:18px 16px; }
+  .managementConnection .dataforseoStats > div { flex-wrap:wrap; }
+}
+
+.collectionProgress{margin:16px 0 22px;padding:16px 18px;background:#f5f8fd;border:1px solid #e3eaf5;border-radius:12px;color:#59708f}
+.collectionProgressHeading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}
+.collectionProgressHeading strong{color:#2b476c;font-size:14px}
+.collectionProgressTrack{height:6px;overflow:hidden;background:#e5ebf5;border-radius:6px;margin:12px 0 9px}
+.collectionProgressTrack i{display:block;height:100%;background:#588bf5;border-radius:6px;transition:width .25s}
+.collectionProgress p{margin:0;font-size:12px;line-height:1.6}
+@media(max-width:680px){.collectionProgressHeading{align-items:flex-start;flex-direction:column;gap:5px}}
+.managementPage .apiKeyCreate .ant-select { align-items:center; }
+.managementPage .apiKeyCreate .ant-select-input { height:100%; min-height:0; padding:0; border:0; border-radius:0; box-shadow:none; }
+@media(max-width:600px) {
+  .managementPage .siteHeader { position:relative; display:flex; align-items:flex-start; flex-direction:column; gap:15px; padding:18px 0 14px; min-height:0; }
+  .managementPage .siteHeader nav { width:100%; display:flex; justify-content:space-between; flex-wrap:nowrap; gap:0; }
+  .managementPage .siteHeader nav > form { position:absolute; right:0; top:18px; margin:0; }
+  .managementPage .siteHeader .navLink { padding:8px 6px; font-size:11px; gap:5px; white-space:nowrap; }
+  .managementPage .siteHeader .navLink svg { width:13px; height:13px; }
+  .managementPage .managementIntro { flex-direction:row; align-items:center; text-align:left; gap:12px; margin:0; }
+}
+.managementPage .sourceSyncList a { text-decoration:none; }
+.managementPage .sourceSyncList a:hover { color:#365f9c; }
 
 .collectionProgress{margin:16px 0 22px;padding:16px 18px;background:#f5f8fd;border:1px solid #e3eaf5;border-radius:12px;color:#59708f}
 .collectionProgressHeading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}

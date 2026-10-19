@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileSpreadsheet, RefreshCw } from "lucide-react";
+import { ArrowUpRight, ChevronDown, FileSpreadsheet, RefreshCw } from "lucide-react";
 import { SOURCE_SYNC_API_PATH } from "@/lib/source-sync";
 import type { SourceSyncHealthResponse } from "@/lib/source-sync-health";
 
@@ -32,22 +32,15 @@ export function SourceSyncStatus() {
     catch (failure) { setError(failure instanceof Error ? failure.message : "协作表状态读取失败"); }
     finally { setLoading(false); }
   }
-  return <section className="dataforseoPanel" aria-labelledby="source-sync-heading">
-    <div className="dataforseoHeading">
-      <div className="manageCardHeading"><span className="manageCardIcon"><FileSpreadsheet size={19} /></span><div><h2 id="source-sync-heading">三张协作表同步</h2><p>每天 10:30 · 北京时间</p></div></div>
-      <button type="button" className="okrRefresh" disabled={loading} onClick={() => void refresh()}><RefreshCw size={13} />刷新同步状态</button>
-    </div>
+  return <section className="dataforseoPanel sourceSyncPanel managementSection" aria-labelledby="source-sync-heading">
+    <div className="managementSectionHeading"><div className="managementSectionTitle"><span className="managementIcon"><FileSpreadsheet size={18} /></span><h2 id="source-sync-heading">来源同步</h2></div><button type="button" className="managementIconButton" aria-label="刷新同步状态" title="刷新" disabled={loading} onClick={() => void refresh()}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></div>
     {error ? <p className="loadError" role="alert">{error}</p> : null}
     {loading ? <p className="muted" role="status">正在读取已保存的来源状态…</p> : null}
-    <p className="chartNote">沿用现有采集器增量同步；尚无每日完整检查的线上回执。</p>
-    {health ? <div className="sourceSyncGrid">{health.sources.map(source => <article key={source.sourceId}>
-      <a href={source.url} target="_blank" rel="noreferrer"><strong>{source.label}</strong></a>
-      <p><strong>{source.storedRows.toLocaleString()}</strong> 行已存{source.status === "NO_BASELINE" ? " · 待建立基线" : ""}</p>
-      <small>最近变更 {shortTime(source.lastChangedAt)}</small>
-    </article>)}</div> : null}
-    <details className="sourceSyncDetails"><summary>同步明细与筛选规则</summary>
+    <div className="sourceSyncSchedule"><span>每日 10:30</span><span className="managementBadge isPending">日检待确认</span></div>
+    {health ? <div className="sourceSyncList">{health.sources.map(source => <article key={source.sourceId}><div><a href={source.url} target="_blank" rel="noreferrer">{source.label}<ArrowUpRight size={13} /></a><small>{source.status === "NO_BASELINE" ? "待建立基线" : `最近变更 ${shortTime(source.lastChangedAt)}`}</small></div><strong>{source.storedRows.toLocaleString()}<span>行</span></strong></article>)}</div> : null}
+    <details className="sourceSyncDetails"><summary><span>同步详情</span><ChevronDown size={14} /></summary>
       {health ? <ul>{health.sources.map(source => <li key={source.sourceId}><strong>{source.label} · {source.sheetName}</strong>：最近内容入库 {time(source.lastChangedAt)}；已变更行的来源读取时间 {time(source.lastChangedSourceReadAt)}。</li>)}</ul> : null}
-      <p className="chartNote">刷新状态只读取已存数据，不会重新读取协作表。未变化行不重写，因此上述时间不代表最近每日检查。新增和变化逐词核实业务相关性、完成状态、实际页面与意图；表格缺行不会删除词库或覆盖人工关联。排名与新词发现独立安排在隔周周二 10:30，付费执行尚未开启。</p>
+      <p className="chartNote">刷新状态只读取已存数据，不会重新读取协作表。未变化行不重写，因此上述时间不代表最近每日检查。新增和变化逐词核实业务相关性、完成状态、实际页面与意图；表格缺行不会删除词库或覆盖人工关联。排名采集另见运行计划。</p>
     </details>
   </section>;
 }

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Copy, KeyRound, Plus, RefreshCw } from "lucide-react";
+import { BookOpen, ChevronDown, Copy, EyeOff, KeyRound, Plus, RefreshCw } from "lucide-react";
+import { Select } from "antd";
 import { API_KEYS_PATH, KEYWORD_EXPORT_API_PATH, type ExportApiKey } from "@/lib/keyword-export";
 import { PAGE_AUDIT_DOMAINS } from "@/lib/page-audit";
 
@@ -59,17 +60,28 @@ export function ApiKeyPanel() {
     });
   }
   const date = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "尚未使用";
-  return <section className="dataforseoPanel apiKeyPanel" aria-labelledby="api-key-heading">
-    <div className="dataforseoHeading"><div className="manageCardHeading"><span className="manageCardIcon"><KeyRound size={19} /></span><div><h2 id="api-key-heading">API Key · 关键词导出</h2><p>仅导出已确认没有前100排名的关键词，不限是否绑定页面。</p></div></div><button type="button" className="okrRefresh" disabled={busy || loading} onClick={() => void run(readKeys)}><RefreshCw size={13} />刷新</button></div>
+  const activeCount = keys.filter(key => !key.revokedAt).length;
+  return <section className="dataforseoPanel apiKeyPanel managementSection" aria-labelledby="api-key-heading">
+    <div className="managementSectionHeading">
+      <div className="managementSectionTitle"><span className="managementIcon"><KeyRound size={18} /></span><h2 id="api-key-heading">API Key</h2><span className="managementBadge">{activeCount} 个可用</span></div>
+      <button type="button" className="managementIconButton" aria-label="刷新 API Key" title="刷新" disabled={busy || loading} onClick={() => void run(readKeys)}><RefreshCw size={15} /></button>
+    </div>
     {error ? <p className="loadError" role="alert">{error}</p> : null}
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     <form className="apiKeyCreate" onSubmit={create}>
       <label className="manageField"><span>密钥名称</span><input value={name} onChange={event => setName(event.target.value)} placeholder="例如：内容自动化" required maxLength={80} disabled={busy} /></label>
-      <label className="manageField"><span>允许导出的网站</span><select value={siteDomain} onChange={event => setSiteDomain(event.target.value)} disabled={busy}><option value="">全部网站</option>{PAGE_AUDIT_DOMAINS.map(domain => <option key={domain} value={domain}>{domain}</option>)}</select></label>
-      <button type="submit" className="managePrimary" disabled={busy || loading || !name.trim()}><Plus size={15} />创建 API Key</button>
+      <label className="manageField"><span>网站范围</span><Select aria-label="允许导出的网站" value={siteDomain} onChange={setSiteDomain} disabled={busy} suffixIcon={<ChevronDown size={14} />} options={[{ value: "", label: "全部网站" }, ...PAGE_AUDIT_DOMAINS.map(domain => ({ value: domain, label: domain }))]} /></label>
+      <button type="submit" className="managePrimary" disabled={busy || loading || !name.trim()}><Plus size={15} />创建密钥</button>
     </form>
-    {revealed ? <div className="apiKeySecret"><label className="manageField"><span>当前 API Key（请妥善保管）</span><input ref={secretInput} aria-label="当前 API Key" readOnly value={revealed.secret} onFocus={event => event.currentTarget.select()} autoComplete="off" spellCheck={false} /></label><button type="button" className="okrRefresh" onClick={() => setRevealed(null)}>隐藏</button></div> : null}
-    {loading ? <p className="muted" role="status">正在读取 API Key…</p> : keys.length ? <div className="apiKeyTableWrap"><table className="apiKeyTable"><thead><tr><th>密钥名称 / 标识</th><th>网站范围</th><th>最近使用（北京时间）</th><th>操作</th></tr></thead><tbody>{keys.map(key => <tr key={key.id}><td><strong>{key.name}</strong><small>{key.prefix} · {key.revokedAt ? "已停用" : "可使用"}</small></td><td>{key.siteDomain ?? "全部网站"}</td><td>{date(key.lastUsedAt)}</td><td><div className="apiKeyRowActions">{key.revokedAt ? <span className="muted">停用于 {date(key.revokedAt)}</span> : <><button type="button" className="okrRefresh" disabled={busy} onClick={() => copy(key)}><Copy size={13} />复制 API Key</button><button type="button" className="okrRefresh" disabled={busy} onClick={() => copy(key, true)}>复制请求示例</button>{confirmRevoke === key.id ? <><button type="button" className="okrRefresh" disabled={busy} onClick={() => void run(async () => { await post({ action: "revoke", id: key.id }); setKeys(current => current.map(row => row.id === key.id ? { ...row, revokedAt: new Date().toISOString() } : row)); if (revealed?.id === key.id) setRevealed(null); setConfirmRevoke(null); setNotice("API Key 已停用。"); })}>确认停用</button><button type="button" className="okrRefresh" disabled={busy} onClick={() => setConfirmRevoke(null)}>取消</button></> : <button type="button" className="okrRefresh" disabled={busy} onClick={() => setConfirmRevoke(key.id)}>停用</button>}</>}</div></td></tr>)}</tbody></table></div> : !error ? <p className="muted">尚未创建 API Key。创建后即可复制并调用接口。</p> : null}
-    <details className="apiKeyDocs"><summary>接口接入说明</summary><p>GET <code>{KEYWORD_EXPORT_API_PATH}</code></p><p>请求头：<code>X-API-Key: 你的 API Key</code>，也支持 <code>Authorization: Bearer 你的 API Key</code>。</p><p>可选参数：<code>siteDomain=flatkey.ai</code> 筛选网站，<code>region=US</code> 筛选地区，<code>format=csv</code> 下载 CSV；默认返回 JSON、汇总四个地区。网站限定密钥省略 siteDomain 时自动使用其授权网站。</p><pre>{`curl 'https://你的部署域名${KEYWORD_EXPORT_API_PATH}?siteDomain=flatkey.ai&format=csv' \\\n  -H 'X-API-Key: 你的 API Key' \\\n  -o content-opportunities.csv`}</pre><p>已进入前100的词全部排除，包括第51–100名。是否绑定页面不影响筛选。仅返回已确认没有前100排名的词；未采集、采集失败、纠词和证据不足的词不返回。默认四地区均确认无排名才返回，可用 region 指定地区。同词在不同网站分别返回。</p><p>返回 <code>hasPage</code>、<code>pageUrls</code>、<code>currentRank</code> 和 <code>isTop100</code>。前100和排名未知的词已被排除，因此 isTop100 固定为 false；任务进度随数据返回。</p><p className="chartNote">密钥仅可读取此导出接口；停用后不能再请求。更改网页登录密码后，旧密钥将无法再次复制，需停用并新建。</p></details>
+    {revealed ? <div className="apiKeySecret"><label className="manageField"><span>API Key</span><input ref={secretInput} aria-label="当前 API Key" readOnly value={revealed.secret} onFocus={event => event.currentTarget.select()} autoComplete="off" spellCheck={false} /></label><button type="button" className="managementIconButton" aria-label="隐藏 API Key" title="隐藏" onClick={() => setRevealed(null)}><EyeOff size={16} /></button></div> : null}
+    {loading ? <p className="muted" role="status">正在读取 API Key…</p> : keys.length ? <div className="apiKeyTableWrap"><table className="apiKeyTable"><thead><tr><th>名称</th><th>网站</th><th>最近使用</th><th>操作</th></tr></thead><tbody>{keys.map(key => <tr key={key.id}><td><div className="apiKeyName"><strong>{key.name}</strong><span className={`apiKeyState ${key.revokedAt ? "isRevoked" : ""}`}>{key.revokedAt ? "已停用" : "可用"}</span></div><small>{key.prefix}</small></td><td data-label="网站">{key.siteDomain ?? "全部网站"}</td><td data-label="最近使用">{date(key.lastUsedAt)}</td><td><div className="apiKeyRowActions">{key.revokedAt ? <span className="muted">停用于 {date(key.revokedAt)}</span> : <><button type="button" className="okrRefresh apiKeyCopy" disabled={busy} onClick={() => copy(key)}><Copy size={13} />复制</button><button type="button" className="okrRefresh" disabled={busy} onClick={() => copy(key, true)}>请求示例</button>{confirmRevoke === key.id ? <><button type="button" className="okrRefresh" disabled={busy} onClick={() => void run(async () => { await post({ action: "revoke", id: key.id }); setKeys(current => current.map(row => row.id === key.id ? { ...row, revokedAt: new Date().toISOString() } : row)); if (revealed?.id === key.id) setRevealed(null); setConfirmRevoke(null); setNotice("API Key 已停用。"); })}>确认停用</button><button type="button" className="okrRefresh" disabled={busy} onClick={() => setConfirmRevoke(null)}>取消</button></> : <button type="button" className="okrRefresh apiKeyRevoke" disabled={busy} onClick={() => setConfirmRevoke(key.id)}>停用</button>}</>}</div></td></tr>)}</tbody></table></div> : !error ? <div className="apiKeyEmpty"><KeyRound size={22} /><div><strong>还没有密钥</strong><span>创建后即可复制并调用导出接口</span></div></div> : null}
+    <details className="apiKeyDocs"><summary><span><BookOpen size={15} />接口说明</span><span className="managementSummaryMeta">关键词导出<ChevronDown size={14} /></span></summary>
+      <div className="apiKeyDocsBody"><div className="apiKeyEndpoint"><span>GET</span><code>{KEYWORD_EXPORT_API_PATH}</code></div>
+        <p>仅返回确认没有前 100 排名的关键词，不限是否绑定页面。</p>
+        <pre>{`curl 'https://flatkey-seo-roadmap.vercel.app${KEYWORD_EXPORT_API_PATH}?region=US' \\\n  -H 'X-API-Key: 你的密钥'`}</pre>
+        <dl><div><dt>siteDomain</dt><dd>网站筛选，省略时使用密钥授权范围</dd></div><div><dt>region</dt><dd>US / JP / ES / BR；默认 all，四地区均无排名才返回</dd></div><div><dt>format</dt><dd>json（默认）或 csv</dd></div></dl>
+        <p>返回 hasPage、pageUrls 和排名依据。前 100、未采集与采集失败的词不返回。</p>
+      </div>
+    </details>
   </section>;
 }
