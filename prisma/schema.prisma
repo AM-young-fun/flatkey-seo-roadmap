@@ -236,6 +236,16 @@ model WeeklyTraffic {
   @@index([siteDomain, periodStart, periodEnd, collectedAt(sort: Desc)])
 }
 
+// In-progress evidence stays separate from finalized weekly traffic.
+model WeeklyReportDraft {
+  siteDomain String
+  periodStart DateTime @db.Date
+  periodEnd DateTime @db.Date
+  collectedAt DateTime
+  payload Json
+  @@id([siteDomain, periodStart])
+}
+
 model DailyRankingReport {
   id String @id @default(cuid())
   siteDomain String

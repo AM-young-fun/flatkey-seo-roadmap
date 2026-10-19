@@ -369,5 +369,13 @@ CREATE INDEX IF NOT EXISTS "SerpMonitorTask_region_checkedAt_idx" ON "SerpMonito
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_runId_state_idx" ON "SerpMonitorTask"("runId", state);
 CREATE INDEX IF NOT EXISTS "SerpMonitorTask_checkedAt_idx" ON "SerpMonitorTask"("checkedAt" DESC);
 ALTER TABLE "WeeklyTraffic" ADD COLUMN IF NOT EXISTS "analysis" JSONB;
+CREATE TABLE IF NOT EXISTS "WeeklyReportDraft" (
+  "siteDomain" TEXT NOT NULL,
+  "periodStart" DATE NOT NULL,
+  "periodEnd" DATE NOT NULL,
+  "collectedAt" TIMESTAMP(3) NOT NULL,
+  "payload" JSONB NOT NULL,
+  PRIMARY KEY ("siteDomain", "periodStart")
+);
 
 COMMIT;

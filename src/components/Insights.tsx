@@ -2,11 +2,12 @@
 import { useEffect, useState } from "react";
 import { Select } from "antd";
 import { PageHeader } from "@/components/PageHeader";
-import { reportPeriods, activeReportPeriods } from "@/lib/weekly-traffic";
+import { reportPeriods, activeReportPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import type { WeeklyKeywordComparison } from "@/lib/weekly-keyword-comparison";
 import type { WeeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
 import type { WeeklyReportDiagnosis } from "@/lib/weekly-report-diagnosis";
+import type { WeeklyReportDraftPayload } from "@/lib/weekly-report-draft";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
@@ -16,6 +17,7 @@ type InsightData = {
   ranking?: { captureWeek: boolean; waiting: boolean; baseline: boolean; noNewCapture: boolean; unresolvedWords?: number; capturedKeywords: number; latestCheckedAt: string | null; status: string; sampleOnly: boolean };
   evidence?: (WeeklyTrafficEvidence & { collectedAt: string; timezone: string }) | null;
   diagnosis: WeeklyReportDiagnosis;
+  draft?: WeeklyReportDraftPayload | null;
 };
 
 function useInsights(week: string) {
@@ -94,7 +96,7 @@ function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
   const names: Record<string, string> = { Direct: "直接访问", "Paid Search": "付费搜索", "Organic Search": "自然搜索", Referral: "外部推荐", "Organic Social": "自然社交", Unassigned: "未归类", "AI Assistant": "AI 助手", "Cross-network": "跨广告网络", "Organic Video": "自然视频", "Paid Social": "付费社交", "Paid Other": "其他付费" };
   const funnel = evidence.newVisitorFunnel;
   return <>
-    <section className="dailyPanel"><h2>流量与注册来自哪里</h2><p className="chartNote">Flatkey · 按首次来源渠道 · 注册为去重人数{!evidence.complete ? " · 本周更新中，暂不计算环比" : ""}</p>
+    <section className="dailyPanel"><h2>流量与注册来自哪里</h2><p className="chartNote">Flatkey · 按首次来源渠道 · 注册为去重人数{data?.draft ? ` · ${data.draft.comparisonPeriods.current.start}—${data.draft.comparisonPeriods.current.end} 对比 ${data.draft.comparisonPeriods.previous.start}—${data.draft.comparisonPeriods.previous.end}` : !evidence.complete ? " · 本周更新中，暂不计算环比" : ""}</p>
       <div className="siteTrafficTable"><table><thead><tr><th>渠道</th><th>上期新用户</th><th>本期新用户</th><th>上期注册</th><th>本期注册</th><th>注册变化</th></tr></thead><tbody>{evidence.channels.map(row => <tr key={row.name}><th>{names[row.name] ?? row.name}</th><td>{row.newUsers.previous}</td><td>{row.newUsers.current}</td><td>{row.registrations.previous}</td><td>{row.registrations.current}</td><td className={row.registrations.current < row.registrations.previous ? "metricDecrease" : "metricIncrease"}>{evidence.complete ? delta(row.registrations.current - row.registrations.previous) : "—"}</td></tr>)}</tbody></table></div>
     </section>
     {funnel ? <section className="dailyPanel"><h2>新访客注册漏斗</h2><p className="chartNote">GA4 按事件先后顺序统计 · 同一批首次访客 · 与全部注册人数口径不同</p><div className="siteTrafficTable"><table><thead><tr><th>路径</th><th>上期人数</th><th>本期人数</th><th>变化</th></tr></thead><tbody>{funnel.current.map((row,index)=><tr key={row.name}><th>{row.name}</th><td>{funnel.previous[index].users}</td><td>{row.users}</td><td>{delta(row.users - funnel.previous[index].users)}</td></tr>)}<tr><th>首次访问 → 注册成功</th><td>{pct(funnel.previous[0].completionRate)}</td><td>{pct(funnel.current[0].completionRate)}</td><td>{((funnel.current[0].completionRate! - funnel.previous[0].completionRate!) * 100).toFixed(2)} 个百分点</td></tr></tbody></table></div>
@@ -109,7 +111,7 @@ function WeeklySummary({ data }: { data: InsightData | null }) {
   const traffic = data?.traffic, ranks = data?.comparison, ranking = data?.ranking;
   const trafficChange = traffic?.comparable && traffic.current && traffic.previous
     ? `新用户 ${delta(traffic.current.newUsers - traffic.previous.newUsers)} 人（${change(traffic.changes.newUsers)}），注册用户 ${delta(traffic.current.newRegistrations - traffic.previous.newRegistrations)} 人（${change(traffic.changes.newRegistrations)}）。${traffic.changes.ratePoints != null ? `注册人数 / 新用户数${traffic.changes.ratePoints < 0 ? "下降" : "上升"} ${Math.abs(traffic.changes.ratePoints).toFixed(2)} 个百分点。` : ""}`
-    : data ? traffic?.complete === false ? "本期流量尚未整理完成，暂不计算完整周环比。" : "两期流量数据尚不可比，暂不计算增减。" : "正在读取流量数据…";
+    : data?.draft ? `完整周尚未结束。已结束同星期区间内，新用户 ${delta(data.draft.evidence.totals.current.newUsers-data.draft.evidence.totals.previous.newUsers)} 人，注册 ${delta(data.draft.evidence.totals.current.newRegistrations-data.draft.evidence.totals.previous.newRegistrations)} 人；上述原因排查仅针对该等长区间，完整周结论待补齐。` : data ? traffic?.complete === false ? "本期流量尚未整理完成，暂不计算完整周环比。" : "两期流量数据尚不可比，暂不计算增减。" : "正在读取流量数据…";
   const largest = ranks?.buckets.filter(row => row.delta !== 0).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))[0];
   const rankChange = ranking?.waiting ? "关键词采集中，完成后更新总结。" : ranking?.baseline ? `首次基线：${ranks?.current ?? 0} 个有排名的关键词全部计为新增。` : ranking?.noNewCapture ? "本周未安排新的关键词采集，排名数据沿用最近一期，不计算新变化。" : ranks ? `前100关键词由 ${ranks.previous} 个变为 ${ranks.current} 个，新增 ${ranks.entered} 个、减少 ${ranks.removed} 个，净变化 ${delta(ranks.net)} 个。${largest ? `变化最多：${largest.label} ${delta(largest.delta)} 个。` : "各排名区间数量持平。"}`
     : data ? "缺少相邻两期关键词报告，暂无法总结变化。" : "正在读取关键词数据…";
@@ -121,6 +123,10 @@ export function TrafficReport() {
   const { data, error, retry } = useInsights(week);
   const periods = data?.periods ?? (week ? reportPeriods(week) : activeReportPeriods());
   const traffic = data?.traffic;
+  const draft = data?.draft;
+  const compareWeek = (value:{newUsers:number;newRegistrations:number})=>({...value,registrationRate:registrationRate(value.newUsers,value.newRegistrations)});
+  const sameDays = draft ? {current:compareWeek(draft.evidence.totals.current),previous:compareWeek(draft.evidence.totals.previous)} : null;
+  const displayTraffic = sameDays ? {...sameDays,changes:{newUsers:relativeChange(sameDays.current.newUsers,sameDays.previous.newUsers),newRegistrations:relativeChange(sameDays.current.newRegistrations,sameDays.previous.newRegistrations),registrationRate:relativeChange(sameDays.current.registrationRate,sameDays.previous.registrationRate),ratePoints:sameDays.current.registrationRate!=null&&sameDays.previous.registrationRate!=null?(sameDays.current.registrationRate-sameDays.previous.registrationRate)*100:null}} : traffic;
   const history = data?.history ?? [activeReportPeriods().current.start, ...(week ? [week] : [])];
   const metrics = [
     { label: "新用户", key: "newUsers" as const, format: number },
@@ -131,18 +137,18 @@ export function TrafficReport() {
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <div className="periodComparison"><span><i className="currentDot" />本期 {periods.current.start} — {periods.current.end}</span><span><i />上期 {periods.previous.start} — {periods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
-    {traffic?.complete === false ? <p className="weeklyRankingState">本期周报尚未开始整理，待确认后更新完整周数据。</p> : null}
-    <p className="chartNote reportScope">GA4 · 三站汇总{data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}</p>
+    {draft ? <div className="weeklyRankingState"><strong>本周草稿 · 完整周尚未结束</strong><p>阶段累计：{draft.stageTotals.newUsers.toLocaleString()} 位新用户、{draft.stageTotals.newRegistrations.toLocaleString()} 位注册。采集于{new Date(draft.stageTotals.collectedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}（北京时间）。</p><p>以下图表和原因排查：{draft.comparisonPeriods.current.start}—{draft.comparisonPeriods.current.end} 对比 {draft.comparisonPeriods.previous.start}—{draft.comparisonPeriods.previous.end}，均为已结束的相同星期区间。</p></div> : traffic?.complete === false ? <p className="weeklyRankingState">本期周报尚未开始整理，待确认后更新完整周数据。</p> : null}
+    <p className="chartNote reportScope">GA4 · {draft ? "Flatkey · 同星期等长对比" : `三站汇总${data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
     <section className="trafficGrid">{metrics.map((metric) => {
-      const current = traffic?.current?.[metric.key]; const previous = traffic?.previous?.[metric.key];
+      const current = displayTraffic?.current?.[metric.key]; const previous = displayTraffic?.previous?.[metric.key];
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);
-      return <article className="trafficCard" key={metric.key}><h2>{metric.label}</h2><strong>{data ? metric.format(current) : "加载中…"}</strong><p className="trafficChange">环比 {data ? change(traffic?.changes[metric.key]) : "加载中…"}</p>
+      return <article className="trafficCard" key={metric.key}><h2>{metric.label}</h2><strong>{data ? metric.format(current) : "加载中…"}</strong><p className="trafficChange">{draft?"同窗变化":"环比"} {data ? change(displayTraffic?.changes[metric.key]) : "加载中…"}</p>
         <div className="compareBar"><span>本期</span><div><i style={{ width: `${(current ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(current) : "加载中…"}</b></div>
         <div className="compareBar previous"><span>上期</span><div><i style={{ width: `${(previous ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(previous) : "加载中…"}</b></div>
-        {metric.key === "registrationRate" && traffic?.changes.ratePoints != null ? <p className="chartNote">变化 {traffic.changes.ratePoints > 0 ? "+" : ""}{traffic.changes.ratePoints.toFixed(2)} 个百分点</p> : null}
+        {metric.key === "registrationRate" && displayTraffic?.changes.ratePoints != null ? <p className="chartNote">变化 {displayTraffic.changes.ratePoints > 0 ? "+" : ""}{displayTraffic.changes.ratePoints.toFixed(2)} 个百分点</p> : null}
       </article>;
     })}</section>
-    <section className="dailyPanel siteTrafficPanel"><h2>各网站数据</h2><div className="siteTrafficTable"><table><thead><tr><th>网站</th><th>新用户</th><th>注册用户（去重）</th><th>注册人数 / 新用户数</th><th>本期状态</th></tr></thead><tbody>{["flatkey.ai","rackrate.org","modelfit.cc"].map(domain=>{const row=traffic?.siteTraffic?.find(site=>site.siteDomain===domain)?.current;return <tr key={domain}><th>{domain}</th><td>{data?number(row?.newUsers):"加载中…"}</td><td>{data?number(row?.newRegistrations):"加载中…"}</td><td>{data?pct(row?.registrationRate):"加载中…"}</td><td>{!data?"读取中":row?traffic?.complete === false && domain === "flatkey.ai" ? "更新中" : "已采集":"本期暂无有效周报"}</td></tr>;})}</tbody></table></div></section>
+    <section className="dailyPanel siteTrafficPanel"><h2>各网站{draft?"阶段累计":"数据"}</h2><div className="siteTrafficTable"><table><thead><tr><th>网站</th><th>新用户</th><th>注册用户（去重）</th><th>注册人数 / 新用户数</th><th>本期状态</th></tr></thead><tbody>{["flatkey.ai","rackrate.org","modelfit.cc"].map(domain=>{const formal=traffic?.siteTraffic?.find(site=>site.siteDomain===domain)?.current, other=draft?.otherSites.find(site=>site.siteDomain===domain);const row=formal ?? (draft && domain==="flatkey.ai" ? {...draft.stageTotals,registrationRate:registrationRate(draft.stageTotals.newUsers,draft.stageTotals.newRegistrations)}:null);return <tr key={domain}><th>{domain}</th><td>{data?number(row?.newUsers??other?.newUsers):"加载中…"}</td><td>{other&&!row?"注册事件待核对":data?number(row?.newRegistrations):"加载中…"}</td><td>{data?pct(row?.registrationRate):"加载中…"}</td><td>{!data?"读取中":row?draft?"阶段数据":"已采集":other?"已读取流量，注册未计零":"本期暂无有效周报"}</td></tr>;})}</tbody></table></div></section>
     <WeeklyEvidenceTables data={data} />
     <WeeklyKeywordChanges data={data} />
     {data?.diagnosis?.significant ? <section className="dailyPanel reportDiagnosis" aria-label="大幅波动原因排查"><h2>波动原因排查</h2><div>{data.diagnosis.findings.map((finding, index) => <article className={`diagnosisFinding ${finding.level}`} key={`${finding.title}:${finding.url ?? index}`}><h3>{finding.title}</h3>{finding.url ? <a href={finding.url} target="_blank" rel="noreferrer">{finding.url.replace(/^https?:\/\//, "")}</a> : null}<p>{finding.evidence}</p><p className="diagnosisAction">{finding.action}</p>{finding.checkedAt ? <small>页面检查 {new Date(finding.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}</article>)}</div></section> : null}
