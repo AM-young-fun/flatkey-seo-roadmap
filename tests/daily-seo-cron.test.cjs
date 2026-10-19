@@ -27,7 +27,7 @@ mockFile("src/lib/prisma.ts", { prisma: new Proxy({
   throw new Error(`paused empty ledger must not access ${String(key)}`);
 } }) });
 mockFile("src/lib/services/source-sync-health.ts", { loadSourceSyncHealth: async () => { checks++; return { dailyCheck: { confirmed: false, lastCompletedAt: null }, sources: [{ sourceId: "api_main" }, { sourceId: "cloud_main" }, { sourceId: "optimization" }] }; } });
-mockFile("src/lib/services/display-snapshots.ts", {invalidateDisplaySnapshots:async()=>{}});
+mockFile("src/lib/services/display-snapshots.ts", {syncDisplaySourceVersion:async()=>{}});
 mockFile("src/lib/services/display-views.ts", {refreshDisplayViews:async()=>({rebuilt:0})});
 const { POST: legacy, GET: legacyGet } = require("../src/app/api/sync/run/route.ts");
 const { GET, POST } = require("../src/app/api/cron/daily-rankings/route.ts");

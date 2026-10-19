@@ -1,4 +1,4 @@
-import { invalidateDisplaySnapshots } from "@/lib/services/display-snapshots";
+import { syncDisplaySourceVersion } from "@/lib/services/display-snapshots";
 import { refreshDisplayViews } from "@/lib/services/display-views";
 import { NextResponse } from "next/server";
 import { runSerpMonitorCron } from "@/lib/services/serp-monitor";
@@ -43,7 +43,7 @@ async function handleCron(request: Request) {
     serpStatus: serp.status === "fulfilled" ? serp.value.status : "NEEDS_REVIEW", paidRequests: discovery.paidRequests + (serp.status === "fulfilled" ? serp.value.paidRequests : 0) } });
   if (serp.status === "rejected") return NextResponse.json({ status: "NEEDS_REVIEW", message: "SERP原采集账本需要核对，请勿重复提交采集" }, { status: 503 });
   try {
-    if (("freeResultsChecked" in serp.value && Number(serp.value.freeResultsChecked) > 0) || serp.value.paidRequests > 0 || discovery.status === "ACTIVE") await invalidateDisplaySnapshots();
+    await syncDisplaySourceVersion();
     await refreshDisplayViews(startedAt + 285000);
   } catch { console.error("Display refresh deferred to next coordinator"); }
   return NextResponse.json({ status: serp.value.status, discovery, serp: serp.value,

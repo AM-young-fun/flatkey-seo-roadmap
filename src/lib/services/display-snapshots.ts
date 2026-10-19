@@ -50,3 +50,32 @@ export async function readDisplaySnapshot(spec: DisplaySpec): Promise<DisplayRea
 export async function invalidateDisplaySnapshots() {
   await prisma.$executeRaw`UPDATE "DisplaySnapshot" SET revision = revision + 1 WHERE key LIKE 'display-v1:%'`;
 }
+
+// A small source watermark also catches imports from older collectors and
+// recovers a transient invalidation failure. It reads no raw SERP responses.
+// Updating the watermark and dirty revisions is one atomic database statement.
+export async function syncDisplaySourceVersion() {
+  await prisma.$executeRaw`
+    WITH fingerprint AS (SELECT md5(concat_ws('|',
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(sk)::text),'' ORDER BY sk."siteDomain",sk."keywordId"),'')) FROM "SiteKeyword" sk),
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(s)::text),'' ORDER BY s.domain),'')) FROM "SeoSite" s),
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(s)::text),'' ORDER BY s."siteDomain",s."topicId"),'')) FROM "SiteTopic" s),
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(s)::text),'' ORDER BY s."siteDomain",s."keywordId",s."topicId"),'')) FROM "SiteKeywordTopic" s),
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(r)::text),'' ORDER BY r.id),'')) FROM "TopicRelation" r),
+      (SELECT concat_ws(':',max("appliedAt")::text,max("restoredAt")::text,count(*)::text) FROM "KeywordCurationAudit"),
+      (SELECT max("updatedAt")::text || ':' || count(*)::text FROM "Keyword"),
+      (SELECT max("updatedAt")::text || ':' || count(*)::text FROM "Topic"),
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(r)::text),'' ORDER BY r.id),'')) FROM "KeywordRelation" r),
+      (SELECT max("updatedAt")::text || ':' || count(*)::text FROM "KeywordContentTask"),
+      (SELECT max("updatedAt")::text || ':' || count(*)::text FROM "KeywordSourceRow"),
+      (SELECT max("importedAt")::text || ':' || count(*)::text FROM "RankingImport"),
+      (SELECT max("fetchedAt")::text || ':' || count(*)::text FROM "KeywordVolume"),
+      (SELECT max("updatedAt")::text || ':' || count(*)::text FROM "SerpMonitorRun"),
+      (SELECT max("updatedAt")::text || ':' || count(*)::text FROM "SerpMonitorTask" WHERE "checkedAt" IS NOT NULL OR state IN ('FAILED','UNKNOWN')),
+      (SELECT max("importedAt")::text || ':' || count(*)::text FROM "WeeklyTraffic"),
+      (SELECT md5(COALESCE(string_agg(md5(to_jsonb(w)::text),'' ORDER BY w."siteDomain",w."periodStart"),'')) FROM "WeeklyReportDraft" w)
+    )) AS value), changed AS (
+      INSERT INTO "DisplaySnapshot" (key,body) SELECT 'display-source-v1',convert_to(value,'UTF8') FROM fingerprint
+      ON CONFLICT (key) DO UPDATE SET body=EXCLUDED.body WHERE "DisplaySnapshot".body IS DISTINCT FROM EXCLUDED.body RETURNING key
+    ) UPDATE "DisplaySnapshot" SET revision=revision+1 WHERE key LIKE 'display-v1:%' AND EXISTS(SELECT 1 FROM changed)`;
+}
