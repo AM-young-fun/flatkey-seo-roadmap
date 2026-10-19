@@ -103,7 +103,7 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
     if (config.nextDueAt?.toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000) throw new ImportRequestError("只能在计划时间前24小时内提前执行本轮", 409);
     const discovery = await runKeywordDiscoveryCycle({ periodKey: period.key, deadline: Date.now() + 150_000 });
     if (["NEEDS_REVIEW", "UNAVAILABLE", "DISABLED", "NOT_DUE"].includes(discovery.status)) throw new ImportRequestError(`新词发现已停止（${discovery.status}），请查看原采集记录，勿重复提交`, 409);
-    if (!discovery.ready) return { action: "runCycle", phase: "DISCOVERY", finished: false, message: "正在发现业务新词、去重并核对页面。" };
+    if (!discovery.ready) return { action: "runCycle", phase: "DISCOVERY", finished: false, message: `新词发现已完成${"completedMarkets" in discovery ? discovery.completedMarkets : 0}/12个站点市场，正在筛选去重并核对页面。` };
     const cohort = await loadSerpMonitoringCohort(), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS);
     if (quote.maxCostMicros > approved.maxRunCostMicros) {
       // Freeze spending after discovery; a larger cohort needs a new explicit

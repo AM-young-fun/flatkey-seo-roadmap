@@ -127,7 +127,7 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
   const earlyAllowed = options.periodKey && config.nextDueAt?.toISOString() === plan.period.dueAt && Date.parse(plan.period.dueAt) - now.getTime() <= 86400000;
   if (!existing.length && !plan.mayStart && !earlyAllowed) return {status:"NOT_DUE",ready:false,paidRequests:0};
   const job = plan.jobs.find(job=>existing.find(row=>row.requestId===job.requestId)?.status !== "COMPLETED");
-  if (!job) return {status:"COMPLETE",ready:true,paidRequests:0};
+  if (!job) return {status:"COMPLETE",ready:true,paidRequests:0,completedMarkets:plan.jobs.length};
   let run = existing.find(row=>row.requestId===job.requestId), paidRequests = 0;
   if (run && !["RECEIVED","IMPORT_FAILED"].includes(run.status)) return {status:"NEEDS_REVIEW",ready:false,paidRequests:0,requestId:job.requestId};
   if (!run) {
@@ -161,7 +161,8 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
     if (snapshot.actualCostMicros == null || snapshot.costWithinEstimate !== true) throw new Error("DISCOVERY_COST_UNCONFIRMED");
     await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{normalized:json(snapshot),actualCostMicros:snapshot.actualCostMicros}});
     const done = await applyDiscovery(snapshot,job.requestId,deadline);
-    return {status:"ACTIVE",ready:done && existing.filter(row=>row.status === "COMPLETED").length === plan.jobs.length-1,paidRequests,requestId:job.requestId};
+    const completedMarkets = existing.filter(row=>row.status === "COMPLETED").length + Number(done);
+    return {status:"ACTIVE",ready:completedMarkets === plan.jobs.length,paidRequests,requestId:job.requestId,completedMarkets};
   } catch {
     await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{status:"IMPORT_FAILED",errorCode:"DISCOVERY_CACHED_RESULT_REQUIRES_REVIEW"}});
     return {status:"NEEDS_REVIEW",ready:false,paidRequests,requestId:job.requestId};
