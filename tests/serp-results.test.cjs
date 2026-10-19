@@ -316,7 +316,7 @@ const db = {
     if (query.sql.includes("serp-monitor:page-readiness-evidence")) return readinessRows;
     if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
     if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.sql.includes("t.region IN ('US','JP','ES','BR')") || query.values.includes(row.region ?? "US")).map(row => ({ region: "US", ...row }));
-    if (query.sql.includes("dashboard:keywords")) return cohortRows.map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
+    if (query.sql.includes("dashboard:keywords")) return cohortRows.filter(row => !query.sql.includes("AND k.id =") || query.values.includes(row.keywordId)).map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
     if (query.sql.includes("dashboard:ranks")) return [{ keywordId: "claude", siteDomain: "flatkey.ai", region: "US", source: "dataforseo_labs", rank: 1, rankStatus: "ranked", rankReported: true, captureStatus: "COMPLETE", periodStart: null, periodEnd: null, collectedAt: new Date("2026-10-16T01:00:00Z"), dataUpdatedAt: new Date("2026-10-01T01:00:00Z") }];
     return [];
   }, rankingImport: { findFirst: async () => null }, syncRun: { findFirst: async () => null },
@@ -445,6 +445,21 @@ test("SERP read API requires a session, reads only the selected market ledger an
   for (const field of ["rawResponse", "requestJson", "encryptedCredentials", "submissionRaw"]) assert.ok(!JSON.stringify(body).includes(field));
   assert.equal((await GET(new Request("https://flatkey.test/api/serp-monitor/results?site=evil.example"))).status, 400);
   const jp = await loadSerpResults("all", "JP"); assert.equal(jp.summary.pending, 1); assert.equal(jp.summary.outside, 0);
+});
+
+test("current table skips legacy rank/page reads but preserves the measured rank; expanded history is scoped to one keyword", async () => {
+  taskRows = [task([target("claude")], { normalizedJson: {completeDepth:true,organicResults:[page("https://flatkey.ai/models/claude",8)]} })];
+  const current=await loadDashboard("all","dataforseo_serp","week",new Date(),false,{currentOnly:true});
+  assert.equal(current.keywords[0].latestRanks.US.rank,8);
+  assert.ok(queried.every(query=>!query.sql.includes("dashboard:ranks") && !query.sql.includes("dashboard:pages")));
+  queried=[];cohortRows.push(candidate("second-word"));
+  const expanded=await loadDashboard("flatkey.ai","dataforseo_serp","week",new Date(),true,{keywordId:"claude"});
+  assert.deepEqual(expanded.keywords.map(row=>row.id),["claude"]);
+  for(const phase of ["keywords","ranks","pages","volumes"]) {
+    const query=queried.find(query=>query.sql.includes(`dashboard:${phase}`));
+    assert.match(query.sql,/AND k.id =/);assert.ok(query.values.includes("claude"));
+  }
+  assert.equal(expanded.keywords[0].rankingEvidence.US.at(-1).source,"dataforseo_labs");
 });
 
 test("compact browser responses preserve every keyword, page and country rank, while full review evidence remains available", async () => {

@@ -20,18 +20,21 @@ export async function GET(request?: Request) {
   if (researchParam !== "0" && researchParam !== "1") return NextResponse.json({ message: "词池范围无效" }, { status: 400 });
   const includeResearch = researchParam === "1";
   const compact = params.get("compact") === "1";
+  const currentOnly = params.get("currentOnly") === "1", keywordId = params.get("keywordId") ?? undefined;
+  if (keywordId !== undefined && (!keywordId.trim() || keywordId.length > 200)) return NextResponse.json({ message: "关键词标识无效" }, { status: 400 });
   if (period !== "week" && period !== "history") return NextResponse.json({ message: "统计区间无效" }, { status: 400 });
   if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site) || !["gsc", "ahrefs", "dataforseo_labs", "dataforseo_serp", "combined"].includes(source))
     return NextResponse.json({ message: "参数无效" }, { status: 400 });
   if (!REGION_CODES.includes((params.get("region") ?? "US") as typeof REGION_CODES[number]))
     return NextResponse.json({ message: "地区无效" }, { status: 400 });
   // All countries share one payload, cache and in-flight read.
-  const key = `${site}:${source}:${period}:${includeResearch ? "library" : "formal"}`;
+  const key = `${site}:${source}:${period}:${includeResearch ? "library" : "formal"}:${currentOnly ? "current" : "full"}:${keywordId ?? "all"}`;
   try {
     const cached = cache.get(key);
     const hit = params.get("refresh") !== "1" && Boolean(cached && cached.expiresAt > Date.now());
-    if (!hit && !pending.has(key)) pending.set(key, retryDatabaseRead(() => loadDashboard(site, source, period, new Date(), includeResearch)).then(value => {
+    if (!hit && !pending.has(key)) pending.set(key, retryDatabaseRead(() => loadDashboard(site, source, period, new Date(), includeResearch, { currentOnly, keywordId })).then(value => {
       cache.set(key, { value, expiresAt: Date.now() + 30000 });
+      if (cache.size > 40) cache.delete(cache.keys().next().value!);
       return value;
     }).finally(() => pending.delete(key)));
     const value = hit ? cached!.value : await pending.get(key);

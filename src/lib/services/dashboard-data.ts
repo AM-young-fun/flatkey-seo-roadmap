@@ -122,19 +122,22 @@ export function assembleDashboard(
     ...(reportingPeriod ? { reportingPeriod } : {}) };
 }
 
-export async function loadDashboard(site: string, source = "dataforseo_serp", period: "week" | "history" = "week", now = new Date(), includeResearch = false): Promise<DashboardResponse> {
+export async function loadDashboard(site: string, source = "dataforseo_serp", period: "week" | "history" = "week", now = new Date(), includeResearch = false,
+  options: { currentOnly?: boolean; keywordId?: string } = {}): Promise<DashboardResponse> {
   if (!isDatabaseConfigured()) throw new Error("数据库未配置，暂时无法读取真实数据");
   const snapshotSource = ["dataforseo_labs", "dataforseo_serp"].includes(source);
-  const week = snapshotSource ? { ...labsReportingPeriod(now), ...(source === "dataforseo_serp" ? { label: "最近有效 Google SERP 实测 · 每月1日、16日更新" } : {}) }
+  const week = snapshotSource ? { ...labsReportingPeriod(now), ...(source === "dataforseo_serp" ? { label: "最近有效 Google SERP 实测 · 隔周周二10:30更新" } : {}) }
     : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
   const domains = Prisma.join(site === "all" ? SITES : [site]);
   const splitDaily = Prisma.raw(period === "week" && !snapshotSource ? "true" : "false");
   // Keyword details also need evidence for active research candidates, including
   // those without a topic. The overview keeps its formal-target cohort.
-  const membershipScope = includeResearch
+  const poolScope = includeResearch
     ? Prisma.sql`((sk."siteDomain" = 'flatkey.ai' AND sk.pool IN ('FORMAL','RESEARCH')) OR (sk."siteDomain" <> 'flatkey.ai' AND sk."topicId" IS NOT NULL))`
     : Prisma.sql`(sk."siteDomain" <> 'flatkey.ai' OR sk.pool = 'FORMAL') AND sk."topicId" IS NOT NULL`;
+  const membershipScope = Prisma.sql`(${poolScope}) ${options.keywordId ? Prisma.sql`AND k.id = ${options.keywordId}` : Prisma.empty}`;
+  const currentOnly = source === "dataforseo_serp" && options.currentOnly === true;
   const latestQueries = Prisma.sql`
     ${Prisma.raw(period === "week" ? "/* dashboard:weekly */" : "/* dashboard:history */")}
     SELECT DISTINCT ON (o."siteDomain", o."keywordId", o.region, o.source,
@@ -197,7 +200,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
       WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND ${membershipScope} AND k.active = true
       ORDER BY sk."siteDomain", k.type, k.text
     `),
-    prisma.$queryRaw<RankRow[]>(Prisma.sql`
+    currentOnly ? Promise.resolve([] as RankRow[]) : prisma.$queryRaw<RankRow[]>(Prisma.sql`
       /* dashboard:ranks */
       ${latestQueries}
     `),
@@ -237,7 +240,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
     `),
     prisma.rankingImport.findFirst({ where: { siteDomain: { in: site === "all" ? SITES : [site] } }, orderBy: { importedAt: "desc" }, select: { importedAt: true } }),
     site === "all" ? Promise.resolve(null) : prisma.syncRun.findFirst({ orderBy: { startedAt: "desc" } }),
-    prisma.$queryRaw<RankingPageRow[]>(Prisma.sql`
+    currentOnly ? Promise.resolve([] as RankingPageRow[]) : prisma.$queryRaw<RankingPageRow[]>(Prisma.sql`
       /* dashboard:pages */
       WITH latest_queries AS (${latestQueries}), eligible_pages AS (
         SELECT p.*, CASE WHEN p.source = 'dataforseo_labs' THEN 'COMPLETE' END AS "captureStatus" FROM "KeywordPageObservation" p
@@ -295,7 +298,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
   cohort.hash = createHash("sha256").update(JSON.stringify(cohort.targets)).digest("hex");
   const [monitoring, tasks] = await settleReads([loadSerpMonitoringCohort(site, includeResearch ? undefined : cohort), loadSerpTasks("all")], ["monitoring", "serp-tasks"]);
   const snapshots = await settleReads(REGION_CODES.map(region => loadSerpResults(site, region, SERP_MARKET_LANGUAGE[region], "desktop", cohort, monitoring, tasks.filter(task => task.region === region))), REGION_CODES.map(region => `serp:${region}`));
-  if (!includeResearch) dashboard.serpOverview = summarizeAllRegionResults(site, cohort, monitoring, snapshots);
+  if (!includeResearch && !options.keywordId) dashboard.serpOverview = summarizeAllRegionResults(site, cohort, monitoring, snapshots);
   for (const snapshot of snapshots) {
     const results = new Map(snapshot.items.map(item => [`${item.siteDomain}:${item.keywordId}`, item]));
     for (const keyword of dashboard.keywords) {

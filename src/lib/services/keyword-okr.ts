@@ -163,12 +163,13 @@ async function readKeywordOkr(siteDomain: string, pool?: "FORMAL" | "RESEARCH"):
     return row.active && row.pool === "FORMAL" && plan ? [{ ...plan, keyword: row.text, keywordId: row.keywordId }] : [];
   });
   type PageRow = { keywordId: string; url: string; source: string; region: string; periodStart: Date | null; periodEnd: Date | null; collectedAt: Date; rank: number | null };
-  const pages = initialized ? await prisma.$queryRaw<PageRow[]>(Prisma.sql`
+  // The detail table loads historical ranking/page evidence on expansion.
+  // Its initial request needs only current page assignments and audit status.
+  const pages = initialized && !pool ? await prisma.$queryRaw<PageRow[]>(Prisma.sql`
     /* keyword-okr:observed-pages */
     SELECT DISTINCT ON ("keywordId", source, region, url) "keywordId", url, source, region,
       "periodStart", "periodEnd", "collectedAt", rank
     FROM "KeywordPageObservation" WHERE "siteDomain" = ${siteDomain} AND source IN ('gsc','ahrefs')
-      ${pool ? Prisma.sql`AND "keywordId" IN (SELECT "keywordId" FROM "SiteKeyword" WHERE "siteDomain" = ${siteDomain} AND pool = ${pool} AND active = true)` : Prisma.empty}
     ORDER BY "keywordId", source, region, url, "periodEnd" DESC NULLS LAST, "collectedAt" DESC
   `) : [];
   const byKeyword = new Map<string, KeywordOkrItem["actualPages"]>();

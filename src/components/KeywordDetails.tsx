@@ -11,6 +11,8 @@ import { useDashboard } from "@/components/useDashboard";
 import type { DashboardKeyword, RankingEvidence, RankingPageEvidence, RankSummary } from "@/lib/types";
 import { REGIONS, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { dashboardStore } from "@/lib/dashboard-client";
+import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
+import type { DashboardResponse } from "@/lib/types";
 import { keywordEvidence } from "@/lib/keyword-evidence";
 import { keywordRelevance, normalizeKeywordText } from "@/lib/keyword-relevance";
 import type { KeywordPool } from "@/lib/keyword-okr";
@@ -53,6 +55,25 @@ function HistoryEvidence({ evidence, region }: { evidence: RankingEvidence; regi
     {evidence.pages.length ? <ul>{evidence.pages.map(page => <li key={page.url}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {evidence.source === "gsc" ? "平均位置" : "历史名次"} {position(page.rank)} · {localDate(page.checkedAt)}{evidence.source === "gsc" ? ` · 曝光 ${number(page.impressions)} · 点击 ${number(page.clicks)}` : ""}</li>)}</ul> : <p>{evidence.url ? <>来源页面：<a href={evidence.url} target="_blank" rel="noreferrer">{evidence.url}</a></> : "来源未提供独立页面记录"}</p>}
     {evidence.daily?.length ? <table className="dailyEvidenceTable"><thead><tr><th>日期</th><th>曝光</th><th>点击</th><th>当日平均位置</th><th>页面</th></tr></thead><tbody>{evidence.daily.map(day => <tr key={`${day.date}:${day.url ?? "query"}`}><td>{day.date}</td><td>{number(day.impressions)}</td><td>{number(day.clicks)}</td><td>{position(day.rank)}</td><td>{day.pages.map(page => <div key={page.url}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · 均值 {position(page.rank)}</div>)}{!day.pages.length && day.url ? <a href={day.url} target="_blank" rel="noreferrer">{day.url}</a> : null}</td></tr>)}</tbody></table> : null}
   </section>;
+}
+
+function KeywordHistory({ member, region }: { member: DashboardKeyword; region: SearchRegionCode }) {
+  const [history, setHistory] = useState<RankingEvidence[] | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const read = async () => {
+    if (busy || history) return;
+    setBusy(true); setError(null);
+    try {
+      const site = member.siteDomain ?? "flatkey.ai", id = member.id.startsWith(`${site}:`) ? member.id.slice(site.length + 1) : member.id;
+      const data = await clientReadCache.read<DashboardResponse>(`/api/dashboard?${new URLSearchParams({site, source:"dataforseo_serp", includeResearch:"1", keywordId:id})}`);
+      setHistory(data.keywords.find(row => row.id === id)?.rankingEvidence?.[region]?.filter(item => item.source !== "dataforseo_serp") ?? []);
+    } catch (failure) {
+      if (failure instanceof ClientReadError && failure.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
+      setError("历史参考暂时无法读取");
+    } finally { setBusy(false); }
+  };
+  return <details className="historicalEvidence" onToggle={event => { if (event.currentTarget.open) void read(); }}><summary>历史参考{history ? `（${history.length} 条）` : ""}</summary>
+    {error ? <div className="loadError"><span>{error}</span><button onClick={() => void read()}>重试</button></div> : busy ? <p className="chartNote">正在读取该词的历史参考…</p> : history?.length ? <><p className="chartNote">历史来源不参与主表排名与区间筛选。</p>{history.map((evidence,index) => <HistoryEvidence evidence={evidence} region={region} key={`${evidence.source}:${index}`} />)}</> : <p className="chartNote">暂无历史参考。</p>}
+  </details>;
 }
 
 export function KeywordDetails() {
@@ -144,7 +165,7 @@ export function KeywordDetails() {
       rowSelection={site === "all" || site === "flatkey.ai" ? undefined : { selectedRowKeys: selected, onChange: keys => setSelected(keys.slice(0, 500)), getCheckboxProps: group => ({ disabled: group.members.some(isFlatkey) }) }}
       expandable={{ expandedRowRender: group => <div className="keywordEvidenceDetails">{group.members.map(member => <section key={`${member.siteDomain}:${member.id}`}><h3>{siteName(member)} · {member.text}</h3><p>{okrFor(member)?.latestPageAuditReason ?? okrFor(member)?.reason ?? "页面与排名分别核对"}</p>{paused(member) ? <p>{holdReason(member)}；已存排名与页面证据保留。</p> : null}<TargetPages urls={[...new Set(targetUrls(member))]} />{okrFor(member)?.candidateUrls.length ? <details><summary>尚未确认关联的候选页面</summary><TargetPages urls={okrFor(member)!.candidateUrls} /></details> : null}{okrFor(member)?.actualPages.length ? <details><summary>审计保留的历史来源页面</summary><ul>{okrFor(member)!.actualPages.map((page, index) => <li key={`${page.url}:${index}`}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {page.source} · {page.region} · {page.periodStart ?? "来源区间未提供"}{page.periodEnd ? ` 至${page.periodEnd}` : ""}</li>)}</ul></details> : null}
         <p>月搜索量：{detailRegions(country).map(region => `${REGIONS[region].label} ${number(member.marketVolumes[region])}`).join(" · ")} · {member.volumeReviewLabel ?? member.volumeReview?.label ?? "历史不足，保留观察"}</p>
-        {detailRegions(country).map(region => { const rank = rankFor(member, region), pages = keywordRankingPages(rank, keywordEvidence(member, region), member.siteDomain ?? "flatkey.ai").map(page => ({ ...page, region, siteName: siteName(member), memberId: member.id })); const historical = keywordEvidence(member, region).filter(item => item.source !== "dataforseo_serp"); return <section key={region}><strong>{REGIONS[region].label} · {tagFor({ id: member.id, text: member.text, members: [member] }, region).label}</strong>{rank ? <><p>采集记录：{keywordRankingTag(rank).label} · 采集于 {localDate(rank.checkedAt)} · {rank.periodLabel ?? "未记录期次"} · {coverage(rank)}</p>{pages.length ? <ObservedPages pages={pages} compact /> : <p>本次未取得独立页面排名。</p>}</> : <p>{paused(member) ? holdReason(member) : "尚未采集"}</p>}{historical.length ? <details className="historicalEvidence"><summary>历史参考（{historical.length} 条）</summary><p className="chartNote">历史来源不参与主表排名与区间筛选。</p>{historical.map((evidence, index) => <HistoryEvidence evidence={evidence} region={region} key={`${evidence.source}:${index}`} />)}</details> : null}<a href={`https://www.google.com/search?${new URLSearchParams({ q: member.text, gl: REGIONS[region].gl, hl: REGIONS[region].hl, pws: "0" })}`} target="_blank" rel="noreferrer">在Google复核{REGIONS[region].label}结果 ↗</a></section>; })}
+        {detailRegions(country).map(region => { const rank = rankFor(member, region), pages = keywordRankingPages(rank, keywordEvidence(member, region), member.siteDomain ?? "flatkey.ai").map(page => ({ ...page, region, siteName: siteName(member), memberId: member.id })); return <section key={region}><strong>{REGIONS[region].label} · {tagFor({ id: member.id, text: member.text, members: [member] }, region).label}</strong>{rank ? <><p>采集记录：{keywordRankingTag(rank).label} · 采集于 {localDate(rank.checkedAt)} · {rank.periodLabel ?? "未记录期次"} · {coverage(rank)}</p>{pages.length ? <ObservedPages pages={pages} compact /> : <p>本次未取得独立页面排名。</p>}</> : <p>{paused(member) ? holdReason(member) : "尚未采集"}</p>}<KeywordHistory member={member} region={region} /><a href={`https://www.google.com/search?${new URLSearchParams({ q: member.text, gl: REGIONS[region].gl, hl: REGIONS[region].hl, pws: "0" })}`} target="_blank" rel="noreferrer">在Google复核{REGIONS[region].label}结果 ↗</a></section>; })}
       </section>)}</div> }} pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: total => `共 ${total} 个关键词（已去重）` }} scroll={{ x: 1300 }} size="middle" /></section>
   </main>;
 }
