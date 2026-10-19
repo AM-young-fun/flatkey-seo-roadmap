@@ -18,6 +18,7 @@ export function DataforSeoConnection({ onChanged }: { onChanged: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [verification, setVerification] = useState<{ balanceMicros: number; checkedAt: string } | null>(null);
   const readStatus = useCallback(async () => {
     const response = await fetch(DATAFORSEO_API_PATH, { cache: "no-store" });
     if (response.status === 401) { window.location.assign("/login"); throw new Error("登录已失效"); }
@@ -45,7 +46,7 @@ export function DataforSeoConnection({ onChanged }: { onChanged: () => void }) {
     finally { setBusy(""); }
   }
   async function connect(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy("connect"); setError(""); setNotice("");
+    event.preventDefault(); setBusy("connect"); setError(""); setNotice(""); setVerification(null);
     try {
       setStatus(await post({ action: "connect", apiLogin, apiPassword }) as DataForSeoStatus);
       setApiLogin(""); onChanged(); window.dispatchEvent(new Event("dataforseo-connection-updated")); setNotice("API 凭据已保存。可在上方查看SERP计划，付费执行保持关闭。");
@@ -53,9 +54,21 @@ export function DataforSeoConnection({ onChanged }: { onChanged: () => void }) {
     finally { setApiPassword(""); setBusy(""); }
   }
   async function disconnect() {
-    setBusy("disconnect"); setError("");
+    setBusy("disconnect"); setError(""); setVerification(null);
     try { setStatus(await post({ action: "disconnect" }) as DataForSeoStatus); onChanged(); window.dispatchEvent(new Event("dataforseo-connection-updated")); setNotice("已移除 API 凭据，已存排名与运行记录保留。"); }
     catch (failure) { setError(failure instanceof Error ? failure.message : "移除失败"); }
+    finally { setBusy(""); }
+  }
+  async function verifyConnection() {
+    setBusy("verify"); setError(""); setNotice(""); setVerification(null);
+    try {
+      const response = await fetch("/api/serp-monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sampleBalance" }) });
+      if (response.status === 401) { window.location.assign("/login"); return; }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message ?? "连接与余额验证失败，请检查 API 凭据后重试。");
+      if (result.action !== "sampleBalance" || !Number.isSafeInteger(result.balanceMicros) || result.balanceMicros < 0 || typeof result.checkedAt !== "string" || !Number.isFinite(Date.parse(result.checkedAt)) || result.scheduledPaidEnabled !== false) throw new Error("验证回执不完整，尚未确认账户余额。");
+      setVerification({ balanceMicros: result.balanceMicros, checkedAt: result.checkedAt });
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "连接与余额验证失败"); }
     finally { setBusy(""); }
   }
   const connected = status?.connection.configured && status.connection.canDecrypt;
@@ -72,7 +85,7 @@ export function DataforSeoConnection({ onChanged }: { onChanged: () => void }) {
       {status?.connection.configured ? <button type="button" className="okrRefresh" disabled={Boolean(busy)} onClick={() => void disconnect()}>移除凭据</button> : null}
     </form>
     <p className="chartNote">保存凭据不会执行抓取，密码不回显。</p>
-
-
+    <div className="dataforseoActions"><button type="button" className="okrRefresh" disabled={Boolean(busy) || !connected} onClick={() => void verifyConnection()}>{busy === "verify" ? "正在验证…" : "验证连接与余额"}</button></div>
+    {verification ? <p className="cacheNotice" role="status">认证成功 · 可用余额 <strong>{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(verification.balanceMicros / 1_000_000)}</strong><br /><small>{new Date(verification.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}（北京时间） · 仅查询账户信息，未执行付费抓取。</small></p> : null}
   </section>;
 }
