@@ -2307,13 +2307,3 @@ a:focus-visible {
 .collectionProgressTrack i{display:block;height:100%;background:#588bf5;border-radius:6px;transition:width .25s}
 .collectionProgress p{margin:0;font-size:12px;line-height:1.6}
 @media(max-width:680px){.collectionProgressHeading{align-items:flex-start;flex-direction:column;gap:5px}}
-
-.currentRankedKeywords{margin:20px 0 12px;padding-bottom:16px;border-bottom:1px solid #edf1f6}
-.currentRankedHeading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.currentRankedHeading h3{font-size:15px;margin:0;color:#334762;font-weight:500}
-.currentRankedHeading h3 strong{font-size:25px;color:#10a775;margin:0 6px;font-variant-numeric:tabular-nums}
-.currentRankedHeading>span,.currentRankedKeywords>p{font-size:12px;color:#8493a7}
-.currentRankedTable{overflow-x:auto}.currentRankedTable table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
-.currentRankedTable th,.currentRankedTable td{padding:10px 12px;text-align:left;border-bottom:1px solid #f0f3f7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.currentRankedTable th{font-weight:500;color:#8796aa;background:#f8fafc}.currentRankedTable th:first-child{width:32%}.currentRankedTable th:nth-child(2),.currentRankedTable th:nth-child(3){width:90px}
-.currentRankedTable td{color:#627791}.currentRankedTable td strong{color:#238f73}.currentRankedTable a{color:#5378a8}.currentRankedTable td:last-child a{color:#7c8ea7}

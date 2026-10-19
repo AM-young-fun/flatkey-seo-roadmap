@@ -8,6 +8,7 @@ import { serpSampleMutationSchema } from "@/lib/serp-sample";
 import { loadSerpSampleEvidence, mutateSerpSample } from "@/lib/services/serp-sample";
 import { serpMonitorMutationSchema } from "@/lib/dataforseo-serp";
 import { loadSerpMonitorStatus, mutateSerpMonitor } from "@/lib/services/serp-monitor";
+import { loadSerpQueryEvidence } from "@/lib/services/serp-query-evidence";
 import { loadSerpCollectionProgress } from "@/lib/services/serp-collection-progress";
 
 export const runtime = "nodejs";
@@ -28,6 +29,11 @@ export async function GET(request: Request) {
   const denied = await authorize(); if (denied) return denied;
   try {
     const params = request && new URL(request.url).searchParams;
+    if (params?.has("queryEvidence")) {
+      const keyword = params.get("queryEvidence")?.trim() ?? "", region = params.get("region") ?? "US";
+      if (!keyword || keyword.length > 700 || !["US", "JP", "ES", "BR"].includes(region)) return NextResponse.json({ message: "查询参数无效" }, { status: 400, headers });
+      return NextResponse.json({ evidence: await retryDatabaseRead(() => loadSerpQueryEvidence(keyword, region)) }, { headers });
+    }
     if (params && params.get("progress") === "1") {
       const site = params.get("site") ?? "all";
       if (!["all", "flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site)) return NextResponse.json({message:"网站无效"},{status:400,headers});
