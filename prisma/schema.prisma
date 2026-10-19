@@ -547,6 +547,19 @@ model SerpMonitorTask {
   @@index([region, checkedAt(sort: Desc)])
 }
 
+// Read-only content export credentials, managed by authenticated dashboard users.
+model KeywordExportApiKey {
+  id String @id @default(cuid())
+  name String
+  keyHash String @unique
+  encryptedKey String
+  prefix String
+  siteDomain String?
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime?
+  revokedAt DateTime?
+}
+
 // A scheduler heartbeat is distinct from a paid collection or a source read.
 model SchedulerCheck {
   id String @id

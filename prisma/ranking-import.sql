@@ -391,4 +391,17 @@ CREATE TABLE IF NOT EXISTS "SchedulerCheck" (
 );
 CREATE INDEX IF NOT EXISTS "SchedulerCheck_startedAt_idx" ON "SchedulerCheck" ("startedAt" DESC);
 
+CREATE TABLE IF NOT EXISTS "KeywordExportApiKey" (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  "keyHash" TEXT NOT NULL,
+  "encryptedKey" TEXT NOT NULL,
+  prefix TEXT NOT NULL,
+  "siteDomain" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "lastUsedAt" TIMESTAMP(3),
+  "revokedAt" TIMESTAMP(3)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "KeywordExportApiKey_keyHash_key" ON "KeywordExportApiKey" ("keyHash");
+
 COMMIT;

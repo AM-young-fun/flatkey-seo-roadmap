@@ -71,6 +71,10 @@ japan seo tracking,seo tools
 - 父关键词不为空时，用关键词文本完全匹配父关键词，并导入为长尾关键词
 - 父关键词只出现在第二列时，会自动创建为主关键词
 
+## 关键词导出 API
+
+在「数据管理 → API Key · 关键词导出」创建并复制密钥，通过 `GET /api/keywords/content-opportunities` 仅导出已确认没有前100排名的目标词，不限是否绑定页面；返回页面、排名依据和任务进度，排除排名未知的词。支持网站权限范围、地区筛选、JSON / CSV 和密钥停用。完整参数、请求示例与返回字段见 [接口接入文档](docs/keyword-export-api.md)。
+
 ## Vercel 部署
 
 1. 在 Vercel 项目里添加 `.env.example` 中的环境变量。
