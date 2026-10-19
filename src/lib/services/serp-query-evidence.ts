@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : null;
+const googleUrl = (value: unknown) => {
+  try { const url = new URL(String(value)); return url.protocol === "https:" && !url.username && !url.password && ["www.google.com", "www.google.co.jp", "www.google.es", "www.google.com.br"].includes(url.hostname) ? url.href : null; } catch { return null; }
+};
 const integer = (value: unknown) => Number.isInteger(value) ? value as number : null;
 /** Public search-result fields only; never serialize credentials or provider request envelopes. */
 export function publicSerpSnapshot(rawResponse: string | null) {
@@ -11,7 +14,7 @@ export function publicSerpSnapshot(rawResponse: string | null) {
   const snapshot = object(Array.isArray(results) ? results[0] : null);
   if (!Array.isArray(snapshot.items)) return null;
   return { keyword: text(snapshot.keyword), locationCode: integer(snapshot.location_code), languageCode: text(snapshot.language_code),
-    datetime: text(snapshot.datetime), checkUrl: text(snapshot.check_url), spell: snapshot.spell ? { type: text(object(snapshot.spell).type), keyword: text(object(snapshot.spell).keyword) } : null,
+    datetime: text(snapshot.datetime), checkUrl: googleUrl(snapshot.check_url), spell: snapshot.spell ? { type: text(object(snapshot.spell).type), keyword: text(object(snapshot.spell).keyword) } : null,
     organicResults: snapshot.items.filter(item => object(item).type === "organic").map(value => { const item = object(value); return {
       rankGroup: integer(item.rank_group), rankAbsolute: integer(item.rank_absolute), page: integer(item.page),
       title: text(item.title), url: text(item.url), domain: text(item.domain),
