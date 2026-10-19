@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { weeklyPeriods, reportPeriods, registrationRate, relativeChange } from "@/lib/weekly-traffic";
 import { compareCaptures } from "@/lib/daily-changes";
 import { compareWeeklyRankings } from "@/lib/weekly-keywords";
+import type { WeeklyPageRank } from "@/lib/weekly-keyword-comparison";
+import { diagnoseWeeklyReport } from "@/lib/weekly-report-diagnosis";
 import { normalizeDomain, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import type { KeywordObservation, KeywordPageObservation } from "@prisma/client";
 
@@ -140,15 +142,30 @@ async function reportSummary(periods: ReturnType<typeof weeklyPeriods>) {
       ) v ORDER BY "keywordId", region, priority, date DESC
     ) SELECT sk."siteDomain", latest.region::text AS region, k.text, latest.volume FROM latest
       JOIN "Keyword" k ON k.id=latest."keywordId" JOIN "SiteKeyword" sk ON sk."keywordId"=k.id
-      WHERE k.active=true AND sk.active=true AND sk."topicId" IS NOT NULL AND latest.volume>0
+      WHERE k.active=true AND sk.active=true AND sk.pool='FORMAL' AND sk."topicId" IS NOT NULL AND latest.volume>0
   ` : [];
-  const movements=compareWeeklyRankings(reports,new Set(volumes.map(row=>`${row.siteDomain}:${row.region}:${row.text.toLowerCase()}`)),periods.previous.end,periods.current.end);
+  const pageRanks = reports.length ? await prisma.$queryRaw<WeeklyPageRank[]>`
+    WITH evidence AS (
+      SELECT "siteDomain", region, source, "keywordId", url, rank, "periodStart", "periodEnd", "dataUpdatedAt", "collectedAt", "importedAt" FROM "KeywordPageObservation"
+      UNION ALL
+      SELECT "siteDomain", region, source, "keywordId", url, rank, "periodStart", "periodEnd", "dataUpdatedAt", "collectedAt", "importedAt" FROM "KeywordObservation" WHERE url IS NOT NULL AND "rankReported"=true
+    ), dated AS (
+      SELECT e.*, CASE WHEN "periodStart"="periodEnd" THEN "periodEnd"
+        WHEN source='ahrefs' THEN ("dataUpdatedAt" AT TIME ZONE 'UTC')::date END AS day
+      FROM evidence e WHERE "siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc') AND source IN ('gsc','ahrefs')
+    ) SELECT d."siteDomain", d.region::text AS region, d.source, to_char(d.day, 'YYYY-MM-DD') AS date, k.text AS keyword, d.url, d.rank
+      FROM dated d JOIN "Keyword" k ON k.id=d."keywordId"
+      WHERE d.day IN (${periods.previous.end}::date, ${periods.current.end}::date)
+      ORDER BY d."collectedAt" DESC, d."importedAt" DESC
+  ` : [];
+  const movements=compareWeeklyRankings(reports,new Set(volumes.map(row=>`${row.siteDomain}:${row.region}:${row.text.toLowerCase()}`)),periods.previous.end,periods.current.end,pageRanks);
+  const diagnosis = await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, movements.comparison, periods.current.end);
   return NextResponse.json({periods,history:[...new Set([weeklyPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
     traffic:{current,previous,currentSites,previousSites,comparable,siteTraffic:siteTraffic.map(site=>({siteDomain:site.siteDomain,current:site.current ? {newUsers:site.current.newUsers,newRegistrations:site.current.newRegistrations,registrationRate:registrationRate(site.current.newUsers,site.current.newRegistrations)}:null})),changes:{
       newUsers:comparable?relativeChange(current!.newUsers,previous!.newUsers):null,newRegistrations:comparable?relativeChange(current!.newRegistrations,previous!.newRegistrations):null,
       registrationRate:comparable?relativeChange(current!.registrationRate,previous!.registrationRate):null,
       ratePoints:comparable && current!.registrationRate!==null && previous!.registrationRate!==null?(current!.registrationRate-previous!.registrationRate)*100:null,
-    }},...movements,pages:[],
+    }},...movements,diagnosis,pages:[],
   },{headers:{"Cache-Control":"private, no-store"}});
 }
 

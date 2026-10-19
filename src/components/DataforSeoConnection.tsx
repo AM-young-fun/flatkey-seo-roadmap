@@ -49,7 +49,7 @@ export function DataforSeoConnection({ onChanged }: { onChanged: () => void }) {
     event.preventDefault(); setBusy("connect"); setError(""); setNotice(""); setVerification(null);
     try {
       setStatus(await post({ action: "connect", apiLogin, apiPassword }) as DataForSeoStatus);
-      setApiLogin(""); onChanged(); window.dispatchEvent(new Event("dataforseo-connection-updated")); setNotice("API 凭据已保存。可在上方查看SERP计划，付费执行保持关闭。");
+      setApiLogin(""); onChanged(); window.dispatchEvent(new Event("dataforseo-connection-updated")); setNotice("API 凭据已保存，付费执行保持关闭。");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "保存失败"); }
     finally { setApiPassword(""); setBusy(""); }
   }

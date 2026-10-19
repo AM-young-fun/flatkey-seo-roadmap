@@ -2007,3 +2007,46 @@ a:focus-visible {
 @media(max-width:520px) { .visualSerpOverview { padding:20px 14px 16px; } .overviewVisualGrid { gap:10px; } .overviewVisualCard { padding:14px 10px; } .summaryRing { width:130px; height:130px; margin:12px auto; } .summaryRing strong { font-size:25px; } .visualChartLegend > div { flex-wrap:wrap; } .visualChartLegend small { min-width:32px; } .visualRankLegend { gap:9px 10px; font-size:10px; } .countryVisualCard { padding:16px; } .countryChartHead,.countryBarRow { grid-template-columns:84px minmax(60px,1fr) 54px; gap:8px; } .fourMarketBadge { display:none; } }
 @media(max-width:1000px) { .keywordFilterGrid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } }
 @media(max-width:600px) { .keywordFilterPanel { padding:16px 16px 0; } .keywordFilterGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } .keywordSearchRow { gap:8px; margin-bottom:16px; } .keywordFilterReset { font-size:0; padding:10px; } .keywordFilterReset svg { width:17px; height:17px; } .keywordResultBar { align-items:flex-start; } .keywordResultBar p { flex-wrap:wrap; } .keywordResultBar p span { flex-basis:100%; border:0; padding:0; margin:0; } }
+
+/* Compact weekly comparisons: aligned counts and bars, without extra controls. */
+.keywordComparisonSummary { display:flex; gap:48px; padding:4px 0 24px; }
+.keywordComparisonSummary > div { display:flex; flex-direction:column; gap:8px; }
+.keywordComparisonSummary span { color:#8290a5; font-size:12px; }
+.keywordComparisonSummary strong { font-size:28px; color:#23395c; }
+.keywordComparisonSummary .metricIncrease { color:#10a780; }
+.keywordComparisonSummary .metricDecrease { color:#d26b59; }
+.keywordComparisonTable th > i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:9px; }
+.reportBarCell { display:flex; align-items:center; gap:12px; }
+.reportBarCell > strong { min-width:40px; text-align:right; font-weight:600; }
+.reportBarTrack { width:160px; height:8px; background:#f0f3f8; border-radius:5px; overflow:hidden; }
+.reportBarTrack > i { display:block; height:100%; border-radius:inherit; }
+.reportBarTrack .previousReportBar { background:#c7d3e5; }
+.reportDelta { font-weight:600; color:#8795a9; }
+.reportDelta.increase { color:#10a780; }
+.reportDelta.decrease { color:#d26b59; }
+.pageLossSummary { padding-top:24px; }
+.pageLossSummary h3 { font-size:14px; margin:0 0 14px; }
+.pageLossSummary td:first-child { min-width:260px; max-width:470px; white-space:normal; overflow-wrap:anywhere; }
+.pageLossSummary a { color:#547bac; font-size:12px; }
+.pageLossSummary td > small { display:block; margin-top:6px; color:#8795a9; font-size:11px; }
+.pageLossSummary td > strong { font-size:12px; font-weight:500; }
+@media (max-width:700px) { .keywordComparisonSummary { gap:28px; } .reportBarTrack { width:100px; } }
+
+.reportSummary h2 { font-size:16px; margin:0 0 18px; }
+.reportSummary > div { display:grid; grid-template-columns:90px 1fr; gap:16px; margin:12px 0; font-size:13px; line-height:1.8; }
+.reportSummary > div > span { color:#8795a9; }
+.reportSummary p { margin:0; color:#49617f; overflow-wrap:anywhere; }
+.reportSummary a { color:#547bac; }
+@media (max-width:700px) { .reportSummary > div { grid-template-columns:1fr; gap:3px; } }
+
+.reportDiagnosis h2 { font-size:16px; margin:0 0 20px; }
+.reportDiagnosis > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.diagnosisFinding { background:#f8faff; padding:18px; border-radius:10px; border-left:3px solid #93aed7; overflow-wrap:anywhere; }
+.diagnosisFinding.issue { background:#fff8f5; border-left-color:#df8d6d; }
+.diagnosisFinding.unresolved { background:#f8fafc; border-left-color:#bdc9d9; }
+.diagnosisFinding h3 { margin:0 0 8px; font-size:13px; }
+.diagnosisFinding p,.diagnosisFinding a { font-size:12px; color:#60758f; line-height:1.8; }
+.diagnosisFinding p { margin:8px 0; }
+.diagnosisFinding .diagnosisAction { color:#405b7c; }
+.diagnosisFinding small { font-size:11px; color:#8795a9; }
+@media (max-width:700px) { .reportDiagnosis > div { grid-template-columns:1fr; } }
