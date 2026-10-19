@@ -2111,7 +2111,6 @@ a:focus-visible {
 .funnelRateSummary strong { font-size:23px; color:#365f98; font-variant-numeric:tabular-nums; }
 .funnelRateArrow { color:#a5b4c9; }
 .funnelRateSummary > b { font-size:12px; margin-left:auto; }
-.funnelScope { margin:16px 0 0; }
 @media(max-width:600px) { .funnelRateSummary { gap:12px; padding:14px; } .funnelRateSummary > span:first-child { flex-basis:100%; } .funnelRateSummary > div { gap:6px; } .funnelRateSummary strong { font-size:20px; } .funnelDashboard .channelName { overflow-wrap:anywhere; } }
 
 .reportDiagnosis h2 { font-size:16px; margin:0 0 20px; }

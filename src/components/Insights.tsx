@@ -131,20 +131,16 @@ function WeeklyChannelComparison({ evidence, period }: { evidence: WeeklyTraffic
 }
 
 function WeeklyFunnelComparison({ evidence }: { evidence: WeeklyTrafficEvidence }) {
-  const [path, setPath] = useState<"overall" | "form">("overall");
-  const funnel = path === "form" ? evidence.formFunnel : evidence.newVisitorFunnel;
+  const funnel = evidence.newVisitorFunnel;
   if (!funnel) return null;
   const rows = funnel.current.map((step, index) => ({ name: step.name, current: step.users, previous: funnel.previous[index]?.users ?? 0 }));
   const currentRate = registrationRate(rows[0].current, rows.at(-1)!.current);
   const previousRate = registrationRate(rows[0].previous, rows.at(-1)!.previous);
   const points = currentRate != null && previousRate != null && evidence.complete ? (currentRate - previousRate) * 100 : null;
   return <section className="dailyPanel channelDashboard funnelDashboard" aria-label="注册漏斗对比">
-    <div className="dailyHeading"><div><h2>新访客注册漏斗</h2><p className="chartNote">同一批新访客 · 按步骤先后统计</p></div>
-      {evidence.formFunnel ? <div className="channelMetricSwitch" role="group" aria-label="注册路径"><button type="button" aria-pressed={path === "overall"} onClick={() => setPath("overall")}>整体注册</button><button type="button" aria-pressed={path === "form"} onClick={() => setPath("form")}>表单路径</button></div> : null}
-    </div>
+    <div className="dailyHeading"><div><h2>新访客注册漏斗</h2><p className="chartNote">首次访问 → 注册成功 · 同一批新访客</p></div></div>
     <div className="funnelRateSummary" aria-label="首次访问到注册成功的转化率"><span>注册转化率</span><div><small>上期</small><strong>{pct(previousRate)}</strong></div><span className="funnelRateArrow">→</span><div><small>本期</small><strong>{pct(currentRate)}</strong></div><b className={`reportDelta ${points != null ? points > 0 ? "increase" : points < 0 ? "decrease" : "" : ""}`}>{points == null ? "—" : `${points > 0 ? "+" : ""}${points.toFixed(2)} 个百分点`}</b></div>
     <PeriodBarsTable rows={rows} label="注册步骤人数对比" heading="步骤" complete={evidence.complete} />
-    {path === "form" ? <p className="chartNote funnelScope">仅统计经过表单的路径，不含全部登录方式；表单事件可能包含其他站内表单。</p> : null}
   </section>;
 }
 
