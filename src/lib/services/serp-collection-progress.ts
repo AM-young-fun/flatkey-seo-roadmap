@@ -7,7 +7,7 @@ export async function loadSerpCollectionProgress(site = "all"): Promise<SerpColl
   const rows = await prisma.$queryRaw<Array<{
     runId: string; periodLabel: string; status: string; totalQueries: number; startedAt: Date; completedAt: Date | null;
     completedQueries: number; plannedQueries: number; waitingQueries: number; processingQueries: number; failedQueries: number;
-    totalKeywords: number; completedKeywords: number;
+    totalKeywords: number; completedKeywords: number; pendingTasks: SerpCollectionProgress["pendingTasks"];
   }>>(Prisma.sql`
     /* serp-monitor:collection-progress */
     WITH latest_run AS (
@@ -28,7 +28,11 @@ export async function loadSerpCollectionProgress(site = "all"): Promise<SerpColl
       COALESCE(SUM(w.completed),0)::integer AS "completedQueries", COALESCE(SUM(w.planned),0)::integer AS "plannedQueries",
       COALESCE(SUM(w.waiting),0)::integer AS "waitingQueries", COALESCE(SUM(w.processing),0)::integer AS "processingQueries",
       COALESCE(SUM(w.failed),0)::integer AS "failedQueries", COUNT(w.keyword)::integer AS "totalKeywords",
-      COUNT(w.keyword) FILTER (WHERE w.countries = 4 AND w.completed = w.total)::integer AS "completedKeywords"
+      COUNT(w.keyword) FILTER (WHERE w.countries = 4 AND w.completed = w.total)::integer AS "completedKeywords",
+      COALESCE((SELECT jsonb_agg(pending) FROM (SELECT t.id,t.keyword,t.region,t.state,t."errorCode",
+        GREATEST(0,FLOOR(EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-COALESCE(t."submittedAt",t."createdAt")))/60))::integer AS "waitMinutes",
+        CASE WHEN t."lastPolledAt" IS NULL THEN NULL ELSE GREATEST(0,FLOOR(EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-t."lastPolledAt"))/60))::integer END AS "lastPolledMinutesAgo"
+        FROM "SerpMonitorTask" t WHERE t."runId"=r.id AND t.state <> 'COMPLETE' ORDER BY t."lastPolledAt" DESC NULLS LAST,t.keyword,t.region LIMIT 8) pending),'[]'::jsonb) AS "pendingTasks"
     FROM latest_run r LEFT JOIN words w ON true GROUP BY r.id, r."periodLabel", r.status, r."queryCount", r."startedAt", r."completedAt"
   `);
   const row = rows[0];

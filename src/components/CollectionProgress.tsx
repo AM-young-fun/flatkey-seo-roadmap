@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Activity, CheckCircle2, ChevronUp, X } from "lucide-react";
-import { collectionIsActive, type SerpCollectionProgress } from "@/lib/serp-collection-progress";
+import { REGIONS } from "@/lib/seo";
+import { collectionIsActive, collectionPercent, collectionWaitingReason, type SerpCollectionProgress } from "@/lib/serp-collection-progress";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 
 export function CollectionProgress({site = "all"}: {site?: string}) {
@@ -52,10 +53,11 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
         {active ? <><div><dt>等待返回</dt><dd>{progress.waitingQueries.toLocaleString()}</dd></div>{progress.plannedQueries ? <div><dt>待提交</dt><dd>{progress.plannedQueries.toLocaleString()}</dd></div> : null}{progress.processingQueries ? <div><dt>正在整理</dt><dd>{progress.processingQueries.toLocaleString()}</dd></div> : null}</> : null}
         {progress.failedQueries ? <div><dt>异常查询</dt><dd>{progress.failedQueries.toLocaleString()}</dd></div> : null}</dl>
       <div className="collectionProgressTrack" role="progressbar" aria-label="四国查询完成进度" aria-valuemin={0} aria-valuemax={progress.totalQueries} aria-valuenow={progress.completedQueries}><i style={{width:`${percent}%`}} /></div>
+      {active && progress.pendingTasks?.length && progress.waitingQueries <= 8 ? <div className="collectionPendingWords">{progress.pendingTasks.map(task=><div key={task.id}><strong>{REGIONS[task.region as keyof typeof REGIONS]?.label ?? task.region} · {task.keyword}</strong><span>{collectionWaitingReason(task.errorCode)} · 已等待 {task.waitMinutes} 分钟</span></div>)}</div> : null}
       {failed ? <p>进度暂未刷新</p> : null}
     </section> : null}
     <button type="button" className="collectionFloatButton" aria-expanded={open} aria-controls="collection-progress-details" onClick={() => setOpen(value => !value)}>
-      {complete ? <CheckCircle2 size={16} /> : <Activity size={16} />}<span>{label}</span><strong>{Math.floor(percent)}%</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
+      {complete ? <CheckCircle2 size={16} /> : <Activity size={16} />}<span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
     </button>
   </div>;
 }

@@ -2362,3 +2362,7 @@ a:focus-visible {
 .overviewCountrySelect { width:150px; height:36px; }
 .singleCountryOverview { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media(max-width:760px) { .singleCountryOverview { grid-template-columns:1fr; } }
+
+.collectionPendingWords { display:grid; gap:10px; border-top:1px solid #edf1f6; margin-top:14px; padding-top:12px; max-height:180px; overflow-y:auto; }
+.collectionPendingWords strong { display:block; font-size:11px; font-weight:500; line-height:1.5; overflow-wrap:anywhere; }
+.collectionPendingWords span { display:block; margin-top:4px; font-size:10px; color:#99a5b6; }

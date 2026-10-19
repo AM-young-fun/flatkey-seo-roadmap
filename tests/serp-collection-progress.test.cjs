@@ -8,7 +8,7 @@ let queries = [], rows = [];
 const mock = (relative,exports) => {const file=path.join(root,relative);require.cache[file]={id:file,filename:file,loaded:true,exports};};
 mock("src/lib/prisma.ts",{prisma:{$queryRaw:async query=>{queries.push(query);return rows;}}});
 const {loadSerpCollectionProgress} = require("../src/lib/services/serp-collection-progress.ts");
-const {collectionIsActive} = require("../src/lib/serp-collection-progress.ts");
+const {collectionIsActive,collectionPercent} = require("../src/lib/serp-collection-progress.ts");
 
 test("query progress is a free metadata read and four-country completed words are separate from submitted queries", async t => {
   t.mock.method(globalThis,"fetch",async()=>assert.fail("progress must not contact any provider"));
@@ -39,4 +39,11 @@ test("the lightweight progress endpoint requires login and rejects invalid site 
   const response=await GET(new Request("https://flatkey.test/api/serp-monitor?progress=1"));
   assert.equal(response.status,200);assert.deepEqual(await response.json(),{progress:null});
   assert.equal(queries.length,1);assert.match(response.headers.get("cache-control"),/private, no-store/);
+});
+
+test("nearly complete runs show actual decimals without rounding an unfinished task to 100 percent",()=>{
+ assert.equal(collectionPercent(5577,5580),"99.95%");
+ assert.equal(collectionPercent(5579,5580),"99.98%");
+ assert.equal(collectionPercent(5580,5580),"100%");
+ assert.equal(collectionPercent(999999,1000000),"99.99%");
 });
