@@ -148,7 +148,8 @@ async function reportSummary(periods: ReturnType<typeof weeklyPeriods>) {
     candidateEvidence.totals.previous.newUsers === flatkeyPrevious.newUsers && candidateEvidence.totals.previous.newRegistrations === flatkeyPrevious.newRegistrations ? candidateEvidence : null;
   const comparable=Boolean(complete && current && previous && currentSites.join()===previousSites.join() && siteTraffic.every(site=>!site.current || (site.previous && site.current.timezone===site.previous.timezone && site.current.ga4PropertyId===site.previous.ga4PropertyId && site.current.registrationMetric===site.previous.registrationMetric)));
   const movements = serp;
-  const diagnosis = evidence?.complete ? auditedWeeklyDiagnosis(evidence) : await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, movements.comparison, periods.current.end);
+  const comparableRanks = movements.ranking.baseline || movements.ranking.noNewCapture || movements.ranking.waiting ? null : movements.comparison;
+  const diagnosis = evidence?.complete ? auditedWeeklyDiagnosis(evidence) : await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, comparableRanks, periods.current.end);
   return NextResponse.json({periods,evidence,history:[...new Set([activeReportPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
     traffic:{current,previous,complete,currentSites,previousSites,comparable,siteTraffic:siteTraffic.map(site=>({siteDomain:site.siteDomain,current:site.current ? {newUsers:site.current.newUsers,newRegistrations:site.current.newRegistrations,registrationRate:registrationRate(site.current.newUsers,site.current.newRegistrations)}:null})),changes:{
       newUsers:comparable?relativeChange(current!.newUsers,previous!.newUsers):null,newRegistrations:comparable?relativeChange(current!.newRegistrations,previous!.newRegistrations):null,
