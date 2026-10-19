@@ -5,11 +5,11 @@ require.extensions[".ts"] = (module,file)=>module._compile(ts.transpileModule(fs
 const {keywordCyclePlan,discoveryPageMatches}=require("../src/lib/keyword-cycle.ts");
 const {buildRankedKeywordsTask,normalizeRankedKeywords}=require("../src/lib/dataforseo-labs.cjs");
 
-test("the discovery cycle binds twelve independent markets and never starts on an intervening week",()=>{
+test("the discovery cycle binds four Flatkey markets and never starts on an intervening week",()=>{
  const plan=keywordCyclePlan(new Date("2026-10-20T02:30:00Z"));
- assert.equal(plan.mayStart,true);assert.equal(plan.jobs.length,12);assert.equal(plan.maxDiscoveryCostMicros,1584000);
- assert.equal(new Set(plan.jobs.map(job=>job.requestId)).size,12);
- for(const job of plan.jobs){assert.equal(job.task.target,job.targetDomain);assert.equal(job.task.include_clickstream_data,false);assert.equal(job.task.offset,0);}
+ assert.equal(plan.mayStart,true);assert.equal(plan.jobs.length,4);assert.equal(plan.maxDiscoveryCostMicros,528000);
+ assert.equal(new Set(plan.jobs.map(job=>job.requestId)).size,4);
+ for(const job of plan.jobs){assert.equal(job.targetDomain,"flatkey.ai");assert.equal(job.task.target,job.targetDomain);assert.equal(job.task.include_clickstream_data,false);assert.equal(job.task.offset,0);}
  assert.equal(keywordCyclePlan(new Date("2026-10-27T02:30:00Z")).mayStart,false);
  assert.equal(keywordCyclePlan(new Date("2026-10-20T02:29:59Z")).mayStart,false);
  assert.equal(keywordCyclePlan(new Date("2026-11-03T02:30:00Z")).mayStart,true);
@@ -58,17 +58,17 @@ test("disabled discovery never reads credentials or calls the paid provider",asy
  assert.equal(result.status,"DISABLED");assert.equal(result.paidRequests,0);assert.equal(runs.length,0);
 });
 
-test("a twelve-market cycle records each POST once and an uncertain response never resubmits",async()=>{
+test("a Flatkey four-market cycle records each POST once and an uncertain response never resubmits",async()=>{
  const originalFetch=global.fetch;scheduleEnabled=true;
  global.fetch=async(_url,options)=>{
   fetches++;if(failTransport)throw Error("lost response");const task=JSON.parse(options.body)[0];
   return new Response(JSON.stringify({status_code:20000,tasks_error:0,tasks_count:1,cost:.012,tasks:[{status_code:20000,result:[{target:task.target,location_code:task.location_code,language_code:task.language_code,items:[],items_count:0,total_count:0}]}]}));
  };
  try{
-  for(let i=0;i<12;i++)await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
+  for(let i=0;i<4;i++)await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
   const complete=await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
-  assert.equal(complete.ready,true);assert.equal(fetches,12);assert.ok(runs.every(row=>row.status==="COMPLETED"));
-  await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});assert.equal(fetches,12);
+  assert.equal(complete.ready,true);assert.equal(fetches,4);assert.ok(runs.every(row=>row.status==="COMPLETED"));
+  await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});assert.equal(fetches,4);
   runs=[];fetches=0;failTransport=true;
   const first=await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});
   const retry=await runKeywordDiscoveryCycle({now:new Date("2026-10-20T02:30:00Z")});

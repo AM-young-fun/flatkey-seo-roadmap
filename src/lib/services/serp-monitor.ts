@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { envBool } from "@/lib/env";
 import { ImportRequestError } from "@/lib/ranking-import";
-import { loadSerpMonitoringCohort as loadSerpTargetCohort } from "@/lib/services/serp-targets";
+import { loadScheduledSerpMonitoringCohort as loadSerpTargetCohort } from "@/lib/services/serp-targets";
 import { nextSerpPeriodKey, periodDue, serpPeriod, serpPeriodFromKey } from "@/lib/serp-periods";
 import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegion, normalizeSerpAdvanced, providerCostMicros, providerIdIsSafe, providerTaskEnvelope,
   quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_NORMALIZATION_VERSION, SERP_PRICE_PER_QUERY_MICROS, SERP_TASK_GET_URL, SERP_TASK_POST_URL,

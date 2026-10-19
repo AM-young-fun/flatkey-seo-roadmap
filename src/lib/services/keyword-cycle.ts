@@ -12,6 +12,7 @@ import { keywordRelevance, normalizeKeywordText } from "@/lib/keyword-relevance"
 import { SERP_CONFIG_ID } from "@/lib/dataforseo-serp";
 import { serpPeriod } from "@/lib/serp-periods";
 import { ImportRequestError } from "@/lib/ranking-import";
+import { SERP_COLLECTION_SITE } from "@/lib/serp-targets";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const enabled = () => !envBool("DISABLE_EXTERNAL_FETCH");
@@ -137,7 +138,7 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
     if (started) plan = upcoming;
   }
   const existing = await prisma.dataForSeoRun.findMany({where:{requestId:{in:plan.jobs.map(job=>job.requestId)}}});
-  const unresolved = await prisma.dataForSeoRun.findFirst({where:{requestId:{startsWith:"discovery-",notIn:plan.jobs.map(job=>job.requestId)},status:{in:["PENDING","UNKNOWN","RECEIVED","IMPORT_FAILED"]}},select:{requestId:true}});
+  const unresolved = await prisma.dataForSeoRun.findFirst({where:{siteDomain:SERP_COLLECTION_SITE,requestId:{startsWith:"discovery-",notIn:plan.jobs.map(job=>job.requestId)},status:{in:["PENDING","UNKNOWN","RECEIVED","IMPORT_FAILED"]}},select:{requestId:true}});
   if (unresolved) return {status:"NEEDS_REVIEW",ready:false,paidRequests:0,requestId:unresolved.requestId};
   const earlyAllowed = options.periodKey && config.nextDueAt?.toISOString() === plan.period.dueAt && Date.parse(plan.period.dueAt) - now.getTime() <= 86400000;
   if (!existing.length && !plan.mayStart && !earlyAllowed) return {status:"NOT_DUE",ready:false,paidRequests:0};

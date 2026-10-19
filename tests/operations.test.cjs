@@ -20,7 +20,7 @@ mock("src/lib/prisma.ts", { prisma: {
   serpMonitorRun: { findMany: async () => [{ id: "existing", scope: "SAMPLE", periodKey: "2026-10-2", periodLabel: "2026年10月第2期", status: "COMPLETED", queryCount: 152, startedAt: new Date("2026-10-16T01:00Z"), completedAt: new Date("2026-10-16T02:00Z") }] },
   dataForSeoRun: { findMany: async () => [] }, weeklyTraffic: { findMany: async () => [] },
 } });
-const { schedulerState, plannedRankingTime } = require("../src/lib/operations.ts");
+const { schedulerState, plannedRankingTime, operationStateLabels } = require("../src/lib/operations.ts");
 const { loadOperationsStatus } = require("../src/lib/services/operations.ts");
 const { GET } = require("../src/app/api/operations/route.ts");
 test("configured schedule and unfinished heartbeat cannot masquerade as successful execution", () => {
@@ -33,6 +33,11 @@ test("configured schedule and unfinished heartbeat cannot masquerade as successf
   assert.equal(schedulerState({ ...last, status: "NEEDS_REVIEW" }, now), "ERROR");
   assert.equal(plannedRankingTime(now, null), "2026-10-20T02:30:00.000Z");
   assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z")), "2026-11-03T02:30:00.000Z");
+  const due = new Date("2026-10-20T02:30:00Z");
+  assert.equal(plannedRankingTime(now, due, ["2026-10-20"]), "2026-11-03T02:30:00.000Z");
+  assert.equal(due.toISOString(), "2026-10-20T02:30:00.000Z", "displaying the next slot cannot move the unfinished worker cursor");
+  assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z"), ["2026-10-20"]), "2026-11-03T02:30:00.000Z");
+  assert.equal(operationStateLabels.WAITING_FOR_DISCOVERY, "等待新词发现完成");
 });
 test("operational view reads metadata only and distinguishes online ranking from external collectors", async t => {
   process.env.DATABASE_URL = "postgresql://unused.invalid/operations";
@@ -54,4 +59,20 @@ test("operations API needs a real session; denied reads never touch the database
   session = true;
   const response = await GET();
   assert.equal(response.status, 200); assert.match(response.headers.get("cache-control"), /private, no-store/);
+});
+
+test("an advanced unfinished round is separate from the next automatic date", async t => {
+  const {prisma} = require("../src/lib/prisma.ts");
+  const due = new Date("2026-10-20T02:30:00Z");
+  t.mock.method(prisma.serpMonitorConfig, "findUnique", async () => ({paidEnabled:true,authorizationVersion:1,nextDueAt:due}));
+  t.mock.method(prisma.dataForSeoConnection, "findUnique", async () => ({scheduleEnabled:true}));
+  t.mock.method(prisma.dataForSeoRun, "findMany", async input => {
+    assert.equal(input.where.siteDomain, "flatkey.ai");
+    return ["US","JP","ES","BR"].map(region => ({requestId:`discovery-2026-10-20-flatkey-ai-${region}`,siteDomain:"flatkey.ai",status:"COMPLETED",createdAt:new Date("2026-10-19T07:00Z"),completedAt:new Date("2026-10-19T07:10Z")}));
+  });
+  const result = await loadOperationsStatus(new Date("2026-10-19T08:00Z"));
+  assert.equal(result.plans[0].nextAt, "2026-11-03T02:30:00.000Z");
+  assert.match(result.plans[0].currentExecution, /4\/4 国已完成，实际排名待开始/);
+  assert.equal(result.controls.discoveryMaxCostMicros, 528000);
+  assert.equal(due.toISOString(), "2026-10-20T02:30:00.000Z");
 });

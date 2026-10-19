@@ -2,6 +2,8 @@ import { keywordRelevance } from "./keyword-relevance";
 import type { PageAuditVerdict } from "./page-audit";
 
 export const SERP_TARGET_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"] as const;
+// Paid recurring collection is scoped independently from the saved inventory.
+export const SERP_COLLECTION_SITE = "flatkey.ai";
 
 export type SerpTargetCandidate = {
   keywordId: string;

@@ -17,7 +17,7 @@ const db = {
   serpMonitorRun: { aggregate: async () => ({ _sum: { reservedCostMicros: 912000 } }), findUnique: async () => run, findUniqueOrThrow: async () => run },
 };
 mock("src/lib/prisma.ts", { prisma: db });
-mock("src/lib/services/serp-targets.ts", { loadSerpMonitoringCohort: async () => structuredClone(cohort) });
+mock("src/lib/services/serp-targets.ts", { loadScheduledSerpMonitoringCohort: async () => structuredClone(cohort) });
 mock("src/lib/services/keyword-cycle.ts", { runKeywordDiscoveryCycle: async () => { discoveries++; paidCalls++; return { status: "COMPLETE", ready: true, paidRequests: 1 }; } });
 mock("src/lib/services/serp-monitor.ts", {
   startSerpScheduledPeriod: async (periodKey, hash) => { paidCalls++; run = { id: "stable-period-run", periodKey, cohortHash: hash, status: "RUNNING" }; return run; },
@@ -41,7 +41,7 @@ beforeEach(t => {
 });
 test("preview is free; explicit activation changes both switches, not provider state", async () => {
   const preview = await previewCollectionSchedule();
-  assert.equal(preview.serpMaxCostMicros, 24000); assert.equal(preview.discoveryMaxCostMicros, 1584000); assert.equal(preview.queryCount, 4);
+  assert.equal(preview.serpMaxCostMicros, 24000); assert.equal(preview.discoveryMaxCostMicros, 528000); assert.equal(preview.queryCount, 4);
   assert.equal(preview.periodKey, "2026-10-20"); assert.equal(paidCalls, 0); assert.equal(config.paidEnabled, false);
   await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
   assert.equal(config.paidEnabled, true); assert.equal(config.authorizationVersion, 1); assert.equal(connection.scheduleEnabled, true); assert.equal(paidCalls, 0);

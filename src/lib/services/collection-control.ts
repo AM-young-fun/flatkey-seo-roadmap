@@ -8,7 +8,7 @@ import { quoteSerpTargets, SERP_CONFIG_ID, SERP_MARKETS } from "@/lib/dataforseo
 import { parseSerpSampleBalance, SERP_USER_DATA_URL } from "@/lib/serp-sample";
 import { keywordCyclePlan } from "@/lib/keyword-cycle";
 import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey } from "@/lib/serp-periods";
-import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
+import { loadScheduledSerpMonitoringCohort as loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import { runKeywordDiscoveryCycle, inspectDiscoveryRun, replayDiscoveryRun } from "@/lib/services/keyword-cycle";
 import { runSerpMonitorCron, startSerpScheduledPeriod } from "@/lib/services/serp-monitor";
 import type { CollectionControlMutation, CollectionSchedulePreview, CollectionCycleProgress } from "@/lib/collection-control";
@@ -54,7 +54,7 @@ export async function previewCollectionSchedule(): Promise<CollectionSchedulePre
   const issuedAt = Date.now(), maxMonthCostMicros = quote.maxCostMicros * 3 + (spent._sum.reservedCostMicros ?? 0);
   const previewToken = signDataForSeoPreview({ purpose: "SEO_SCHEDULE_V1", periodKey: period.key, cohortHash: cohort.hash, connectionVersion: connection.connectionVersion,
     connectionHash: fingerprint(connection.encryptedCredentials), revision: config?.revision ?? 0, maxRunCostMicros: quote.maxCostMicros, maxMonthCostMicros, issuedAt, expiresAt: issuedAt + TTL });
-  return { action: "previewSchedule", periodKey: period.key, periodLabel: period.label, dueAt: period.dueAt, keywordCount: quote.keywordQueryCount, queryCount: quote.queryCount, discoveryJobs: 12,
+  return { action: "previewSchedule", periodKey: period.key, periodLabel: period.label, dueAt: period.dueAt, keywordCount: quote.keywordQueryCount, queryCount: quote.queryCount, discoveryJobs: discovery.jobs.length,
     serpMaxCostMicros: quote.maxCostMicros, discoveryMaxCostMicros: discovery.maxDiscoveryCostMicros, totalMaxCostMicros: quote.maxCostMicros + discovery.maxDiscoveryCostMicros,
     maxMonthSerpCostMicros: maxMonthCostMicros, balanceMicros, checkedAt: new Date(issuedAt).toISOString(), previewToken };
 }
@@ -105,7 +105,7 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
     if (config.nextDueAt?.toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000) throw new ImportRequestError("只能在计划时间前24小时内提前执行本轮", 409);
     const discovery = await runKeywordDiscoveryCycle({ periodKey: period.key, deadline: Date.now() + 150_000 });
     if (["NEEDS_REVIEW", "UNAVAILABLE", "DISABLED", "NOT_DUE"].includes(discovery.status)) throw new ImportRequestError(`新词发现已停止（${discovery.status}），请查看原采集记录，勿重复提交`, 409);
-    if (!discovery.ready) return { action: "runCycle", phase: "DISCOVERY", finished: false, message: `新词发现已完成${"completedMarkets" in discovery ? discovery.completedMarkets : 0}/12个站点市场，正在筛选去重并核对页面。` };
+    if (!discovery.ready) return { action: "runCycle", phase: "DISCOVERY", finished: false, message: `Flatkey新词发现已完成${"completedMarkets" in discovery ? discovery.completedMarkets : 0}/${keywordCyclePlan(new Date(),period.key).jobs.length}个国家，正在筛选去重并核对页面。` };
     const cohort = await loadSerpMonitoringCohort(), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS);
     if (quote.maxCostMicros > approved.maxRunCostMicros) {
       // Freeze spending after discovery; a larger cohort needs a new explicit

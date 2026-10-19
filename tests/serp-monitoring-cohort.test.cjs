@@ -71,7 +71,7 @@ require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true
     assert.fail("unexpected database read");
   },
 } } };
-const { loadSerpMonitoringCohort } = require("../src/lib/services/serp-targets.ts");
+const { loadSerpMonitoringCohort, loadScheduledSerpMonitoringCohort } = require("../src/lib/services/serp-targets.ts");
 const sourceRow = (keyword, pageUrl, changes = {}) => ({ siteDomain: "flatkey.ai", sourceId: "optimization", rowKey: keyword,
   snapshot: { completion: "COMPLETED", pageUrl, publication: { pageVerified: true, verificationReason: "页面已公开可访问且正文满足该关键词的主要搜索意图" },
     keywords: [{ keyword, relevance: "RELEVANT", pageIntentMatched: true }], ...changes } });
@@ -122,4 +122,13 @@ test("loading monitoring readiness retains the original strict formal-cohort sel
   const result = await loadSerpMonitoringCohort();
   assert.equal(result.allTargetCount, 1); assert.equal(result.allTargets[0].keywordId, "formal");
   assert.equal(result.heldTargetCount, 1); assert.equal(queries.length, 2);
+});
+
+test("the recurring paid cohort queries only Flatkey while the inventory still supports all sites", async () => {
+  queries = []; storedRows = []; cohortRows = [];
+  await loadScheduledSerpMonitoringCohort();
+  assert.deepEqual(queries[0].values, ["flatkey.ai"]);
+  queries = [];
+  await loadSerpMonitoringCohort();
+  assert.deepEqual(queries[0].values, ["flatkey.ai", "rackrate.org", "modelfit.cc"]);
 });

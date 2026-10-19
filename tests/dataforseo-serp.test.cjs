@@ -129,7 +129,7 @@ function mockFile(relative, exports) { const name = path.join(root, relative); r
 mockFile("src/lib/prisma.ts", { prisma: db });
 mockFile("src/lib/services/serp-targets.ts", {
   loadSerpTargetCohort: async () => ({ targets: clone(targets), hash: "a".repeat(64) }),
-  loadSerpMonitoringCohort: async () => ({ targets: clone(targets), hash: "a".repeat(64), allTargets: clone(targets), allTargetHash: "a".repeat(64), allTargetCount: targets.length, heldTargetCount: 0 }),
+  loadScheduledSerpMonitoringCohort: async () => ({ targets: clone(targets), hash: "a".repeat(64), allTargets: clone(targets), allTargetHash: "a".repeat(64), allTargetCount: targets.length, heldTargetCount: 0 }),
 });
 mockFile("src/lib/dataforseo-credentials.ts", { decryptDataForSeoCredentials: () => ({ apiLogin: "fictional@example.invalid", apiPassword: "fictional-not-a-real-password" }) });
 const { SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_MARKET_CONFIG, configForSerpRegion, groupSerpQueries, groupSerpMarketQueries, quoteSerpTargets, buildSerpTask, normalizeSerpAdvanced, serpMonitorMutationSchema } = require("../src/lib/dataforseo-serp.ts");

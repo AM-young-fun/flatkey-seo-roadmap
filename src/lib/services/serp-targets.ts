@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { classifySerpMonitoringCohort, eligibleSerpTargets, serpTargetKey, SERP_TARGET_SITES,
+import { classifySerpMonitoringCohort, eligibleSerpTargets, serpTargetKey, SERP_TARGET_SITES, SERP_COLLECTION_SITE,
   type SerpTarget, type SerpTargetCandidate, type SerpMonitoringEvidence } from "@/lib/serp-targets";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { readPageAuditVerdict } from "@/lib/keyword-monitoring";
@@ -29,6 +29,11 @@ export async function loadSerpTargetCohort(site = "all"): Promise<{ targets: Ser
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const urls = (value: unknown): string[] => Array.isArray(value) ? value.filter((url): url is string => typeof url === "string") : [];
+
+/** The scheduled paid task only monitors Flatkey; other sites remain in inventory. */
+export function loadScheduledSerpMonitoringCohort() {
+  return loadSerpMonitoringCohort(SERP_COLLECTION_SITE);
+}
 
 /** Saved evidence only: no page requests, provider calls or state mutations. */
 export async function loadSerpMonitoringCohort(site = "all", existingCohort?: { targets: SerpTarget[]; hash: string }) {

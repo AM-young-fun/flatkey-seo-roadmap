@@ -11,7 +11,7 @@ export const collectionControlSchema = z.discriminatedUnion("action", [
 export type CollectionControlMutation = z.infer<typeof collectionControlSchema>;
 export type CollectionSchedulePreview = {
   action: "previewSchedule"; periodKey: string; periodLabel: string; dueAt: string;
-  keywordCount: number; queryCount: number; discoveryJobs: 12;
+  keywordCount: number; queryCount: number; discoveryJobs: number;
   serpMaxCostMicros: number; discoveryMaxCostMicros: number; totalMaxCostMicros: number;
   maxMonthSerpCostMicros: number; balanceMicros: number; checkedAt: string; previewToken: string;
 };
