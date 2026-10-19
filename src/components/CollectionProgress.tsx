@@ -57,7 +57,7 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
       {failed ? <p>进度暂未刷新</p> : null}
     </section> : null}
     <button type="button" className="collectionFloatButton" aria-expanded={open} aria-controls="collection-progress-details" onClick={() => setOpen(value => !value)}>
-      {complete ? <CheckCircle2 size={16} /> : <span className="collectionActivityIcon"><Activity size={16} />{active ? <i aria-hidden="true" /> : null}</span>}<span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
+      {complete ? <CheckCircle2 size={16} /> : <Activity size={16} />}<span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
     </button>
   </div>;
 }
