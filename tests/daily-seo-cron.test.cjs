@@ -57,7 +57,7 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
   assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "config", "run"]);
   assert.equal(ledgerReads[2][1].where.scope, "SCHEDULED", "the coordinator must not continue the separately authorized sample");
 });
-test("Vercel keeps the paid coordinator separate from free project jobs", () => {
+test("Vercel has one resumable coordinator; paid starts are gated by the biweekly cycle", () => {
   const config = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
-  assert.deepEqual(config.crons, [{ path: "/api/cron/daily-rankings", schedule: "*/5 * * * *" },{path:"/api/cron/project-jobs",schedule:"*/5 * * * *"}]);
+  assert.deepEqual(config.crons, [{ path: "/api/cron/daily-rankings", schedule: "*/5 * * * *" }]);
 });

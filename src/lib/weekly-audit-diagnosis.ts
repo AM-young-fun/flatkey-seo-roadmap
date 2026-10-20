@@ -13,12 +13,12 @@ export function auditedWeeklyDiagnosis(data: WeeklyTrafficEvidence): WeeklyRepor
   if (country) result.findings.push({ title: "直接访问注册下降最集中的地区", level: "finding",
     evidence: `${countryNames[country[0]]??country[0]}直接访问注册用户 ${country[1].previous} → ${country[1].current}，减少 ${country[1].previous-country[1].current} 人。地区是独立切片，跨地区用户可能重复，未与渠道人数重复相加。`,
     action: "核对该地区同期入口与推广来源、登录方式和访问错误日志；报表尚不能证明具体投放变化、网络故障或埋点变更。" });
-  if (data.newVisitorFunnel) {
+  if (data.newVisitorFunnel && data.formFunnel) {
     const before = data.newVisitorFunnel.previous, after = data.newVisitorFunnel.current;
-    const rate=(value:number|null)=>value===null?"暂无":`${(value*100).toFixed(2)}%`;
-    result.findings.push({ title: "新访客整体注册变化", level: "finding",
-      evidence: `同批新访客注册 ${before.at(-1)!.users}/${before[0].users}（${rate(before[0].completionRate)}）→ ${after.at(-1)!.users}/${after[0].users}（${rate(after[0].completionRate)}）。`,
-      action: "结合渠道与地区变化核对入口、注册方式及错误日志；报表变化尚不能直接证明注册系统故障。" });
+    const formBefore = data.formFunnel.previous, formAfter = data.formFunnel.current;
+    result.findings.push({ title: "新访客与表单顺序漏斗变化", level: "finding",
+      evidence: `首次访问后注册 ${before.at(-1)!.users}/${before[0].users}（${(before[0].completionRate!*100).toFixed(2)}%）→ ${after.at(-1)!.users}/${after[0].users}（${(after[0].completionRate!*100).toFixed(2)}%）；按首次访问→开始填表→提交→注册的完整路径，成功 ${formBefore.at(-1)!.users} → ${formAfter.at(-1)!.users}。`,
+      action: "分别核对首次访问后进入表单、提交表单及注册完成的流失率。表单事件可能包含其他表单，也不覆盖所有登录方式，不能据此宣称整个注册系统无故障。" });
   }
   if (data.search) result.findings.push({ title: data.search.clicks.current<data.search.clicks.previous ? "Google 自然搜索点击下降" : "Google 自然搜索点击未下降", level: "finding",
     evidence: `GSC 全站点击 ${data.search.clicks.previous} → ${data.search.clicks.current}，曝光 ${data.search.impressions.previous} → ${data.search.impressions.current}。搜索点击与直接访问注册是不同的统计口径，不能仅凭同期变化认定因果。`,

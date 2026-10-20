@@ -246,40 +246,6 @@ model WeeklyReportDraft {
   @@id([siteDomain, periodStart])
 }
 
-// Project schedules are durable; no desktop chat is needed to enqueue them.
-model ProjectAutomation {
-  id String @id @default("default")
-  trafficEnabled Boolean @default(true)
-  sheetsEnabled Boolean @default(true)
-  ga4Credentials String?
-  ga4Email String?
-  ga4VerifiedAt DateTime?
-  workerTokenHash String?
-  workerSeenAt DateTime?
-  updatedAt DateTime @updatedAt
-}
-
-model ProjectJob {
-  id String @id
-  kind String
-  sourceId String?
-  periodStart String
-  dueAt DateTime
-  nextAttemptAt DateTime
-  status String @default("QUEUED")
-  attempts Int @default(0)
-  leaseToken String?
-  leaseUntil DateTime?
-  startedAt DateTime?
-  completedAt DateTime?
-  errorCode String?
-  detail String?
-  payload Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@index([kind, status, nextAttemptAt])
-}
-
 model DailyRankingReport {
   id String @id @default(cuid())
   siteDomain String

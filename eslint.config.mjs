@@ -15,11 +15,10 @@ const eslintConfig = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["tests/**/*.cjs", "scripts/dws-sheet-parser.cjs"],
+    files: ["tests/**/*.cjs"],
     languageOptions: { globals: globals.node },
     rules: { "@typescript-eslint/no-require-imports": "off" }
   },
-  { files:["scripts/source-sync-worker.mjs"],languageOptions:{globals:globals.node} },
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {

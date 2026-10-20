@@ -22,7 +22,7 @@ const db = { keywordSourceRow: { groupBy: async query => {
   }, "status must read only aggregate metadata for the three known sources");
   if (failure) throw failure;
   return structuredClone(groups);
-} },projectAutomation:{findUnique:async()=>null},projectJob:{findMany:async()=>[]} };
+} } };
 const prismaPath = path.join(root, "src/lib/prisma.ts");
 require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: db } };
 const headersPath = require.resolve("next/headers");

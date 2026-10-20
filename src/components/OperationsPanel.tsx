@@ -34,7 +34,7 @@ export function OperationsPanel() {
     } catch (error) { setError(error instanceof Error ? error.message : "读取失败"); }
     finally { setBusy(false); }
   }
-  useEffect(() => { void read(); const refresh=()=>void read();window.addEventListener("seo-operations-updated",refresh);return () => { stopped.current = true;window.removeEventListener("seo-operations-updated",refresh); }; }, []);
+  useEffect(() => { void read(); return () => { stopped.current = true; }; }, []);
   async function showPreview() {
     setWorking("preview"); setError(""); setNotice("");
     try { setPreview(await post({ action: "previewSchedule" })); }
