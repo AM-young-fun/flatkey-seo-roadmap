@@ -165,6 +165,7 @@ export function TrafficReport() {
   const periods = data?.periods ?? (week ? reportPeriods(week) : activeReportPeriods());
   const traffic = data?.traffic;
   const draft = data?.draft;
+  const trafficPeriods = draft?.comparisonPeriods ?? periods;
   const sameDays = draft?.evidence.totals;
   const displayTraffic = sameDays ? {...sameDays,changes:{newUsers:relativeChange(sameDays.current.newUsers,sameDays.previous.newUsers),newRegistrations:relativeChange(sameDays.current.newRegistrations,sameDays.previous.newRegistrations)}} : traffic;
   const history = data?.history ?? [activeReportPeriods().current.start, ...(week ? [week] : [])];
@@ -177,10 +178,10 @@ export function TrafficReport() {
   ];
   return <main className="appShell"><PageHeader active="traffic" />
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
-    <div className="periodComparison"><span><i className="currentDot" />本期 {periods.current.start} — {periods.current.end}</span><span><i />上期 {periods.previous.start} — {periods.previous.end}</span></div>
+    <div className="periodComparison"><span><i className="currentDot" />本期 {trafficPeriods.current.start} — {trafficPeriods.current.end}</span><span><i />上期 {trafficPeriods.previous.start} — {trafficPeriods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
-    {draft ? <div className="weeklyRankingState"><strong>本周草稿 · 完整周尚未结束</strong><p>阶段累计：{draft.stageTotals.newUsers.toLocaleString()} 位新用户、{draft.stageTotals.newRegistrations.toLocaleString()} 位注册。采集于{new Date(draft.stageTotals.collectedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}（北京时间）。</p><p>以下图表和原因排查：{draft.comparisonPeriods.current.start}—{draft.comparisonPeriods.current.end} 对比 {draft.comparisonPeriods.previous.start}—{draft.comparisonPeriods.previous.end}，均为已结束的相同星期区间。</p></div> : traffic?.complete === false ? <p className="weeklyRankingState">本期周报尚未开始整理，待确认后更新完整周数据。</p> : null}
-    <p className="chartNote reportScope">GA4 · {draft ? "Flatkey · 同星期等长对比" : `三站汇总${data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
+    {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期周报尚未开始整理，待确认后更新完整周数据。</p> : null}
+    <p className="chartNote reportScope">GA4 · {draft ? "Flatkey · 更新中" : `三站汇总${data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
     <section className="trafficGrid" aria-label="流量与注册概览">{metrics.map((metric) => {
       const current = metric.current; const previous = metric.previous;
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);
