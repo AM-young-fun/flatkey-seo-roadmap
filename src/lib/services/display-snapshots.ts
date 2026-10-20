@@ -57,6 +57,7 @@ export async function invalidateDisplaySnapshots() {
 export async function syncDisplaySourceVersion() {
   await prisma.$executeRaw`
     WITH fingerprint AS (SELECT md5(concat_ws('|',
+      'weekly-first-issue-v1',
       (SELECT md5(COALESCE(string_agg(md5(to_jsonb(sk)::text),'' ORDER BY sk."siteDomain",sk."keywordId"),'')) FROM "SiteKeyword" sk),
       (SELECT md5(COALESCE(string_agg(md5(to_jsonb(s)::text),'' ORDER BY s.domain),'')) FROM "SeoSite" s),
       (SELECT md5(COALESCE(string_agg(md5(to_jsonb(s)::text),'' ORDER BY s."siteDomain",s."topicId"),'')) FROM "SiteTopic" s),

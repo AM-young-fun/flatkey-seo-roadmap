@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { buildSerpKeywordResults, type SerpKeywordResult } from "@/lib/serp-results";
+import { buildSerpKeywordResults, serpTaskPeriod, type SerpKeywordResult } from "@/lib/serp-results";
 import { loadSerpTasks } from "@/lib/services/serp-results";
 import { loadSerpTargetCohort } from "@/lib/services/serp-targets";
 import { REGION_CODES } from "@/lib/seo";
@@ -16,17 +16,39 @@ export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) 
   const previousSlot = serpPeriod(`${previousPublicationDay}T02:30:00Z`);
   const [run, previousRun] = await timedRead("weekly.run-metadata", () => Promise.all([slot,previousSlot].map(period=>prisma.serpMonitorRun.findUnique({where:{periodKey_scope:{periodKey:period.key,scope:"SCHEDULED"}}}))));
   const targets = new Map(cohort.targets.map(target=>[`${target.siteDomain}:${target.keywordId}`,target]));
-  for (const saved of [run,previousRun]) for (const item of Array.isArray(saved?.cohortJson) ? saved.cohortJson : []) {
+  const addCohort = (saved: {cohortJson: unknown} | null) => { for (const item of Array.isArray(saved?.cohortJson) ? saved.cohortJson : []) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     if (typeof item.keywordId === "string" && typeof item.keyword === "string" && typeof item.siteDomain === "string" && ["flatkey.ai","rackrate.org","modelfit.cc"].includes(item.siteDomain))
-      targets.set(`${item.siteDomain}:${item.keywordId}`,{keywordId:item.keywordId,keyword:item.keyword,siteDomain:item.siteDomain,targetUrls:Array.isArray(item.targetUrls)?item.targetUrls.filter((value):value is string=>typeof value === "string"):[]});
-  }
-  const [currentTasks, previousTasks] = await Promise.all([
+      targets.set(`${item.siteDomain}:${item.keywordId}`,{keywordId:item.keywordId,keyword:item.keyword,siteDomain:item.siteDomain,targetUrls:Array.isArray(item.targetUrls)?item.targetUrls.filter((value:unknown):value is string=>typeof value === "string"):[]});
+  } };
+  addCohort(run); addCohort(previousRun);
+  const [currentTasks, weeklyPreviousTasks] = await Promise.all([
     loadSerpTasks("all", undefined, undefined, periods.current.start, publicationDay, run?.id),
     loadSerpTasks("all", undefined, undefined, periods.previous.start, previousPublicationDay, previousRun?.id),
   ]);
+  let previousTasks = weeklyPreviousTasks;
+  let comparisonReference: {kind:"FIRST_ISSUE"; label:string; checkedAt:string | null; capturedKeywords:number} | null = null;
+  const valid = (item:SerpKeywordResult) => item.status === "RANKED" || item.status === "OUTSIDE_TOP100";
+  if (captureWeek && run && !REGION_CODES.some(region => buildSerpKeywordResults([...targets.values()], previousTasks.filter(task=>task.region === region)).some(valid))) {
+    // The previous traffic week can predate our first SERP check. Reuse the
+    // first completed issue as requested, without relabeling its capture date
+    // or mixing it with this issue's receipts.
+    const firstRun = await prisma.serpMonitorRun.findFirst({where:{status:"COMPLETED", id:{not:run.id},
+      createdAt:{lt:run.createdAt}, tasks:{some:{region:{in:[...REGION_CODES]}, state:"COMPLETE"}}},orderBy:[{createdAt:"asc"},{id:"asc"}]});
+    if (firstRun) {
+      addCohort(firstRun);
+      const firstTasks = (await loadSerpTasks("all",undefined,undefined,firstRun.periodStart.toISOString().slice(0,10),publicationDay,firstRun.id)).filter(task=>task.runId === firstRun.id);
+      const firstItems = REGION_CODES.flatMap(region=>buildSerpKeywordResults([...targets.values()],firstTasks.filter(task=>task.region === region)));
+      if (firstItems.some(valid)) {
+        previousTasks = firstTasks;
+        comparisonReference = {kind:"FIRST_ISSUE",label:(firstTasks[0] && serpTaskPeriod(firstTasks[0])?.label) ?? firstRun.periodLabel,
+          checkedAt:firstItems.flatMap(item=>item.checkedAt && item.captureComplete ? [item.checkedAt] : []).sort().at(-1) ?? null,
+          capturedKeywords:new Set(firstItems.filter(item=>item.captureComplete).map(item=>item.keyword.normalize("NFKC").toLowerCase().trim())).size};
+      }
+    }
+  }
   const markets = REGION_CODES.map(region => ({ region,
-    current: buildSerpKeywordResults([...targets.values()], currentTasks.filter(task => task.region === region)),
+    current: buildSerpKeywordResults([...targets.values()], currentTasks.filter(task => task.region === region),{currentRunId:run?.id}),
     previous: buildSerpKeywordResults([...targets.values()], previousTasks.filter(task => task.region === region)),
   }));
   const reports: WeeklyRankingReport[] = [], pages: WeeklyPageRank[] = [], eligible = new Set<string>();
@@ -64,7 +86,7 @@ export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) 
   const comparison = hasResults && !waiting ? weeklyKeywordComparison(reports, eligible, periods.previous.end, periods.current.end, safePages) : null;
   if (comparison) comparison.removed = confirmedLosses.length;
   return { comparison, ranking: { source: "dataforseo_serp", captureWeek, publicationDay, waiting, baseline: hasResults && !hadPrevious,
-    noNewCapture, unresolvedWords: missingWords.length-confirmedLosses.length, capturedKeywords: capturedWords.size, latestCheckedAt: dates.sort().at(-1) ?? null,
+    noNewCapture, comparisonReference, unresolvedWords: missingWords.length-confirmedLosses.length, capturedKeywords: capturedWords.size, latestCheckedAt: dates.sort().at(-1) ?? null,
     status: waiting ? "WAITING" : !captureWeek ? "NOT_SCHEDULED" : run?.status === "COMPLETED" ? "READY" : run ? "FAILED" : "PAID_DISABLED",
     sampleOnly: hasResults && !run, nextCaptureAt: captureWeek ? slot.dueAt : serpPeriod(`${nextDay(slot.end)}T02:30:00Z`).dueAt } };
 }
