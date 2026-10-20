@@ -6,6 +6,7 @@ import { Search, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { SerpQuerySnapshot } from "@/components/SerpQuerySnapshot";
 import { PageHeader } from "@/components/PageHeader";
+import { CandidateKeywordReview } from "@/components/CandidateKeywordReview";
 import { useKeywordPage } from "./useKeywordPage";
 import { SITES } from "@/components/useSeoSelection";
 import type { DashboardKeyword, RankingEvidence, RankingPageEvidence, RankSummary } from "@/lib/types";
@@ -21,7 +22,7 @@ import { keywordRankingPages } from "@/lib/keyword-ranking-pages";
 import { bestKeywordDetailRank, detailRegions, groupKeywordDetails, keywordDetailCountryRanks, validKeywordDetailRank,
   type KeywordCountryScope, type KeywordDetailGroup } from "@/lib/keyword-details-group";
 
-const POOLS = { FORMAL: "业务目标", RESEARCH: "候选研究" };
+const POOLS = { FORMAL: "业务目标", RESEARCH: "候选词" };
 const PAGE_FILTERS = [{ value: "PAGE_BUILD", label: "待建设" }, { value: "PAGE_EXPAND", label: "待优化" }];
 const number = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString("zh-CN");
 const position = (value: number | null) => value == null ? "—" : Number(value.toFixed(2)).toString();
@@ -159,6 +160,7 @@ export function KeywordDetails() {
       <label className="originSelectField"><span>词库分类</span><Select aria-label="业务词池" className="originSelect" value={pool} onChange={value => { setPool(value); setView("FORMAL"); setMapping("ALL"); setSelected([]); }} disabled={site !== "all" && site !== "flatkey.ai"} options={Object.entries(POOLS).map(([value, label]) => ({ value, label }))} /></label>
     </div>
     </section>
+    {pool === "RESEARCH" ? <CandidateKeywordReview onChanged={() => { void refresh(); }} /> : null}
     <div className="reviewToolbar keywordResultBar"><p>{loading || okr.loading ? "正在加载…" : <>共 <strong>{(data?.total ?? 0).toLocaleString()}</strong> 个关键词</>}<span>{country === "all" ? "四国综合 · 已去重" : `${REGIONS[country].label} · 已去重`}</span></p><div>{selected.length && site !== "flatkey.ai" ? <button disabled={busy || data?.usingDemoData} onClick={() => void excludeKeywords()}>{busy ? "正在移除…" : `移除 ${selected.length} 个无关词`}</button> : null}</div></div>
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     <section className="tablePanel"><Table className="keywordTable" columns={columns} dataSource={loading || okr.loading ? [] : rows} rowKey="id" loading={loading || okr.loading}

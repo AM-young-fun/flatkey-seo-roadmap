@@ -21,7 +21,7 @@ function failure(error: unknown) {
   console.error("DataForSEO management failed", { code });
   return NextResponse.json({ message: "请求状态暂时无法确认，请查看账本；不要创建新扣费请求", code }, { status: 503, headers });
 }
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   const denied = await authorize(); if (denied) return denied;
   try {
     const requestId = request ? new URL(request.url).searchParams.get("requestId") : null;

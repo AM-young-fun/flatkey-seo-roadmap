@@ -15,7 +15,7 @@ const compactPayload = (value: DashboardResponse, compact: boolean) => !compact 
   return { ...row, volumeReviewLabel: volumeReview?.label };
 }) };
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   const started = performance.now();
   const params = request ? new URL(request.url).searchParams : new URLSearchParams();
   const site = params.get("site") ?? "all";
