@@ -3,6 +3,8 @@ import { z } from "zod";
 import { isDatabaseConfigured } from "@/lib/env";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { loadCandidateReview, applyCandidateReview } from "@/lib/services/candidate-keyword-review";
+import { displayDataChanged } from "@/lib/services/display-change";
+import { syncDisplaySourceVersion } from "@/lib/services/display-snapshots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +14,11 @@ const schema = z.object({ keywordIds: z.array(z.string().min(1).max(200)).min(1)
 
 export async function GET() {
   if (!isDatabaseConfigured()) return NextResponse.json({ message: "数据库未配置" }, { status: 503, headers });
-  try { return NextResponse.json(await loadCandidateReview(), { headers }); }
+  try {
+    const result = await loadCandidateReview();
+    await syncDisplaySourceVersion();
+    return NextResponse.json(result, { headers });
+  }
   catch { return NextResponse.json({ message: "候选词预览读取失败，请重试" }, { status: 503, headers }); }
 }
 export async function POST(request: Request) {
@@ -21,7 +27,9 @@ export async function POST(request: Request) {
   try {
     const parsed = schema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "请选择 1–5000 个候选词并提供当前预览" }, { status: 400, headers });
-    return NextResponse.json(await applyCandidateReview(parsed.data.keywordIds, parsed.data.expectedStateHash), { headers });
+    const result = await applyCandidateReview(parsed.data.keywordIds, parsed.data.expectedStateHash);
+    await displayDataChanged();
+    return NextResponse.json(result, { headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     return NextResponse.json({ message: "候选词移除失败，请刷新预览核对状态" }, { status: 503, headers });

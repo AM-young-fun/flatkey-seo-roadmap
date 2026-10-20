@@ -14,6 +14,7 @@ export function CandidateKeywordReview({ onChanged }: { onChanged: () => void })
       const response = await fetch("/api/keywords/candidates/cleanup", { cache: "no-store" }), body = await response.json();
       if (!response.ok) throw new Error(body.message ?? "预览读取失败");
       setPlan(body); setSelected(body.rows.filter((row: { kind: CandidateReviewKind }) => row.kind !== "KEEP").map((row: { id: string }) => row.id));
+      onChanged();
     } catch (error) { setMessage(error instanceof Error ? error.message : "预览失败"); }
     finally { setBusy(false); }
   }
@@ -24,7 +25,7 @@ export function CandidateKeywordReview({ onChanged }: { onChanged: () => void })
       const response = await fetch("/api/keywords/candidates/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keywordIds: selected, expectedStateHash: plan.stateHash }) }), body = await response.json();
       if (!response.ok) throw new Error(body.message ?? "移除失败");
-      setReceipt(body); setPlan(null); setSelected([]); dashboardStore.clear(); onChanged();
+      setReceipt(body); setPlan(null); setSelected([]); dashboardStore.clear(); onChanged(); window.dispatchEvent(new Event("seo-rankings-updated"));
       setMessage(`已移除 ${body.changed} 个候选词，剩余 ${body.remaining} 个。可在数据管理的清理记录中恢复。`);
     } catch (error) { setPlan(null); setSelected([]); setMessage(error instanceof Error ? error.message : "移除失败，请刷新核对"); }
     finally { setBusy(false); }

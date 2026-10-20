@@ -5,6 +5,7 @@ const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename;
 Module._resolveFilename = function(name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
 let state;
+let displayInvalidations = 0, displayVersionReads = 0;
 const member = (id, text, extras = {}) => ({ keywordId: id, siteDomain: "flatkey.ai", pool: "RESEARCH", active: true, protected: false, reviewStatus: "UNREVIEWED", exclusionReason: null, excludedAt: null, keyword: { text, active: true }, ...extras });
 const db = {
   $transaction: async fn => { const before = structuredClone(state); try { return await fn(db); } catch (error) { state = before; throw error; } },
@@ -21,6 +22,9 @@ const db = {
 };
 const prismaPath = path.join(root, "src/lib/prisma.ts");
 require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: db } };
+for (const [file, exports] of [["display-change", { displayDataChanged: async () => { displayInvalidations++; } }], ["display-snapshots", { syncDisplaySourceVersion: async () => { displayVersionReads++; } }]]) {
+  const filename = path.join(root, `src/lib/services/${file}.ts`); require.cache[filename] = { id: filename, filename, loaded: true, exports };
+}
 const { reviewCandidateKeyword } = require("../src/lib/candidate-keyword-review.ts");
 const { loadCandidateReview, applyCandidateReview } = require("../src/lib/services/candidate-keyword-review.ts");
 const route = require("../src/app/api/keywords/candidates/cleanup/route.ts");
@@ -64,4 +68,8 @@ test("route rejects cross-origin requests and invalid batches before any mutatio
   assert.equal((await route.POST(request({ keywordIds: ["brand"], expectedStateHash: "a".repeat(64), siteDomain: "rackrate.org" }))).status, 400);
   const plan = await (await route.GET()).json();
   assert.equal((await route.POST(request({ keywordIds: ["brand"], expectedStateHash: plan.stateHash }))).status, 200);
+  if (fs.existsSync(path.join(root, "src/lib/services/display-change.ts"))) {
+    assert.equal(displayVersionReads, 1, "preview detects membership changes for persisted display views");
+    assert.equal(displayInvalidations, 1, "committed cleanup invalidates and refreshes persisted views");
+  }
 });
