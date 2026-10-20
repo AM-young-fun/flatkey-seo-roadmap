@@ -2,13 +2,13 @@
 
 ## 1. 接口用途
 
-**只排除已有前100排名的词，其余在用关键词全部返回。页面绑定、词池、主题归属与任务进度不影响是否返回。**
+**仅从网站的在用目标词中排除已有前100排名的词，返回其余目标词及规划信息。Flatkey 只包含正式词库，不包含研究池。页面绑定与任务进度不影响是否返回。**
 
 - 第1–100名全部排除，包括第51–100名。
 - 有对应页面但没有前100排名的词返回，并通过 `hasPage`、`pageUrls` 说明页面情况。
 - 没有对应页面且没有前100排名的词同样返回。
 - 未采集、采集失败、正在采集、Google纠词或检查深度不足的词也返回，并标记 `NEEDS_VERIFICATION`；不会将未知状态冒充已确认没有排名。
-- 正式词、研究池词和未归入主题的在用词均包含。停用或已移除的词不返回。
+- Flatkey 仅包含 `FORMAL` 正式词，未分配主题的正式词也保留；研究池、归档及合并词不返回。RackRate、ModelFit 按已分配主题的在用目标词筛选。停用或已移除的词不返回。
 - 任务是否已开始、受阻或已完成不决定是否返回，任务进度随结果提供。
 
 筛选按所选地区最近保存的有效 Google SERP 名次判断：存在第1–100名就排除；没有有效前100名次就返回。返回结果进一步区分 `OUTSIDE_TOP100`（已完整核验、未命中）与 `NEEDS_VERIFICATION`（排名未知）。接口不会现场查询Google。
@@ -62,7 +62,7 @@ curl 'https://flatkey-seo-roadmap.vercel.app/api/keywords/content-opportunities?
   -H 'X-API-Key: seo_export_你的密钥'
 ```
 
-### 排除任一地区已有前100排名的词，导出其余全部在用词
+### 排除任一地区已有前100排名的词，导出其余目标词
 
 ```bash
 curl 'https://flatkey-seo-roadmap.vercel.app/api/keywords/content-opportunities' \
@@ -162,14 +162,14 @@ for (const row of rows) {
 | `region` | string | 实际排名判断范围：`all`、`US`、`JP`、`ES`、`BR`。 |
 | `targetRank` | number | 固定 `100`，前100词全部排除。 |
 | `rankingSource` | string | 固定 `dataforseo_serp`，使用已保存实测，不混用 GSC / Ahrefs / Labs 历史名次。 |
-| `total` | number | 当前返回条数。 |
+| `total` | number | 当前返回的网站目标词条数；每个 `(siteDomain, keywordId)` 一条。地区证据和关联任务不会增加条数。跨网站相同词分别计数。 |
 | `summary.outsideTop100` | number | 所选地区均已确认不在前100的条数。 |
 | `summary.needsVerification` | number | 排名未知或地区覆盖不完整、仍保留在结果中的条数。两项相加等于 `total`。 |
 | `rows` | array | 关键词清单。无符合条件的数据时为 `[]`，仍返回 `200`。 |
 | `rows[].keywordId` | string | 关键词 ID。 |
 | `rows[].keyword` | string | 关键词文本。 |
 | `rows[].siteDomain` | string | 所属网站。 |
-| `rows[].pool` | string | 已保存的词池，如 `FORMAL`、`RESEARCH`；不用于限制本接口范围。 |
+| `rows[].pool` | string | 已保存的词池；Flatkey 仅返回 `FORMAL`，其他网站按已分配主题的目标范围筛选。 |
 | `rows[].searchVolume` | number | 已保存的默认搜索量，未知时可能为 `0`，不是实时或特定地区最新搜索量。 |
 | `rows[].hasPage` | boolean | 是否有已记录的对应页面，即 `pageUrls` 是否非空；规划地址和候选地址不计入。是保存的关联信息，不是本次请求现场验证页面。 |
 | `rows[].pageStatus` | string | `MATCHED` 已匹配、`EXPAND` 待优化、`BUILD` 待建设、`MISMATCH` 错配、`REVIEW` 待核实。 |
@@ -199,7 +199,7 @@ CSV 同步包含页面情况、是否前100、当前排名、排名依据、建�
 
 ## 7. 数据范围与使用规则
 
-- 网站、网站关键词和关键词本身均需启用。包括所有在用词池，不要求已归入主题；不以页面、任务或词池缩小结果。
+- 网站、网站关键词和关键词本身均需启用。Flatkey 限 `pool=FORMAL`，不要求主题或页面已绑定；RackRate、ModelFit 限已分配主题的目标词。研究池不因在用或已有规划而自动成为 Flatkey 正式目标。
 - 同一词在不同网站分别判断，使用 `(siteDomain, keywordId)` 唯一标识。某个网站有排名不影响另一个网站的无排名词。
 - 每个地区使用最近保存的 SERP 任务结论；最新任务失败时仍返回该词，并显示失败/待核实，不用更旧的无排名回执冒充本次成功核验。
 - 页面关联、建设任务进度不作为排名筛选条件。已合并、已恢复的历史任务不影响当前任务状态。

@@ -19,8 +19,10 @@ const db = {
   siteKeyword: { findMany: async ({ where }) => {
     reads++;
     assert.equal(where.active, true); assert.deepEqual(where.keyword, { active: true });
-    assert.equal(where.OR, undefined, "all active pools and topic assignments are included");
-    return state.members.filter(row => where.siteDomain.in.includes(row.siteDomain) && row.active && row.keyword.active);
+    assert.deepEqual(where.OR[0], { siteDomain: "flatkey.ai", pool: "FORMAL" });
+    assert.deepEqual(where.OR[1], { siteDomain: { in: where.siteDomain.in.filter(domain => domain !== "flatkey.ai") }, topicId: { not: null } });
+    return state.members.filter(row => where.siteDomain.in.includes(row.siteDomain) && row.active && row.keyword.active
+      && (row.siteDomain === "flatkey.ai" ? row.pool === "FORMAL" : row.topicId !== null));
   } },
   keywordContentTask: { findMany: async ({ where }) => state.tasks.filter(row => where.siteDomain.in.includes(row.siteDomain) && !where.status.notIn.includes(row.status)) },
   keywordSourceRow: { findMany: async ({ where }) => state.audits.filter(row => where.siteDomain.in.includes(row.siteDomain) && where.rowKey.in.includes(row.rowKey)) },
@@ -114,7 +116,7 @@ test("site-scoped keys default to their site, cannot escalate, and both export f
   assert.match(await csv.text(), /rackrate/);
 });
 
-test("all active keywords remain eligible regardless of pool, topic, page identity and task states", async () => {
+test("only content targets are eligible, regardless of page identity and task states", async () => {
   state.members = [member("unassigned"), member("todo"), member("in-progress"), member("done"), member("blocked"), member("unknown"), member("expansion-task"),
     member("expand"), member("verified"), member("missing"), member("needs-review"), member("mismatch"), member("legacy", { mappingStatus: "UNMAPPED" }),
     member("research", { pool: "RESEARCH" }), member("inactive", { active: false }), member("inactive-word", { keyword: { text: "inactive-word", active: false, defaultVolume: 10 } }),
@@ -126,7 +128,8 @@ test("all active keywords remain eligible regardless of pool, topic, page identi
     task("t5", ["unknown"], { status: "UNKNOWN" }), task("t6", ["expansion-task"], { type: "EXPAND" }), task("t7", ["retired"], { status: "MERGED" }), task("t8", ["retired"], { status: "RESTORED" })];
   state.serpTasks = noRankTasks(state.members);
   const rows = await loadContentOpportunities(null);
-  assert.deepEqual(rows.filter(row => row.siteDomain === "flatkey.ai").map(row => row.keyword).sort(), ["bad-identity", "blocked", "candidate", "done", "expand", "expansion-task", "in-progress", "legacy", "mismatch", "missing", "needs-review", "research", "retired", "todo", "unassigned", "unknown", "verified"]);
+  assert.deepEqual(rows.filter(row => row.siteDomain === "flatkey.ai").map(row => row.keyword).sort(), ["bad-identity", "blocked", "candidate", "done", "expand", "expansion-task", "in-progress", "legacy", "mismatch", "missing", "needs-review", "retired", "todo", "unassigned", "unknown", "verified"]);
+  assert.ok(!rows.some(row => row.keyword === "no-topic"));
   assert.equal(rows.find(row => row.keyword === "todo" && row.siteDomain === "flatkey.ai").taskStatus, "TODO");
   assert.equal(rows.find(row => row.siteDomain === "rackrate.org").taskStatus, "UNASSIGNED");
   assert.equal(rows.find(row => row.keyword === "unassigned").taskStatus, "UNASSIGNED");
@@ -228,16 +231,24 @@ test("endpoint declares the top100 boundary, validates region, and fails closed 
   assert.equal((await endpoint.GET(request(secret))).status, 503);
 });
 
-test("a single confirmed miss does not limit the export to one: unmeasured research and topicless words are also returned", async () => {
-  state.members = Array.from({ length: 103 }, (_, i) => member(`word-${i}`, { pool: i % 2 ? "RESEARCH" : "FORMAL", topicId: null }));
+test("1512 formal targets plus 4000 active research words export at most the formal targets, once per site", async () => {
+  state.members = [...Array.from({ length: 1512 }, (_, i) => member(`word-${i}`, { topicId: null })),
+    ...Array.from({ length: 4000 }, (_, i) => member(`research-${i}`, { pool: "RESEARCH" }))];
+  state.tasks = [task("one", ["word-0"]), task("two", ["word-0"]), task("research-plan", ["research-0"])];
   state.serpTasks = [serpTask("word-0", null), serpTask("word-1", 1), serpTask("word-2", 100)];
-  const rows = await loadContentOpportunities(null);
-  assert.equal(rows.length, 101);
+  const { secret } = await service.mutateExportApiKey({ action: "create", name: "formal targets", siteDomain: "flatkey.ai" });
+  const body = await (await endpoint.GET(request(secret))).json();
+  const rows = body.rows;
+  assert.equal(body.total, 1510);
+  assert.equal(rows.length, 1510);
+  assert.equal(new Set(rows.map(row => `${row.siteDomain}:${row.keywordId}`)).size, rows.length);
   assert.ok(!rows.some(row => ["word-1", "word-2"].includes(row.keyword)));
-  assert.ok(rows.some(row => row.pool === "RESEARCH"));
+  assert.ok(rows.every(row => row.pool === "FORMAL" && row.siteDomain === "flatkey.ai"));
+  assert.deepEqual(rows.find(row => row.keyword === "word-0").taskIds, ["one", "two"]);
+  assert.equal(rows.find(row => row.keyword === "word-0").rankingEvidence.length, 4);
   assert.ok(rows.every(row => row.opportunityStatus === "NEEDS_VERIFICATION"));
-  const usRows = await loadContentOpportunities(null, "US");
-  assert.equal(usRows.length, 101);
+  const usRows = await loadContentOpportunities("flatkey.ai", "US");
+  assert.equal(usRows.length, 1510);
   assert.equal(usRows.filter(row => row.opportunityStatus === "OUTSIDE_TOP100").length, 1);
 });
 
@@ -245,5 +256,6 @@ test("proxy allows only the exact export path to reach API-key authentication", 
   session = false;
   assert.equal((await proxy(new NextRequest("https://example.test/api/keywords/content-opportunities"))).headers.get("x-middleware-next"), "1");
   assert.equal((await proxy(new NextRequest("https://example.test/api/api-keys"))).status, 401);
+  assert.equal((await proxy(new NextRequest("https://example.test/api/keywords/candidates/cleanup"))).status, 401);
   assert.equal((await proxy(new NextRequest("https://example.test/api/keywords/page-tasks"))).status, 401);
 });

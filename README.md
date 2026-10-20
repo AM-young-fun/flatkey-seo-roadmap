@@ -73,7 +73,7 @@ japan seo tracking,seo tools
 
 ## 关键词导出 API
 
-在「数据管理 → API Key · 关键词导出」创建并复制密钥，通过 `GET /api/keywords/content-opportunities` 仅排除已有前100排名的词，其余在用词全部导出，包括研究池、未采集及采集失败的词，不限页面绑定和任务状态；同时返回页面、排名依据和任务进度。支持网站权限范围、地区筛选、JSON / CSV 和密钥停用。完整参数、请求示例与返回字段见 [接口接入文档](docs/keyword-export-api.md)。
+在「数据管理 → API Key · 关键词导出」创建并复制密钥，通过 `GET /api/keywords/content-opportunities` 从网站目标词中排除已有前100排名的词，导出其余目标词。Flatkey 限正式词库，RackRate、ModelFit 限已分配主题的在用目标词；未采集及采集失败的目标词保留并标记待核实，不限页面绑定和任务状态；同时返回页面、排名依据和任务进度。每个网站关键词只返回一条，地区证据和关联规划不增加条数。支持网站权限范围、地区筛选、JSON / CSV 和密钥停用。完整参数、请求示例与返回字段见 [接口接入文档](docs/keyword-export-api.md)。
 
 ## Vercel 部署
 

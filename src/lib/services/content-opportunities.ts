@@ -16,7 +16,10 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
   const domains = sites.map(site => site.domain);
   if (!domains.length) return [];
   const [members, tasks] = await Promise.all([
-    prisma.siteKeyword.findMany({ where: { siteDomain: { in: domains }, active: true, keyword: { active: true } },
+    // Active research rows remain available in inventory, but are not content targets.
+    // Other sites use topic assignments until they have a curated formal pool.
+    prisma.siteKeyword.findMany({ where: { siteDomain: { in: domains }, active: true, keyword: { active: true },
+      OR: [{ siteDomain: "flatkey.ai", pool: "FORMAL" }, { siteDomain: { in: domains.filter(domain => domain !== "flatkey.ai") }, topicId: { not: null } }] },
       select: { siteDomain: true, keywordId: true, pool: true, mappingStatus: true, targetUrls: true, candidateUrls: true,
         keyword: { select: { text: true, defaultVolume: true } } } }),
     prisma.keywordContentTask.findMany({ where: { siteDomain: { in: domains }, status: { notIn: ["MERGED", "RESTORED"] } },
