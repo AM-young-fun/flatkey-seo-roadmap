@@ -23,8 +23,8 @@ export type SourceSyncHealthResponse = {
   dailyCheck: {
     timezone: "Asia/Shanghai";
     expectedLocalTime: "10:30";
-    confirmed: false;
-    lastCompletedAt: null;
+    confirmed: boolean;
+    lastCompletedAt: string | null;
   };
   sources: SourceSyncHealthSource[];
 };

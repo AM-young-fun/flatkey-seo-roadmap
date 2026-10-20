@@ -246,6 +246,21 @@ model WeeklyReportDraft {
   @@id([siteDomain, periodStart])
 }
 
+// Receipts submitted by the authenticated Codex collector, not server jobs.
+model CollectorRun {
+  id String @id
+  kind String
+  periodStart String
+  status String
+  checkedItems Int @default(0)
+  sourceChecks Json?
+  detail String?
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  updatedAt DateTime @updatedAt
+  @@index([kind, updatedAt(sort: Desc)])
+}
+
 model DailyRankingReport {
   id String @id @default(cuid())
   siteDomain String

@@ -419,4 +419,12 @@ CREATE TABLE IF NOT EXISTS "DisplaySnapshot" (
 
 ALTER TABLE "DisplaySnapshot" ADD COLUMN IF NOT EXISTS "keywordRows" JSONB;
 
+CREATE TABLE IF NOT EXISTS "CollectorRun" (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, "periodStart" TEXT NOT NULL, status TEXT NOT NULL,
+  "checkedItems" INTEGER NOT NULL DEFAULT 0, "sourceChecks" JSONB, detail TEXT,
+  "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "completedAt" TIMESTAMP(3), "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS "CollectorRun_kind_updatedAt_idx" ON "CollectorRun" (kind,"updatedAt" DESC);
+
 COMMIT;

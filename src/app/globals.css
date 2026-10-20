@@ -1936,7 +1936,7 @@ a:focus-visible {
 .operationsSwitch.isOn span { background:#12b886; }
 .operationsPreview { margin:16px 0; padding:16px; border:1px solid #d9e6fa; border-radius:10px; background:#f8faff; }
 .operationsPreview h3 { font-size:14px; margin:0 0 8px; }
-.operationsGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.operationsGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 .operationsGrid article { border:1px solid #e7edf5; border-radius:10px; padding:18px; min-width:0; }
 .operationsGrid h3 { font-size:14px; margin:0; }
 .operationsCardHeading { align-items:flex-start; flex-wrap:wrap; gap:8px; }
@@ -2266,7 +2266,7 @@ a:focus-visible {
   .managementPage .apiKeyCreate { grid-template-columns:minmax(0,1fr) 220px auto; }
   .managementPage .apiKeyCreate .managePrimary { grid-column:auto; }
   .managementPage .apiKeyTable th:nth-child(3),.managementPage .apiKeyTable td:nth-child(3) { display:table-cell; }
-  .managementPage .operationsGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .managementPage .operationsGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .managementPage .operationsCardHeading { flex-direction:column; }
   .managementPage .operationsCadence { font-size:16px; }
   .operationsNext { flex-direction:column; align-items:flex-start; gap:6px; }

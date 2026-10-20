@@ -19,6 +19,7 @@ mock("src/lib/prisma.ts", { prisma: {
   schedulerCheck: { findMany: async () => [] },
   serpMonitorRun: { findMany: async () => [{ id: "existing", scope: "SAMPLE", periodKey: "2026-10-2", periodLabel: "2026年10月第2期", status: "COMPLETED", queryCount: 152, startedAt: new Date("2026-10-16T01:00Z"), completedAt: new Date("2026-10-16T02:00Z") }] },
   dataForSeoRun: { findMany: async () => [] }, weeklyTraffic: { findMany: async () => [] },
+  collectorRun:{findMany:async()=>[]},
 } });
 const { schedulerState, plannedRankingTime, operationStateLabels } = require("../src/lib/operations.ts");
 const { loadOperationsStatus } = require("../src/lib/services/operations.ts");
@@ -47,8 +48,10 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.scheduler.state, "UNCONFIRMED");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
-  assert.equal(status.plans[1].state, "未接入线上自动读取");
-  assert.equal(status.plans[2].state, "长期自动采集未启用");
+  assert.equal(status.plans[1].state, "Codex 采集");
+  assert.equal(status.plans[2].name, "Ahrefs 数据");
+  assert.equal(status.plans[3].state, "Codex 整理");
+  assert.equal(status.plans[3].nextAt,"2026-10-20T02:30:00.000Z");
   assert.match(status.records[0].name, /第1期/);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
   for (const secret of ["encryptedCredentials", "LOGIN_PWD", "CRON_SECRET", "rawResponse", "configJson"]) assert.ok(!JSON.stringify(status).includes(secret));

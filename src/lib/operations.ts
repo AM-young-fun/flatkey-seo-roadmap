@@ -23,6 +23,16 @@ export function plannedRankingTime(now: Date, stored: Date | null, startedPeriod
   return Date.parse(current.dueAt) > now.getTime() ? current.dueAt : nextSerpPeriodDue(now).toISOString();
 }
 
+export function nextCollectorTime(now:Date,kind:"sheets"|"ahrefs"|"traffic"):string{
+  const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai"}).format(now);
+  for(let offset=0;offset<8;offset++){
+    const day=new Date(Date.parse(`${today}T00:00:00Z`)+offset*86400000).toISOString().slice(0,10);
+    if(kind!=="sheets"&&new Date(day).getUTCDay()!==2)continue;
+    for(const clock of kind==="traffic"?["10:30","18:30"]:["10:30"]){const candidate=new Date(`${day}T${clock}:00+08:00`);if(candidate>now)return candidate.toISOString();}
+  }
+  throw new Error("Invalid collector schedule");
+}
+
 export const operationStateLabels: Record<string, string> = {
   PLANNED: "已排队", RUNNING: "执行中", PENDING: "等待响应", QUEUED: "等待结果", RECEIVED: "结果已保存", ACTIVE: "执行中",
   COMPLETED: "已完成", COMPLETE: "已完成", FINISHED: "已完成", PARTIAL: "部分完成", FAILED: "失败", UNKNOWN: "响应不明，已停止提交", NEEDS_REVIEW: "异常，已停止提交", IMPORT_FAILED: "结果已保存，导入异常",
