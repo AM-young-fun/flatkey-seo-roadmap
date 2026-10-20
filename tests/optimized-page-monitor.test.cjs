@@ -39,7 +39,7 @@ const db = {
     finally { release(); }
   },
   $executeRaw: async () => 1,
-  $queryRaw: async () => state.runs.map(run => ({ id: run.id })),
+  $queryRaw: async query => String(query.strings?.join("") ?? query).includes("optimized-page:saved-ranking-baseline") ? state.baselines : state.runs.map(run => ({ id: run.id })),
   keywordSourceRow: { findMany: async () => state.sources },
   dataForSeoConnection: { findUnique: async () => state.connection },
   serpMonitorConfig: { findUnique: async () => state.config },
@@ -69,7 +69,7 @@ require.cache[headersPath] = { id: headersPath, filename: headersPath, loaded: t
 const service = require("../src/lib/services/optimized-page-monitor.ts");
 const route = require("../src/app/api/rankings/monitor/route.ts");
 beforeEach(() => {
-  state = { runs: [], tasks: [], sources: [source()], connection: { encryptedCredentials: "secret-ciphertext", connectionVersion: 1, loginMasked: "masked" },
+  state = { runs: [], tasks: [], baselines: [], sources: [source()], connection: { encryptedCredentials: "secret-ciphertext", connectionVersion: 1, loginMasked: "masked" },
     config: { paidEnabled: false, maxRunCostMicros: 50000000, maxMonthCostMicros: 100000000 } };
   cohort = [structuredClone(target)]; queue = Promise.resolve(); submits = 0; polls = 0; committed = false; session = true;
   delete process.env.DISABLE_EXTERNAL_FETCH; process.env.DATABASE_URL = "postgresql://unused.invalid/monitor";
@@ -84,15 +84,37 @@ test("daily allowance follows Beijing midnight and canonical page identity", () 
   for (const input of ["https://flatkey.ai.attacker.invalid/", "http://flatkey.ai/", "https://user:secret@flatkey.ai/", "https://flatkey.ai:4430/"]) assert.equal(lib.optimizedPageUrl(input), null);
 });
 
-test("published rows deduplicate by page; incomplete, unverified, unrelated and mismatched words cannot be charged", () => {
+test("completed legacy rows remain visible; paid eligibility uses independently audited exact pages", () => {
   const pending = source("pending", "https://flatkey.ai/blog/pending"); pending.snapshot.completion = "PENDING";
   const unverified = source("unverified", "https://flatkey.ai/blog/unverified"); unverified.snapshot.publication.pageVerified = false;
   const rows = [source(), source("duplicate", `${url}#faq`), pending, unverified];
   const pages = lib.buildOptimizedPages(rows, cohort);
-  assert.equal(pages.length, 1); assert.equal(pages[0].targets.length, 1); assert.equal(pages[0].sourceRows.length, 2);
-  rows[0].snapshot.keywords[0].relevance = "UNRELATED"; rows[1].snapshot.keywords[0].pageIntentMatched = false;
-  assert.equal(lib.buildOptimizedPages(rows, cohort)[0].targets.length, 0);
+  assert.equal(pages.length, 2); assert.equal(pages.find(page => page.url === url).targets.length, 1); assert.equal(pages.find(page => page.url === url).sourceRows.length, 2);
+  assert.equal(pages.find(page => page.url.includes("unverified")).targets.length, 0);
+  rows[0].snapshot.keywords[0].relevance = "UNRELATED"; rows[1].snapshot.keywords[0].relevance = "UNRELATED";
+  assert.equal(lib.buildOptimizedPages(rows, cohort).find(page => page.url === url).targets.length, 0);
   assert.equal(lib.buildOptimizedPages([source()], [{ ...target, targetUrls: ["https://flatkey.ai/other"] }])[0].targets.length, 0);
+  const legacy = source(); legacy.snapshot.publication.pageVerified = false; legacy.snapshot.keywords[0].pageIntentMatched = false;
+  assert.equal(lib.buildOptimizedPages([legacy], cohort)[0].targets.length, 1, "a later exact-page audit supersedes absent source proof");
+  assert.equal(lib.buildOptimizedPages([legacy], [])[0].targets.length, 0);
+  assert.deepEqual(lib.buildOptimizedPages([legacy], [])[0].keywords, [target.keyword]);
+});
+
+test("existing SERP history populates a page before manual capture and supplies the first comparison baseline", async () => {
+  const task = (rank, date, region = "US") => ({ keyword: target.keyword, region, state: "COMPLETE", checkedAt: new Date(date), normalizedJson: {
+    queryStatus: "EXACT", rankingVerified: true, captureComplete: true, completeDepth: true, organicResults: [{ url, rankGroup: rank }],
+  } });
+  const latest = task(12, "2026-10-20T03:00Z"), older = task(18, "2026-10-16T03:00Z");
+  state.baselines = [older, latest];
+  let page = (await service.loadOptimizedPageMonitor()).pages[0];
+  assert.equal(page.results[0].rank, 12); assert.equal(page.previousResults[0].rank, 18);
+  assert.equal(submits, 0); assert.equal(page.usedToday, false);
+  const after = task(9, "2026-10-20T05:00Z");
+  const comparison = lib.savedPageRankingComparison(url, [target.keyword], [latest, older], { startedAt: new Date("2026-10-20T04:00Z"), tasks: [after] });
+  assert.equal(comparison.results[0].rank, 9); assert.equal(comparison.previousResults[0].rank, 12);
+  const future = task(4, "2026-10-20T06:00Z");
+  assert.equal(lib.savedPageRankingComparison(url, [target.keyword], [future, latest], { startedAt: new Date("2026-10-20T04:00Z"), tasks: [after] }).previousResults[0].rank, 12);
+  assert.equal(lib.savedPageRankingComparison(url, [target.keyword], [task(7, "2026-10-20T03:00Z", "JP")]).results[0].region, "JP");
 });
 
 test("single-page schema rejects bulk requests, arbitrary keywords, supplied dates and forged provider parameters", () => {

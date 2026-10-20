@@ -6,8 +6,8 @@ import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { buildSerpTask, configForSerpRegion, groupSerpMarketQueries, quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS } from "@/lib/dataforseo-serp";
 import { serpTaskId } from "@/lib/dataforseo-serp";
-import { buildOptimizedPages, monitorDay, OPTIMIZED_PAGE_MAX_QUERIES, OPTIMIZED_PAGE_SCOPE, optimizedPagePeriod, optimizedPageRank, record,
-  type OptimizedPageMutation, type OptimizedPageMonitorResponse } from "@/lib/optimized-page-monitor";
+import { buildOptimizedPages, monitorDay, OPTIMIZED_PAGE_MAX_QUERIES, OPTIMIZED_PAGE_SCOPE, optimizedPagePeriod, savedPageRankingComparison, record,
+  type SavedPageRankingTask, type OptimizedPageMutation, type OptimizedPageMonitorResponse } from "@/lib/optimized-page-monitor";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import { resumeSerpMonitorRun, submitOptimizedPageBatch } from "@/lib/services/serp-monitor";
 import type { SerpMonitorRunDto, SerpTaskState } from "@/lib/serp-monitor-types";
@@ -34,8 +34,30 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
     ) captures WHERE n <= 2`,
     prisma.serpMonitorRun.findFirst({ where: { scope: OPTIMIZED_PAGE_SCOPE, status: { in: OPEN } }, select: { id: true } }),
   ]);
-  const runs = ids.length ? await prisma.serpMonitorRun.findMany({ where: { id: { in: ids.map(row => row.id) } }, orderBy: { createdAt: "desc" },
-    include: { tasks: { select: { keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true } } } }) : [];
+  const words = [...new Set(pages.flatMap(page => page.keywords))];
+  const [runs, saved] = await Promise.all([
+    ids.length ? prisma.serpMonitorRun.findMany({ where: { id: { in: ids.map(row => row.id) } }, orderBy: { createdAt: "desc" },
+      include: { tasks: { select: { keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true } } } }) : Promise.resolve([]),
+    words.length ? prisma.$queryRaw<SavedPageRankingTask[]>(Prisma.sql`
+      /* optimized-page:saved-ranking-baseline */
+      WITH selected AS (
+        SELECT t.keyword, t.region, t.state, t."checkedAt", t."normalizedJson",
+          ROW_NUMBER() OVER (PARTITION BY lower(t.keyword), t.region ORDER BY t."checkedAt" DESC, r."createdAt" DESC, t.id DESC) AS n
+        FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
+        WHERE r.scope IN ('SCHEDULED','SAMPLE') AND t.state IN ('COMPLETE','INCOMPLETE') AND t."checkedAt" IS NOT NULL
+          AND lower(t.keyword) IN (${Prisma.join(words)}) AND t.region IN ('US','JP','ES','BR')
+          AND t."requestJson"->>'device' = 'desktop' AND t."requestJson"->>'depth' = '100'
+          AND t."requestJson"->>'language_code' = CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END
+          AND t."normalizedJson"->>'rankingVerified' = 'true' AND t."normalizedJson"->>'queryStatus' = 'EXACT'
+          AND EXISTS (SELECT 1 FROM jsonb_array_elements(t."targetsJson") target WHERE target->>'siteDomain' = 'flatkey.ai')
+      ) SELECT keyword, region, state, "checkedAt", jsonb_build_object(
+        'queryStatus', "normalizedJson"->'queryStatus', 'rankingVerified', "normalizedJson"->'rankingVerified',
+        'captureComplete', "normalizedJson"->'captureComplete', 'completeDepth', "normalizedJson"->'completeDepth', 'googleUrl', "normalizedJson"->'googleUrl',
+        'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements("normalizedJson"->'organicResults') item
+          WHERE item->>'domain' = 'flatkey.ai' OR item->>'domain' LIKE '%.flatkey.ai'), '[]'::jsonb)
+      ) AS "normalizedJson" FROM selected WHERE n <= 2
+    `) : Promise.resolve([]),
+  ]);
   const day = monitorDay(now);
   return { day, connectionConfigured: Boolean(connection), externalEnabled: !envBool("DISABLE_EXTERNAL_FETCH"), activeRunId: active?.id ?? null,
     pages: pages.map(page => {
@@ -51,7 +73,7 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
           periodKey: latest.periodKey, periodLabel: latest.periodLabel, periodStart: latest.periodStart.toISOString(), periodEnd: latest.periodEnd.toISOString(), taskCounts: counts };
       }
       return { ...page, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
-        results: latest?.tasks.map(task => optimizedPageRank(page.url, task)) ?? [], previousResults: previous?.tasks.map(task => optimizedPageRank(page.url, task)) ?? [] };
+        ...savedPageRankingComparison(page.url, page.keywords, saved, latest, previous) };
     }) };
 }
 

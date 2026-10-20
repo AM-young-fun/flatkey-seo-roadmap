@@ -91,8 +91,8 @@ export function RankingMonitor() {
   }
   const results = (page: Page, word: string) => ({ current: page.results.find(item => item.region === region && key(item.keyword) === key(word)),
     previous: page.previousResults.find(item => item.region === region && key(item.keyword) === key(word)) });
-  const keywords = (page: Page, render: (word: string) => React.ReactNode) => page.targets.length
-    ? <div className={styles.stack}>{page.targets.map(target => <div className={styles.word} key={target.keywordId}>{render(target.keyword)}</div>)}</div> : <span className={styles.muted}>尚无可采集关键词</span>;
+  const keywords = (page: Page, render: (word: string) => React.ReactNode) => page.keywords.length
+    ? <div className={styles.stack}>{page.keywords.map(word => <div className={styles.word} key={word}>{render(word)}</div>)}</div> : <span className={styles.muted}>尚无关联关键词</span>;
   const columns: ColumnsType<Page> = [
     { title: "优化页面", key: "page", width: 290, render: (_, page) => <div className={styles.page}><a href={page.url} target="_blank" rel="noreferrer">{page.title || new URL(page.url).pathname}</a><small>{new URL(page.url).pathname}</small></div> },
     { title: "关键词", key: "keywords", width: 240, render: (_, page) => keywords(page, word => <Tooltip title={word}><span className={styles.keyword}>{word}</span></Tooltip>) },
@@ -116,11 +116,11 @@ export function RankingMonitor() {
       return <Tooltip title={tip}><span><Button type={page.usedToday ? "default" : "primary"} disabled={disabled} loading={busy === page.id || pending(page)} onClick={() => void start(page)}>{pending(page) ? "采集中" : page.run?.status === "UNKNOWN" ? "需核对" : page.usedToday ? "今日已抓取" : "抓取排名"}</Button></span></Tooltip>;
     } },
   ];
-  const pages = (data?.pages ?? []).filter(page => !search.trim() || `${page.title} ${page.url} ${page.targets.map(target => target.keyword).join(" ")}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const pages = (data?.pages ?? []).filter(page => !search.trim() || `${page.title} ${page.url} ${page.keywords.join(" ")}`.toLowerCase().includes(search.trim().toLowerCase()));
   return <main className="appShell"><PageHeader active="monitor" />
     <div className={styles.heading}><div><h1>排名监控</h1><span className={styles.muted}>已优化页面 · {data?.pages.length ?? "—"} 页</span></div><Tooltip title="逐页手动抓取主词与辅助词的四国排名；每页每天一次，北京时间零点重置。上升、下降与上次该页面同词同国的有效排名比较。结果由 DataForSEO 队列返回，采集时间以实际完成时间为准。"><CircleHelp size={18} aria-label="排名监控说明" tabIndex={0} /></Tooltip></div>
     <div className={styles.toolbar}><input aria-label="搜索页面或关键词" placeholder="搜索页面或关键词" value={search} onChange={event => setSearch(event.target.value)} /><Select aria-label="排名国家" value={region} onChange={setRegion} options={REGION_CODES.map(value => ({ value, label: REGIONS[value].label }))} /><Tooltip title="只读取已保存结果，不发起新的付费抓取。"><Button icon={<RefreshCw size={15} />} onClick={() => void refresh()} aria-label="刷新排名结果" /></Tooltip></div>
     {error ? <div className="loadError" role="alert">{error}</div> : null}
-    <section className="tablePanel"><Table<Page> columns={columns} dataSource={pages} rowKey="id" loading={loading} pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 页` }} scroll={{ x: 1150 }} locale={{ emptyText: "暂无已同步并核验发布的优化页面" }} /></section>
+    <section className="tablePanel"><Table<Page> columns={columns} dataSource={pages} rowKey="id" loading={loading} pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 页` }} scroll={{ x: 1150 }} locale={{ emptyText: "暂无已同步的已完成优化页面" }} /></section>
   </main>;
 }
