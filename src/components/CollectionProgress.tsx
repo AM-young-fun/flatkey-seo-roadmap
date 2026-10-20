@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CheckCircle2, ChevronUp, X } from "lucide-react";
+import { Activity, ChevronUp, X } from "lucide-react";
 import { REGIONS } from "@/lib/seo";
 import { collectionIsActive, collectionPercent, collectionWaitingReason, type SerpCollectionProgress } from "@/lib/serp-collection-progress";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
@@ -41,10 +41,10 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
     void read();
     return () => { disposed = true; clearTimeout(timer); };
   },[site]);
-  if (!progress) return null;
-  const active = collectionIsActive(progress.status), complete = progress.status === "COMPLETED";
+  if (!progress || progress.status === "COMPLETED") return null;
+  const active = collectionIsActive(progress.status);
   const percent = progress.totalQueries ? Math.min(100, progress.completedQueries / progress.totalQueries * 100) : 0;
-  const label = active ? "排名采集中" : complete ? "排名已更新" : "采集需处理";
+  const label = active ? "排名采集中" : "采集需处理";
   return <div ref={container} className={`collectionFloat ${active ? "isActive" : ""}`}>
     {open ? <section className="collectionFloatDetails" id="collection-progress-details" aria-label="排名采集详情">
       <div className="collectionFloatTitle"><strong>{progress.periodLabel}</strong><button type="button" aria-label="收起采集详情" onClick={() => setOpen(false)}><X size={15} /></button></div>
@@ -57,7 +57,7 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
       {failed ? <p>进度暂未刷新</p> : null}
     </section> : null}
     <button type="button" className="collectionFloatButton" aria-expanded={open} aria-controls="collection-progress-details" onClick={() => setOpen(value => !value)}>
-      {complete ? <CheckCircle2 size={16} /> : <Activity size={16} />}<span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
+      <Activity size={16} /><span>{label}</span><strong>{collectionPercent(progress.completedQueries,progress.totalQueries)}</strong><ChevronUp size={13} style={{transform:open ? "rotate(180deg)" : undefined}} />
     </button>
   </div>;
 }
