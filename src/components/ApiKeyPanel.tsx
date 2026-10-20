@@ -81,7 +81,7 @@ export function ApiKeyPanel() {
         <p>已有绑定或规划仅限博客文章；绑定到模型、产品、文档等其他页面的词整条排除。没有绑定页面的词继续保留。</p>
         <pre>{`curl 'https://flatkey-seo-roadmap.vercel.app${KEYWORD_EXPORT_API_PATH}?region=US' \\\n  -H 'X-API-Key: 你的密钥'`}</pre>
         <dl><div><dt>siteDomain</dt><dd>网站筛选，省略时使用密钥授权范围</dd></div><div><dt>region</dt><dd>US / JP / ES / BR；默认 all，任一地区有排名即排除</dd></div><div><dt>format</dt><dd>json（默认）或 csv</dd></div></dl>
-        <p>每个网站关键词返回一条，附带页面、排名依据和规划；未采集、失败的目标词保留并标记待核实。</p>
+        <p>每个网站关键词返回一条，附带页面、排名依据和规划；分别标明已确认前100之外、已采集但未命中、未采集，以及采集结果需核实。</p>
       </div>
     </details>
   </section>;

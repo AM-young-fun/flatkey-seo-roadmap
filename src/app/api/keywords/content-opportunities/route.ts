@@ -33,6 +33,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ kind: "content-opportunities", generatedAt: new Date().toISOString(), siteDomain, region: region.data,
       targetRank: CONTENT_TARGET_RANK, rankingSource: "dataforseo_serp", total: rows.length,
       summary: { outsideTop100: rows.filter(row => row.opportunityStatus === "OUTSIDE_TOP100").length,
+        notFoundCaptured: rows.filter(row => row.opportunityStatus === "NOT_FOUND_CAPTURE").length,
+        uncollected: rows.filter(row => row.opportunityStatus === "UNCOLLECTED").length,
         needsVerification: rows.filter(row => row.opportunityStatus === "NEEDS_VERIFICATION").length }, rows }, { headers });
   } catch {
     return NextResponse.json({ message: "关键词导出暂时不可用，请稍后重试" }, { status: 503, headers });

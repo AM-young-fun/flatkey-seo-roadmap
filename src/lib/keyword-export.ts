@@ -15,11 +15,18 @@ export const apiKeyMutationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("revoke"), id: z.string().min(1).max(100) }).strict(),
 ]);
 export type ExportApiKey = { id: string; name: string; prefix: string; siteDomain: string | null; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
+export const OPPORTUNITY_STATUS_LABELS = {
+  OUTSIDE_TOP100: "已确认前100之外",
+  NOT_FOUND_CAPTURE: "已采集但未命中",
+  UNCOLLECTED: "未采集",
+  NEEDS_VERIFICATION: "采集结果需核实",
+} as const;
 export type ContentOpportunity = {
   keywordId: string; keyword: string; siteDomain: string; pool: string; searchVolume: number;
   hasPage: boolean; pageStatus: KeywordPageTag["key"]; pageUrls: string[]; candidateUrls: string[];
   currentRank: null; isTop100: false | null;
-  opportunityStatus: "OUTSIDE_TOP100" | "NEEDS_VERIFICATION";
+  opportunityStatus: keyof typeof OPPORTUNITY_STATUS_LABELS;
+  opportunityStatusLabel: typeof OPPORTUNITY_STATUS_LABELS[keyof typeof OPPORTUNITY_STATUS_LABELS];
   recommendedAction: "BUILD" | "OPTIMIZE" | "REVIEW_PAGE";
   rankingEvidence: Array<{ region: SearchRegionCode; status: SerpResultStatus; rank: number | null; url: string | null; checkedAt: string | null; coveredThroughRank: number | null; periodKey: string | null }>;
   taskStatus: string; taskStatuses: string[]; taskIds: string[]; plannedUrls: string[];
@@ -27,10 +34,10 @@ export type ContentOpportunity = {
 };
 export function opportunitiesCsv(rows: ContentOpportunity[]): string {
   const cell = (value: string) => `"${(/^\s*[=+\-@]/u.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
-  const values = [["网站", "关键词ID", "关键词", "词池", "默认搜索量", "是否有页面", "页面状态", "对应页面", "候选页面", "当前最佳排名", "是否前100", "抢占状态", "建议操作", "各地区排名依据", "任务状态", "任务ID", "规划页面", "建议标题", "内容要求", "验收标准"],
+  const values = [["网站", "关键词ID", "关键词", "词池", "默认搜索量", "是否有页面", "页面状态", "对应页面", "候选页面", "当前最佳排名", "是否前100", "抢占状态", "排名状态说明", "建议操作", "各地区排名依据", "任务状态", "任务ID", "规划页面", "建议标题", "内容要求", "验收标准"],
     ...rows.map(row => [row.siteDomain, row.keywordId, row.keyword, row.pool, String(row.searchVolume), row.hasPage ? "是" : "否", row.pageStatus,
       row.pageUrls.join("\n"), row.candidateUrls.join("\n"), row.currentRank == null ? "" : String(row.currentRank),
-      row.isTop100 === null ? "待核实" : "否", row.opportunityStatus, row.recommendedAction,
+      row.isTop100 === null ? "未确认" : "否", row.opportunityStatus, row.opportunityStatusLabel, row.recommendedAction,
       JSON.stringify(row.rankingEvidence), row.taskStatus, row.taskIds.join("\n"), row.plannedUrls.join("\n"), row.proposedTitle ?? "", row.requirements.join("\n"), row.acceptance.join("\n")])];
   return `\uFEFF${values.map(row => row.map(cell).join(",")).join("\r\n")}`;
 }

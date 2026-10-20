@@ -10,11 +10,11 @@
 - 有对应博客文章但没有前100排名的词返回，并通过 `hasPage`、`pageUrls` 说明页面情况。
 - 绑定或规划到首页、模型页、产品页、工具页、文档页等非博客页面的词整条排除；同时绑定博客和非博客的词也排除。博客文章支持 `/blog/文章`、`/cloud/blog/文章` 及语言前缀版本；博客列表页不视为文章。仅供核实的 `candidateUrls` 不视为已绑定页面。
 - 没有对应页面且没有前100排名的词同样返回。
-- 未采集、采集失败、正在采集、Google纠词或检查深度不足的词也返回，并标记 `NEEDS_VERIFICATION`；不会将未知状态冒充已确认没有排名。
+- 已成功采集但核验深度不足、未命中本站的词标记 `NOT_FOUND_CAPTURE`；尚未采集的词标记 `UNCOLLECTED`。仅有失败、采集中、纠词或数据异常等结果的词标记 `NEEDS_VERIFICATION`，各地区具体情况随证据保留。
 - 各网站均包含 `FORMAL` 正式词与 `RESEARCH` 候选词，未分配主题或尚无规划的词也保留；归档、合并、停用或已移除的词不返回。候选词通过 `pool` 区分，返回候选词不代表已审核为正式目标。
 - 任务是否已开始、受阻或已完成不决定是否返回，任务进度随结果提供。
 
-筛选按所选地区最近保存的有效 Google SERP 名次判断：存在第1–100名就排除；没有有效前100名次就返回。返回结果进一步区分 `OUTSIDE_TOP100`（已完整核验、未命中）与 `NEEDS_VERIFICATION`（排名未知）。接口不会现场查询Google。
+筛选按所选地区最近保存的有效 Google SERP 名次判断：存在第1–100名就排除；没有有效前100名次就返回。返回结果区分已确认前100之外、已采集但未命中、未采集和采集结果需核实。接口不会现场查询Google。
 
 ### 哪些词会返回
 
@@ -24,13 +24,29 @@
 | --- | --- |
 | 绑定博客文章，没有有效前100排名 | 返回，附已有博客地址。 |
 | 已规划博客文章、尚未建设，没有有效前100排名 | 返回，附已有规划。 |
-| 尚无页面绑定或规划的正式词、候选词 | 返回；无排名证据时标记待核实。 |
-| 未采集、采集失败或地区证据不足 | 满足博客范围时返回，标记 `NEEDS_VERIFICATION`。 |
+| 尚无页面绑定或规划的正式词、候选词 | 返回；未采集时标记 `UNCOLLECTED`。 |
+| 已成功采集、未命中，但未完整核验所有所选地区前100 | 满足博客范围时返回，标记 `NOT_FOUND_CAPTURE`。 |
+| 只有失败、采集中、纠词或数据异常等结果 | 满足博客范围时返回，标记 `NEEDS_VERIFICATION`。 |
 | 所选地区有前100排名 | 不返回；默认 `all` 时任一地区命中即排除。 |
 | 绑定或有效规划指向非博客页面 | 整条不返回，即使另有博客绑定。 |
 | 归档、合并、停用或已移除 | 不返回。 |
 
 博客语言前缀支持 `en`、`zh`、`ja`、`es`、`pt`、`fr`、`de`、`ru`、`id`、`vi`。URL 的查询参数、片段及文章路径末尾的 `/` 不改变文章判断。仅有博客列表页地址不算文章。
+
+### 排名状态判定顺序
+
+先排除有效前100排名，再依次判断以下四种互斥状态；`opportunityStatusLabel` 提供对应中文说明：
+
+| `opportunityStatus` | `opportunityStatusLabel` | 判定条件 |
+| --- | --- | --- |
+| `OUTSIDE_TOP100` | 已确认前100之外 | 所有所选地区均已完整核验前100，且未命中本站。 |
+| `NOT_FOUND_CAPTURE` | 已采集但未命中 | 至少一个所选地区有有效未命中结果，但未满足上一条；可能仅核验前98、99名，也可能其他地区尚未采集或存在异常。 |
+| `UNCOLLECTED` | 未采集 | 所有所选地区均为 `PENDING`，且都没有采集时间。 |
+| `NEEDS_VERIFICATION` | 采集结果需核实 | 不满足以上三条，所选地区仅有失败、采集中、Google纠词或数据异常等尚不能判断原词排名的结果。 |
+
+`NOT_FOUND_CAPTURE` 只说明已有有效采集未命中，**不表示所有地区均已完成，也不等于已确认完整前100无排名**。例如美国已采集未命中、日本失败时，汇总为 `NOT_FOUND_CAPTURE`，日本的 `FAILED` 仍保留在 `rankingEvidence`。指定 `region=US` 时只判断美国，默认 `all` 判断四国。
+
+本次状态拆分后，原先归在 `NEEDS_VERIFICATION` 的已采集未命中词、未采集词分别改为 `NOT_FOUND_CAPTURE`、`UNCOLLECTED`。调用方应更新枚举分支；`summary.needsVerification` 只统计剩余异常状态，不再统计所有 `isTop100=null` 的词。
 
 ## 2. 获取 API Key
 
@@ -113,7 +129,7 @@ if (!response.ok) {
 const { total, rows } = await response.json();
 console.log(`可处理的博客关键词：${total}`);
 for (const row of rows) {
-  console.log(row.keyword, row.pool, row.opportunityStatus,
+  console.log(row.keyword, row.pool, row.opportunityStatus, row.opportunityStatusLabel,
     row.hasPage ? '已有博客文章' : '尚无已记录页面', row.pageUrls, row.plannedUrls);
 }
 ```
@@ -131,7 +147,7 @@ for (const row of rows) {
   "targetRank": 100,
   "rankingSource": "dataforseo_serp",
   "total": 1,
-  "summary": { "outsideTop100": 1, "needsVerification": 0 },
+  "summary": { "outsideTop100": 1, "notFoundCaptured": 0, "uncollected": 0, "needsVerification": 0 },
   "rows": [
     {
       "keywordId": "example-keyword-id",
@@ -146,6 +162,7 @@ for (const row of rows) {
       "currentRank": null,
       "isTop100": false,
       "opportunityStatus": "OUTSIDE_TOP100",
+      "opportunityStatusLabel": "已确认前100之外",
       "recommendedAction": "OPTIMIZE",
       "rankingEvidence": [
         {
@@ -184,7 +201,9 @@ for (const row of rows) {
 | `rankingSource` | string | 固定 `dataforseo_serp`，使用已保存实测，不混用 GSC / Ahrefs / Labs 历史名次。 |
 | `total` | number | 当前返回的网站关键词条数，包含正式词和候选词；每个 `(siteDomain, keywordId)` 一条。地区证据和关联任务不会增加条数。跨网站相同词分别计数。 |
 | `summary.outsideTop100` | number | 所选地区均已确认不在前100的条数。 |
-| `summary.needsVerification` | number | 排名未知或地区覆盖不完整、仍保留在结果中的条数。两项相加等于 `total`。 |
+| `summary.notFoundCaptured` | number | 已采集但未命中、尚未满足所选地区全部完整核验前100的条数。 |
+| `summary.uncollected` | number | 所选地区均尚未采集的条数。 |
+| `summary.needsVerification` | number | 仅有采集失败、采集中、纠词或数据异常等结果的条数。四项互斥，相加等于 `total`。 |
 | `rows` | array | 关键词清单。无符合条件的数据时为 `[]`，仍返回 `200`。 |
 | `rows[].keywordId` | string | 关键词 ID。 |
 | `rows[].keyword` | string | 关键词文本。 |
@@ -197,7 +216,8 @@ for (const row of rows) {
 | `rows[].candidateUrls` | string[] | 候选地址，供后续核实；不计入 `hasPage`。 |
 | `rows[].currentRank` | null | 未取得有效前100名次，包括未命中和排名未知两种情况。 |
 | `rows[].isTop100` | false / null | `false` 表示所选地区均已确认不在前100；`null` 表示排名未知。`true` 的词已被排除。 |
-| `rows[].opportunityStatus` | string | `OUTSIDE_TOP100` 已确认未命中；`NEEDS_VERIFICATION` 排名未知。两者均返回。 |
+| `rows[].opportunityStatus` | string | `OUTSIDE_TOP100`、`NOT_FOUND_CAPTURE`、`UNCOLLECTED` 或 `NEEDS_VERIFICATION`，按前述顺序判断，四类均返回。 |
+| `rows[].opportunityStatusLabel` | string | 中文排名状态说明：已确认前100之外、已采集但未命中、未采集、采集结果需核实。 |
 | `rows[].recommendedAction` | string | `BUILD` 建议新建、`OPTIMIZE` 建议优化已有页、`REVIEW_PAGE` 先核实页面。建议操作不影响是否返回。 |
 | `rows[].rankingEvidence` | array | 所选地区最近保存的排名依据。`all` 时四条，指定地区时一条。 |
 | `rows[].rankingEvidence[].region` | string | 地区代码。 |
@@ -215,18 +235,18 @@ for (const row of rows) {
 | `rows[].requirements` | string[] | 已保存的逐词内容要求，可能为空。 |
 | `rows[].acceptance` | string[] | 已保存的逐词验收标准，可能为空。 |
 
-CSV 同步包含页面情况、是否前100、当前排名、排名依据、建议操作和任务进度等字段。数组字段在单元格内以换行分隔，地区排名依据为 JSON；以公式符号开头的文本加单引号，避免被表格软件执行。
+CSV 同步包含页面情况、是否前100、当前排名、排名依据、建议操作和任务进度等字段。「抢占状态」保留英文状态码，新增「排名状态说明」列提供中文说明；「是否前100」在 `isTop100=null` 时显示「未确认」，完整核验未命中时显示「否」。CSV 调用方应按列名读取，兼容新增列。数组字段在单元格内以换行分隔，地区排名依据为 JSON；以公式符号开头的文本加单引号，避免被表格软件执行。
 
 ## 7. 数据范围与使用规则
 
 - 网站、网站关键词和关键词本身均需启用。各网站均限 `pool` 为 `FORMAL` 或 `RESEARCH`，不要求主题、规划或页面已绑定；已有绑定及有效规划必须指向博客文章。候选词的词池状态保持不变，不因导出而升级为正式目标或加入付费监控。
 - 同一词在不同网站分别判断，使用 `(siteDomain, keywordId)` 唯一标识。某个网站有排名不影响另一个网站的无排名词。
-- 每个地区使用最近保存的 SERP 任务结论；最新任务失败时仍返回该词，并显示失败/待核实，不用更旧的无排名回执冒充本次成功核验。
+- 每个地区使用最近保存的 SERP 任务结论；最新任务失败时仍返回该词，并保留 `FAILED` 证据，不用更旧的无排名回执冒充本次成功核验。
 - 页面关联不作为排名判断依据，但非博客绑定会排除整条关键词，包括当前页面审计标记缺失或错配的已存绑定。有效工作规划或关联任务指向非博客时同样排除；已合并、已恢复的历史任务不参与此筛选。建设任务进度不影响是否返回。
 - 按网站、默认搜索量降序、关键词排序，一次返回完整清单，无分页。
 - 导出不触发付费采集、不分配任务，也不会改变任务进度。重复调用可以返回相同关键词，调用方需根据任务 ID 与状态协调后续工作。
 
-调用方应使用 `(siteDomain, keywordId)` 去重；已有 `pageUrls` 时优先处理原文优化，已有 `plannedUrls` 或进行中任务时先复用规划和任务。`RESEARCH` 是待评估候选，不代表已批准发布。`NEEDS_VERIFICATION` 也不代表已确认无排名；需要严格无排名清单时，在调用方再筛选 `opportunityStatus === 'OUTSIDE_TOP100'`。
+调用方应使用 `(siteDomain, keywordId)` 去重；已有 `pageUrls` 时优先处理原文优化，已有 `plannedUrls` 或进行中任务时先复用规划和任务。`RESEARCH` 是待评估候选，不代表已批准发布。只有 `OUTSIDE_TOP100` 表示所选地区均已确认完整前100无排名；需要严格无排名清单时，在调用方筛选 `opportunityStatus === 'OUTSIDE_TOP100'`。需要已采集未命中清单时，可保留 `OUTSIDE_TOP100` 和 `NOT_FOUND_CAPTURE`，并结合地区证据判断覆盖范围。
 
 ## 8. 错误处理
 

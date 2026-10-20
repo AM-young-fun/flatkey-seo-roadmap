@@ -4,7 +4,7 @@ import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { readPageAuditVerdict } from "@/lib/keyword-monitoring";
 import { isAuditPageForSite, keywordWorkPlanSchema, normalizeAuditPageUrl, PAGE_AUDIT_DOMAINS, PAGE_AUDIT_SOURCE_ID, type PageAuditDomain } from "@/lib/page-audit";
 import { pageTaskDestination } from "@/lib/keyword-page-tasks";
-import { CONTENT_TARGET_RANK, type ContentOpportunity, type ExportRegion } from "@/lib/keyword-export";
+import { CONTENT_TARGET_RANK, OPPORTUNITY_STATUS_LABELS, type ContentOpportunity, type ExportRegion } from "@/lib/keyword-export";
 import { REGION_CODES } from "@/lib/seo";
 import { buildSerpKeywordResults } from "@/lib/serp-results";
 import { loadSerpTasks } from "@/lib/services/serp-results";
@@ -62,6 +62,9 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
     // Unknown/failed captures remain eligible for the blog export, with
     // their actual evidence state rather than a false absence claim.
     const confirmedOutside = evidence.every(row => row.status === "OUTSIDE_TOP100");
+    const opportunityStatus: ContentOpportunity["opportunityStatus"] = confirmedOutside ? "OUTSIDE_TOP100"
+      : evidence.some(row => row.status === "NOT_FOUND_CAPTURE" || row.status === "OUTSIDE_TOP100") ? "NOT_FOUND_CAPTURE"
+      : evidence.every(row => row.status === "PENDING" && row.checkedAt === null) ? "UNCOLLECTED" : "NEEDS_VERIFICATION";
     const verdict = snapshot ? readPageAuditVerdict(snapshot) : null;
     const pageStatus = keywordPageTag({ ...member, latestPageAuditVerdict: verdict }).key;
     const parsed = keywordWorkPlanSchema.safeParse(snapshot?.workPlan);
@@ -84,7 +87,7 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
       : hasPage ? "OPTIMIZE" : "BUILD";
     rows.push({ keywordId: member.keywordId, keyword: member.keyword.text, siteDomain: member.siteDomain, pool: member.pool,
       searchVolume: member.keyword.defaultVolume, hasPage, pageStatus, pageUrls, candidateUrls: member.candidateUrls,
-      currentRank: null, isTop100: confirmedOutside ? false : null, opportunityStatus: confirmedOutside ? "OUTSIDE_TOP100" : "NEEDS_VERIFICATION", recommendedAction, rankingEvidence: evidence,
+      currentRank: null, isTop100: confirmedOutside ? false : null, opportunityStatus, opportunityStatusLabel: OPPORTUNITY_STATUS_LABELS[opportunityStatus], recommendedAction, rankingEvidence: evidence,
       taskStatus: taskStatuses.length === 0 ? "UNASSIGNED" : taskStatuses.length === 1 ? taskStatuses[0] : "MIXED", taskStatuses,
       taskIds: related.map(task => task.id).sort(), plannedUrls: [...new Set([...(plan?.action === "BUILD" && destination ? [destination] : []), ...related.filter(task => task.type === "NEW").map(task => task.plannedUrl)])].sort(),
       proposedTitle: plan?.proposedTitle ?? null, requirements: plan?.requirements ?? [], acceptance: plan?.acceptance ?? [] });

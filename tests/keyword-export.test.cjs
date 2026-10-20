@@ -155,7 +155,7 @@ test("shared-page progress is returned so callers can avoid duplicate work; vali
 
 test("CSV escapes quotes, newlines and spreadsheet formulas", () => {
   const { opportunitiesCsv } = require("../src/lib/keyword-export.ts");
-  const csv = opportunitiesCsv([{ keywordId: "id", keyword: ' =SUM(1,2)\n"quoted"', siteDomain: "flatkey.ai", pool: "FORMAL", searchVolume: 1, hasPage: true, pageStatus: "MATCHED", pageUrls: ["https://flatkey.ai/guide"], candidateUrls: [], currentRank: null, isTop100: false, opportunityStatus: "OUTSIDE_TOP100", recommendedAction: "OPTIMIZE", rankingEvidence: [], taskStatus: "UNASSIGNED", taskStatuses: [], taskIds: [], plannedUrls: [], proposedTitle: null, requirements: [], acceptance: [] }]);
+  const csv = opportunitiesCsv([{ keywordId: "id", keyword: ' =SUM(1,2)\n"quoted"', siteDomain: "flatkey.ai", pool: "FORMAL", searchVolume: 1, hasPage: true, pageStatus: "MATCHED", pageUrls: ["https://flatkey.ai/guide"], candidateUrls: [], currentRank: null, isTop100: false, opportunityStatus: "OUTSIDE_TOP100", opportunityStatusLabel: "已确认前100之外", recommendedAction: "OPTIMIZE", rankingEvidence: [], taskStatus: "UNASSIGNED", taskStatuses: [], taskIds: [], plannedUrls: [], proposedTitle: null, requirements: [], acceptance: [] }]);
   assert.ok(csv.startsWith("\uFEFF")); assert.match(csv, /"' =SUM\(1,2\)\n""quoted"""/);
   assert.match(csv, /是否有页面/); assert.match(csv, /是否前100/); assert.match(csv, /"","否","OUTSIDE_TOP100"/);
 });
@@ -188,7 +188,7 @@ test("bound, unbound and unmeasured keywords are exported regardless of task com
   state.serpTasks = [serpTask("existing", null), serpTask("unbound", null)];
   const rows = await loadContentOpportunities(null, "US");
   assert.deepEqual(rows.map(row => row.keyword).sort(), ["existing", "unbound", "unmeasured"]);
-  assert.equal(rows.find(row => row.keyword === "unmeasured").opportunityStatus, "NEEDS_VERIFICATION");
+  assert.equal(rows.find(row => row.keyword === "unmeasured").opportunityStatus, "UNCOLLECTED");
   const existing = rows.find(row => row.keyword === "existing");
   assert.equal(existing.hasPage, true); assert.deepEqual(existing.pageUrls, ["https://flatkey.ai/blog/existing"]);
   assert.equal(existing.isTop100, false); assert.equal(existing.recommendedAction, "OPTIMIZE"); assert.equal(existing.taskStatus, "DONE");
@@ -250,7 +250,14 @@ test("missing, failed, corrected, shallow and queued results remain exported wit
   const rows = await loadContentOpportunities(null, "US");
   assert.deepEqual(rows.map(row => row.keyword).sort(), ["corrected", "failed", "outside", "partial50", "queued", "shallow", "unmeasured"]);
   assert.equal(rows.find(row => row.keyword === "outside").isTop100, false);
-  assert.ok(rows.filter(row => row.keyword !== "outside").every(row => row.isTop100 === null && row.opportunityStatus === "NEEDS_VERIFICATION"));
+  assert.ok(rows.filter(row => row.keyword !== "outside").every(row => row.isTop100 === null));
+  for (const word of ["shallow", "partial50"]) {
+    assert.equal(rows.find(row => row.keyword === word).opportunityStatus, "NOT_FOUND_CAPTURE");
+    assert.equal(rows.find(row => row.keyword === word).opportunityStatusLabel, "已采集但未命中");
+  }
+  assert.equal(rows.find(row => row.keyword === "unmeasured").opportunityStatus, "UNCOLLECTED");
+  assert.equal(rows.find(row => row.keyword === "unmeasured").opportunityStatusLabel, "未采集");
+  for (const word of ["failed", "corrected", "queued"]) assert.equal(rows.find(row => row.keyword === word).opportunityStatus, "NEEDS_VERIFICATION");
 });
 
 test("endpoint declares the top100 boundary, validates region, and fails closed if ranking evidence cannot be read", async () => {
@@ -259,9 +266,47 @@ test("endpoint declares the top100 boundary, validates region, and fails closed 
   assert.equal((await endpoint.GET(request(secret, "?region=CN"))).status, 400);
   const body = await (await endpoint.GET(request(secret, "?region=US"))).json();
   assert.equal(body.targetRank, 100); assert.equal(body.region, "US"); assert.equal(body.rankingSource, "dataforseo_serp");
-  assert.deepEqual(body.summary, { outsideTop100: 1, needsVerification: 0 }); assert.equal(body.rows[0].isTop100, false);
+  assert.deepEqual(body.summary, { outsideTop100: 1, notFoundCaptured: 0, uncollected: 0, needsVerification: 0 }); assert.equal(body.rows[0].isTop100, false);
   state.serpFailure = true;
   assert.equal((await endpoint.GET(request(secret))).status, 503);
+});
+
+test("capture statuses, labels and exclusive counts agree in JSON and CSV without overstating regional coverage", async () => {
+  state.members = [member("full"), member("limited"), member("partial-market"), member("mixed-error"), member("never"), member("failed"), member("corrected"), member("queued"), member("broken")];
+  state.serpTasks = [...noRankTasks(state.members.slice(0, 1)),
+    serpTask("limited", null, { normalized: { completeDepth: false, coveredThroughRank: 99 } }),
+    serpTask("partial-market", null), serpTask("mixed-error", null), serpTask("mixed-error", null, { region: "JP", state: "FAILED" }),
+    serpTask("failed", null, { state: "FAILED" }), serpTask("corrected", null, { normalized: { queryStatus: "AUTOCORRECTED" } }),
+    serpTask("queued", null, { state: "QUEUED", normalized: { captureComplete: false } }),
+    serpTask("broken", null, { state: "INCOMPLETE", normalized: { captureComplete: false, rankingVerified: false } })];
+  const { secret } = await service.mutateExportApiKey({ action: "create", name: "capture statuses", siteDomain: "flatkey.ai" });
+  const body = await (await endpoint.GET(request(secret))).json();
+  assert.deepEqual(body.summary, { outsideTop100: 1, notFoundCaptured: 3, uncollected: 1, needsVerification: 4 });
+  assert.equal(Object.values(body.summary).reduce((sum, count) => sum + count, 0), body.total);
+  const row = word => body.rows.find(row => row.keyword === word);
+  assert.equal(row("full").opportunityStatusLabel, "已确认前100之外");
+  assert.equal(row("full").isTop100, false);
+  assert.equal(row("limited").opportunityStatus, "NOT_FOUND_CAPTURE");
+  assert.equal(row("limited").rankingEvidence[0].coveredThroughRank, 99);
+  assert.equal(row("partial-market").opportunityStatus, "NOT_FOUND_CAPTURE");
+  assert.equal(row("partial-market").rankingEvidence.filter(e => e.status === "PENDING").length, 3);
+  assert.equal(row("mixed-error").opportunityStatus, "NOT_FOUND_CAPTURE");
+  assert.equal(row("mixed-error").rankingEvidence.find(e => e.region === "JP").status, "FAILED");
+  assert.equal(row("never").opportunityStatus, "UNCOLLECTED");
+  assert.equal(row("never").opportunityStatusLabel, "未采集");
+  for (const word of ["failed", "corrected", "queued", "broken"]) {
+    assert.equal(row(word).opportunityStatus, "NEEDS_VERIFICATION");
+    assert.equal(row(word).opportunityStatusLabel, "采集结果需核实");
+  }
+  assert.ok(body.rows.filter(row => row.keyword !== "full").every(row => row.isTop100 === null));
+  const us = await (await endpoint.GET(request(secret, "?region=US"))).json();
+  assert.deepEqual(us.summary, { outsideTop100: 3, notFoundCaptured: 1, uncollected: 1, needsVerification: 4 });
+  const csv = await (await endpoint.GET(request(secret, "?format=csv"))).text();
+  assert.match(csv, /"排名状态说明"/);
+  for (const item of body.rows) assert.ok(csv.includes(`"${item.opportunityStatus}","${item.opportunityStatusLabel}"`));
+  assert.match(csv, /"未确认","UNCOLLECTED","未采集"/);
+  assert.match(csv, /"未确认","NOT_FOUND_CAPTURE","已采集但未命中"/);
+  assert.ok(!csv.includes("待核实"));
 });
 
 test("formal targets and research candidates export once per site, excluding ranked candidates too", async () => {
@@ -282,7 +327,9 @@ test("formal targets and research candidates export once per site, excluding ran
   assert.deepEqual(rows.find(row => row.keyword === "research-0").plannedUrls, ["https://flatkey.ai/blog/research-plan"]);
   assert.deepEqual(rows.find(row => row.keyword === "word-0").taskIds, ["one", "two"]);
   assert.equal(rows.find(row => row.keyword === "word-0").rankingEvidence.length, 4);
-  assert.ok(rows.every(row => row.opportunityStatus === "NEEDS_VERIFICATION"));
+  assert.equal(rows.find(row => row.keyword === "word-0").opportunityStatus, "NOT_FOUND_CAPTURE");
+  assert.ok(rows.filter(row => row.keyword !== "word-0").every(row => row.opportunityStatus === "UNCOLLECTED"));
+  assert.deepEqual(body.summary, { outsideTop100: 0, notFoundCaptured: 1, uncollected: 5508, needsVerification: 0 });
   const usRows = await loadContentOpportunities("flatkey.ai", "US");
   assert.equal(usRows.length, 5509);
   assert.equal(usRows.filter(row => row.opportunityStatus === "OUTSIDE_TOP100").length, 1);
