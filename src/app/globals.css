@@ -653,31 +653,26 @@ a {
   gap: 24px;
 }
 .brand {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
+  color: var(--text);
   font-size: 22px;
   font-weight: 780;
+  line-height: 1.2;
   text-decoration: none;
-  letter-spacing: -0.7px;
+  white-space: nowrap;
+  letter-spacing: -0.4px;
 }
 .brandIcon {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: #17243b;
-  color: #fff;
+  display: block;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
 }
-.brandSub {
-  border-left: 1px solid #d8e0ea;
-  padding-left: 12px;
-  margin-left: 3px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #8290a5;
-  letter-spacing: 0;
+.loginBrand {
+  margin-bottom: 24px;
 }
 .siteHeader nav {
   display: flex;
@@ -1117,9 +1112,6 @@ a:focus-visible {
   }
   .managementGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .brandSub {
-    display: none;
   }
 }
 @media (max-width: 850px) {

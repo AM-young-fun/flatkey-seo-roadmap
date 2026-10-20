@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ChartNoAxesCombined, List, Settings2, LogOut } from "lucide-react";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache } from "@/lib/client-read-cache";
+import { Brand } from "@/components/Brand";
 
 export function PageHeader({
   active,
@@ -12,11 +13,8 @@ export function PageHeader({
 }) {
   return (
     <> <CollectionProgress /><header className="siteHeader">
-      <Link href="/" className="brand">
-        <span className="brandIcon">
-          <ChartNoAxesCombined size={20} />
-        </span>
-        Flatkey<span className="brandSub">SEO 洞察</span>
+      <Link href="/" className="brand" aria-label="SEO 洞察首页">
+        <Brand />
       </Link>
       <nav aria-label="主导航">
         <Link

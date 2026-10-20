@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { isAuthEnabled } from "@/lib/auth";
+import { Brand } from "@/components/Brand";
 
 export const metadata: Metadata = {
-  title: "登录 - SEO Rank Monitor"
+  title: "登录 - SEO 洞察"
 };
 
 type LoginPageProps = {
@@ -21,7 +22,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     <main className="loginShell">
       <section className="loginPanel">
         <div>
-          <p className="eyebrow">SEO Rank Monitor</p>
+          <div className="brand loginBrand"><Brand /></div>
           <h1>登录</h1>
         </div>
         <form action={`/api/auth/login?next=${encodeURIComponent(nextPath)}`} className="loginForm" method="post">
