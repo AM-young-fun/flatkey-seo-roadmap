@@ -17,7 +17,7 @@ export type SerpQuote = {
   pricingUrl: string; pricedAt: "2026-10-16";
 };
 export type SerpMonitorRunDto = {
-  id: string; scope: "SCHEDULED" | "SAMPLE"; status: SerpRunState; targetCount: number; queryCount: number;
+  id: string; scope: "SCHEDULED" | "SAMPLE" | "OPTIMIZED_PAGE"; status: SerpRunState; targetCount: number; queryCount: number;
   estimatedCostMicros: number; reservedCostMicros: number; actualCostMicros: number | null;
   startedAt: string; completedAt: string | null; errorCode: string | null;
   periodKey: string; periodLabel: string; periodStart: string; periodEnd: string;

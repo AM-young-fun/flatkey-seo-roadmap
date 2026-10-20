@@ -11,6 +11,7 @@ import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegio
   serpTaskId, type SerpMonitorMutation } from "@/lib/dataforseo-serp";
 import { parseSerpSampleBalance, SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_MAX_QUERIES, SERP_SAMPLE_MAX_BUDGET_MICROS, SERP_SAMPLE_SAFETY_MARGIN_MICROS } from "@/lib/serp-sample";
 import type { SerpMonitorConfiguration, SerpMonitorPreview, SerpMonitorRunDto, SerpMonitorStatus, SerpRunState, SerpTaskState } from "@/lib/serp-monitor-types";
+import { OPTIMIZED_PAGE_SCOPE, OPTIMIZED_PAGE_MAX_QUERIES, optimizedPageUrl, optimizedPageId, monitorDay, optimizedPagePeriod } from "@/lib/optimized-page-monitor";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const OPEN_RUNS = ["PLANNED", "RUNNING", "UNKNOWN"];
@@ -39,7 +40,7 @@ async function monthReserved(tx: Prisma.TransactionClient = prisma) {
 }
 async function runDto(run: SerpMonitorRun): Promise<SerpMonitorRunDto> {
   const groups = await prisma.serpMonitorTask.groupBy({ by: ["state"], where: { runId: run.id }, _count: true });
-  return { id: run.id, scope: (run.scope ?? "SCHEDULED") as "SCHEDULED" | "SAMPLE", status: run.status as SerpRunState, targetCount: run.targetCount, queryCount: run.queryCount,
+  return { id: run.id, scope: (run.scope ?? "SCHEDULED") as SerpMonitorRunDto["scope"], status: run.status as SerpRunState, targetCount: run.targetCount, queryCount: run.queryCount,
     estimatedCostMicros: run.estimatedCostMicros, reservedCostMicros: run.reservedCostMicros, actualCostMicros: run.actualCostMicros,
     startedAt: run.startedAt.toISOString(), completedAt: run.completedAt?.toISOString() ?? null, errorCode: run.errorCode,
     periodKey: run.periodKey, periodLabel: run.periodLabel, periodStart: run.periodStart.toISOString(), periodEnd: run.periodEnd.toISOString(),
@@ -49,7 +50,7 @@ export async function loadSerpMonitorStatus(): Promise<SerpMonitorStatus> {
   const [row, connection, cohort, runs, reserved] = await Promise.all([
     prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }),
     prisma.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" }, select: { loginMasked: true } }),
-    loadSerpTargetCohort(), prisma.serpMonitorRun.findMany({ orderBy: { createdAt: "desc" }, take: 10 }), monthReserved(),
+    loadSerpTargetCohort(), prisma.serpMonitorRun.findMany({ where: { scope: { in: ["SCHEDULED", "SAMPLE"] } }, orderBy: { createdAt: "desc" }, take: 10 }), monthReserved(),
   ]);
   const config = configuration(row), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS), environmentEnabled = isSerpPaidEnvironmentEnabled();
   const bySite: Record<string, number> = {};
@@ -132,7 +133,7 @@ async function credentials() {
 const basicHeader = (value: { apiLogin: string; apiPassword: string }) => `Basic ${Buffer.from(`${value.apiLogin}:${value.apiPassword}`).toString("base64")}`;
 const rawRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
-async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number): Promise<number> {
+async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string): Promise<number> {
   // Leave room for balance lookup, reservation, one non-retryable POST, raw
   // persistence and its atomic receipt association before the worker exits.
   if (!hasTime(deadline, 75_000)) return 0;
@@ -199,6 +200,12 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
       if ([...marketCoverage.values()].some(coverage => coverage.size !== SERP_MARKETS.length || SERP_MARKETS.some(region => !coverage.has(region)))) throw new ImportRequestError("小批必须完整覆盖四个国家，未提交任务", 409);
       const allowed = Array.isArray(approved.selectedTargetIds) ? approved.selectedTargetIds : [];
       if (allowed.length !== targetIds.size || new Set(allowed).size !== targetIds.size || run.targetCount !== targetIds.size || allowed.some(id => typeof id !== "string" || !targetIds.has(id))) throw new ImportRequestError("小批目标超出授权范围", 409);
+    } else if (manualPageId) {
+      const approved = rawRecord(run.configJson), pageUrl = typeof approved.optimizedPageUrl === "string" ? optimizedPageUrl(approved.optimizedPageUrl) : null;
+      if (run.scope !== OPTIMIZED_PAGE_SCOPE || !pageUrl || optimizedPageId(pageUrl) !== manualPageId || approved.optimizedPageId !== manualPageId ||
+        approved.optimizedDay !== monitorDay() || run.periodKey !== optimizedPagePeriod(manualPageId, monitorDay()) ||
+        run.queryCount < 1 || run.queryCount > OPTIMIZED_PAGE_MAX_QUERIES || run.reservedCostMicros !== run.queryCount * SERP_PRICE_PER_QUERY_MICROS)
+        throw new ImportRequestError("页面当日抓取授权不匹配，未提交任务", 409);
     } else if (!isSerpScheduleAuthorized(config) || (run.scope ?? "SCHEDULED") !== "SCHEDULED") throw new ImportRequestError("全量付费SERP抓取已关闭或任务范围不符", 409);
     if (run.status === "UNKNOWN") throw new ImportRequestError("供应商接收结果不明，禁止重复提交", 409);
     if (run.connectionVersion !== connection.connectionVersion || rawRecord(run.configJson).connectionHash !== connection.connectionHash) throw new ImportRequestError("采集期间连接已变化，请先核对原账本", 409);
@@ -232,6 +239,11 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
 // ledger. It never changes either scheduled spending gate or its due date.
 export async function submitSerpSampleBatch(runId: string, authorizationHash: string) {
   return submitOneBatch(runId, authorizationHash);
+}
+// Only the authenticated single-page start path calls this, after committing
+// its unique daily ledger. Neither cron nor free polling can submit it again.
+export async function submitOptimizedPageBatch(runId: string, pageId: string) {
+  return submitOneBatch(runId, undefined, undefined, pageId);
 }
 async function enforceCostBoundsInTransaction(tx: Prisma.TransactionClient, runId: string, batchIds?: string[], batchReportedCost: number | null = null) {
     const run = await tx.serpMonitorRun.findUniqueOrThrow({ where: { id: runId } });

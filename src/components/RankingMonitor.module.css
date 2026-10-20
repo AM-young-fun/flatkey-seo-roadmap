@@ -1,0 +1,18 @@
+.heading { display: flex; align-items: center; gap: 12px; margin: 36px 0 24px; }
+.heading > div { display: flex; align-items: baseline; gap: 16px; }
+.heading h1 { margin: 0; font-size: 28px; letter-spacing: -.6px; }
+.heading > svg { color: #8c95a4; cursor: help; }
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.toolbar input { width: 320px; max-width: 55vw; padding: 8px 12px; border: 1px solid #dce2eb; border-radius: 8px; background: white; font: inherit; }
+.toolbar :global(.ant-select) { min-width: 125px; }
+.page { display: grid; gap: 7px; max-width: 290px; }
+.page a { color: #263d63; font-weight: 600; }
+.page small { color: #8791a2; overflow-wrap: anywhere; font-size: 12px; }
+.stack { display: grid; gap: 8px; }
+.word { min-height: 26px; line-height: 26px; white-space: nowrap; }
+.keyword { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.muted { color: #7a8596; font-size: 13px; }
+.ranked { color: #263d63; font-variant-numeric: tabular-nums; }
+.up { color: #15803d; font-weight: 600; }
+.down { color: #c2413c; font-weight: 600; }
+@media (max-width: 640px) { .heading > div { align-items: flex-start; flex-direction: column; gap: 6px; } .toolbar { gap: 8px; } }

@@ -26,7 +26,7 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", sta
         AND COALESCE(mt."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(mt."requestJson"->>'depth', r."configJson"->>'depth') = '100') AS regions
     FROM "SerpMonitorRun" r
-    WHERE (EXISTS (
+    WHERE r.scope IN ('SCHEDULED', 'SAMPLE') AND (EXISTS (
       SELECT 1 FROM "SerpMonitorTask" t WHERE t."runId" = r.id AND ${taskMarket}
         AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
@@ -80,7 +80,7 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
         t."providerTaskId", t."errorCode", t."updatedAt", r."createdAt" AS "runCreatedAt",
         r."periodKey", r."periodLabel", r."periodStart", r."periodEnd", r.scope AS "runScope", r."targetCount" AS "runTargetCount"
       FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
-      WHERE ${market}
+      WHERE ${market} AND r.scope IN ('SCHEDULED', 'SAMPLE')
         AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
         AND (${!end} OR t."runId" = ${includeRunId ?? ""} OR (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end ?? "9999-12-31"}::date

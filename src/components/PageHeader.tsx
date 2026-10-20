@@ -9,7 +9,7 @@ import { Brand } from "@/components/Brand";
 export function PageHeader({
   active,
 }: {
-  active: "overview" | "keywords" | "manage" | "traffic";
+  active: "overview" | "keywords" | "manage" | "traffic" | "monitor";
 }) {
   return (
     <> <CollectionProgress /><header className="siteHeader">
@@ -33,6 +33,7 @@ export function PageHeader({
           <List size={16} />
           关键词明细
         </Link>
+        <Link href="/monitor" className={active === "monitor" ? "navLink active" : "navLink"} aria-current={active === "monitor" ? "page" : undefined}>排名监控</Link>
         <Link href="/traffic" className={active === "traffic" ? "navLink active" : "navLink"} aria-current={active === "traffic" ? "page" : undefined}>流量周报</Link>
         <Link
           href="/manage"
