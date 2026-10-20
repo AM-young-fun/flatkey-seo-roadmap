@@ -32,7 +32,7 @@ export function CandidateKeywordReview({ onChanged }: { onChanged: () => void })
   }
   const rows = (plan?.rows ?? []).filter(row => filter === "ALL" || (filter === "SUGGESTED" ? row.kind !== "KEEP" : row.kind === filter))
     .filter(row => `${row.text} ${row.reason}`.toLowerCase().includes(search.toLowerCase()));
-  return <section className="jsonImportPanel" aria-label="候选词批量清理">
+  return <section className="dataforseoPanel" aria-label="候选词批量清理">
     <h2>候选词批量清理</h2><p>检查 Flatkey 候选词中的业务无关、竞品品牌和低质量记录。预览后可调整勾选；移除保留原因并支持恢复。</p>
     <div className="reviewToolbar"><button type="button" disabled={busy} onClick={() => void load()}>{busy ? "正在处理…" : "预览候选词筛选"}</button>
       {plan ? <button type="button" disabled={busy || !selected.length} onClick={() => void apply()}>移除所选 {selected.length} 个候选词</button> : null}
