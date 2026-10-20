@@ -75,3 +75,27 @@ test("an explicit page outside result cannot be revived by an older positive rec
   assert.equal(result.pageLosses[0].lost, 1);
   assert.equal(result.removed, 0, "losing one page does not mean losing the keyword on the entire site");
 });
+
+test("decline detail shows exact same-country ranks and page changes, while missing receipts and replacement-only rows stay out",()=>{
+  const reports=[report(start,[["declining api",3],["outside api",9],["missing api",5],["brand",1],["improving api",8]]),
+    report(end,[["declining api",18],["outside api",101],["brand",1],["improving api",2]]),
+    report(start,[["declining api",20]],"JP"),report(end,[["declining api",4]],"JP")];
+  const pages=[page(start,"declining api","https://flatkey.ai/old",3),page(end,"declining api","https://flatkey.ai/new",18),
+    page(start,"outside api","https://flatkey.ai/outside",9),page(start,"brand","https://flatkey.ai/docs",1),page(end,"brand","https://flatkey.ai/",1),
+    page(start,"improving api","https://flatkey.ai/before",8),page(end,"improving api","https://flatkey.ai/after",2)];
+  const result=weeklyKeywordComparison(reports,new Set([...eligible("declining api","outside api","missing api","brand","improving api"),"flatkey.ai:JP:declining api"]),start,end,pages);
+  assert.deepEqual(result.rankDeclines,[
+    {keyword:"outside api",siteDomain:"flatkey.ai",region:"US",previousRank:9,currentRank:101,previousUrl:"https://flatkey.ai/outside",currentUrl:null,outsideTop100:true},
+    {keyword:"declining api",siteDomain:"flatkey.ai",region:"US",previousRank:3,currentRank:18,previousUrl:"https://flatkey.ai/old",currentUrl:"https://flatkey.ai/new",outsideTop100:false}]);
+});
+
+test("decline detail requires a paired source and never invents a URL from a different rank, market or source",()=>{
+  const reports=[report(start,[["wrong source",2]],"US","flatkey.ai","ahrefs"),report(end,[["wrong source",80]]),
+    report(start,[["actual decline",5]]),report(end,[["actual decline",20]])];
+  const pages=[page(start,"actual decline","https://flatkey.ai/wrong-rank",8),
+    page(end,"actual decline","https://flatkey.ai/wrong-source",20,{source:"ahrefs"}),
+    page(end,"actual decline","https://flatkey.ai/jp",20,{region:"JP"}),page(end,"actual decline","https://outside.example/",20)];
+  const result=weeklyKeywordComparison(reports,eligible("wrong source","actual decline"),start,end,pages);
+  assert.deepEqual(result.rankDeclines,[{keyword:"actual decline",siteDomain:"flatkey.ai",region:"US",previousRank:5,currentRank:20,
+    previousUrl:null,currentUrl:null,outsideTop100:false}]);
+});

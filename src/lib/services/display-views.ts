@@ -9,6 +9,7 @@ import { buildWeeklyReport } from "./weekly-report";
 import { loadKeywordOkr } from "./keyword-okr";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
+const trafficDisplayVersion = "declines-v2";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";
@@ -25,7 +26,9 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   if (view === "traffic") {
     const periods = params.get("week") ? reportPeriods(params.get("week")!) : activeReportPeriods();
     if (periods.current.start > activeReportPeriods().current.start) throw new Error("周报尚未结束");
-    return {key:`display-v1:traffic:${periods.current.start}`,build:async () => ({value:await buildWeeklyReport(periods)})};
+    // This revision includes country-level decline receipts. Rebuild once on
+    // upgrade instead of serving a prior payload without the new evidence.
+    return {key:`display-v1:traffic:${periods.current.start}:${trafficDisplayVersion}`,build:async () => ({value:await buildWeeklyReport(periods)})};
   }
   if (view === "trends") {
     const range = serpTrendRange(params.get("start") ?? undefined,params.get("end") ?? undefined,new Date());
@@ -38,6 +41,7 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
 export async function refreshDisplayViews(deadline = Date.now()+50_000) {
   const defaults = [new URLSearchParams({view:"dashboard"}),new URLSearchParams({view:"traffic"}),new URLSearchParams({view:"trends"})].map(displayViewSpec);
   const rows = await prisma.$queryRaw<Array<{key:string}>>`SELECT key FROM "DisplaySnapshot" WHERE key LIKE 'display-v1:%'
+    AND (key NOT LIKE 'display-v1:traffic:%' OR key LIKE ${`display-v1:traffic:%:${trafficDisplayVersion}`})
     AND (body IS NULL OR revision > "builtRevision") ORDER BY "builtAt" NULLS FIRST LIMIT 20`;
   const specs = new Map(defaults.map(spec => [spec.key,spec]));
   for (const {key} of rows) {
