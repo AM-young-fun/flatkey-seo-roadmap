@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Select } from "antd";
 import { PageHeader } from "@/components/PageHeader";
 import { reportPeriods, activeReportPeriods, relativeChange } from "@/lib/weekly-traffic";
-import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import type { WeeklyKeywordComparison } from "@/lib/weekly-keyword-comparison";
 import type { WeeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
 import type { WeeklyReportDiagnosis } from "@/lib/weekly-report-diagnosis";
@@ -78,8 +77,6 @@ const delta = (value: number) => `${value > 0 ? "+" : ""}${value.toLocaleString(
 function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
   const report = data?.comparison, ranking = data?.ranking;
   const showChanges = !ranking?.waiting && (!ranking?.noNewCapture || ranking?.baseline);
-  const majorDeclines = report?.rankDeclines?.filter(row=>row.outsideTop100 || row.currentRank-row.previousRank >= 10) ?? [];
-  const previousIssue = ranking?.comparisonReference ? "第一期" : "上期";
   const rows: { label: string; current?: number; previous?: number; delta?: number; color: string }[] = report
     ? [{ label: "前100合计", current: report.current, previous: report.previous, delta: report.net, color: "#23395c" }, ...report.buckets]
     : ["前100合计", "前10名", "11–30名", "31–50名", "51–100名"].map((label, index) => ({ label, color: ["#23395c", "#10b981", "#4385ff", "#f5a000", "#ff791b"][index] }));
@@ -92,16 +89,7 @@ function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
       {!report ? <p className="chartNote">尚无已保存的有效排名结果，完成采集后展示。</p> : null}
       <div className="keywordComparisonSummary"><div><span>本期新增</span><strong className="metricIncrease">{report && showChanges ? `+${report.entered}` : "—"}</strong></div><div><span>本期减少</span><strong className="metricDecrease">{report && showChanges ? report.removed ? `−${report.removed}` : "0" : "—"}</strong></div><div><span>净变化</span><strong>{report && showChanges ? delta(report.net) : "—"}</strong></div></div>
       <div className="siteTrafficTable keywordComparisonTable"><table><thead><tr><th>排名区间</th><th>{ranking?.comparisonReference ? "第一期词数" : "上期词数"}</th><th>本期词数</th><th>数量变化</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><th><i style={{ background: row.color }} />{row.label}</th><td><div className="reportBarCell"><span className="reportBarTrack"><i className="previousReportBar" style={{ width: `${(row.previous ?? 0) / maximum * 100}%` }} /></span><strong>{ranking?.baseline ? "—" : row.previous?.toLocaleString() ?? "—"}</strong></div></td><td><div className="reportBarCell"><span className="reportBarTrack"><i style={{ width: `${(row.current ?? 0) / maximum * 100}%`, background: row.color }} /></span><strong>{row.current?.toLocaleString() ?? "—"}</strong></div></td><td><span className={`reportDelta ${(row.delta ?? 0) > 0 ? "increase" : (row.delta ?? 0) < 0 ? "decrease" : ""}`}>{row.delta == null || !showChanges ? "—" : delta(row.delta)}</span></td></tr>)}</tbody></table></div>
-      <div className="pageLossSummary rankDeclineSummary"><h3>主要排名下降</h3>{showChanges && majorDeclines.length ? <>
-        <p className="chartNote">下降≥10名或跌出前100 · 比较同一国家、各期本站最佳命中结果{majorDeclines.length > 10 ? ` · 展示前10条，共${majorDeclines.length}条` : ""}</p>
-        <div className="siteTrafficTable"><table><thead><tr><th>关键词</th><th>国家</th><th>{previousIssue}最佳名次</th><th>本期最佳名次</th><th>变化</th><th>各期命中页面</th></tr></thead><tbody>{majorDeclines.slice(0,10).map(row=><tr key={`${row.siteDomain}:${row.region}:${row.keyword}`}>
-          <th scope="row">{row.keyword}</th><td>{REGIONS[row.region as SearchRegionCode]?.label ?? row.region}</td><td className="rankPosition">#{row.previousRank}</td><td className="rankPosition">{row.outsideTop100 ? "100之外" : `#${row.currentRank}`}</td>
-          <td><span className="reportDelta decrease">{row.outsideTop100 ? "跌出前100" : `下降${row.currentRank-row.previousRank}名`}</span>{row.previousUrl && row.currentUrl && row.previousUrl !== row.currentUrl ? <small>命中页面不同</small> : null}</td>
-          <td className="rankDeclinePages">{row.previousUrl && row.currentUrl && row.previousUrl !== row.currentUrl ? <><div><span>{previousIssue}</span><a href={row.previousUrl} target="_blank" rel="noreferrer">{row.previousUrl.replace(/^https?:\/\//,"")}</a></div><div><span>本期</span><a href={row.currentUrl} target="_blank" rel="noreferrer">{row.currentUrl.replace(/^https?:\/\//,"")}</a></div></> : row.currentUrl || row.previousUrl ? <a href={(row.currentUrl ?? row.previousUrl)!} target="_blank" rel="noreferrer">{(row.currentUrl ?? row.previousUrl)!.replace(/^https?:\/\//,"")}</a> : <span className="muted">未保存页面</span>}</td>
-        </tr>)}</tbody></table></div>
-      </> : <p className="muted">{!showChanges || !report || ranking?.baseline ? "有两期可比结果后展示。" : !report.rankDeclines ? "正在整理排名明细…" : "可比查询中，没有下降10名及以上或跌出前100的词。"}</p>}
       {ranking?.unresolvedWords ? <p className="chartNote">另有 {ranking.unresolvedWords} 个上期排名词本次缺少有效结果，未计为排名流失；净变化表示已取得的排名记录数量变化。</p> : null}
-      </div>
     </>}
   </section>;
 }
