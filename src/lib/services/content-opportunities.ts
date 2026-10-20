@@ -10,16 +10,21 @@ import { buildSerpKeywordResults } from "@/lib/serp-results";
 import { loadSerpTasks } from "@/lib/services/serp-results";
 import { validSitePage } from "@/lib/keyword-volume-review";
 
+function isBlogArticle(value: string, siteDomain: string) {
+  if (!validSitePage(value, siteDomain)) return false;
+  const path = new URL(value).pathname.replace(/^\/(?:en|zh|ja|es|pt|fr|de|ru|id|vi)(?=\/|$)/u, "");
+  return /^\/(?:cloud\/)?blog\/[^/]+\/?$/u.test(path);
+}
+
 /** Saved SERP evidence determines success; a completed page alone does not. */
 export async function loadContentOpportunities(siteDomain: PageAuditDomain | null, region: ExportRegion = "all") {
   const sites = await prisma.seoSite.findMany({ where: { active: true, domain: siteDomain ?? { in: [...PAGE_AUDIT_DOMAINS] } }, select: { domain: true } });
   const domains = sites.map(site => site.domain);
   if (!domains.length) return [];
   const [members, tasks] = await Promise.all([
-    // Active research rows remain available in inventory, but are not content targets.
-    // Other sites use topic assignments until they have a curated formal pool.
+    // Export active targets and candidates, including words without a topic or plan.
     prisma.siteKeyword.findMany({ where: { siteDomain: { in: domains }, active: true, keyword: { active: true },
-      OR: [{ siteDomain: "flatkey.ai", pool: "FORMAL" }, { siteDomain: { in: domains.filter(domain => domain !== "flatkey.ai") }, topicId: { not: null } }] },
+      pool: { in: ["FORMAL", "RESEARCH"] } },
       select: { siteDomain: true, keywordId: true, pool: true, mappingStatus: true, targetUrls: true, candidateUrls: true,
         keyword: { select: { text: true, defaultVolume: true } } } }),
     prisma.keywordContentTask.findMany({ where: { siteDomain: { in: domains }, status: { notIn: ["MERGED", "RESTORED"] } },
@@ -39,6 +44,9 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
   const urlKey = (value: string) => { try { return normalizeAuditPageUrl(value); } catch { return value; } };
   const rows: ContentOpportunity[] = [];
   for (const member of members) {
+    // Do not turn a product/docs binding into a blog opportunity, even when
+    // the audit hides a missing or mismatched target from current pageUrls.
+    if (member.targetUrls.some(url => validSitePage(url, member.siteDomain) && !isBlogArticle(url, member.siteDomain))) continue;
     const raw = snapshots.get(`${member.siteDomain}:keyword:${member.keywordId}`);
     let snapshot = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
     if (snapshot && ((snapshot.keywordId !== undefined && snapshot.keywordId !== member.keywordId)
@@ -51,8 +59,8 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
     const validRanks = evidence.filter(row => row.status === "RANKED" && row.rank !== null);
     const currentRank = validRanks.length ? Math.min(...validRanks.map(row => row.rank!)) : null;
     if (currentRank !== null && currentRank <= CONTENT_TARGET_RANK) continue;
-    // Only a positive rank excludes a word. Unknown/failed captures stay in
-    // the export, with their actual evidence state rather than a false absence claim.
+    // Unknown/failed captures remain eligible for the blog export, with
+    // their actual evidence state rather than a false absence claim.
     const confirmedOutside = evidence.every(row => row.status === "OUTSIDE_TOP100");
     const verdict = snapshot ? readPageAuditVerdict(snapshot) : null;
     const pageStatus = keywordPageTag({ ...member, latestPageAuditVerdict: verdict }).key;
@@ -61,6 +69,7 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
     const plan = parsed.success && parsed.data.action === expectedAction && [...parsed.data.pageUrls, parsed.data.plannedPageUrl, parsed.data.previousPageUrl]
       .every(url => !url || isAuditPageForSite(url, member.siteDomain as PageAuditDomain)) ? parsed.data : null;
     const destination = plan ? pageTaskDestination({ ...plan, keyword: member.keyword.text, keywordId: member.keywordId }) : null;
+    if ([...(plan?.pageUrls ?? []), destination].some(url => url && !isBlogArticle(url, member.siteDomain))) continue;
     const word = normalizeKeywordText(member.keyword.text);
     const pageUrls = [...new Set([...(pageStatus === "BUILD" ? [] : member.targetUrls), ...(plan?.pageUrls ?? []),
       ...evidence.flatMap(row => row.status === "RANKED" && row.url ? [row.url] : [])].filter(url => validSitePage(url, member.siteDomain)))].sort();
@@ -69,6 +78,7 @@ export async function loadContentOpportunities(siteDomain: PageAuditDomain | nul
     const related = tasks.filter(task => task.siteDomain === member.siteDomain && !["MERGED", "RESTORED"].includes(task.status)
       && (task.keywords.some(value => normalizeKeywordText(value) === word)
         || [task.plannedUrl, ...task.targetUrls].some(url => associatedUrls.includes(urlKey(url)))));
+    if (related.some(task => [task.plannedUrl, ...task.targetUrls].some(url => validSitePage(url, member.siteDomain) && !isBlogArticle(url, member.siteDomain)))) continue;
     const taskStatuses = [...new Set(related.map(task => task.status))].sort();
     const recommendedAction = pageStatus === "MISMATCH" || pageStatus === "REVIEW" ? "REVIEW_PAGE"
       : hasPage ? "OPTIMIZE" : "BUILD";

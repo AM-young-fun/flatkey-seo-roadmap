@@ -19,10 +19,9 @@ const db = {
   siteKeyword: { findMany: async ({ where }) => {
     reads++;
     assert.equal(where.active, true); assert.deepEqual(where.keyword, { active: true });
-    assert.deepEqual(where.OR[0], { siteDomain: "flatkey.ai", pool: "FORMAL" });
-    assert.deepEqual(where.OR[1], { siteDomain: { in: where.siteDomain.in.filter(domain => domain !== "flatkey.ai") }, topicId: { not: null } });
+    assert.deepEqual(where.pool, { in: ["FORMAL", "RESEARCH"] });
     return state.members.filter(row => where.siteDomain.in.includes(row.siteDomain) && row.active && row.keyword.active
-      && (row.siteDomain === "flatkey.ai" ? row.pool === "FORMAL" : row.topicId !== null));
+      && where.pool.in.includes(row.pool));
   } },
   keywordContentTask: { findMany: async ({ where }) => state.tasks.filter(row => where.siteDomain.in.includes(row.siteDomain) && !where.status.notIn.includes(row.status)) },
   keywordSourceRow: { findMany: async ({ where }) => state.audits.filter(row => where.siteDomain.in.includes(row.siteDomain) && where.rowKey.in.includes(row.rowKey)) },
@@ -116,10 +115,11 @@ test("site-scoped keys default to their site, cannot escalate, and both export f
   assert.match(await csv.text(), /rackrate/);
 });
 
-test("only content targets are eligible, regardless of page identity and task states", async () => {
+test("active targets and candidates are eligible without topics, regardless of page identity and task states", async () => {
   state.members = [member("unassigned"), member("todo"), member("in-progress"), member("done"), member("blocked"), member("unknown"), member("expansion-task"),
     member("expand"), member("verified"), member("missing"), member("needs-review"), member("mismatch"), member("legacy", { mappingStatus: "UNMAPPED" }),
-    member("research", { pool: "RESEARCH" }), member("inactive", { active: false }), member("inactive-word", { keyword: { text: "inactive-word", active: false, defaultVolume: 10 } }),
+    member("research", { pool: "RESEARCH" }), member("archived", { pool: "ARCHIVED" }), member("merged", { pool: "MERGED" }),
+    member("inactive", { active: false }), member("inactive-word", { keyword: { text: "inactive-word", active: false, defaultVolume: 10 } }),
     member("candidate", { candidateUrls: ["https://flatkey.ai/candidate"] }), member("bad-identity"), member("retired"),
     member("todo", { siteDomain: "rackrate.org", keywordId: "rack-word" }), member("no-topic", { siteDomain: "rackrate.org", topicId: null })];
   state.audits = [audit("expand", { verdict: "CONTENT_GAP" }), audit("verified", { verdict: "VERIFIED" }), audit("missing", { verdict: "MISSING" }),
@@ -128,8 +128,8 @@ test("only content targets are eligible, regardless of page identity and task st
     task("t5", ["unknown"], { status: "UNKNOWN" }), task("t6", ["expansion-task"], { type: "EXPAND" }), task("t7", ["retired"], { status: "MERGED" }), task("t8", ["retired"], { status: "RESTORED" })];
   state.serpTasks = noRankTasks(state.members);
   const rows = await loadContentOpportunities(null);
-  assert.deepEqual(rows.filter(row => row.siteDomain === "flatkey.ai").map(row => row.keyword).sort(), ["bad-identity", "blocked", "candidate", "done", "expand", "expansion-task", "in-progress", "legacy", "mismatch", "missing", "needs-review", "retired", "todo", "unassigned", "unknown", "verified"]);
-  assert.ok(!rows.some(row => row.keyword === "no-topic"));
+  assert.deepEqual(rows.filter(row => row.siteDomain === "flatkey.ai").map(row => row.keyword).sort(), ["bad-identity", "blocked", "candidate", "done", "expand", "expansion-task", "in-progress", "legacy", "mismatch", "missing", "needs-review", "research", "retired", "todo", "unassigned", "unknown", "verified"]);
+  assert.ok(rows.some(row => row.keyword === "no-topic"));
   assert.equal(rows.find(row => row.keyword === "todo" && row.siteDomain === "flatkey.ai").taskStatus, "TODO");
   assert.equal(rows.find(row => row.siteDomain === "rackrate.org").taskStatus, "UNASSIGNED");
   assert.equal(rows.find(row => row.keyword === "unassigned").taskStatus, "UNASSIGNED");
@@ -182,17 +182,50 @@ test("all top100 ranks are excluded, including 50, 51 and exactly 100; unmeasure
 });
 
 test("bound, unbound and unmeasured keywords are exported regardless of task completion", async () => {
-  state.members = [member("existing", { mappingStatus: "READY", targetUrls: ["https://flatkey.ai/existing"] }), member("unbound"),
-    member("unmeasured", { mappingStatus: "READY", targetUrls: ["https://flatkey.ai/unmeasured"] })];
-  state.tasks = [task("done", ["existing"], { type: "EXPAND", status: "DONE", plannedUrl: "https://flatkey.ai/existing" })];
+  state.members = [member("existing", { mappingStatus: "READY", targetUrls: ["https://flatkey.ai/blog/existing"] }), member("unbound"),
+    member("unmeasured", { mappingStatus: "READY", targetUrls: ["https://flatkey.ai/blog/unmeasured"] })];
+  state.tasks = [task("done", ["existing"], { type: "EXPAND", status: "DONE", plannedUrl: "https://flatkey.ai/blog/existing" })];
   state.serpTasks = [serpTask("existing", null), serpTask("unbound", null)];
   const rows = await loadContentOpportunities(null, "US");
   assert.deepEqual(rows.map(row => row.keyword).sort(), ["existing", "unbound", "unmeasured"]);
   assert.equal(rows.find(row => row.keyword === "unmeasured").opportunityStatus, "NEEDS_VERIFICATION");
   const existing = rows.find(row => row.keyword === "existing");
-  assert.equal(existing.hasPage, true); assert.deepEqual(existing.pageUrls, ["https://flatkey.ai/existing"]);
+  assert.equal(existing.hasPage, true); assert.deepEqual(existing.pageUrls, ["https://flatkey.ai/blog/existing"]);
   assert.equal(existing.isTop100, false); assert.equal(existing.recommendedAction, "OPTIMIZE"); assert.equal(existing.taskStatus, "DONE");
   assert.equal(rows.find(row => row.keyword === "unbound").hasPage, false);
+});
+
+test("blog exports exclude entire keywords bound or planned to other pages in JSON and CSV", async () => {
+  const bound = (id, urls, extra = {}) => member(id, { mappingStatus: "READY", targetUrls: urls, ...extra });
+  state.members = [bound("blog-only", ["https://flatkey.ai/blog/guide?from=seo#intro"]),
+    bound("localized-blog", ["https://flatkey.ai/ja/blog/guide/"]), bound("cloud-blog", ["https://flatkey.ai/cloud/blog/gpu-guide"]),
+    bound("localized-cloud-blog", ["https://flatkey.ai/zh/cloud/blog/gpu-guide"]),
+    bound("model-page", ["https://flatkey.ai/models/gpt"]), bound("home-page", ["https://flatkey.ai/"]),
+    bound("docs-page", ["https://flatkey.ai/docs/guide"]), bound("blog-index", ["https://flatkey.ai/blog"]),
+    bound("fake-blog-path", ["https://flatkey.ai/docs/blog/guide"]),
+    bound("mixed-bindings", ["https://flatkey.ai/blog/guide", "https://flatkey.ai/tools"]),
+    bound("hidden-product-binding", ["https://flatkey.ai/models/old"], { mappingStatus: "NEEDS_BUILD" }),
+    member("planned-product"), member("task-product"), member("task-target-product"), member("retired-product-task"),
+    member("unbound-candidate", { pool: "RESEARCH", candidateUrls: ["https://flatkey.ai/models/candidate"] })];
+  state.audits = [audit("hidden-product-binding", { verdict: "MISSING" }), audit("planned-product", { verdict: "NO_MATCH", workPlan: {
+    originalVerdict: "MISMATCH", action: "BUILD", pageUrls: [], previousPageUrl: null, plannedPageUrl: "https://flatkey.ai/models/new",
+    proposedTitle: "New model product page", requirements: ["Document supported inputs.", "Document model pricing.", "Include model limits."],
+    acceptance: ["Pricing can be verified.", "Inputs can be reproduced."] } })];
+  state.tasks = [task("product", ["task-product"], { plannedUrl: "https://flatkey.ai/models/new" }),
+    task("product-target", ["task-target-product"], { targetUrls: ["https://flatkey.ai/docs/guide"] }),
+    task("retired-product", ["retired-product-task"], { plannedUrl: "https://flatkey.ai/models/old", status: "MERGED" })];
+  state.serpTasks = noRankTasks(state.members, ["US"]);
+  const { secret } = await service.mutateExportApiKey({ action: "create", name: "blog export", siteDomain: "flatkey.ai" });
+  const response = await endpoint.GET(request(secret, "?region=US"));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const expected = ["blog-only", "cloud-blog", "localized-blog", "localized-cloud-blog", "retired-product-task", "unbound-candidate"];
+  assert.deepEqual(body.rows.map(row => row.keyword).sort(), expected);
+  assert.equal(body.total, expected.length);
+  assert.equal(body.rows.find(row => row.keyword === "blog-only").hasPage, true);
+  assert.equal(body.rows.find(row => row.keyword === "unbound-candidate").hasPage, false);
+  const csv = await (await endpoint.GET(request(secret, "?region=US&format=csv"))).text();
+  for (const row of state.members) assert.equal(csv.includes(`"${row.keywordId}"`), expected.includes(row.keywordId), row.keywordId);
 });
 
 test("all-region exports exclude any positive rank, retain incomplete coverage, and isolate sites", async () => {
@@ -231,24 +264,27 @@ test("endpoint declares the top100 boundary, validates region, and fails closed 
   assert.equal((await endpoint.GET(request(secret))).status, 503);
 });
 
-test("1512 formal targets plus 4000 active research words export at most the formal targets, once per site", async () => {
+test("formal targets and research candidates export once per site, excluding ranked candidates too", async () => {
   state.members = [...Array.from({ length: 1512 }, (_, i) => member(`word-${i}`, { topicId: null })),
     ...Array.from({ length: 4000 }, (_, i) => member(`research-${i}`, { pool: "RESEARCH" }))];
   state.tasks = [task("one", ["word-0"]), task("two", ["word-0"]), task("research-plan", ["research-0"])];
-  state.serpTasks = [serpTask("word-0", null), serpTask("word-1", 1), serpTask("word-2", 100)];
+  state.serpTasks = [serpTask("word-0", null), serpTask("word-1", 1), serpTask("word-2", 100), serpTask("research-1", 51)];
   const { secret } = await service.mutateExportApiKey({ action: "create", name: "formal targets", siteDomain: "flatkey.ai" });
   const body = await (await endpoint.GET(request(secret))).json();
   const rows = body.rows;
-  assert.equal(body.total, 1510);
-  assert.equal(rows.length, 1510);
+  assert.equal(body.total, 5509);
+  assert.equal(rows.length, 5509);
   assert.equal(new Set(rows.map(row => `${row.siteDomain}:${row.keywordId}`)).size, rows.length);
-  assert.ok(!rows.some(row => ["word-1", "word-2"].includes(row.keyword)));
-  assert.ok(rows.every(row => row.pool === "FORMAL" && row.siteDomain === "flatkey.ai"));
+  assert.ok(!rows.some(row => ["word-1", "word-2", "research-1"].includes(row.keyword)));
+  assert.ok(rows.every(row => ["FORMAL", "RESEARCH"].includes(row.pool) && row.siteDomain === "flatkey.ai"));
+  assert.equal(rows.filter(row => row.pool === "RESEARCH").length, 3999);
+  assert.deepEqual(rows.find(row => row.keyword === "research-0").taskIds, ["research-plan"]);
+  assert.deepEqual(rows.find(row => row.keyword === "research-0").plannedUrls, ["https://flatkey.ai/blog/research-plan"]);
   assert.deepEqual(rows.find(row => row.keyword === "word-0").taskIds, ["one", "two"]);
   assert.equal(rows.find(row => row.keyword === "word-0").rankingEvidence.length, 4);
   assert.ok(rows.every(row => row.opportunityStatus === "NEEDS_VERIFICATION"));
   const usRows = await loadContentOpportunities("flatkey.ai", "US");
-  assert.equal(usRows.length, 1510);
+  assert.equal(usRows.length, 5509);
   assert.equal(usRows.filter(row => row.opportunityStatus === "OUTSIDE_TOP100").length, 1);
 });
 
