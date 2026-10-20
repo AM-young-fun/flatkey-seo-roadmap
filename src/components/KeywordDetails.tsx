@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, type Key } from "react";
 import { Table, Tooltip, Select, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Search, RotateCcw } from "lucide-react";
+import { Search, RotateCcw, Info, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { SerpQuerySnapshot } from "@/components/SerpQuerySnapshot";
 import { PageHeader } from "@/components/PageHeader";
@@ -16,7 +16,7 @@ import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import type { DashboardResponse } from "@/lib/types";
 import { keywordEvidence } from "@/lib/keyword-evidence";
 import { keywordRelevance, normalizeKeywordText } from "@/lib/keyword-relevance";
-import type { KeywordPool } from "@/lib/keyword-okr";
+import type { KeywordPool, KeywordOkrItem } from "@/lib/keyword-okr";
 import { keywordPageTag, keywordRankingTag, keywordRankingResultTag } from "@/lib/keyword-status-tags";
 import { keywordRankingPages } from "@/lib/keyword-ranking-pages";
 import { bestKeywordDetailRank, detailRegions, groupKeywordDetails, keywordDetailCountryRanks, validKeywordDetailRank,
@@ -75,6 +75,23 @@ function KeywordHistory({ member, region }: { member: DashboardKeyword; region: 
   return <details className="historicalEvidence" onToggle={event => { if (event.currentTarget.open) void read(); }}><summary>历史参考{history ? `（${history.length} 条）` : ""}</summary>
     {error ? <div className="loadError"><span>{error}</span><button onClick={() => void read()}>重试</button></div> : busy ? <p className="chartNote">正在读取该词的历史参考…</p> : history?.length ? <><p className="chartNote">历史来源不参与主表排名与区间筛选。</p>{history.map((evidence,index) => <HistoryEvidence evidence={evidence} region={region} key={`${evidence.source}:${index}`} />)}</> : <p className="chartNote">暂无历史参考。</p>}
   </details>;
+}
+
+function KeywordExpandedMember({member,country,audit,urls,pageLabel,pageColor,hold}:{member:DashboardKeyword;country:KeywordCountryScope;audit?:KeywordOkrItem;urls:string[];pageLabel:string;pageColor:string;hold:string|null}){
+  const regions=detailRegions(country),advice=audit?.latestPageAuditReason??audit?.reason;
+  return <section className="keywordExpandedMember" aria-label={`${member.text}各国详情`}>
+    <div className="keywordExpandedHeading"><strong>{siteName(member)}</strong><Tag color={pageColor}>{pageLabel}</Tag>{advice?<Tooltip title={advice}><button type="button" className="keywordAdvice" aria-label="页面建议"><Info size={14}/><span>页面建议</span></button></Tooltip>:null}</div>
+    <div className="keywordExpandedTargets"><span>关联页面</span><div>{urls.length?<TargetPages urls={[...new Set(urls)]}/>:<span className="muted">—</span>}</div>{hold?<Tooltip title={hold}><span className="keywordMonitoringNote">暂不监控</span></Tooltip>:null}</div>
+    <div className="keywordCountryTableWrap"><table className="keywordCountryTable"><thead><tr><th>国家</th><th>实际排名</th><th>月搜索量</th><th>实际排名页面</th><th>更新时间</th></tr></thead><tbody>{regions.map(region=>{
+      const rank=rankFor(member,region),tag=keywordRankingResultTag(rank),valid=validKeywordDetailRank(rank);
+      const pages=valid?keywordRankingPages(rank,keywordEvidence(member,region),member.siteDomain??"flatkey.ai"):[];
+      return <tr key={region}><th><span className="keywordCountryFlag">{{US:"🇺🇸",JP:"🇯🇵",ES:"🇪🇸",BR:"🇧🇷"}[region]}</span>{REGIONS[region].label}</th><td><Tooltip title={tag.tooltip}><span className={`keywordCountryRank ${valid?"isRanked":""}`}>{valid?`#${rank.rank}`:tag.key==="UNRANKED"?"100之外":"—"}</span></Tooltip></td><td>{number(member.marketVolumes[region])}</td><td>{pages.length?<><a className="keywordCountryUrl" href={pages[0].url} title={pages[0].url} target="_blank" rel="noreferrer">{pages[0].url.replace(/^https?:\/\//,"")}</a>{pages.length>1?<details className="keywordMorePages"><summary>另 {pages.length-1} 个页面</summary>{pages.slice(1).map(page=><div key={page.url}><span>#{page.rank}</span><a href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//,"")}</a></div>)}</details>:null}</>:<span className="muted">—</span>}</td><td className="keywordCountryTime">{rank?.checkedAt?localDate(rank.checkedAt):"—"}</td></tr>;
+    })}</tbody></table></div>
+    <details className="keywordSecondaryDetails"><summary><span>采集记录与历史</span><ChevronDown size={14}/></summary><div className="keywordArchiveGrid">{regions.map(region=>{
+      const rank=rankFor(member,region);
+      return <div className="keywordArchiveCountry" key={region}><div className="keywordArchiveHeading"><strong>{REGIONS[region].label}</strong><a href={`https://www.google.com/search?${new URLSearchParams({q:member.text,gl:REGIONS[region].gl,hl:REGIONS[region].hl,pws:"0"})}`} target="_blank" rel="noreferrer">Google 搜索 ↗</a></div>{rank?<p className="chartNote">{keywordRankingTag(rank).label}{coverage(rank)?` · ${coverage(rank)}`:""}</p>:null}{rank?.checkedAt?<SerpQuerySnapshot keyword={member.text} region={region}/>:null}<KeywordHistory member={member} region={region}/></div>;
+    })}</div>{audit?.candidateUrls.length?<details className="keywordPageReferences"><summary>候选页面 · {audit.candidateUrls.length}</summary><TargetPages urls={audit.candidateUrls}/></details>:null}{audit?.actualPages.length?<details className="keywordPageReferences"><summary>历史页面 · {audit.actualPages.length}</summary>{audit.actualPages.map((page,index)=><a key={`${page.url}:${index}`} href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//,"")}</a>)}</details>:null}</details>
+  </section>;
 }
 
 export function KeywordDetails() {
@@ -165,9 +182,6 @@ export function KeywordDetails() {
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     <section className="tablePanel"><Table className="keywordTable" columns={columns} dataSource={loading || okr.loading ? [] : rows} rowKey="id" loading={loading || okr.loading}
       rowSelection={site === "all" || site === "flatkey.ai" ? undefined : { selectedRowKeys: selected, onChange: keys => setSelected(keys.slice(0, 500)), getCheckboxProps: group => ({ disabled: group.members.some(isFlatkey) }) }}
-      expandable={{ expandedRowRender: group => <div className="keywordEvidenceDetails">{group.members.map(member => <section key={`${member.siteDomain}:${member.id}`}><h3>{siteName(member)} · {member.text}</h3><p>{okrFor(member)?.latestPageAuditReason ?? okrFor(member)?.reason ?? "页面与排名分别核对"}</p>{paused(member) ? <p>{holdReason(member)}；已存排名与页面证据保留。</p> : null}<TargetPages urls={[...new Set(targetUrls(member))]} />{okrFor(member)?.candidateUrls.length ? <details><summary>尚未确认关联的候选页面</summary><TargetPages urls={okrFor(member)!.candidateUrls} /></details> : null}{okrFor(member)?.actualPages.length ? <details><summary>审计保留的历史来源页面</summary><ul>{okrFor(member)!.actualPages.map((page, index) => <li key={`${page.url}:${index}`}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {page.source} · {page.region} · {page.periodStart ?? "来源区间未提供"}{page.periodEnd ? ` 至${page.periodEnd}` : ""}</li>)}</ul></details> : null}
-        <p>月搜索量：{detailRegions(country).map(region => `${REGIONS[region].label} ${number(member.marketVolumes[region])}`).join(" · ")} · {member.volumeReviewLabel ?? member.volumeReview?.label ?? "历史不足，保留观察"}</p>
-        {detailRegions(country).map(region => { const rank = rankFor(member, region), pages = keywordRankingPages(rank, keywordEvidence(member, region), member.siteDomain ?? "flatkey.ai").map(page => ({ ...page, region, siteName: siteName(member), memberId: member.id })); return <section key={region}><strong>{REGIONS[region].label} · {tagFor({ id: member.id, text: member.text, members: [member] }, region).label}</strong>{rank ? <><p>采集记录：{keywordRankingTag(rank).label} · 采集于 {localDate(rank.checkedAt)} · {rank.periodLabel ?? "未记录期次"} · {coverage(rank)}</p>{pages.length ? <ObservedPages pages={pages} compact /> : <p>本次未取得独立页面排名。</p>}</> : <p>{paused(member) ? holdReason(member) : "尚未采集"}</p>}{rank?.checkedAt ? <SerpQuerySnapshot keyword={member.text} region={region} /> : null}<KeywordHistory member={member} region={region} /><a href={`https://www.google.com/search?${new URLSearchParams({ q: member.text, gl: REGIONS[region].gl, hl: REGIONS[region].hl, pws: "0" })}`} target="_blank" rel="noreferrer">在Google重新搜索{REGIONS[region].label}结果 ↗</a></section>; })}
-      </section>)}</div> }} pagination={{ current:page, pageSize:10, total:data?.total ?? 0, onChange:value=>{setPage(value);setSelected([]);}, showSizeChanger:false, showTotal: total => `共 ${total} 个关键词（已去重）` }} scroll={{ x: 1300 }} size="middle" /></section>
+      expandable={{ expandedRowRender: group => <div className="keywordExpandedDetails">{group.members.map(member=>{const page=pageFor(member);return <KeywordExpandedMember key={`${member.siteDomain}:${member.id}`} member={member} country={country} audit={okrFor(member)} urls={targetUrls(member)} pageLabel={page.key==="EXPAND"?"待优化":page.key==="BUILD"?"待建设":page.label.replace(/^候选·/,"")} pageColor={page.color} hold={paused(member)?holdReason(member):null}/>;})}</div> }} pagination={{ current:page, pageSize:10, total:data?.total ?? 0, onChange:value=>{setPage(value);setSelected([]);}, showSizeChanger:false, showTotal: total => `共 ${total} 个关键词（已去重）` }} scroll={{ x: 1300 }} size="middle" /></section>
   </main>;
 }

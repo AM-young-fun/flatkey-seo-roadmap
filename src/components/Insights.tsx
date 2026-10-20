@@ -9,6 +9,7 @@ import type { WeeklyReportDiagnosis } from "@/lib/weekly-report-diagnosis";
 import type { WeeklyReportDraftPayload } from "@/lib/weekly-report-draft";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import { weeklyFunnelMetrics } from "@/lib/weekly-funnel-metrics";
+import { weeklySummaryText } from "@/lib/weekly-summary";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
@@ -140,21 +141,6 @@ function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
   </>;
 }
 
-function WeeklyDiagnosis({ diagnosis }: { diagnosis: WeeklyReportDiagnosis }) {
-  if (!diagnosis.significant) return null;
-  return <section className="dailyPanel reportDiagnosis compactDiagnosis" aria-label="大幅波动原因排查"><h2>波动原因排查</h2><div>{diagnosis.findings.map((finding, index) => {
-    const firstSentence = finding.evidence.split("。")[0];
-    const clauses = firstSentence.split("；");
-    let excerpt = clauses[0];
-    for (const clause of clauses.slice(1)) { if (excerpt.length + clause.length > 100) break; excerpt += `；${clause}`; }
-    return <article className={`diagnosisFinding ${finding.level}`} key={`${finding.title}:${finding.url ?? index}`}>
-      <div className="diagnosisTitle"><h3>{finding.title}</h3><span>{finding.level === "unresolved" ? "待确认" : finding.level === "issue" ? "需处理" : "已观察"}</span></div>
-      <p>{excerpt}。</p>
-      <details><summary>依据与下一步</summary>{finding.url ? <a href={finding.url} target="_blank" rel="noreferrer">{finding.url.replace(/^https?:\/\//, "")}</a> : null}<p>{finding.evidence}</p><p className="diagnosisAction">{finding.action}</p>{finding.checkedAt ? <small>检查于 {new Date(finding.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}</details>
-    </article>;
-  })}</div></section>;
-}
-
 export function TrafficReport() {
   const [week, setWeek] = useState("");
   const { data, error, retry } = useInsights(week);
@@ -167,6 +153,7 @@ export function TrafficReport() {
   const history = data?.history ?? [activeReportPeriods().current.start, ...(week ? [week] : [])];
   const funnel = weeklyFunnelMetrics(data?.evidence?.newVisitorFunnel);
   const conversionComparable = Boolean(data?.evidence?.complete && funnel);
+  const summary=data?weeklySummaryText({current:displayTraffic?.current??null,previous:displayTraffic?.previous??null,comparable:Boolean(draft||traffic?.comparable),evidence:data.evidence,diagnosis:data.diagnosis,comparison:data.comparison,ranking:data.ranking}):"";
   const metrics = [
     { label: "新用户总数", key: "newUsers", format: number, current: displayTraffic?.current?.newUsers, previous: displayTraffic?.previous?.newUsers, change: displayTraffic?.changes.newUsers },
     { label: "注册用户总数（去重）", key: "newRegistrations", format: number, current: displayTraffic?.current?.newRegistrations, previous: displayTraffic?.previous?.newRegistrations, change: displayTraffic?.changes.newRegistrations },
@@ -176,7 +163,7 @@ export function TrafficReport() {
     <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <div className="periodComparison"><span><i className="currentDot" />本期 {trafficPeriods.current.start} — {trafficPeriods.current.end}</span><span><i />上期 {trafficPeriods.previous.start} — {trafficPeriods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
-    {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期周报尚未开始整理，待确认后更新完整周数据。</p> : null}
+    {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期周报整理中。</p> : null}
     <p className="chartNote reportScope">GA4 · {draft ? "Flatkey · 更新中" : `三站汇总${data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
     <section className="trafficGrid" aria-label="流量与注册概览">{metrics.map((metric) => {
       const current = metric.current; const previous = metric.previous;
@@ -189,7 +176,7 @@ export function TrafficReport() {
     })}</section>
     <WeeklyEvidenceTables data={data} />
     <WeeklyKeywordChanges data={data} />
-    {data?.diagnosis ? <WeeklyDiagnosis diagnosis={data.diagnosis} /> : null}
+    {summary?<section className="dailyPanel weeklySummary" aria-label="本周总结"><h2>本周总结</h2><p>{summary}</p></section>:null}
 
   </main>;
 }

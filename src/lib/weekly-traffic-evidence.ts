@@ -5,7 +5,7 @@ export type WeeklyTrafficEvidence = {
   totals: { current: { newUsers: number; newRegistrations: number }; previous: { newUsers: number; newRegistrations: number } };
   channels: { name: string; newUsers: { current: number; previous: number }; registrations: { current: number; previous: number } }[];
   sources: string[];
-  codexSummary?: {preparedAt:string;findings:{title:string;evidence:string;action:string;level:"issue"|"finding"|"unresolved"}[]};
+  codexSummary?: {preparedAt:string;text?:string;findings:{title:string;evidence:string;action:string;level:"issue"|"finding"|"unresolved"}[]};
   formFunnel?: { current: { name: string; users: number; completionRate: number | null }[]; previous: { name: string; users: number; completionRate: number | null }[] };
   newVisitorFunnel?: WeeklyTrafficEvidence["formFunnel"];
   directRegistrationCountries?: Record<string, { current: number; previous: number }>;

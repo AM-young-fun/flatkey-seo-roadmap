@@ -1648,6 +1648,49 @@ a:focus-visible {
 .keywordEvidenceDetails section { margin-bottom:20px; }
 .keywordEvidenceDetails li { margin:8px 0; }
 .keywordEvidenceDetails a { color:#2563eb; }
+.keywordTable .ant-table-expanded-row > .ant-table-cell { padding:20px 24px !important; background:#f8fafc !important; }
+.keywordExpandedDetails { color:#405572; }
+.keywordExpandedMember + .keywordExpandedMember { margin-top:24px; padding-top:22px; border-top:1px solid #e4eaf2; }
+.keywordExpandedHeading { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.keywordExpandedHeading > strong { font-size:13px; }
+.keywordExpandedHeading .ant-tag { margin:0; font-size:11px; }
+.keywordAdvice { display:inline-flex; align-items:center; gap:5px; padding:0; border:0; background:none; color:#7d8fa7; font-size:11px; cursor:help; }
+.keywordExpandedTargets { display:flex; align-items:flex-start; gap:14px; margin-bottom:16px; font-size:12px; }
+.keywordExpandedTargets > span:first-child { flex-shrink:0; color:#8a99ad; padding-top:1px; }
+.keywordExpandedTargets > div { min-width:0; flex:1; }
+.keywordExpandedTargets .observedUrl { max-width:100%; font-size:12px; line-height:1.6; color:#547ba9; }
+.keywordMonitoringNote { flex-shrink:0; font-size:11px; color:#8a99ad; }
+.keywordCountryTableWrap { overflow-x:auto; border:1px solid #e7edf4; border-radius:9px; background:#fff; }
+.keywordTable table.keywordCountryTable { width:100%; min-width:760px; table-layout:fixed; border-collapse:collapse; }
+.keywordTable .keywordCountryTable th,.keywordTable .keywordCountryTable td { padding:12px 14px; border-bottom:1px solid #edf1f6; text-align:left; font-size:12px; vertical-align:middle; }
+.keywordTable .keywordCountryTable thead th { color:#8392a7; font-size:11px; font-weight:500; background:#f7f9fc; }
+.keywordTable .keywordCountryTable th:nth-child(1) { width:104px; }
+.keywordTable .keywordCountryTable th:nth-child(2),.keywordTable .keywordCountryTable th:nth-child(3) { width:100px; }
+.keywordTable .keywordCountryTable th:nth-child(5) { width:170px; }
+.keywordTable .keywordCountryTable tbody tr:last-child > * { border-bottom:0; }
+.keywordCountryFlag { margin-right:8px; }
+.keywordCountryRank { color:#99a6b8; font-weight:500; }
+.keywordCountryRank.isRanked { color:#0c9d78; font-size:14px; font-weight:650; }
+.keywordCountryUrl { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#567fae; }
+.keywordTable .keywordCountryTime { color:#8798ae; font-size:11px; white-space:nowrap; }
+.keywordMorePages { margin-top:5px; font-size:11px; color:#7e90a9; }
+.keywordMorePages summary { cursor:pointer; }
+.keywordMorePages > div { display:flex; gap:8px; padding-top:6px; overflow-wrap:anywhere; }
+.keywordSecondaryDetails { margin-top:14px; font-size:12px; }
+.keywordSecondaryDetails > summary { display:flex; align-items:center; justify-content:space-between; color:#8595aa; cursor:pointer; list-style:none; padding:3px 0; }
+.keywordSecondaryDetails > summary::-webkit-details-marker { display:none; }
+.keywordSecondaryDetails[open] > summary > svg { transform:rotate(180deg); }
+.keywordArchiveGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:14px; }
+.keywordArchiveCountry { min-width:0; padding:14px; border:1px solid #e5ebf3; border-radius:8px; background:#fff; }
+.keywordArchiveHeading { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
+.keywordArchiveHeading > a { font-size:11px; color:#7893b4; }
+.keywordArchiveCountry .historicalEvidence { border:0; padding:0; margin:12px 0 0; border-radius:0; }
+.keywordArchiveCountry .historicalEvidence summary { font-size:11px; color:#7387a3; font-weight:500; }
+.keywordArchiveCountry p { font-size:11px; color:#8394ac; line-height:1.7; }
+.keywordPageReferences { margin-top:12px; color:#7d91ac; }
+.keywordPageReferences summary { cursor:pointer; }
+.keywordPageReferences > a { display:block; margin-top:6px; font-size:12px; overflow-wrap:anywhere; }
+@media(max-width:760px) { .keywordArchiveGrid { grid-template-columns:minmax(0,1fr); } }
 .dailyEvidenceTable { width:100%; border-collapse:collapse; margin:12px 0; font-size:12px; }
 .dailyEvidenceTable th,.dailyEvidenceTable td { border-bottom:1px solid #e5eaf2; padding:8px; text-align:left; }
 .reviewToolbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:12px; }
@@ -2102,6 +2145,8 @@ a:focus-visible {
 .conversionBasis p { margin:3px 0; }
 
 .reportDiagnosis h2 { font-size:16px; margin:0 0 20px; }
+.weeklySummary h2 { margin:0 0 14px; font-size:16px; }
+.weeklySummary > p { margin:0; color:#586f8c; font-size:13px; line-height:2; }
 .reportDiagnosis > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 .diagnosisFinding { background:#f8faff; padding:18px; border-radius:10px; border-left:3px solid #93aed7; overflow-wrap:anywhere; }
 .diagnosisFinding.issue { background:#fff8f5; border-left-color:#df8d6d; }
