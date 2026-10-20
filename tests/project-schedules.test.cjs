@@ -1,0 +1,50 @@
+const assert=require("node:assert/strict");
+const {test}=require("node:test");
+const fs=require("node:fs"),path=require("node:path"),Module=require("node:module"),ts=require("typescript");
+const root=path.resolve(__dirname,".."),resolve=Module._resolveFilename;
+Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,name.startsWith("@/")?path.join(root,"src",name.slice(2)):name,parent,...rest);};
+require.extensions[".ts"]=(module,filename)=>module._compile(ts.transpileModule(fs.readFileSync(filename,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);
+const {projectDueJobs,trafficReadyAt,nextDailyAt,nextWeeklyAt,retryAt}=require("../src/lib/project-schedule.ts");
+const {parseGa4Funnel,reportRows,mergeGa4Periods,collectGa4Period}=require("../src/lib/ga4-collector.ts");
+const {encryptAutomationCredential,decryptAutomationCredential,workerTokenMatches,tokenHash}=require("../src/lib/automation-credentials.ts");
+test("project jobs have stable daily/weekly identity, Tuesday-Monday periods, and DST-safe cutoff",()=>{
+  assert.equal(projectDueJobs(new Date("2026-10-20T02:29Z")).length,0);
+  const jobs=projectDueJobs(new Date("2026-10-20T02:30Z"));
+  assert.equal(jobs.length,4);assert.equal(jobs.at(-1).id,"traffic:2026-10-13");
+  assert.deepEqual(jobs,projectDueJobs(new Date("2026-10-20T02:35Z")));
+  assert.equal(projectDueJobs(new Date("2026-10-21T02:31Z")).at(-1).id,"traffic:2026-10-13");
+  assert.equal(trafficReadyAt("2026-10-13").toISOString(),"2026-10-20T10:30:00.000Z");
+  assert.equal(trafficReadyAt("2026-11-03").toISOString(),"2026-11-10T10:30:00.000Z");
+  assert.equal(nextWeeklyAt(new Date("2026-10-20T02:30Z")),"2026-10-27T02:30:00.000Z");
+  assert.equal(nextDailyAt(new Date("2026-10-20T02:30Z")),"2026-10-21T02:30:00.000Z");
+  assert.equal(retryAt(3,new Date("2026-10-20T00:00Z")).toISOString(),"2026-10-20T00:20:00.000Z");
+});
+const report=(metric,value,dimension,name)=>({metricHeaders:[{name:metric}],dimensionHeaders:dimension?[{name:dimension}]:[],rows:value===null?[]:[{dimensionValues:dimension?[{value:name}]:[],metricValues:[{value:String(value)}]}],rowCount:value===null?0:1,metadata:{timeZone:"America/Los_Angeles"}});
+const funnel={funnelTable:{dimensionHeaders:[{name:"funnelStepName"}],metricHeaders:[{name:"activeUsers"},{name:"funnelStepCompletionRate"}],rows:[{dimensionValues:[{value:"1. 首次访问"}],metricValues:[{value:"100"},{value:"0.2"}]},{dimensionValues:[{value:"2. 注册成功"}],metricValues:[{value:"20"},{value:"0"}]}]}};
+test("GA4 collection uses distinct totalUsers and a closed sequential funnel, rejects incomplete metadata",async()=>{
+  const calls=[];
+  const data=await collectGa4Period(async(body,isFunnel)=>{
+    calls.push({body,isFunnel});if(isFunnel)return funnel;
+    const metric=body.metrics[0].name,dimension=body.dimensions?.[0]?.name;
+    return report(metric,metric==="newUsers"?100:20,dimension,dimension==="country"?"Singapore":"Direct");
+  },{start:"2026-10-13",end:"2026-10-19"});
+  assert.deepEqual(data.totals,{newUsers:100,newRegistrations:20});
+  assert.equal(calls.length,6);assert.equal(calls.at(-1).body.funnel.isOpenFunnel,false);
+  assert.equal(calls[1].body.dimensionFilter.filter.stringFilter.value,"sign_up_success");
+  assert.ok(!JSON.stringify(calls).includes("eventCount"));
+  assert.equal(mergeGa4Periods(data,data).newVisitorFunnel.current[0].completionRate,.2);
+  assert.throws(()=>reportRows({...report("totalUsers",20),rowCount:2}),/GA4_INCOMPLETE/);
+  assert.throws(()=>reportRows({...report("totalUsers",20),metadata:{subjectToThresholding:true}}),/GA4_INCOMPLETE/);
+  assert.throws(()=>parseGa4Funnel({...funnel,funnelTable:{...funnel.funnelTable,metadata:{samplingMetadatas:[{}]}}}),/GA4_INCOMPLETE/);
+  assert.throws(()=>mergeGa4Periods({...data,totals:{newUsers:200,newRegistrations:20}},data));
+});
+test("automation secrets are encrypted, authenticated, and purpose-bound; worker bearer cannot be guessed",()=>{
+  process.env.LOGIN_PWD="test-only-password";
+  const original="private-service-account-json",encrypted=encryptAutomationCredential(original);
+  assert.ok(!encrypted.includes(original));assert.equal(decryptAutomationCredential(encrypted),original);
+  assert.throws(()=>decryptAutomationCredential(encrypted.slice(0,-2)+"XX"));
+  const token="fk_worker_"+"a".repeat(43);
+  assert.equal(workerTokenMatches(`Bearer ${token}`,tokenHash(token)),true);
+  assert.equal(workerTokenMatches(`Bearer ${token}b`,tokenHash(token)),false);
+  assert.equal(workerTokenMatches(null,null),false);
+});

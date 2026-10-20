@@ -4,6 +4,7 @@
   "description": "SEO keyword rank monitor with Next.js, PostgreSQL, Prisma, ECharts, Google SERP checks, and Ahrefs volume sync.",
   "private": true,
   "scripts": {
+    "worker:sources": "node scripts/source-sync-worker.mjs",
     "dev": "next dev",
     "build": "prisma generate && node scripts/prepare-production-db.mjs && next build",
     "start": "next start",

@@ -17,16 +17,17 @@ export type SourceSyncHealthResponse = {
   siteDomain: "flatkey.ai";
   connection: {
     mode: "EXTERNAL_COLLECTOR";
-    serverPullConfigured: false;
+    serverPullConfigured: boolean;
     needsDingTalkAuthorization: false;
   };
   dailyCheck: {
     timezone: "Asia/Shanghai";
     expectedLocalTime: "10:30";
-    confirmed: false;
-    lastCompletedAt: null;
+    confirmed: boolean;
+    lastCompletedAt: string | null;
   };
   sources: SourceSyncHealthSource[];
+  checks?: {sourceId:string;completedAt:string|null;status:string;detail:string|null}[];
 };
 
 export type SourceHealthMetadata = {

@@ -14,7 +14,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 
   return Boolean(
     cronSecret &&
-      request.nextUrl.pathname === "/api/cron/daily-rankings" &&
+      ["/api/cron/daily-rankings", "/api/cron/project-jobs"].includes(request.nextUrl.pathname) &&
       request.headers.get("authorization") === `Bearer ${cronSecret}`
   );
 }
@@ -22,7 +22,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 export async function proxy(request: NextRequest) {
   // These endpoints check their own dedicated credentials, even when page
   // login is disabled. Those credentials cannot access management routes.
-  if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH || request.nextUrl.pathname === KEYWORD_EXPORT_API_PATH) return NextResponse.next();
+  if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH || request.nextUrl.pathname === KEYWORD_EXPORT_API_PATH || request.nextUrl.pathname === "/api/automation/worker") return NextResponse.next();
   if (!isAuthEnabled() || isPublicPath(request.nextUrl.pathname) || isAuthorizedCron(request)) {
     return NextResponse.next();
   }

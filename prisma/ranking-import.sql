@@ -419,4 +419,23 @@ CREATE TABLE IF NOT EXISTS "DisplaySnapshot" (
 
 ALTER TABLE "DisplaySnapshot" ADD COLUMN IF NOT EXISTS "keywordRows" JSONB;
 
+CREATE TABLE IF NOT EXISTS "ProjectAutomation" (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  "trafficEnabled" BOOLEAN NOT NULL DEFAULT true,
+  "sheetsEnabled" BOOLEAN NOT NULL DEFAULT true,
+  "ga4Credentials" TEXT, "ga4Email" TEXT, "ga4VerifiedAt" TIMESTAMP(3),
+  "workerTokenHash" TEXT, "workerSeenAt" TIMESTAMP(3),
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "ProjectJob" (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, "sourceId" TEXT, "periodStart" TEXT NOT NULL,
+  "dueAt" TIMESTAMP(3) NOT NULL, "nextAttemptAt" TIMESTAMP(3) NOT NULL,
+  status TEXT NOT NULL DEFAULT 'QUEUED', attempts INTEGER NOT NULL DEFAULT 0,
+  "leaseToken" TEXT, "leaseUntil" TIMESTAMP(3), "startedAt" TIMESTAMP(3), "completedAt" TIMESTAMP(3),
+  "errorCode" TEXT, detail TEXT, payload JSONB,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS "ProjectJob_kind_status_nextAttemptAt_idx" ON "ProjectJob" (kind, status, "nextAttemptAt");
+
 COMMIT;

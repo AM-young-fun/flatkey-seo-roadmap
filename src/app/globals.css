@@ -2336,6 +2336,20 @@ a:focus-visible {
 .managementColumns > .managementSection { display:flex; flex-direction:column; min-width:0; }
 .managementColumns .apiKeyDocs,.managementColumns .sourceSyncDetails { margin-top:auto; padding-top:18px; }
 .managementColumns .apiKeyTableWrap,.managementColumns .sourceSyncList { margin-bottom:20px; }
+.automationConnections { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; padding-top:14px; }
+.automationConnections article { min-width:0; }
+.automationConnections h3 { margin:0; font-size:14px; color:#354e70; }
+.automationConnections p { color:#7b8da5; font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+.automationConnectionHeading { display:flex; justify-content:space-between; align-items:center; gap:14px; }
+.automationConnectionHeading p { margin-bottom:0; }
+.automationUpload { display:inline-flex; align-items:center; cursor:pointer; }
+.automationUpload input { display:none; }
+.automationPairing { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:14px; }
+.automationPairing label { display:grid; gap:8px; font-size:12px; color:#7b8da5; }
+.automationPairing input { border:1px solid #dfe5ed; padding:8px; border-radius:6px; }
+.automationConnections details { margin-top:18px; font-size:12px; color:#7b8da5; }
+.automationConnections pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#f7f9fc; padding:12px; border-radius:8px; font-size:11px; line-height:1.8; }
+@media(max-width:760px) { .automationConnections { grid-template-columns:minmax(0,1fr); } }
 .collectionFloat { position:fixed; left:22px; bottom:22px; z-index:1100; max-width:calc(100vw - 32px); color:#526985; }
 .collectionFloatButton { display:flex; align-items:center; gap:9px; padding:11px 14px; border:1px solid #dce5ef; border-radius:12px; background:#fff; color:#526985; box-shadow:0 4px 22px #233b5c14; font-size:12px; cursor:pointer; }
 .collectionFloatButton > svg:first-child { color:#4c88d6; }
