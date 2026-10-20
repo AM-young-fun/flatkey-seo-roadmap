@@ -4,21 +4,32 @@ import { compactDashboard } from "@/lib/dashboard-payload";
 import { activeReportPeriods, reportPeriods } from "@/lib/weekly-traffic";
 import { serpTrendRange } from "@/lib/ranking-trends";
 import { keywordDisplayRows } from "@/lib/keyword-display-rows";
+import { candidateKeywordCount } from "@/lib/keyword-inventory";
 import { loadDashboard } from "./dashboard-data";
 import { buildWeeklyReport } from "./weekly-report";
 import { loadKeywordOkr } from "./keyword-okr";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
 const trafficDisplayVersion = "declines-v2";
+const dashboardDisplayVersion = "candidates-v1";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";
   if (!["all","flatkey.ai","rackrate.org","modelfit.cc"].includes(site)) throw new Error("网站无效");
   const research = params.get("includeResearch") ?? "0";
   if (!["0","1"].includes(research)) throw new Error("词池范围无效");
-  if (view === "dashboard") return {key:`display-v1:dashboard:${site}:${research}`, build:async () => {
+  if (view === "dashboard") return {key:`display-v1:dashboard:${site}:${research}:${dashboardDisplayVersion}`, build:async () => {
     const value = compactDashboard(await loadDashboard(site,"dataforseo_serp","week",new Date(),research === "1",{currentOnly:true}));
     if (value.usingDemoData) throw new Error("Live inventory unavailable");
+    if (value.serpOverview) {
+      // Read only candidate text while rebuilding the saved display. No rank or
+      // history reads, and only the final count is sent to the browser.
+      const candidates = site === "all" || site === "flatkey.ai" ? await prisma.siteKeyword.findMany({
+        where:{siteDomain:"flatkey.ai",pool:"RESEARCH",active:true,keyword:{active:true},site:{active:true}},
+        select:{keyword:{select:{text:true}}},
+      }) : [];
+      value.serpOverview.candidateCount = candidateKeywordCount(value.keywords.map(word => word.text), candidates.map(row => row.keyword.text));
+    }
     const okr = site === "all" ? await loadKeywordOkr("flatkey.ai",research === "1" ? "RESEARCH" : "FORMAL") : null;
     if (okr && !okr.initialized) throw new Error("Formal inventory unavailable");
     return {value:overviewPayload(value), keywordRows:okr ? keywordDisplayRows(value,okr,research === "1") : undefined};
@@ -41,6 +52,7 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
 export async function refreshDisplayViews(deadline = Date.now()+50_000) {
   const defaults = [new URLSearchParams({view:"dashboard"}),new URLSearchParams({view:"traffic"}),new URLSearchParams({view:"trends"})].map(displayViewSpec);
   const rows = await prisma.$queryRaw<Array<{key:string}>>`SELECT key FROM "DisplaySnapshot" WHERE key LIKE 'display-v1:%'
+    AND (key NOT LIKE 'display-v1:dashboard:%' OR key LIKE ${`display-v1:dashboard:%:${dashboardDisplayVersion}`})
     AND (key NOT LIKE 'display-v1:traffic:%' OR key LIKE ${`display-v1:traffic:%:${trafficDisplayVersion}`})
     AND (body IS NULL OR revision > "builtRevision") ORDER BY "builtAt" NULLS FIRST LIMIT 20`;
   const specs = new Map(defaults.map(spec => [spec.key,spec]));

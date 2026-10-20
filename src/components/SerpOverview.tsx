@@ -30,10 +30,13 @@ export function SerpOverview({ site, region = "all" }: { site: string; region?: 
     rankedInAnyRegion:country.summary.ranked,capturedInAnyRegion:country.summary.captured,plannedUnranked:region === "all" ? allData.summary.plannedUnranked : allData.summary.plannedByRegion?.[region] ?? 0}} : allData;
   const countryLabel = region === "all" ? "四国汇总" : REGIONS[region].label;
   const totalKeywords = data?.monitoring.allTargetCount ?? 0;
+  const candidateCount = data?.candidateCount ?? 0;
+  const inventoryTotal = totalKeywords + candidateCount;
   const rankingCoverage: RingSegment[] = [
     { count: data?.summary.rankedInAnyRegion ?? 0, color: "#5988e8", label: "有排名", description: `${countryLabel}本期检出前100自然排名；同一关键词只计一次。` },
     { count: Math.max(0, totalKeywords - (data?.summary.rankedInAnyRegion ?? 0) - (data?.summary.plannedUnranked ?? 0)), color: "#dce4f1", label: "没有排名", description: "已有合适页面，本期尚未检出前100排名；未采完不代表已确认在100之外。" },
     { count: data?.summary.plannedUnranked ?? 0, color: "#e8b75e", label: "规划词", description: "暂未建设对应页面，且本期没有排名的正式目标词。" },
+    { count: candidateCount, color: "#9b8bd3", label: "候选词", description: "尚未转为正式目标的候选关键词；不与正式词重复计数。" },
   ];
   return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label={`${countryLabel}目标词排名汇总`}>
     <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">{countryLabel}</span></h2><p className="serpScope">{countryLabel} · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
@@ -41,8 +44,8 @@ export function SerpOverview({ site, region = "all" }: { site: string; region?: 
       <div className={`overviewVisualGrid ${region !== "all" ? "singleCountryOverview" : ""}`}>
         <article className="overviewVisualCard">
           <h3>业务词库</h3>
-          <SummaryRing value={totalKeywords} label="目标关键词" basis="总词库" segments={rankingCoverage} />
-          <div className="visualChartLegend">{rankingCoverage.map(segment => <Tooltip key={segment.label} title={`${segment.label}：${segment.count.toLocaleString()} 词；占总词库 ${percentage(totalKeywords ? segment.count/totalKeywords*100 : 0)}。${segment.description}`}><div tabIndex={0}><i style={{ background: segment.color }} /><span>{segment.label}</span><strong>{segment.count.toLocaleString()}</strong><small>{percentage(totalKeywords ? segment.count/totalKeywords*100 : 0)}</small></div></Tooltip>)}</div>
+          <SummaryRing value={inventoryTotal} label="词库总数" basis="总词库" segments={rankingCoverage} />
+          <div className="visualChartLegend">{rankingCoverage.map(segment => <Tooltip key={segment.label} title={`${segment.label}：${segment.count.toLocaleString()} 词；占总词库 ${percentage(inventoryTotal ? segment.count/inventoryTotal*100 : 0)}。${segment.description}`}><div tabIndex={0}><i style={{ background: segment.color }} /><span>{segment.label}</span><strong>{segment.count.toLocaleString()}</strong><small>{percentage(inventoryTotal ? segment.count/inventoryTotal*100 : 0)}</small></div></Tooltip>)}</div>
         </article>
         <article className="overviewVisualCard">
           <h3>已实测排名</h3>
@@ -52,7 +55,7 @@ export function SerpOverview({ site, region = "all" }: { site: string; region?: 
         </article>
         {region === "all" ? <article className="overviewVisualCard countryVisualCard">
           <h3>各国排名占比</h3>
-          <div className="countryChartHead"><span>国家 / 排名词</span><span>四国排名份额</span><span>占总词库</span></div>
+          <div className="countryChartHead"><span>国家 / 排名词</span><span>四国排名份额</span><span>占目标词库</span></div>
           <div className="countryBarChart">{data.regions.map(result => <div className="countryBarRow" key={result.region}>
             <div className="countryBarLabel"><span aria-hidden="true">{MARKET_FLAGS[result.region]}</span><div><strong>{REGIONS[result.region].label}</strong><small>{result.summary.captured ? `${result.rankedCount} 词` : "未采集"}</small></div></div>
             <div className="countryBarValue"><span className="countryBarTrack"><i style={{ width: `${result.rankingRecordSharePercent ?? 0}%`, background: MARKET_COLORS[result.region] }} /></span><strong>{result.summary.captured ? percentage(result.rankingRecordSharePercent) : "—"}</strong></div>

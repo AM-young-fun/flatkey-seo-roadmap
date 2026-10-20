@@ -42,6 +42,7 @@ export type SerpResultsResponse = {
 };
 export type SerpAllRegionsResponse = {
   schemaVersion: 1; source: typeof SERP_SOURCE; site: string; region: "all"; cohortHash: string;
+  candidateCount?: number;
   currentPeriod: SerpPeriod; latestCompletedAt: string | null;
   summary: ReturnType<typeof aggregateSerpRegionResults>["summary"];
   monitoring: Pick<ReturnType<typeof summarizeSerpMonitoring>, "allTargetCount" | "eligibleTargetCount" | "heldTargetCount" | "hash"> & { siteTargetCount: number };
