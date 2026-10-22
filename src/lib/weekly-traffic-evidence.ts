@@ -1,7 +1,9 @@
 import archive from "./data/weekly-traffic-evidence.json";
+import type { WeeklyPageVisitors } from "./weekly-page-visitors";
 
 export type WeeklyTrafficEvidence = {
   complete: boolean;
+  pageVisitors?: WeeklyPageVisitors;
   totals: { current: { newUsers: number; newRegistrations: number }; previous: { newUsers: number; newRegistrations: number } };
   channels: { name: string; newUsers: { current: number; previous: number }; registrations: { current: number; previous: number } }[];
   sources: string[];

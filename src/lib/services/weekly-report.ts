@@ -36,6 +36,13 @@ export async function buildWeeklyReport(periods: ReturnType<typeof weeklyPeriods
   const complete = Boolean(current) && (!draft || weekly.some(row=>row.siteDomain === "flatkey.ai" && row.periodStart.toISOString().slice(0,10) === periods.current.start));
   const flatkey = weekly.find(row=>row.siteDomain === "flatkey.ai" && row.periodStart.toISOString().slice(0,10) === periods.current.start);
   const parsedEvidence = weeklyEvidenceSchema.safeParse(flatkey?.analysis);
+  // Page visitors have their own paired GA4 counts. A missing previous
+  // registration/channel import must not hide the current page visitors.
+  const pageVisitors = !preparedDraft && parsedEvidence.success && flatkey &&
+    flatkey.periodEnd.toISOString().slice(0,10) === periods.current.end &&
+    parsedEvidence.data.totals.current.newUsers === flatkey.newUsers &&
+    parsedEvidence.data.totals.current.newRegistrations === flatkey.newRegistrations
+      ? parsedEvidence.data.pageVisitors ?? null : null;
   const candidateEvidence = parsedEvidence.success && flatkey ? { ...parsedEvidence.data, siteDomain:"flatkey.ai", timezone:flatkey.timezone, propertyId:flatkey.ga4PropertyId ?? "", collectedAt:flatkey.collectedAt.toISOString() }
     : complete && archiveEvidence?.complete === false ? null : archiveEvidence;
   const flatkeyPrevious = siteTraffic.find(row=>row.siteDomain === "flatkey.ai")?.previous;
@@ -46,7 +53,7 @@ export async function buildWeeklyReport(periods: ReturnType<typeof weeklyPeriods
   const movements = serp;
   const comparableRanks = movements.ranking.baseline || movements.ranking.noNewCapture || movements.ranking.waiting ? null : movements.comparison;
   const diagnosis = preparedDraft ? {significant:true,findings:preparedDraft.findings} : evidence?.codexSummary ? {significant:true,findings:evidence.codexSummary.findings} : evidence?.complete ? auditedWeeklyDiagnosis(evidence) : await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, comparableRanks, periods.current.end);
-  return {periods,evidence,draft:preparedDraft,history:[...new Set([activeReportPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
+  return {periods,evidence,pageVisitors,draft:preparedDraft,history:[...new Set([activeReportPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
     traffic:{current,previous,complete,currentSites,previousSites,comparable,siteTraffic:siteTraffic.map(site=>({siteDomain:site.siteDomain,current:site.current ? {newUsers:site.current.newUsers,newRegistrations:site.current.newRegistrations,registrationRate:registrationRate(site.current.newUsers,site.current.newRegistrations)}:null})),changes:{
       newUsers:comparable?relativeChange(current!.newUsers,previous!.newUsers):null,newRegistrations:comparable?relativeChange(current!.newRegistrations,previous!.newRegistrations):null,
       registrationRate:comparable?relativeChange(current!.registrationRate,previous!.registrationRate):null,
