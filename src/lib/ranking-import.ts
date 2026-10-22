@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { weeklyEvidenceSchema } from "@/lib/weekly-evidence-schema";
+import { weeklySnapshotAt } from "@/lib/weekly-cutoff";
 import { isWeeklyPeriod, reportPeriods, weeklyPeriods } from "@/lib/weekly-traffic";
 
 export const MAX_IMPORT_BYTES = 2_000_000;
@@ -172,7 +173,9 @@ export const rankingImportSchema = z
       if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周二至周一的连续 7 天" });
       let closedEnd: string;
       try { closedEnd = weeklyPeriods(new Date(row.collectedAt), row.timezone).current.end; } catch { ctx.addIssue({ code: "custom", message: "报告时区或采集时间无效" }); return; }
-      if (row.periodEnd > closedEnd || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报，采集时间不能在未来" });
+      const cutoff = row.analysis?.reportingCutoff;
+      if (cutoff && (row.periodStart < "2026-10-20" || Date.parse(cutoff.scheduledAt) !== Date.parse(weeklySnapshotAt(row.periodEnd)) || Date.parse(row.collectedAt) < Date.parse(cutoff.scheduledAt))) ctx.addIssue({code:"custom",message:"周二快照须在该期北京时间周二10:10或之后采集，不能提前截数"});
+      if ((!cutoff && row.periodEnd > closedEnd) || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报或明确标记的周二10:10快照，采集时间不能在未来" });
     })).max(52).default([]),
   })
   .strict()

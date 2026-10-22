@@ -1,8 +1,10 @@
 import archive from "./data/weekly-traffic-evidence.json";
 import type { WeeklyPageVisitors } from "./weekly-page-visitors";
+import type { WeeklyReportingCutoff } from "./weekly-cutoff";
 
 export type WeeklyTrafficEvidence = {
   complete: boolean;
+  reportingCutoff?: WeeklyReportingCutoff;
   pageVisitors?: WeeklyPageVisitors;
   totals: { current: { newUsers: number; newRegistrations: number }; previous: { newUsers: number; newRegistrations: number } };
   channels: { name: string; newUsers: { current: number; previous: number }; registrations: { current: number; previous: number } }[];

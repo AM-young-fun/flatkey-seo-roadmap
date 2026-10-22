@@ -43,10 +43,10 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
     controls: { enabled: rankingEnabled && discoveryEnabled, emergencyStopped: stopped, maxRunCostMicros: config?.maxRunCostMicros ?? 0, maxMonthCostMicros: config?.maxMonthCostMicros ?? 0, discoveryMaxCostMicros: cycle.maxDiscoveryCostMicros },
     scheduler: { configured: Boolean(process.env.CRON_SECRET), cadence: "每5分钟检查及续跑任务", state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
     plans: [
-      { id: "rankings", name: "DataForSEO 新词与排名", location: "项目服务器 · Vercel", cadence: "隔周周二 10:30", state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "仅Flatkey：先发现业务新词，再查询已有合适页面的正式词；美国、日本、西班牙、巴西。" },
+      { id: "rankings", name: "DataForSEO 新词与排名", location: "项目服务器 · Vercel", cadence: "隔周周一晚 24:00（周二00:00）", state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "仅Flatkey：先发现业务新词，再查询已有合适页面的正式词；美国、日本、西班牙、巴西。" },
       { id: "sheets", name: "三张协作表", location: "Codex · 本机 DWS 登录", cadence: "每日 10:30", state: "Codex 采集", nextAt:nextCollectorTime(now,"sheets"), note: "每天完整检查 API、云服务、SEO 三表，只同步新增和变化，保留人工审核。真实完成以采集回执为准；计划在 Codex 自动化中管理。" },
-      { id: "ahrefs", name: "Ahrefs 数据", location: "Codex · 已登录浏览器", cadence: "每周二 10:30 · 18:30 补缺", state: "Codex 采集", nextAt:nextCollectorTime(now,ahrefsComplete?"ahrefs":"traffic"), note: "与周报共用同一自动化，补齐所需声量、KD及来源日期，复用未变化证据。不能冒充实际 SERP 排名，不购买额外额度。" },
-      { id: "traffic", name: "GA4 与完整周报", location: "Codex 采集、核对和总结 → 平台展示", cadence: "每周二 10:30 / 18:30", state: "Codex 整理", nextAt:nextCollectorTime(now,"traffic"), note: "10:30准备，18:30补齐完整周。复用上期，等待本期关键词，Codex 核对数据并完成原因总结后才发布；未齐保留草稿。依赖本机在线和来源登录。" },
+      { id: "ahrefs", name: "Ahrefs 数据", location: "Codex · 已登录浏览器", cadence: "每周二 10:10 · 随周报补缺", state: "Codex 采集", nextAt:nextCollectorTime(now,ahrefsComplete?"ahrefs":"traffic"), note: "与周报共用同一自动化，补齐所需声量、KD及来源日期，复用未变化证据。不能冒充实际 SERP 排名，不购买额外额度。" },
+      { id: "traffic", name: "GA4 与流量周报", location: "Codex 采集、核对和总结 → 平台展示", cadence: "每周二 10:10", state: "Codex 整理", nextAt:nextCollectorTime(now,"traffic"), note: "10:10按当时GA4可见数据截数，作为该周正式快照；不等待洛杉矶周一结束。复用上期，等待本期关键词，Codex 核对数据并完成原因总结后才发布；未齐保留草稿。依赖本机在线和来源登录。" },
     ], records,
   };
 }

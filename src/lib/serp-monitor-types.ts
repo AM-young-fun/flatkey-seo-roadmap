@@ -5,7 +5,7 @@ export type SerpMonitorConfiguration = {
   region: SerpRegion; languageCode: "en" | "ja" | "es" | "pt"; locationCode: 2840 | 2392 | 2724 | 2076; device: "desktop";
   regions: SerpRegion[];
   depth: 100; intervalDays: 14; paidEnabled: boolean;
-  schedule: "BIWEEKLY_TUESDAY"; scheduleDays: [2]; timezone: "Asia/Shanghai"; localTime: "10:30";
+  schedule: "BIWEEKLY_TUESDAY"; scheduleDays: [2]; timezone: "Asia/Shanghai"; localTime: "00:00";
   maxRunCostMicros: number; maxMonthCostMicros: number; revision: number; nextDueAt: string | null;
 };
 export type SerpQuote = {

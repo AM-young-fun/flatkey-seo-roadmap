@@ -18,7 +18,7 @@ const { buildSerpKeywordResults, summarizeSerpResults, summarizeSerpSampleResult
 const { PAGE_AUDIT_SOURCE_ID } = require("../src/lib/page-audit.ts");
 const { serpCheckTrendPoints, serpTrendRange } = require("../src/lib/ranking-trends.ts");
 const { rankingStats } = require("../src/lib/rank-display.ts");
-const { serpPeriod, serpPeriodFromKey, periodDue, nextSerpPeriodDue } = require("../src/lib/serp-periods.ts");
+const { serpPeriod, serpPeriodFromKey, periodDue, nextSerpPeriodDue, scheduledSerpDue } = require("../src/lib/serp-periods.ts");
 const target = (id, overrides = {}) => ({ keywordId: id, keyword: `${id} api pricing`, siteDomain: "flatkey.ai", targetUrls: [`https://flatkey.ai/models/${id}`], ...overrides });
 const candidate = (id, overrides = {}) => ({ ...target(id), text: `${id} api pricing`, active: true, keywordActive: true, siteActive: true, topicId: "topic", pool: "FORMAL", ...overrides });
 const page = (url, rankGroup, rankAbsolute = rankGroup + 2) => ({ url, rankGroup, rankAbsolute, domain: new URL(url).hostname, title: "Actual result title" });
@@ -166,8 +166,8 @@ test("biweekly Tuesday slots retain legacy snapshots and cross month/year bounda
   assert.equal(serpPeriod("2026-10-20T02:30:00Z").key, "2026-10-20");
   assert.equal(serpPeriodFromKey("2026-10-20").label, "2026年10月第2期");
   assert.equal(nextSerpPeriodDue("2026-10-19T03:00:00Z").toISOString(), "2026-10-20T02:30:00.000Z");
-  assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-03T02:30:00.000Z");
-  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-26T02:30:00.000Z");
+  assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-02T16:00:00.000Z");
+  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-25T16:00:00.000Z");
   assert.equal(periodDue("2026-10-2").toISOString(), "2026-10-16T02:30:00.000Z", "historical keys retain their actual dates");
   assert.equal(serpPeriodFromKey("2028-02-2").end, "2028-02-29");
   assert.throws(() => serpPeriodFromKey("2026-10-21"));
@@ -180,6 +180,14 @@ test("October's initial sample is displayed as issue one while ledger keys and a
   assert.equal(result.periodLabel,"2026年10月第1期"); assert.equal(result.periodKey,"2026-10-2");
   assert.equal(result.checkedAt,"2026-10-16T03:00:00.000Z");
   assert.equal(serpPeriodFromKey("2026-10-20").label,"2026年10月第2期");
+});
+test("Monday midnight moves future cursors without changing period IDs, custom deferrals or historical slots", () => {
+  assert.equal(serpPeriod("2026-11-02T15:59:59Z").key,"2026-10-20");
+  assert.equal(serpPeriod("2026-11-02T16:00:00Z").key,"2026-11-03");
+  assert.equal(scheduledSerpDue("2026-11-03T02:30:00Z").toISOString(),"2026-11-02T16:00:00.000Z");
+  assert.equal(scheduledSerpDue("2026-11-02T16:00:00Z").toISOString(),"2026-11-02T16:00:00.000Z");
+  assert.equal(scheduledSerpDue("2026-11-03T05:00:00Z").toISOString(),"2026-11-03T05:00:00.000Z");
+  assert.equal(scheduledSerpDue("2026-10-20T02:30:00Z").toISOString(),"2026-10-20T02:30:00.000Z");
 });
 
 test("period comparisons distinguish first check, real new entries and dropouts; failures cannot count as lost rankings", () => {

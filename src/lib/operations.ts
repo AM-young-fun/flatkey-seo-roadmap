@@ -1,4 +1,4 @@
-import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod } from "./serp-periods";
+import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod, scheduledSerpDue } from "./serp-periods";
 
 export type OperationsStatus = {
   checkedAt: string;
@@ -18,7 +18,7 @@ export function schedulerState(last: { startedAt: Date; completedAt: Date | null
 
 export function plannedRankingTime(now: Date, stored: Date | null, startedPeriodKeys: string[] = []): string {
   if (stored) return startedPeriodKeys.includes(serpPeriod(stored).key)
-    ? periodDue(nextSerpPeriodKey(serpPeriod(stored).key)).toISOString() : stored.toISOString();
+    ? periodDue(nextSerpPeriodKey(serpPeriod(stored).key)).toISOString() : scheduledSerpDue(stored).toISOString();
   const current = serpPeriod(now);
   return Date.parse(current.dueAt) > now.getTime() ? current.dueAt : nextSerpPeriodDue(now).toISOString();
 }
@@ -28,7 +28,8 @@ export function nextCollectorTime(now:Date,kind:"sheets"|"ahrefs"|"traffic"):str
   for(let offset=0;offset<8;offset++){
     const day=new Date(Date.parse(`${today}T00:00:00Z`)+offset*86400000).toISOString().slice(0,10);
     if(kind!=="sheets"&&new Date(day).getUTCDay()!==2)continue;
-    for(const clock of kind==="traffic"?["10:30","18:30"]:["10:30"]){const candidate=new Date(`${day}T${clock}:00+08:00`);if(candidate>now)return candidate.toISOString();}
+    const clock = kind === "sheets" ? "10:30" : "10:10";
+    const candidate=new Date(`${day}T${clock}:00+08:00`);if(candidate>now)return candidate.toISOString();
   }
   throw new Error("Invalid collector schedule");
 }

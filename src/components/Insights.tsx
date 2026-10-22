@@ -11,10 +11,12 @@ import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import { weeklyFunnelMetrics } from "@/lib/weekly-funnel-metrics";
 import { weeklySummaryText } from "@/lib/weekly-summary";
 import { pageVisitorRows, type WeeklyPageVisitors } from "@/lib/weekly-page-visitors";
+import type { WeeklyReportingCutoff } from "@/lib/weekly-cutoff";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
   pageVisitors?: WeeklyPageVisitors | null;
+  reportingCutoff?: (WeeklyReportingCutoff & {collectedAt:string;comparable:boolean}) | null;
   displaySnapshot?: {pending?:boolean};
   periods: ReturnType<typeof activeReportPeriods>; history: string[];
   traffic: { current: Week | null; previous: Week | null; currentSites: string[]; previousSites: string[]; comparable: boolean; complete?: boolean; siteTraffic?: {siteDomain:string;current:Pick<Week,"newUsers"|"newRegistrations"|"registrationRate">|null}[]; changes: { newUsers: number | null; newRegistrations: number | null; registrationRate: number | null; ratePoints: number | null } };
@@ -118,7 +120,7 @@ function PeriodBarsTable({ rows, label, heading, complete }: { rows: ComparisonR
   </div>;
 }
 
-function WeeklyChannelComparison({ evidence, period }: { evidence: WeeklyTrafficEvidence; period?: string }) {
+function WeeklyChannelComparison({ evidence, period, comparable = true }: { evidence: WeeklyTrafficEvidence; period?: string; comparable?: boolean }) {
   const [metric, setMetric] = useState<"newUsers" | "registrations">("newUsers");
   const names: Record<string, string> = { Direct: "直接访问", "Paid Search": "付费搜索", "Organic Search": "自然搜索", Referral: "外部推荐", "Organic Social": "自然社交", Unassigned: "未归类", "AI Assistant": "AI 助手", "Cross-network": "跨广告网络", "Organic Video": "自然视频", "Paid Social": "付费社交", "Paid Other": "其他付费" };
   const channels = evidence.channels.map(channel => ({ name: names[channel.name] ?? channel.name, ...channel[metric] }))
@@ -130,7 +132,7 @@ function WeeklyChannelComparison({ evidence, period }: { evidence: WeeklyTraffic
     <div className="dailyHeading"><div><h2>渠道对比</h2><p className="chartNote">Flatkey · 首次来源{period ? ` · ${period}` : ""}</p></div>
       <div className="channelMetricSwitch" role="group" aria-label="渠道对比指标">{([{ key: "newUsers", label: "新用户" }, { key: "registrations", label: "注册用户" }] as const).map(item => <button key={item.key} type="button" aria-pressed={metric === item.key} onClick={() => setMetric(item.key)}>{item.label}</button>)}</div>
     </div>
-    <PeriodBarsTable rows={rows} label={`${metric === "newUsers" ? "新用户" : "注册用户"}渠道环比`} heading="渠道" complete={evidence.complete} />
+    <PeriodBarsTable rows={rows} label={`${metric === "newUsers" ? "新用户" : "注册用户"}渠道环比`} heading="渠道" complete={evidence.complete && comparable} />
   </section>;
 }
 
@@ -138,7 +140,7 @@ function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
   const evidence = data?.evidence;
   if (!evidence) return null;
   return <>
-    <WeeklyChannelComparison evidence={evidence} period={data?.draft ? `${data.draft.comparisonPeriods.current.start}—${data.draft.comparisonPeriods.current.end} 对比 ${data.draft.comparisonPeriods.previous.start}—${data.draft.comparisonPeriods.previous.end}` : !evidence.complete ? "本周更新中，暂不计算环比" : undefined} />
+    <WeeklyChannelComparison evidence={evidence} comparable={data?.reportingCutoff?.comparable ?? true} period={data?.draft ? `${data.draft.comparisonPeriods.current.start}—${data.draft.comparisonPeriods.current.end} 对比 ${data.draft.comparisonPeriods.previous.start}—${data.draft.comparisonPeriods.previous.end}` : !evidence.complete ? "本周更新中，暂不计算环比" : undefined} />
     {evidence.search?.decliningPages.length ? <section className="dailyPanel"><h2>自然搜索点击下降页面</h2><p className="chartNote">GSC 全站七天对比 · 点击下降与关键词跌出排名分别判断</p><div className="siteTrafficTable"><table><thead><tr><th>页面</th><th>上期点击</th><th>本期点击</th><th>平均位置：上期 → 本期</th></tr></thead><tbody>{evidence.search.decliningPages.map(page=><tr key={page.url}><td><a href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</a></td><td>{page.clicks.previous}</td><td>{page.clicks.current}</td><td>{page.position.previous ?? "—"} → {page.position.current ?? "—"}</td></tr>)}</tbody></table></div></section> : null}
   </>;
 }
@@ -147,7 +149,7 @@ function WeeklyPillarVisitors({ data }: { data: InsightData | null }) {
   const periods = data?.periods;
   const rows = pageVisitorRows(data?.pageVisitors, Boolean(data?.pageVisitors && !data.draft));
   return <section className="dailyPanel" aria-label="核心页面访客量"><h2>核心页面访客量</h2>
-    <p className="chartNote">Flatkey · 整周去重访客 · 包含新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
+    <p className="chartNote">Flatkey · {data?.reportingCutoff ? "周二10:10截数快照 · 区间去重访客" : "整周去重访客"} · 包含新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
     <div className="siteTrafficTable"><table><thead><tr><th>页面类型</th><th>上周访客量</th><th>本周访客量</th><th>增减人数</th><th>环比</th></tr></thead><tbody>{rows.map(row => <tr key={row.key}>
       <th>{row.name}<small>{row.scope}</small></th>
       <td>{!data ? "加载中…" : row.previous == null ? "待采集" : row.previous.toLocaleString()}</td>
@@ -170,7 +172,7 @@ export function TrafficReport() {
   const displayTraffic = sameDays ? {...sameDays,changes:{newUsers:relativeChange(sameDays.current.newUsers,sameDays.previous.newUsers),newRegistrations:relativeChange(sameDays.current.newRegistrations,sameDays.previous.newRegistrations)}} : traffic;
   const history = data?.history ?? [activeReportPeriods().current.start, ...(week ? [week] : [])];
   const funnel = weeklyFunnelMetrics(data?.evidence?.newVisitorFunnel);
-  const conversionComparable = Boolean(data?.evidence?.complete && funnel);
+  const conversionComparable = Boolean(data?.evidence?.complete && funnel && (data.reportingCutoff?.comparable ?? true));
   const summary=data?weeklySummaryText({current:displayTraffic?.current??null,previous:displayTraffic?.previous??null,comparable:Boolean(draft||traffic?.comparable),evidence:data.evidence,diagnosis:data.diagnosis,comparison:data.comparison,ranking:data.ranking}):"";
   const metrics = [
     { label: "新用户总数", key: "newUsers", format: number, current: displayTraffic?.current?.newUsers, previous: displayTraffic?.previous?.newUsers, change: displayTraffic?.changes.newUsers },
@@ -183,6 +185,7 @@ export function TrafficReport() {
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
     {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期周报整理中。</p> : null}
     <p className="chartNote reportScope">GA4 · {draft ? "Flatkey · 更新中" : `三站汇总${data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
+    {data?.reportingCutoff ? <p className="chartNote">每周二10:10截数 · 实际采集 {new Date(data.reportingCutoff.collectedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}（北京时间）{!data.reportingCutoff.comparable ? " · 首期截数基线，与历史完整周暂不计算环比" : ""}</p> : null}
     <section className="trafficGrid" aria-label="流量与注册概览">{metrics.map((metric) => {
       const current = metric.current; const previous = metric.previous;
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);

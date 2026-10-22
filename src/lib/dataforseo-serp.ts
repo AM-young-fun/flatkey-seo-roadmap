@@ -23,7 +23,7 @@ export function configForSerpRegion(region: SerpRegion, base: SerpMonitorConfigu
 export const SERP_DEFAULT_CONFIG: SerpMonitorConfiguration = {
   region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840, device: "desktop", depth: 100,
   intervalDays: 14, paidEnabled: false, maxRunCostMicros: 50_000_000,
-  schedule: "BIWEEKLY_TUESDAY", scheduleDays: [2], timezone: "Asia/Shanghai", localTime: "10:30",
+  schedule: "BIWEEKLY_TUESDAY", scheduleDays: [2], timezone: "Asia/Shanghai", localTime: "00:00",
   maxMonthCostMicros: 100_000_000, revision: 0, nextDueAt: null,
 };
 export const SERP_PRICE_PER_QUERY_MICROS = 6_000;

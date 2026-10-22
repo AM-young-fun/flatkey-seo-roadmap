@@ -30,3 +30,14 @@ test("page visitor counts are hidden when their parent totals or weekly period d
   rows = [current()]; rows[0].periodEnd = new Date("2026-10-25");
   assert.equal((await buildWeeklyReport(reportPeriods("2026-10-20"))).pageVisitors, null);
 });
+test("Tuesday snapshots show their cutoff and never compare a new snapshot with a historical full week",async()=>{
+ const row=current();row.analysis.reportingCutoff={kind:"TUESDAY_1010_SNAPSHOT",scheduledAt:"2026-10-27T02:10:00Z"};
+ const previous={...current(),periodStart:new Date("2026-10-13"),periodEnd:new Date("2026-10-19"),newUsers:40,newRegistrations:4};
+ rows=[row,previous];
+ let report=await buildWeeklyReport(reportPeriods("2026-10-20"));
+ assert.equal(report.traffic.comparable,false);assert.equal(report.reportingCutoff.comparable,false);
+ assert.ok(report.pageVisitors.groups.every(group=>group.users.previous===null));
+ previous.analysis={...previous.analysis,reportingCutoff:{kind:"TUESDAY_1010_SNAPSHOT",scheduledAt:"2026-10-20T02:10:00Z"}};
+ report=await buildWeeklyReport(reportPeriods("2026-10-20"));
+ assert.equal(report.traffic.comparable,true);assert.equal(report.reportingCutoff.comparable,true);
+});
