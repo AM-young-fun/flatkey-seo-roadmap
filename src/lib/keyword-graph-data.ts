@@ -16,7 +16,7 @@ export function keywordGraphSize(volume: number | null, maximum: number, count: 
   const base = Math.max(3, Math.min(18, 560 / Math.sqrt(Math.max(1, count))));
   // Circle area follows actual demand. Keep a small solid dot for values
   // below the visibility floor, including missing volume (identified on hover).
-  const minimum = 2.5;
+  const minimum = Math.max(5, base * 0.55);
   const maximumSize = Math.max(18, base * 2.4);
   const ratio = volume == null || maximum <= 0 ? 0 : Math.max(0, Math.min(1, volume / maximum));
   return Math.max(minimum, maximumSize * Math.sqrt(ratio));
