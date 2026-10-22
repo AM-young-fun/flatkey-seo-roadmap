@@ -131,7 +131,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
   options: { currentOnly?: boolean; keywordId?: string } = {}): Promise<DashboardResponse> {
   if (!isDatabaseConfigured()) throw new Error("数据库未配置，暂时无法读取真实数据");
   const snapshotSource = ["dataforseo_labs", "dataforseo_serp"].includes(source);
-  const week = snapshotSource ? { ...labsReportingPeriod(now), ...(source === "dataforseo_serp" ? { label: "最近有效 Google SERP 实测 · 隔周周二10:30更新" } : {}) }
+  const week = snapshotSource ? { ...labsReportingPeriod(now), ...(source === "dataforseo_serp" ? { label: "最近有效 Google SERP 实测 · 隔周周一晚24:00更新" } : {}) }
     : period === "week" && isDatabaseConfigured() ? await loadRecentRankingReportPeriod(now) : rankingReportingPeriod(now);
   const reportingPeriod = period === "week" ? week : null;
   const domains = Prisma.join(site === "all" ? SITES : [site]);

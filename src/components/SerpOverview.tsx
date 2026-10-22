@@ -39,7 +39,7 @@ export function SerpOverview({ site, region = "all" }: { site: string; region?: 
     { count: candidateCount, color: "#9b8bd3", label: "候选词", description: "尚未转为正式目标的候选关键词；不与正式词重复计数。" },
   ];
   return <section className="discoveryPanel serpOverview visualSerpOverview" aria-label={`${countryLabel}目标词排名汇总`}>
-    <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">{countryLabel}</span></h2><p className="serpScope">{countryLabel} · 隔周周二10:30 · 图表展示已返回的有效排名结果</p></div></div>
+    <div className="panelHeader"><div><h2>目标词排名汇总 <span className="fourMarketBadge">{countryLabel}</span></h2><p className="serpScope">{countryLabel} · 隔周周一晚24:00 · 图表展示已返回的有效排名结果</p></div></div>
     {loading ? <p className="muted">正在读取四国排名汇总…</p> : error ? <div className="loadError" role="alert"><span>{error}</span><button onClick={refresh}>重新加载</button></div> : data ? <>
       <div className={`overviewVisualGrid ${region !== "all" ? "singleCountryOverview" : ""}`}>
         <article className="overviewVisualCard">

@@ -7,7 +7,7 @@ import { decryptDataForSeoCredentials, signDataForSeoPreview, verifyDataForSeoPr
 import { quoteSerpTargets, SERP_CONFIG_ID, SERP_MARKETS } from "@/lib/dataforseo-serp";
 import { parseSerpSampleBalance, SERP_USER_DATA_URL } from "@/lib/serp-sample";
 import { keywordCyclePlan } from "@/lib/keyword-cycle";
-import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey } from "@/lib/serp-periods";
+import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey, scheduledSerpDue } from "@/lib/serp-periods";
 import { loadScheduledSerpMonitoringCohort as loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import { runKeywordDiscoveryCycle, inspectDiscoveryRun, replayDiscoveryRun } from "@/lib/services/keyword-cycle";
 import { runSerpMonitorCron, startSerpScheduledPeriod } from "@/lib/services/serp-monitor";
@@ -89,7 +89,7 @@ export async function mutateCollectionControl(input: CollectionControlMutation) 
       await tx.serpMonitorConfig.upsert({ where: { id: SERP_CONFIG_ID }, create: { id: SERP_CONFIG_ID, ...data, revision: 1 }, update: { ...data, revision: { increment: 1 } } });
       await tx.dataForSeoConnection.update({ where: { siteDomain: "flatkey.ai" }, data: { scheduleEnabled: true } });
     });
-    return { action: input.action, enabled: true, message: "已开启隔周周二10:30自动更新；开启开关本身不执行抓取。" };
+    return { action: input.action, enabled: true, message: "已开启隔周周一晚24:00（周二00:00）自动更新；开启开关本身不执行抓取。" };
   }
   return runCollectionCycle(approved);
 }
@@ -102,7 +102,7 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
   let run = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: period.key, scope: "SCHEDULED" } } });
   if (run && ["COMPLETED", "PARTIAL", "FAILED"].includes(run.status)) return { action: "runCycle", phase: "COMPLETE", finished: true, runId: run.id, message: "本期已结束，下次按原计划隔两周执行。" };
   if (!run) {
-    if (config.nextDueAt?.toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000) throw new ImportRequestError("只能在计划时间前24小时内提前执行本轮", 409);
+    if (!config.nextDueAt || scheduledSerpDue(config.nextDueAt).toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000) throw new ImportRequestError("只能在计划时间前24小时内提前执行本轮", 409);
     const discovery = await runKeywordDiscoveryCycle({ periodKey: period.key, deadline: Date.now() + 150_000 });
     if (["NEEDS_REVIEW", "UNAVAILABLE", "DISABLED", "NOT_DUE"].includes(discovery.status)) throw new ImportRequestError(`新词发现已停止（${discovery.status}），请查看原采集记录，勿重复提交`, 409);
     if (!discovery.ready) return { action: "runCycle", phase: "DISCOVERY", finished: false, message: `Flatkey新词发现已完成${"completedMarkets" in discovery ? discovery.completedMarkets : 0}/${keywordCyclePlan(new Date(),period.key).jobs.length}个国家，正在筛选去重并核对页面。` };
@@ -120,5 +120,5 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
   const progress = await runSerpMonitorCron({ allowStart: false, maxDurationMs: Math.max(0, deadline - Date.now()) });
   if (progress.status === "NEEDS_REVIEW") throw new ImportRequestError("本期执行异常，请查看原采集记录", 409);
   return { action: "runCycle", phase: progress.status === "FINISHED" ? "COMPLETE" : "SERP", finished: progress.status === "FINISHED", runId: run.id,
-    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? "本期已完成，下一期隔两周周二10:30自动执行。" : "正在查询四国实际排名，已提交的查询不会重复扣费。" };
+    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? "本期已完成，下一期隔两周周一晚24:00（周二00:00）自动执行。" : "正在查询四国实际排名，已提交的查询不会重复扣费。" };
 }

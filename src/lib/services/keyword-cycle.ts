@@ -10,7 +10,7 @@ import { rankingImportSchema } from "@/lib/ranking-import";
 import { importSeo } from "@/lib/services/seo-import";
 import { keywordRelevance, normalizeKeywordText } from "@/lib/keyword-relevance";
 import { SERP_CONFIG_ID } from "@/lib/dataforseo-serp";
-import { serpPeriod } from "@/lib/serp-periods";
+import { serpPeriod, scheduledSerpDue } from "@/lib/serp-periods";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { SERP_COLLECTION_SITE } from "@/lib/serp-targets";
 
@@ -132,7 +132,7 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
   // An administrator may already have advanced the next slot. Its durable
   // first reservation lets the server continue even after the page closes;
   // merely enabling a future schedule must never start it early.
-  if (!options.periodKey && config.nextDueAt && config.nextDueAt.getTime() > now.getTime()) {
+  if (!options.periodKey && config.nextDueAt && scheduledSerpDue(config.nextDueAt).getTime() > now.getTime()) {
     const upcoming = keywordCyclePlan(now, serpPeriod(config.nextDueAt).key);
     const started = await prisma.dataForSeoRun.findFirst({where:{requestId:{in:upcoming.jobs.map(job=>job.requestId)}},select:{requestId:true}});
     if (started) plan = upcoming;
@@ -140,7 +140,7 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
   const existing = await prisma.dataForSeoRun.findMany({where:{requestId:{in:plan.jobs.map(job=>job.requestId)}}});
   const unresolved = await prisma.dataForSeoRun.findFirst({where:{siteDomain:SERP_COLLECTION_SITE,requestId:{startsWith:"discovery-",notIn:plan.jobs.map(job=>job.requestId)},status:{in:["PENDING","UNKNOWN","RECEIVED","IMPORT_FAILED"]}},select:{requestId:true}});
   if (unresolved) return {status:"NEEDS_REVIEW",ready:false,paidRequests:0,requestId:unresolved.requestId};
-  const earlyAllowed = options.periodKey && config.nextDueAt?.toISOString() === plan.period.dueAt && Date.parse(plan.period.dueAt) - now.getTime() <= 86400000;
+  const earlyAllowed = options.periodKey && config.nextDueAt && scheduledSerpDue(config.nextDueAt).toISOString() === plan.period.dueAt && Date.parse(plan.period.dueAt) - now.getTime() <= 86400000;
   if (!existing.length && !plan.mayStart && !earlyAllowed) return {status:"NOT_DUE",ready:false,paidRequests:0};
   const job = plan.jobs.find(job=>existing.find(row=>row.requestId===job.requestId)?.status !== "COMPLETED");
   if (!job) return {status:"COMPLETE",ready:true,paidRequests:0,completedMarkets:plan.jobs.length,periodKey:plan.period.key};

@@ -25,6 +25,14 @@ test("historical foreign-market results are rejected and business intent must ma
  assert.equal(parsed.region,"JP");assert.equal(parsed.targetDomain,"rackrate.org");assert.equal(parsed.realTimeSerpFetch,false);
  assert.throws(()=>normalizeRankedKeywords(raw,{runId:"market-test",collectedAt:"2026-10-19T03:00:00Z"}));
 });
+test("the next discovery cycle starts at Monday 24:00 with unchanged four-market request IDs",()=>{
+ assert.equal(keywordCyclePlan(new Date("2026-11-02T15:59:59Z")).mayStart,false);
+ const plan=keywordCyclePlan(new Date("2026-11-02T16:00:00Z"));
+ assert.equal(plan.mayStart,true);assert.equal(plan.period.key,"2026-11-03");
+ assert.equal(plan.period.dueAt,"2026-11-02T16:00:00.000Z");
+ assert.ok(plan.jobs.every(job=>job.requestId.startsWith("discovery-2026-11-03-flatkey-ai-")));
+ assert.equal(keywordCyclePlan(new Date("2026-11-09T16:00:00Z")).mayStart,false);
+});
 
 let runs=[], fetches=0, failTransport=false, scheduleEnabled=false;
 const connection={scheduleEnabled:true,connectionVersion:1,encryptedCredentials:"test-only"};
@@ -105,4 +113,18 @@ test("a cached discovery import can be diagnosed and repaired without a second p
   const details=JSON.stringify(await inspectDiscoveryRun(job.requestId));
   for(const secret of ["rawResponse","encryptedCredentials","apiPassword"])assert.ok(!details.includes(secret));
  }finally{global.fetch=originalFetch;}
+});
+test("server discovery normalizes an existing future 10:30 cursor and never resubmits its midnight markets",async t=>{
+ scheduleEnabled=true;runs=[];fetches=0;
+ t.mock.method(db.serpMonitorConfig,"findUnique",async()=>({paidEnabled:true,authorizationVersion:1,nextDueAt:new Date("2026-11-03T02:30:00Z")}));
+ t.mock.method(global,"fetch",async(_url,options)=>{
+  fetches++;const task=JSON.parse(options.body)[0];
+  return new Response(JSON.stringify({status_code:20000,tasks_error:0,tasks_count:1,cost:.012,tasks:[{status_code:20000,result:[{target:task.target,location_code:task.location_code,language_code:task.language_code,items:[],items_count:0,total_count:0}]}]}));
+ });
+ const early=await runKeywordDiscoveryCycle({now:new Date("2026-11-02T15:59:59Z")});
+ assert.equal(early.status,"NOT_DUE");assert.equal(fetches,0);
+ for(let index=0;index<4;index++)await runKeywordDiscoveryCycle({now:new Date("2026-11-02T16:00:00Z")});
+ assert.equal(fetches,4);assert.ok(runs.every(row=>row.requestId.startsWith("discovery-2026-11-03-")));
+ assert.equal((await runKeywordDiscoveryCycle({now:new Date("2026-11-03T02:30:00Z")})).ready,true);assert.equal(fetches,4);
+ scheduleEnabled=false;
 });
