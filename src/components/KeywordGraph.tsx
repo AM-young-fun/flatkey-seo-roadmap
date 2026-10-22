@@ -66,9 +66,9 @@ export function KeywordGraph({
         y: positions.get(keyword.id)!.y,
         symbolSize: dotSize,
         itemStyle: {
-          color: volume.value == null ? "#fff" : displayBucket(rank?.rank).color,
-          borderColor: volume.value == null ? displayBucket(rank?.rank).color : "#fff",
-          borderWidth: volume.value == null ? 1 : large ? 0.5 : 2,
+          color: displayBucket(rank?.rank).color,
+          borderColor: "#fff",
+          borderWidth: large ? 0.5 : 2,
           shadowBlur: large ? 0 : 8,
           shadowColor: "rgba(15,23,42,0.08)",
         },
@@ -133,7 +133,7 @@ export function KeywordGraph({
       ref={element}
       className="keywordGraph"
       role="img"
-      aria-label={`${region === "all" ? "四国汇总" : REGIONS[region].label}关键词关系图，圆点大小表示月搜索量，颜色表示实际排名，空心点表示声量未提供`}
+      aria-label={`${region === "all" ? "四国汇总" : REGIONS[region].label}关键词关系图，圆点大小表示月搜索量，颜色表示实际排名，悬停查看具体声量`}
     />
   ) : (
     <div className="emptyGraph">暂无关键词，请通过顶部「数据管理」导入</div>
