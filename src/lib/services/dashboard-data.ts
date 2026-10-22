@@ -13,6 +13,8 @@ import { loadSerpResults, loadSerpTasks, summarizeAllRegionResults } from "@/lib
 import { SERP_MARKET_LANGUAGE, serpRankSummary, serpRankingEvidence } from "@/lib/serp-results";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import { timedRead } from "@/lib/read-profile";
+import { keywordBusiness } from "@/lib/keyword-business";
+import { loadCloudGpuKeywordTexts } from "@/lib/services/keyword-business";
 
 const SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
 const NAMES: Record<string, string> = { "flatkey.ai": "Flatkey", "rackrate.org": "RackRate", "modelfit.cc": "ModelFit" };
@@ -170,7 +172,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
   `;
   // One set of flat reads serves every site. PostgreSQL reduces historical
   // observations to current values before transferring them to the server.
-  const [topics, keywords, ranks, volumes, latestImport, latestRun, pages] = await timedRead("dashboard.inventory", () => settleReads([
+  const [topics, keywords, ranks, volumes, latestImport, latestRun, pages, cloudKeywords] = await timedRead("dashboard.inventory", () => settleReads([
     prisma.$queryRaw<TopicRow[]>(Prisma.sql`
       /* dashboard:topics */
       SELECT st."siteDomain", t.id, t.text, t.type, t."parentId",
@@ -287,10 +289,12 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
           ELSE COALESCE(p."periodEnd"::timestamp, p."dataUpdatedAt", p."collectedAt") END DESC,
         p."dataUpdatedAt" DESC NULLS LAST, p."collectedAt" DESC, p."importedAt" DESC, p.id DESC
     `),
-  ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages"]));
+    loadCloudGpuKeywordTexts(),
+  ], ["topics", "keywords", "ranks", "volumes", "import", "run", "pages", "business"]));
   const dashboard = assembleDashboard(site, topics, keywords, ranks, volumes, latestImport?.importedAt.toISOString() ?? null,
     latestRun ? { ...latestRun, startedAt: latestRun.startedAt.toISOString(), finishedAt: latestRun.finishedAt?.toISOString() ?? null, summary: latestRun.summary as SyncRunSummary | null } : null,
     pages, reportingPeriod, source);
+  for (const keyword of dashboard.keywords) keyword.businessCategory = keywordBusiness(keyword, cloudKeywords);
   if (source !== "dataforseo_serp") return dashboard;
   const cohort = { hash: "", targets: dashboard.keywords.map(keyword => ({
     keywordId: site === "all" ? keyword.id.slice((keyword.siteDomain?.length ?? 0) + 1) : keyword.id,

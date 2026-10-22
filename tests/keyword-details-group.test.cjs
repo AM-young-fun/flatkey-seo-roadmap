@@ -7,12 +7,34 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 const { groupKeywordDetails, keywordDetailCountryRanks, bestKeywordDetailRank, keywordDetailBestPosition } = require("../src/lib/keyword-details-group.ts");
 const { keywordRankingTag, keywordRankingResultTag } = require("../src/lib/keyword-status-tags.ts");
+const { keywordBusiness, KEYWORD_BUSINESSES } = require("../src/lib/keyword-business.ts");
 const rank = (position, overrides = {}) => ({ source: "dataforseo_serp", rankStatus: "ranked", rank: position,
   checkedAt: "2026-10-16T02:30:00Z", url: "https://flatkey.ai/", ...overrides });
 const member = (id, siteDomain, text, latestRanks = {}) => ({ id: `${siteDomain}:${id}`, siteDomain, text,
   targetUrls: [`https://${siteDomain}/page-a`, `https://${siteDomain}/page-b`],
   latestRanks: { US: null, JP: null, ES: null, BR: null, ...latestRanks },
   rankingEvidence: { US: [{ pages: [{ url: `https://${siteDomain}/rank-a`, rank: 3 }, { url: `https://${siteDomain}/rank-b`, rank: 7 }] }] },
+});
+
+test("business selection separates legacy Flatkey API from Cloud GPU, RackRate and ModelFit before deduplication", () => {
+  assert.deepEqual(KEYWORD_BUSINESSES.map(row => row.label), ["Flatkey API", "Cloud GPU"]);
+  const api = member("api", "flatkey.ai", "shared keyword", { US: rank(1) });
+  const gpu = { ...member("cloud", "flatkey.ai", "gpu rental", { US: rank(40) }), businessCategory: "CLOUD_GPU" };
+  const rack = member("rack", "rackrate.org", "shared keyword", { US: rank(20) });
+  const model = member("model", "modelfit.cc", " Shared   Keyword ", { JP: rank(10) });
+  assert.equal(keywordBusiness(api), "FLATKEY_API");
+  assert.equal(keywordBusiness({ ...api, text: "ＧＰＵ  ＲＥＮＴＡＬ" }, new Set(["gpu rental"])), "CLOUD_GPU");
+  assert.equal(keywordBusiness({ ...rack, businessCategory: "FLATKEY_API" }), "CLOUD_GPU");
+  const input = [api, gpu, rack, model], before = structuredClone(input);
+  const apiGroups = groupKeywordDetails(input, "all", "FLATKEY_API");
+  assert.equal(apiGroups.length, 1); assert.deepEqual(apiGroups[0].members, [api]);
+  const gpuGroups = groupKeywordDetails(input, "all", "CLOUD_GPU");
+  assert.equal(gpuGroups.length, 2); assert.deepEqual(gpuGroups[0].members, [gpu]);
+  assert.deepEqual(gpuGroups[1].members, [rack, model]);
+  assert.equal(keywordDetailBestPosition(gpuGroups[1], "all"), 10, "the GPU view cannot borrow the API member's better rank");
+  assert.equal(keywordDetailBestPosition(gpuGroups[1], "US"), 20);
+  assert.deepEqual(input, before);
+  assert.equal(keywordBusiness({ ...api, text: "gpu API tutorial" }), "FLATKEY_API", "a GPU mention does not override actual source membership");
 });
 
 test("keyword grouping normalizes text across sites after website selection and keeps every member's page evidence", () => {

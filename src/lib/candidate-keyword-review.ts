@@ -2,7 +2,7 @@ import { keywordRelevance, normalizeKeywordText } from "./keyword-relevance";
 
 export const CANDIDATE_REVIEW_LABELS = { UNRELATED: "业务无关", COMPETITOR: "竞品品牌", LOW_QUALITY: "低质量", KEEP: "保留候选" } as const;
 export type CandidateReviewKind = keyof typeof CANDIDATE_REVIEW_LABELS;
-export type CandidateReviewRow = { id: string; text: string; kind: CandidateReviewKind; reason: string; protected: boolean };
+export type CandidateReviewRow = { id: string; text: string; kind: CandidateReviewKind; reason: string; protected: boolean; businessCategory?: import("./keyword-business").KeywordBusiness };
 export type CandidateReviewPreview = { siteDomain: "flatkey.ai"; stateHash: string; total: number; suggested: number; rows: CandidateReviewRow[] };
 
 // Service competitors only. Model families, hardware vendors and integration

@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { reviewCandidateKeyword, type CandidateReviewPreview } from "@/lib/candidate-keyword-review";
+import { keywordBusiness } from "@/lib/keyword-business";
+import { loadCloudGpuKeywordTexts } from "@/lib/services/keyword-business";
 import { ImportRequestError } from "@/lib/ranking-import";
 
 const siteDomain = "flatkey.ai" as const;
@@ -15,7 +17,11 @@ function preview(rows: Awaited<ReturnType<typeof readCandidates>>): CandidateRev
   return { siteDomain, stateHash: createHash("sha256").update(JSON.stringify({ rows, reviewed })).digest("hex"), total: rows.length,
     suggested: reviewed.filter(row => row.kind !== "KEEP").length, rows: reviewed };
 }
-export async function loadCandidateReview() { return preview(await readCandidates(prisma)); }
+export async function loadCandidateReview() {
+  const [candidates, cloudKeywords] = await Promise.all([readCandidates(prisma), loadCloudGpuKeywordTexts()]);
+  const plan = preview(candidates);
+  return { ...plan, rows: plan.rows.map(row => ({ ...row, businessCategory: keywordBusiness({siteDomain, text:row.text}, cloudKeywords) })) };
+}
 
 export async function applyCandidateReview(keywordIds: string[], expectedStateHash: string) {
   return prisma.$transaction(async tx => {

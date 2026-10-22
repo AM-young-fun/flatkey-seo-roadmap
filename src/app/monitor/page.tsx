@@ -1,5 +1,5 @@
-import { RankingMonitor } from "@/components/RankingMonitor";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <RankingMonitor />;
+  redirect("/keywords?status=optimized");
 }

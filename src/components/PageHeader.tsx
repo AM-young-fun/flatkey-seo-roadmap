@@ -1,7 +1,7 @@
 "use client";
 import { CollectionProgress } from "./CollectionProgress";
 import Link from "next/link";
-import { ChartNoAxesCombined, List, Settings2, LogOut, Radar, ChartLine } from "lucide-react";
+import { ChartNoAxesCombined, List, Settings2, LogOut, ChartLine } from "lucide-react";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache } from "@/lib/client-read-cache";
 import { Brand } from "@/components/Brand";
@@ -9,7 +9,7 @@ import { Brand } from "@/components/Brand";
 export function PageHeader({
   active,
 }: {
-  active: "overview" | "keywords" | "manage" | "traffic" | "monitor";
+  active: "overview" | "keywords" | "manage" | "traffic";
 }) {
   return (
     <> <CollectionProgress /><header className="siteHeader">
@@ -33,7 +33,6 @@ export function PageHeader({
           <List size={16} />
           关键词明细
         </Link>
-        <Link href="/monitor" className={active === "monitor" ? "navLink active" : "navLink"} aria-current={active === "monitor" ? "page" : undefined}><Radar size={16} />排名监控</Link>
         <Link href="/traffic" className={active === "traffic" ? "navLink active" : "navLink"} aria-current={active === "traffic" ? "page" : undefined}><ChartLine size={16} />流量周报</Link>
         <Link
           href="/manage"

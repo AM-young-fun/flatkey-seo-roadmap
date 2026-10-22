@@ -8,10 +8,11 @@ import { candidateKeywordCount } from "@/lib/keyword-inventory";
 import { loadDashboard } from "./dashboard-data";
 import { buildWeeklyReport } from "./weekly-report";
 import { loadKeywordOkr } from "./keyword-okr";
+import { loadOptimizedPageMonitor } from "./optimized-page-monitor";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
 const trafficDisplayVersion = "declines-v2";
-const dashboardDisplayVersion = "candidates-v1";
+const dashboardDisplayVersion = "business-optimized-v1";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";
@@ -32,7 +33,8 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
     }
     const okr = site === "all" ? await loadKeywordOkr("flatkey.ai",research === "1" ? "RESEARCH" : "FORMAL") : null;
     if (okr && !okr.initialized) throw new Error("Formal inventory unavailable");
-    return {value:overviewPayload(value), keywordRows:okr ? keywordDisplayRows(value,okr,research === "1") : undefined};
+    const optimizedPages = okr ? (await loadOptimizedPageMonitor()).pages : [];
+    return {value:overviewPayload(value), keywordRows:okr ? keywordDisplayRows(value,okr,research === "1",optimizedPages) : undefined};
   }};
   if (view === "traffic") {
     const periods = params.get("week") ? reportPeriods(params.get("week")!) : activeReportPeriods();

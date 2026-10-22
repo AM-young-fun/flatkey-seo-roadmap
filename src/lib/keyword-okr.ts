@@ -6,6 +6,7 @@ export type KeywordPool = "FORMAL" | "RESEARCH" | "ARCHIVED" | "MERGED";
 export type KeywordMappingStatus = "READY" | "MODEL_PROTECTED" | "RECORDED" | "UNMAPPED" | "NEEDS_BUILD" | "NEEDS_EXPANSION" | "NEEDS_REMAP" | "MULTIPLE_CANDIDATES";
 export type KeywordOkrItem = {
   id: string; text: string; siteDomain: string; active: boolean; pool: KeywordPool;
+  businessCategory?: import("./keyword-business").KeywordBusiness;
   reviewStatus: string; mappingStatus: KeywordMappingStatus; targetUrls: string[]; candidateUrls: string[];
   reason: string | null; protected: boolean; auditedAt: string | null; auditId: string | null;
   latestPageAuditVerdict: PageAuditVerdict | null; latestPageAuditReason: string | null; latestPageAuditCheckedAt: string | null;

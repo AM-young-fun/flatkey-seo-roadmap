@@ -34,23 +34,32 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
     ) captures WHERE n <= 2`,
     prisma.serpMonitorRun.findFirst({ where: { scope: OPTIMIZED_PAGE_SCOPE, status: { in: OPEN } }, select: { id: true } }),
   ]);
-  const words = [...new Set(pages.flatMap(page => page.keywords))];
+  const requested = pages.flatMap(page => page.keywords.map(keyword => Prisma.sql`(${page.url}, ${keyword})`));
   const [runs, saved] = await Promise.all([
     ids.length ? prisma.serpMonitorRun.findMany({ where: { id: { in: ids.map(row => row.id) } }, orderBy: { createdAt: "desc" },
-      include: { tasks: { select: { keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true } } } }) : Promise.resolve([]),
-    words.length ? prisma.$queryRaw<SavedPageRankingTask[]>(Prisma.sql`
+      include: { tasks: { select: { id: true, keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true } } } }) : Promise.resolve([]),
+    requested.length ? prisma.$queryRaw<SavedPageRankingTask[]>(Prisma.sql`
       /* optimized-page:saved-ranking-baseline */
-      WITH selected AS (
-        SELECT t.keyword, t.region, t.state, t."checkedAt", t."normalizedJson",
-          ROW_NUMBER() OVER (PARTITION BY lower(t.keyword), t.region ORDER BY t."checkedAt" DESC, r."createdAt" DESC, t.id DESC) AS n
+      WITH requested("pageUrl", keyword) AS (VALUES ${Prisma.join(requested)}), selected AS (
+        SELECT t.id, requested."pageUrl", t.keyword, t.region, t.state, t."checkedAt", t."normalizedJson",
+          ROW_NUMBER() OVER (PARTITION BY requested."pageUrl", requested.keyword, t.region ORDER BY t."checkedAt" DESC, r."createdAt" DESC, t.id DESC) AS n
         FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
-        WHERE r.scope IN ('SCHEDULED','SAMPLE') AND t.state IN ('COMPLETE','INCOMPLETE') AND t."checkedAt" IS NOT NULL
-          AND lower(t.keyword) IN (${Prisma.join(words)}) AND t.region IN ('US','JP','ES','BR')
+        JOIN requested ON lower(t.keyword) = requested.keyword
+        WHERE r.scope IN ('SCHEDULED','SAMPLE','OPTIMIZED_PAGE') AND t.state IN ('COMPLETE','INCOMPLETE') AND t."checkedAt" IS NOT NULL
+          AND t.region IN ('US','JP','ES','BR')
           AND t."requestJson"->>'device' = 'desktop' AND t."requestJson"->>'depth' = '100'
           AND t."requestJson"->>'language_code' = CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END
           AND t."normalizedJson"->>'rankingVerified' = 'true' AND t."normalizedJson"->>'queryStatus' = 'EXACT'
           AND EXISTS (SELECT 1 FROM jsonb_array_elements(t."targetsJson") target WHERE target->>'siteDomain' = 'flatkey.ai')
-      ) SELECT keyword, region, state, "checkedAt", jsonb_build_object(
+          -- Filter before limiting: shallow misses must not push older valid
+          -- ranks out of the two captures kept for each page/query/country.
+          AND ((t."normalizedJson"->>'captureComplete' = 'true' AND t."normalizedJson"->>'completeDepth' = 'true') OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(t."normalizedJson"->'organicResults') item
+            WHERE item->>'rankGroup' ~ '^[0-9]+$' AND item->'rankGroup' >= '1'::jsonb AND item->'rankGroup' <= '100'::jsonb
+              AND rtrim(regexp_replace(split_part(split_part(item->>'url', '#', 1), '?', 1),
+                ${"^https://(www\\.)?flatkey\\.ai(:443)?(/|$)"}, 'https://flatkey.ai/', 'i'), '/') = rtrim(requested."pageUrl", '/')
+          ))
+      ) SELECT id, "pageUrl", keyword, region, state, "checkedAt", jsonb_build_object(
         'queryStatus', "normalizedJson"->'queryStatus', 'rankingVerified', "normalizedJson"->'rankingVerified',
         'captureComplete', "normalizedJson"->'captureComplete', 'completeDepth', "normalizedJson"->'completeDepth', 'googleUrl', "normalizedJson"->'googleUrl',
         'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements("normalizedJson"->'organicResults') item

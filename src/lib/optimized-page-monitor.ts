@@ -85,19 +85,25 @@ export function optimizedPageRank(pageUrl: string, task: { keyword: string; regi
     status: match ? "RANKED" : result.completeDepth === true && result.captureComplete === true ? "OUTSIDE_TOP100" : "NOT_FOUND_CAPTURE" };
 }
 
-export type SavedPageRankingTask = { keyword: string; region: string; state: string; normalizedJson: unknown; checkedAt: Date | null };
+export type SavedPageRankingTask = { id?: string; pageUrl?: string; keyword: string; region: string; state: string; normalizedJson: unknown; checkedAt: Date | null };
 export function savedPageRankingComparison(pageUrl: string, keywords: string[], saved: SavedPageRankingTask[], latest?: { startedAt: Date; tasks: SavedPageRankingTask[] }, previous?: { tasks: SavedPageRankingTask[] }) {
   const results: OptimizedPageRank[] = [], previousResults: OptimizedPageRank[] = [];
+  const tasks = [...saved.filter(task => !task.pageUrl || task.pageUrl === pageUrl), ...(latest?.tasks ?? []), ...(previous?.tasks ?? [])];
   for (const keyword of keywords) for (const region of ["US", "JP", "ES", "BR"]) {
     const sameQuery = (task: SavedPageRankingTask) => normalizeKeywordText(task.keyword) === normalizeKeywordText(keyword) && task.region === region;
-    const history = saved.filter(sameQuery).sort((a, b) => (b.checkedAt?.getTime() ?? 0) - (a.checkedAt?.getTime() ?? 0));
-    const current = latest?.tasks.find(sameQuery) ?? history[0];
+    // Rank evidence is shared across manual and scheduled captures. Pending or
+    // invalid attempts must not hide the most recent valid rank for this page.
+    const history = tasks.filter(sameQuery).map(task => optimizedPageRank(pageUrl, task))
+      .filter(rank => rank.status === "RANKED" || rank.status === "OUTSIDE_TOP100")
+      .sort((a, b) => Date.parse(b.checkedAt!) - Date.parse(a.checkedAt!));
+    const fallback = latest?.tasks.find(sameQuery);
+    const current = history[0] ?? (fallback ? optimizedPageRank(pageUrl, fallback) : undefined);
     if (!current) continue;
-    results.push(optimizedPageRank(pageUrl, current));
-    const prior = latest?.tasks.some(sameQuery)
-      ? previous?.tasks.find(sameQuery) ?? history.find(task => task.checkedAt && task.checkedAt < latest.startedAt)
-      : history[1];
-    if (prior) previousResults.push(optimizedPageRank(pageUrl, prior));
+    results.push(current);
+    // A task may appear in both the shared history and the manual ledger.
+    // Only an earlier capture can supply the comparison, never that same task.
+    const prior = history.find(rank => Date.parse(rank.checkedAt!) < Date.parse(current.checkedAt ?? ""));
+    if (prior) previousResults.push(prior);
   }
   return { results, previousResults };
 }

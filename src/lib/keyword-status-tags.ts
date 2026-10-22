@@ -5,11 +5,13 @@ import { validSitePage } from "./keyword-volume-review";
 type PageTagInput = {
   siteDomain: string; mappingStatus?: string; targetUrls?: string[]; candidateUrls?: string[];
   latestPageAuditVerdict?: PageAuditVerdict | null;
+  optimized?: boolean;
 };
-export type KeywordPageTag = { key: "MATCHED" | "BUILD" | "EXPAND" | "MISMATCH" | "REVIEW"; label: string; color: string; tooltip: string };
+export type KeywordPageTag = { key: "OPTIMIZED" | "MATCHED" | "BUILD" | "EXPAND" | "MISMATCH" | "REVIEW"; label: string; color: string; tooltip: string };
 export type KeywordRankingTag = { key: "TOP_10" | "TOP_30" | "TOP_50" | "TOP_100" | "UNRANKED" | "NOT_FOUND_CAPTURE" | "QUERY_CHANGED" | "PENDING" | "QUEUED" | "FAILED" | "INCOMPLETE"; label: string; color: string; tooltip: string };
 
 export function keywordPageTag(target: PageTagInput): KeywordPageTag {
+  if (target.optimized) return { key: "OPTIMIZED", label: "已优化", color: "cyan", tooltip: "优化表中该词关联页面已标记完成；页面匹配与付费抓取资格仍独立核验，排名按最新有效实测展示。" };
   const targets = [...new Set((target.targetUrls ?? []).filter(url => validSitePage(url, target.siteDomain)).map(value => {
     const url = new URL(value); url.hash = ""; url.pathname = url.pathname.replace(/\/$/, "") || "/"; return url.href;
   }))];

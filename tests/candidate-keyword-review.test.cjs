@@ -8,6 +8,7 @@ let state;
 let displayInvalidations = 0, displayVersionReads = 0;
 const member = (id, text, extras = {}) => ({ keywordId: id, siteDomain: "flatkey.ai", pool: "RESEARCH", active: true, protected: false, reviewStatus: "UNREVIEWED", exclusionReason: null, excludedAt: null, keyword: { text, active: true }, ...extras });
 const db = {
+  $queryRaw: async () => state.cloudWords ?? [],
   $transaction: async fn => { const before = structuredClone(state); try { return await fn(db); } catch (error) { state = before; throw error; } },
   siteKeyword: { findMany: async ({ where }) => structuredClone(state.members.filter(row => row.siteDomain === where.siteDomain && row.pool === where.pool && row.active === where.active && row.keyword.active).sort((a,b) => a.keywordId.localeCompare(b.keywordId))) },
   $executeRaw: async query => {

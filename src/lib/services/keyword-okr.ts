@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { retryDatabaseRead } from "@/lib/database-read";
 import { loadLatestPageAudits } from "@/lib/services/keyword-page-audit-state";
 import { normalizeKeywordText } from "@/lib/keyword-relevance";
+import { keywordBusiness } from "@/lib/keyword-business";
+import { loadCloudGpuKeywordTexts } from "@/lib/services/keyword-business";
 import { pageTaskWorkDetails, type PageTaskWorkItem } from "@/lib/keyword-page-tasks";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordOkrMutation, type KeywordOkrMutationResponse, type KeywordOkrResponse, type KeywordOkrItem } from "@/lib/keyword-okr";
@@ -156,7 +158,7 @@ async function readKeywordOkr(siteDomain: string, pool?: "FORMAL" | "RESEARCH"):
   `);
   const initialized = audits.some(row => row.status === "APPLIED");
   const rows = initialized ? await readState(prisma, pool) : [];
-  const pageAudits = await loadLatestPageAudits(rows.map(row => row.keywordId));
+  const [pageAudits, cloudKeywords] = await Promise.all([loadLatestPageAudits(rows.map(row => row.keywordId)), loadCloudGpuKeywordTexts()]);
   const tasks = initialized && !pool ? (await prisma.keywordContentTask.findMany({ where: { siteDomain, status: { notIn: ["RESTORED", "MERGED"] } }, orderBy: { id: "asc" } })).filter(row => !["RESTORED", "MERGED"].includes(row.status)) : [];
   const workItems: PageTaskWorkItem[] = rows.flatMap(row => {
     const plan = pageAudits.get(row.keywordId)?.workPlan;
@@ -187,6 +189,7 @@ async function readKeywordOkr(siteDomain: string, pool?: "FORMAL" | "RESEARCH"):
   return {
     siteDomain, initialized, rankingCaptureEnabled: false, availableAudit: auditInfo, summary,
     keywords: rows.map(row => ({ id: row.keywordId, text: row.text, siteDomain, active: row.active, pool: row.pool,
+      businessCategory: keywordBusiness({ siteDomain, text: row.text }, cloudKeywords),
       reviewStatus: row.reviewStatus, mappingStatus: row.mappingStatus, targetUrls: row.targetUrls, candidateUrls: row.candidateUrls,
       reason: pageAudits.get(row.keywordId)?.reason ?? row.auditReason ?? row.exclusionReason, protected: row.protected, auditedAt: row.curatedAt, auditId: row.curationId,
       latestPageAuditVerdict: pageAudits.get(row.keywordId)?.verdict ?? null, latestPageAuditReason: pageAudits.get(row.keywordId)?.reason ?? null,

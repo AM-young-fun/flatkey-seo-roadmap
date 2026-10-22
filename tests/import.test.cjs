@@ -83,6 +83,7 @@ const db = {
   $executeRaw: async () => 0,
   $queryRaw: async (query, ...args) => {
     const sql = Array.isArray(query) ? query.join("") : query.sql;
+    if (sql.includes("keyword-business:cloud-source")) return [];
     const values = query.values ?? args;
     if (sql.includes("ranking-period:recent-query-reports")) return observations.filter(row => row.source === "gsc" && row.rankReported && row.periodStart && row.periodEnd
       && row.periodEnd.getTime() - row.periodStart.getTime() === 6 * 86400000 && row.periodEnd.toISOString().slice(0,10) >= values[0] && row.periodEnd.toISOString().slice(0,10) <= values[1])
@@ -822,7 +823,7 @@ test("summary bulk read does not repeat queries per site or retrieve a legacy sy
   t.mock.method(db.syncRun,"findFirst",async()=>{throw new Error("unneeded sync read");});
   const value=await loadDashboard("all","combined");
   assert.equal(value.keywords.length,1);
-  assert.equal(reads,6);
+  assert.equal(reads,7);
 });
 
 const { createDashboardStore } = require("../src/lib/dashboard-client.ts");

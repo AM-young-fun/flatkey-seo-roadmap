@@ -30,6 +30,7 @@ const db = {
     return rows.length;
   },
   $queryRaw: async query => {
+    if (query.sql.includes("keyword-business:cloud-source")) return state.cloudWords ?? [];
     if (query.sql.includes("audit-summaries")) {
       state.auditReadCount = (state.auditReadCount ?? 0) + 1;
       state.auditReadSql = query.sql;
@@ -90,6 +91,18 @@ test("keyword-detail reads only the selected active pool and skips page-task con
   assert.deepEqual(formal.keywords.map(row=>row.id).sort(), all.keywords.filter(row=>row.active && row.pool === "FORMAL").map(row=>row.id).sort());
   assert.deepEqual(research.keywords.map(row=>row.id).sort(), all.keywords.filter(row=>row.active && row.pool === "RESEARCH").map(row=>row.id).sort());
   assert.deepEqual(formal.tasks, []); assert.deepEqual(research.tasks, []); assert.ok(all.tasks.length);
+  assert.deepEqual(state.links, before);
+});
+
+test("business categories also reach target-only and research keywords without changing page mappings or pools", async () => {
+  await mutateKeywordOkr(input("apply"));
+  const candidate = state.links.find(row => row.keywordId === "research" && row.siteDomain === "flatkey.ai");
+  candidate.topicId = null;
+  state.cloudWords = [{ text: " POSSIBLE   FUTURE CONNECTOR API " }];
+  const before = structuredClone(state.links);
+  const result = await loadKeywordOkr("flatkey.ai");
+  assert.equal(result.keywords.find(row => row.id === "research").businessCategory, "CLOUD_GPU");
+  assert.ok(result.keywords.some(row => row.id !== "research" && row.businessCategory === "FLATKEY_API"));
   assert.deepEqual(state.links, before);
 });
 

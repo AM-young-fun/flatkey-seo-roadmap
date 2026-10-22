@@ -4,8 +4,8 @@ import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import type { DashboardResponse } from "@/lib/types";
 import type { KeywordOkrResponse } from "@/lib/keyword-okr";
 type KeywordPage = DashboardResponse & {total:number;page:number;pageSize:10;okr:KeywordOkrResponse};
-export function useKeywordPage(filters:{pool:string;country:string;site:string;rank:string;pageStatus:string;q:string}) {
-  const filterKey = new URLSearchParams(filters).toString();
+export function useKeywordPage(filters:{pool:string;country:string;site:string;business?:string;rank:string;pageStatus:string;q:string}) {
+  const filterKey = new URLSearchParams(Object.entries(filters).filter((entry): entry is [string,string] => typeof entry[1] === "string")).toString();
   const [pagination,setPagination] = useState({filterKey,page:1}), [revision,setRevision] = useState(0);
   const page = pagination.filterKey === filterKey ? pagination.page : 1;
   const url = `/api/keywords/details?${filterKey}&page=${page}`;

@@ -4,11 +4,14 @@ import { Table, Tooltip, Select, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Search, RotateCcw, Info, ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { SerpQuerySnapshot } from "@/components/SerpQuerySnapshot";
 import { PageHeader } from "@/components/PageHeader";
 import { CandidateKeywordReview } from "@/components/CandidateKeywordReview";
+import { KeywordRankActions } from "@/components/KeywordRankActions";
+import { useOptimizedPageCapture } from "@/components/useOptimizedPageCapture";
+import { optimizedPagesForKeyword, withOptimizedKeywordRanks } from "@/lib/optimized-keyword-details";
 import { useKeywordPage } from "./useKeywordPage";
-import { SITES } from "@/components/useSeoSelection";
+import { SerpQuerySnapshot } from "./SerpQuerySnapshot";
+import { KEYWORD_BUSINESSES, type KeywordBusiness } from "@/lib/keyword-business";
 import type { DashboardKeyword, RankingEvidence, RankingPageEvidence, RankSummary } from "@/lib/types";
 import { REGIONS, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { dashboardStore } from "@/lib/dashboard-client";
@@ -23,7 +26,7 @@ import { bestKeywordDetailRank, detailRegions, groupKeywordDetails, keywordDetai
   type KeywordCountryScope, type KeywordDetailGroup } from "@/lib/keyword-details-group";
 
 const POOLS = { FORMAL: "业务目标", RESEARCH: "候选词" };
-const PAGE_FILTERS = [{ value: "PAGE_BUILD", label: "待建设" }, { value: "PAGE_EXPAND", label: "待优化" }];
+const PAGE_FILTERS = [{ value: "PAGE_BUILD", label: "待建设" }, { value: "PAGE_EXPAND", label: "待优化" }, { value: "PAGE_OPTIMIZED", label: "已优化" }];
 const number = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString("zh-CN");
 const position = (value: number | null) => value == null ? "—" : Number(value.toFixed(2)).toString();
 const localDate = (value: string | null | undefined) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "来源日期未提供";
@@ -48,7 +51,7 @@ function ObservedPages({ pages, compact = false }: { pages: DetailPage[]; compac
 function coverage(rank: RankSummary) {
   return rank.rankStatus === "query_changed" ? `Google改搜：${rank.correctedKeyword ?? "未提供"}` : rank.rankStatus === "not_found_capture"
     ? `${rank.coveredThroughRank ? `已检查前${rank.coveredThroughRank}个自然名次` : `本次返回${rank.organicCount ?? 0}条自然结果`}，未命中本站`
-    : rank.depthIncomplete ? `采集时自然排名，本次返回${rank.organicCount ?? "部分"}条自然结果` : "";
+    : rank.depthIncomplete ? `已核实名次，本次返回${rank.organicCount ?? "部分"}条自然结果` : "";
 }
 function HistoryEvidence({ evidence, region }: { evidence: RankingEvidence; region: SearchRegionCode }) {
   return <section><strong>{REGIONS[region].label} · {evidence.source === "gsc" ? "GSC历史记录" : evidence.source === "dataforseo_labs" ? "Labs历史记录" : "Ahrefs历史记录"}</strong>
@@ -94,11 +97,14 @@ function KeywordExpandedMember({member,country,audit,urls,pageLabel,pageColor,ho
   </section>;
 }
 
-export function KeywordDetails() {
-  const [view, setView] = useState("FORMAL"), [pool, setPool] = useState<KeywordPool>("FORMAL"), [mapping, setMapping] = useState("ALL");
+export function KeywordDetails({ initiallyOptimized = false }: { initiallyOptimized?: boolean }) {
+  const [view, setView] = useState("FORMAL"), [pool, setPool] = useState<KeywordPool>("FORMAL"), [mapping, setMapping] = useState(initiallyOptimized ? "PAGE_OPTIMIZED" : "ALL");
+  const capture = useOptimizedPageCapture();
+  const optimizedPages = capture.data?.pages ?? [];
   const [country, setCountry] = useState<KeywordCountryScope>("all");
-  const [search, setSearch] = useState(""), [site, setSite] = useState("all");
-  const { data, error, loading, refresh, page, setPage } = useKeywordPage({pool,country,site,rank:view,pageStatus:mapping,q:search});
+  const [search, setSearch] = useState(""), [business, setBusiness] = useState<KeywordBusiness>("FLATKEY_API");
+  const businessLabel = KEYWORD_BUSINESSES.find(item => item.value === business)!.label;
+  const { data, error, loading, refresh, page, setPage } = useKeywordPage({pool,country,site:"all",business,rank:view,pageStatus:mapping,q:search});
   const okr = {data:data?.okr,error:null,loading,refresh};
   useEffect(() => { const query = new URLSearchParams(window.location.search).get("q"); if (query) setSearch(query); }, []);
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState(""), [selected, setSelected] = useState<Key[]>([]);
@@ -109,27 +115,28 @@ export function KeywordDetails() {
   const loaded = (data?.keywords ?? []).filter(member => !data?.usingDemoData || !isFlatkey(member));
   const loadedIds = new Set(loaded.filter(isFlatkey).map(member => originalId(member.id)));
   const targetOnly: DashboardKeyword[] = okr.data?.initialized ? [...okrItems.values()].filter(item => !loadedIds.has(item.id)).map(item => ({
-    id: item.id, text: item.text, type: "MAIN", topicId: null, topicText: null, siteDomain: item.siteDomain, siteName: "Flatkey", targetUrls: item.targetUrls,
+    id: item.id, text: item.text, type: "MAIN", topicId: null, topicText: null, siteDomain: item.siteDomain, siteName: "Flatkey", targetUrls: item.targetUrls, businessCategory: item.businessCategory,
     parentId: null, parentIds: [], active: item.active, lastSyncedAt: null, volume: 0, marketVolumes: { US: null, JP: null, ES: null, BR: null }, latestRanks: { US: null, JP: null, ES: null, BR: null },
   })) : [];
   const paused = (member: DashboardKeyword) => member.monitoringEligible === false || Boolean(isFlatkey(member) && okrFor(member) && okrFor(member)?.pool !== "FORMAL");
   const holdReason = (member: DashboardKeyword) => member.monitoringHoldReason ?? (isFlatkey(member) && okrFor(member)?.pool !== "FORMAL" ? "研究候选或已归档词不参与付费监控" : "页面尚未就绪，暂不监控");
-  const pageFor = (member: DashboardKeyword) => {
+  const pageFor = (member: DashboardKeyword, includeOptimized = true) => {
     const target = okrFor(member), review = member.monitoringHoldCode === "NO_VERIFIED_PAGE" || member.monitoringHoldCode === "PAGE_REVIEW_REQUIRED";
-    return keywordPageTag({ siteDomain: member.siteDomain ?? "flatkey.ai", mappingStatus: target?.mappingStatus ?? (member.monitoringEligible === true ? "READY" : undefined), targetUrls: target?.targetUrls ?? member.targetUrls,
+    return keywordPageTag({ siteDomain: member.siteDomain ?? "flatkey.ai", optimized: includeOptimized && optimizedPagesForKeyword(member, optimizedPages).length > 0, mappingStatus: target?.mappingStatus ?? (member.monitoringEligible === true ? "READY" : undefined), targetUrls: target?.targetUrls ?? member.targetUrls,
       candidateUrls: target?.candidateUrls, latestPageAuditVerdict: member.monitoringHoldCode === "PAGE_NOT_BUILT" ? "NO_MATCH" : review ? "REVIEW" : target?.latestPageAuditVerdict });
   };
   const targetUrls = (member: DashboardKeyword) => {
     const target = okrFor(member), urls = target?.targetUrls ?? member.targetUrls ?? [];
-    return urls.length ? urls : target?.workPlan?.action === "EXPAND" ? target.workPlan.pageUrls : [];
+    const planned = urls.length ? urls : target?.workPlan?.action === "EXPAND" ? target.workPlan.pageUrls : [];
+    return [...new Set([...planned, ...optimizedPagesForKeyword(member, optimizedPages).map(page => page.url)])];
   };
   const pagesFor = (group: KeywordDetailGroup): DetailPage[] => group.members.flatMap(member => detailRegions(country).flatMap(region =>
     validKeywordDetailRank(rankFor(member, region)) ? keywordRankingPages(rankFor(member, region), keywordEvidence(member, region), member.siteDomain ?? "flatkey.ai").map(page => ({ ...page, region, siteName: siteName(member), memberId: member.id })) : []
   )).sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
   const tagFor = (group: KeywordDetailGroup, scope = country) => keywordRankingResultTag(bestKeywordDetailRank(group, scope)?.rank);
   const members = [...loaded, ...targetOnly].filter(member => isFlatkey(member) ? okr.data?.initialized && okrFor(member)?.pool === pool : pool === "FORMAL" && keywordRelevance(member.siteDomain ?? "flatkey.ai", member.text).status !== "unrelated");
-  const groups = groupKeywordDetails(members, site);
-  const rows = groups.filter(group => mapping === "ALL" || group.members.some(member => mapping === "MONITORABLE" ? pageFor(member).key === "MATCHED" : mapping === "CANDIDATE" ? pageFor(member).key !== "MATCHED" : pageFor(member).key === mapping.replace(/^PAGE_/, "")))
+  const groups = groupKeywordDetails(members.map(member => withOptimizedKeywordRanks({ ...member, businessCategory: okrFor(member)?.businessCategory ?? member.businessCategory }, optimizedPages)), "all", business);
+  const rows = groups.filter(group => mapping === "ALL" || group.members.some(member => mapping === "MONITORABLE" ? pageFor(member, false).key === "MATCHED" : mapping === "CANDIDATE" ? pageFor(member, false).key !== "MATCHED" : pageFor(member).key === mapping.replace(/^PAGE_/, "")))
     .filter(group => view === "FORMAL" || (view === "EVIDENCE" ? validKeywordDetailRank(bestKeywordDetailRank(group, country)?.rank) : tagFor(group).key === view))
     .filter(group => normalizeKeywordText(group.members.map(member => `${member.text} ${member.topicText ?? ""} ${okrFor(member)?.reason ?? ""}`).join(" ")).includes(normalizeKeywordText(search)));
   async function excludeKeywords() {
@@ -144,7 +151,7 @@ export function KeywordDetails() {
         const response = await fetch("/api/keywords/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteDomain, action: "exclude", keywords }) });
         const result = await response.json(); if (!response.ok) throw new Error(result.message ?? "移除失败，请重试"); changed += result.changed;
       }
-      setNotice(`已移除 ${changed} 条网站词记录；原始采集证据保留。`); setSelected([]);
+      setNotice(`已移除 ${changed} 条关键词记录；原始采集证据保留。`); setSelected([]);
     } catch (failure) { setNotice(failure instanceof Error ? failure.message : "移除失败，请重试"); }
     finally { dashboardStore.clear(); refresh(); setBusy(false); }
   }
@@ -160,28 +167,33 @@ export function KeywordDetails() {
     } },
     { title: country === "all" ? "对应国家排名变化" : "较上次有效实测", key: "movement", width: 190, render: (_, group) => { const best = bestKeywordDetailRank(group, country); return <div className="evidenceSummary"><strong>{rankMovement(best?.rank ?? null)}</strong>{best?.rank ? <small>{REGIONS[best.region].label} · {siteName(best.member)}{best.rank.previousPeriodLabel ? ` · 对比${best.rank.previousPeriodLabel}` : ""}</small> : null}</div>; } },
     { title: "实际排名页面", key: "pages", width: 330, render: (_, group) => { const pages = pagesFor(group); return pages.length ? <ObservedPages pages={pages} compact /> : <span className="muted">—</span>; } },
+    { title: "操作", key: "capture", width: 145, fixed: "right", render: (_, group) => {
+      const pages = [...new Map(group.members.flatMap(member => optimizedPagesForKeyword(member, optimizedPages)).map(page => [page.id, page])).values()];
+      return pool === "FORMAL" ? <KeywordRankActions pages={pages} capture={capture} /> : <span className="muted">—</span>;
+    } },
   ];
   return <main className="appShell"><PageHeader active="keywords" />
-    <div className="pageIntro"><h1>关键词明细</h1><p>{data?.serpOverview?.currentPeriod.label ? `${data.serpOverview.currentPeriod.label} · ` : ""}关键词去重展示，展开查看各国排名与关联页面。</p></div>
+    <div className="pageIntro"><h1>关键词明细</h1><p>关键词去重展示，展开查看各国排名与关联页面。</p></div>
     {data?.usingDemoData ? <p className="loadError" role="alert">当前为演示数据，不能用于判断实际排名。</p> : null}
     {error ? <div className="loadError" role="alert"><span>{error}</span><button onClick={() => void refresh()}>重新加载</button></div> : null}
     {okr.error ? <div className="loadError" role="alert"><span>目标库读取失败：{okr.error}</span><button onClick={okr.refresh}>重新加载</button></div> : null}
+    {capture.error ? <div className="loadError" role="alert"><span>{capture.error}</span><button onClick={() => void capture.refresh()}>重新加载优化页面</button></div> : null}
     {okr.data && !okr.data.initialized ? <p className="okrUninitialized">目标库尚未初始化。<Link href="/manage#keyword-audit">前往数据管理</Link></p> : null}
     <section className="keywordFilterPanel" aria-label="关键词筛选">
-      <div className="keywordSearchRow"><label className="searchField"><Search size={18} /><input aria-label="搜索关键词或话题" placeholder="搜索关键词或话题" value={search} onChange={event => setSearch(event.target.value)} /></label><button className="keywordFilterReset" onClick={() => { setCountry("all"); setSite("all"); setView("FORMAL"); setPool("FORMAL"); setMapping("ALL"); setSearch(""); setSelected([]); }}><RotateCcw size={14} />重置筛选</button></div>
+      <div className="keywordSearchRow"><label className="searchField"><Search size={18} /><input aria-label="搜索关键词或话题" placeholder="搜索关键词或话题" value={search} onChange={event => setSearch(event.target.value)} /></label><button className="keywordFilterReset" onClick={() => { setCountry("all"); setBusiness("FLATKEY_API"); setView("FORMAL"); setPool("FORMAL"); setMapping("ALL"); setSearch(""); setSelected([]); }}><RotateCcw size={14} />重置筛选</button></div>
     <div className="keywordFilterGrid">
       <label className="originSelectField"><span>国家</span><Select aria-label="国家筛选" className="originSelect" value={country} onChange={setCountry} options={[{ value: "all", label: "全部国家" }, ...REGION_CODES.map(region => ({ value: region, label: REGIONS[region].label }))]} /></label>
-      <label className="originSelectField"><span>网站</span><Select aria-label="所属网站" className="originSelect" value={site} onChange={value => { setSite(value); setPool("FORMAL"); setMapping("ALL"); setSelected([]); }} options={[{ value: "all", label: "全部网站" }, ...SITES.map(item => ({ value: item.domain, label: item.name }))]} /></label>
+      <label className="originSelectField"><span>业务分类</span><Select aria-label="业务分类" className="originSelect" value={business} onChange={value => { setBusiness(value); setPool("FORMAL"); setView("FORMAL"); setMapping("ALL"); setNotice(""); setSelected([]); }} options={[...KEYWORD_BUSINESSES]} /></label>
       <label className="originSelectField"><span>排名状态</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "全部排名" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10名" }, { value: "TOP_30", label: "11–30名" }, { value: "TOP_50", label: "31–50名" }, { value: "TOP_100", label: "51–100名" }, { value: "UNRANKED", label: "100之外" }]} /></label>
       <label className="originSelectField"><span>页面状态</span><Select aria-label="页面关联状态" disabled={pool === "RESEARCH"} className="originSelect" value={mapping} onChange={setMapping} options={[{ value: "ALL", label: "全部页面状态" }, { value: "MONITORABLE", label: "已匹配页面" }, ...PAGE_FILTERS]} /></label>
-      <label className="originSelectField"><span>词库分类</span><Select aria-label="业务词池" className="originSelect" value={pool} onChange={value => { setPool(value); setView("FORMAL"); setMapping("ALL"); setSelected([]); }} disabled={site !== "all" && site !== "flatkey.ai"} options={Object.entries(POOLS).map(([value, label]) => ({ value, label }))} /></label>
+      <label className="originSelectField"><span>词库分类</span><Select aria-label="业务词池" className="originSelect" value={pool} onChange={value => { setPool(value); setView("FORMAL"); setMapping("ALL"); setSelected([]); }} options={Object.entries(POOLS).map(([value, label]) => ({ value, label }))} /></label>
     </div>
     </section>
-    {pool === "RESEARCH" ? <CandidateKeywordReview onChanged={() => { void refresh(); }} /> : null}
-    <div className="reviewToolbar keywordResultBar"><p>{loading || okr.loading ? "正在加载…" : <>共 <strong>{(data?.total ?? 0).toLocaleString()}</strong> 个关键词</>}<span>{country === "all" ? "四国综合 · 已去重" : `${REGIONS[country].label} · 已去重`}</span></p><div>{selected.length && site !== "flatkey.ai" ? <button disabled={busy || data?.usingDemoData} onClick={() => void excludeKeywords()}>{busy ? "正在移除…" : `移除 ${selected.length} 个无关词`}</button> : null}</div></div>
+    {pool === "RESEARCH" ? <CandidateKeywordReview key={business} businessCategory={business} businessLabel={businessLabel} onChanged={() => { refresh(); okr.refresh(); }} /> : null}
+    <div className="reviewToolbar keywordResultBar"><p>{loading || okr.loading ? "正在加载…" : <>共 <strong>{(data?.total ?? 0).toLocaleString()}</strong> 个关键词</>}<span>{country === "all" ? "四国综合 · 已去重" : `${REGIONS[country].label} · 已去重`}</span></p><div>{selected.length && business === "CLOUD_GPU" ? <button disabled={busy || data?.usingDemoData} onClick={() => void excludeKeywords()}>{busy ? "正在移除…" : `移除 ${selected.length} 个无关词`}</button> : null}</div></div>
     {notice ? <p className="cacheNotice" role="status">{notice}</p> : null}
     <section className="tablePanel"><Table className="keywordTable" columns={columns} dataSource={loading || okr.loading ? [] : rows} rowKey="id" loading={loading || okr.loading}
-      rowSelection={site === "all" || site === "flatkey.ai" ? undefined : { selectedRowKeys: selected, onChange: keys => setSelected(keys.slice(0, 500)), getCheckboxProps: group => ({ disabled: group.members.some(isFlatkey) }) }}
-      expandable={{ expandedRowRender: group => <div className="keywordExpandedDetails">{group.members.map(member=>{const page=pageFor(member);return <KeywordExpandedMember key={`${member.siteDomain}:${member.id}`} member={member} country={country} audit={okrFor(member)} urls={targetUrls(member)} pageLabel={page.key==="EXPAND"?"待优化":page.key==="BUILD"?"待建设":page.label.replace(/^候选·/,"")} pageColor={page.color} hold={paused(member)?holdReason(member):null}/>;})}</div> }} pagination={{ current:page, pageSize:10, total:data?.total ?? 0, onChange:value=>{setPage(value);setSelected([]);}, showSizeChanger:false, showTotal: total => `共 ${total} 个关键词（已去重）` }} scroll={{ x: 1300 }} size="middle" /></section>
+      rowSelection={business === "CLOUD_GPU" && pool === "FORMAL" ? { selectedRowKeys: selected, onChange: keys => setSelected(keys.slice(0, 500)), getCheckboxProps: group => ({ disabled: group.members.some(isFlatkey) }) } : undefined}
+      expandable={{ expandedRowRender: group => <div className="keywordExpandedDetails">{group.members.map(member=>{const page=pageFor(member);return <KeywordExpandedMember key={`${member.siteDomain}:${member.id}`} member={member} country={country} audit={okrFor(member)} urls={targetUrls(member)} pageLabel={page.key==="EXPAND"?"待优化":page.key==="BUILD"?"待建设":page.label.replace(/^候选·/,"")} pageColor={page.color} hold={paused(member)?holdReason(member):null}/>;})}</div> }} pagination={{ current:page, pageSize:10, total:data?.total ?? 0, onChange:value=>{setPage(value);setSelected([]);}, showSizeChanger:false, showTotal: total => `共 ${total} 个关键词（已去重）` }} scroll={{ x: 1450 }} size="middle" /></section>
   </main>;
 }

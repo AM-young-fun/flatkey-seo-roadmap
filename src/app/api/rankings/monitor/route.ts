@@ -1,3 +1,4 @@
+import { displayDataChanged } from "@/lib/services/display-change";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
@@ -31,6 +32,8 @@ export async function POST(request: Request) {
   try {
     const parsed = optimizedPageMutationSchema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "每次只能操作一个页面" }, { status: 400, headers });
-    return NextResponse.json(await mutateOptimizedPageMonitor(parsed.data), { headers });
+    const result = await mutateOptimizedPageMonitor(parsed.data);
+    await displayDataChanged();
+    return NextResponse.json(result, { headers });
   } catch (error) { return failure(error); }
 }

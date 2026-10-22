@@ -113,8 +113,86 @@ test("existing SERP history populates a page before manual capture and supplies 
   const comparison = lib.savedPageRankingComparison(url, [target.keyword], [latest, older], { startedAt: new Date("2026-10-20T04:00Z"), tasks: [after] });
   assert.equal(comparison.results[0].rank, 9); assert.equal(comparison.previousResults[0].rank, 12);
   const future = task(4, "2026-10-20T06:00Z");
-  assert.equal(lib.savedPageRankingComparison(url, [target.keyword], [future, latest], { startedAt: new Date("2026-10-20T04:00Z"), tasks: [after] }).previousResults[0].rank, 12);
+  const refreshed = lib.savedPageRankingComparison(url, [target.keyword], [future, latest], { startedAt: new Date("2026-10-20T04:00Z"), tasks: [after] });
+  assert.equal(refreshed.results[0].rank, 4); assert.equal(refreshed.previousResults[0].rank, 9);
   assert.equal(lib.savedPageRankingComparison(url, [target.keyword], [task(7, "2026-10-20T03:00Z", "JP")]).results[0].region, "JP");
+});
+
+const savedTask = (id, rank, date, region = "US") => ({ id, keyword: target.keyword, region, state: "COMPLETE", checkedAt: new Date(date), normalizedJson: {
+  queryStatus: "EXACT", rankingVerified: true, captureComplete: true, completeDepth: true, organicResults: rank == null ? [] : [{ url, rankGroup: rank }],
+} });
+
+test("rankings and movement use capture time across scheduled, sample and manual results, independently per country", () => {
+  const older = savedTask("sample", 20, "2026-10-16T03:00Z"), manual = savedTask("manual", 12, "2026-10-20T03:00Z");
+  const scheduled = savedTask("scheduled", 5, "2026-11-03T03:00Z"), japan = savedTask("japan", 30, "2026-10-20T04:00Z", "JP");
+  const latest = { startedAt: new Date("2026-10-20T02:00Z"), tasks: [manual, japan] };
+  let result = lib.savedPageRankingComparison(url, [target.keyword], [older, scheduled, manual], latest);
+  assert.deepEqual(result.results.map(row => [row.region, row.rank]), [["US", 5], ["JP", 30]]);
+  assert.equal(result.previousResults[0].rank, 12);
+  assert.equal(pageRankingChange(result.results[0], result.previousResults[0]).label, "↑ 7");
+  const nextManual = savedTask("next-manual", 8, "2026-11-04T03:00Z");
+  result = lib.savedPageRankingComparison(url, [target.keyword], [nextManual, scheduled], { startedAt: new Date("2026-11-04T02:00Z"), tasks: [nextManual] }, latest);
+  assert.equal(result.results[0].rank, 8); assert.equal(result.previousResults[0].rank, 5, "a duplicate task is not its own previous ranking");
+  const delayed = savedTask("delayed", 40, "2026-10-19T03:00Z");
+  result = lib.savedPageRankingComparison(url, [target.keyword], [scheduled, manual], { startedAt: new Date("2026-11-05T02:00Z"), tasks: [delayed] });
+  assert.equal(result.results[0].rank, 5); assert.equal(result.previousResults[0].rank, 12, "run creation order cannot override capture time");
+});
+
+test("pending, failed, corrected and shallow misses preserve valid page rankings; verified exits remain current", () => {
+  const older = savedTask("older", 18, "2026-10-16T03:00Z"), valid = savedTask("valid", 12, "2026-10-20T03:00Z");
+  for (const state of ["QUEUED", "FAILED", "INCOMPLETE", "QUERY_CHANGED", "NOT_FOUND_CAPTURE"]) {
+    const bad = savedTask("bad", null, "2026-11-03T03:00Z");
+    if (["QUEUED", "FAILED", "INCOMPLETE"].includes(state)) { bad.state = state; bad.normalizedJson = null; }
+    else if (state === "QUERY_CHANGED") bad.normalizedJson.queryStatus = "AUTOCORRECTED";
+    else bad.normalizedJson.completeDepth = false;
+    const latest = { startedAt: new Date("2026-11-03T02:00Z"), tasks: [bad] };
+    const result = lib.savedPageRankingComparison(url, [target.keyword], [bad, valid, older], latest);
+    assert.equal(result.results[0].rank, 12, state); assert.equal(result.previousResults[0].rank, 18, state);
+    assert.equal(lib.savedPageRankingComparison(url, [target.keyword], [], latest).results[0].status, state);
+  }
+  const exit = savedTask("exit", null, "2026-11-03T03:00Z");
+  const result = lib.savedPageRankingComparison(url, [target.keyword], [exit, valid, older]);
+  assert.equal(result.results[0].status, "OUTSIDE_TOP100"); assert.equal(result.previousResults[0].rank, 12);
+  assert.equal(pageRankingChange(result.results[0], result.previousResults[0]).label, "跌出前100");
+});
+
+test("a capture of the same query on another monitored page supplies this page's actual rank", async () => {
+  const older = savedTask("older", 18, "2026-10-16T03:00Z"), newest = savedTask("other-page-manual", 6, "2026-11-04T03:00Z");
+  state.baselines = [newest, older];
+  const page = (await service.loadOptimizedPageMonitor()).pages[0];
+  assert.equal(page.results[0].rank, 6); assert.equal(page.previousResults[0].rank, 18);
+  assert.equal(page.usedToday, false); assert.equal(submits, 0);
+});
+
+test("monitor reads shared newer results after a manual capture without changing its daily allowance", async () => {
+  const { runId } = await start();
+  const run = state.runs.find(run => run.id === runId);
+  run.status = "COMPLETED";
+  const manual = savedTask("manual-us", 12, "2026-10-20T03:00Z");
+  Object.assign(state.tasks.find(task => task.runId === runId && task.region === "US"), manual);
+  state.baselines = [savedTask("scheduled-us", 5, "2026-11-03T03:00Z"), manual];
+  const page = (await service.loadOptimizedPageMonitor()).pages[0];
+  assert.equal(page.results.find(row => row.region === "US").rank, 5);
+  assert.equal(page.previousResults.find(row => row.region === "US").rank, 12);
+  assert.equal(page.usedToday, true); assert.equal(page.run.id, runId); assert.equal(submits, 1);
+});
+
+test("page-specific valid history survives repeated shallow misses without borrowing another page's rank", () => {
+  const older = savedTask("older", 18, "2026-10-16T03:00Z"), valid = savedTask("valid", 12, "2026-10-20T03:00Z");
+  const otherUrl = "https://flatkey.ai/other";
+  const misses = [1, 2, 3].map(day => {
+    const task = savedTask(`miss-${day}`, 2, `2026-11-0${day}T03:00Z`);
+    task.normalizedJson.completeDepth = false; task.normalizedJson.organicResults[0].url = otherUrl;
+    return task;
+  });
+  const foreign = { ...savedTask("other-page", null, "2026-11-04T03:00Z"), pageUrl: otherUrl };
+  const result = lib.savedPageRankingComparison(url, [target.keyword], [foreign, ...misses, valid, older]);
+  assert.equal(result.results[0].rank, 12); assert.equal(result.previousResults[0].rank, 18);
+  const hit = savedTask("partial-hit", 7, "2026-11-05T03:00Z");
+  hit.normalizedJson.completeDepth = false;
+  hit.normalizedJson.organicResults[0].url = `${url}/?utm_source=test#faq`;
+  const updated = lib.savedPageRankingComparison(url, [target.keyword], [foreign, hit, valid, older]);
+  assert.equal(updated.results[0].rank, 7); assert.equal(updated.previousResults[0].rank, 12);
 });
 
 test("single-page schema rejects bulk requests, arbitrary keywords, supplied dates and forged provider parameters", () => {

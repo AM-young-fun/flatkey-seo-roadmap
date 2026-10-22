@@ -142,6 +142,7 @@ export type DashboardKeyword = {
   topicText: string | null;
   siteDomain?: string;
   siteName?: string;
+  businessCategory?: import("./keyword-business").KeywordBusiness;
   topicTexts?: string[];
   origin?: string;
   targetUrls?: string[];

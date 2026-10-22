@@ -32,6 +32,7 @@ const db = {
   syncRun: { findFirst: async () => null },
   $queryRaw: async query => {
     const sql = query.sql;
+    if (sql.includes("keyword-business:cloud-source")) return [{ text: "GOOGLE GEMINI URL" }];
     const phase = /dashboard:(keywords|ranks|pages|volumes|topics)/.exec(sql)?.[1];
     if (phase === "topics") return [{ siteDomain: "flatkey.ai", id: "topic-1", text: "Claude API", type: "MAIN", parentId: null, parentIds: [] }];
     // Model the membership restriction against a real missing-topic research
@@ -64,6 +65,8 @@ test("keyword-detail scope exposes stored research rank, page and volume without
   const details = await read("&includeResearch=1");
   assert.deepEqual(details.keywords.map(row => row.id), ["formal", "research"]);
   const research = details.keywords.find(row => row.id === "research");
+  assert.equal(overview.keywords[0].businessCategory, "FLATKEY_API");
+  assert.equal(research.businessCategory, "CLOUD_GPU");
   assert.equal(research.topicId, null);
   assert.equal(research.latestRanks.US.rank, 23);
   assert.equal(research.latestRanks.US.checkedAt, collectedAt.toISOString());

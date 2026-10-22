@@ -1,15 +1,17 @@
 import type { DashboardKeyword, RankSummary } from "./types";
 import { REGION_CODES, type SearchRegionCode } from "./seo";
 import { normalizeKeywordText } from "./keyword-relevance";
+import { keywordBusiness, type KeywordBusiness } from "./keyword-business";
 
 export type KeywordCountryScope = "all" | SearchRegionCode;
 export type KeywordDetailGroup = { id: string; text: string; members: DashboardKeyword[] };
 export type KeywordCountryRank = { region: SearchRegionCode; member: DashboardKeyword; rank: RankSummary | null };
 
-export function groupKeywordDetails(keywords: DashboardKeyword[], site = "all"): KeywordDetailGroup[] {
+export function groupKeywordDetails(keywords: DashboardKeyword[], site = "all", business?: KeywordBusiness): KeywordDetailGroup[] {
   const grouped = new Map<string, KeywordDetailGroup>();
   for (const keyword of keywords) {
     if (site !== "all" && (keyword.siteDomain ?? "flatkey.ai") !== site) continue;
+    if (business && keywordBusiness(keyword) !== business) continue;
     const key = normalizeKeywordText(keyword.text);
     if (!key) continue;
     const group = grouped.get(key) ?? { id: key, text: keyword.text, members: [] };

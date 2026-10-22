@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Alert, Button, Input, Select, Table, Tag, Tooltip } from "antd";
 import { CheckCircle2, ChevronUp, Download, Info, RefreshCw, Search, ScanSearch, Trash2 } from "lucide-react";
 import { CANDIDATE_REVIEW_LABELS, type CandidateReviewPreview, type CandidateReviewKind } from "@/lib/candidate-keyword-review";
+import type { KeywordBusiness } from "@/lib/keyword-business";
 import { dashboardStore } from "@/lib/dashboard-client";
 import styles from "./CandidateKeywordReview.module.css";
 
 const categoryColors: Record<CandidateReviewKind, string> = { KEEP: "default", UNRELATED: "orange", COMPETITOR: "purple", LOW_QUALITY: "gold" };
 const number = (value: number) => value.toLocaleString();
 
-export function CandidateKeywordReview({ onChanged }: { onChanged: () => void }) {
+export function CandidateKeywordReview({ onChanged, businessCategory, businessLabel = "Flatkey" }: { onChanged: () => void; businessCategory?: KeywordBusiness; businessLabel?: string }) {
   const [plan, setPlan] = useState<CandidateReviewPreview | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [action, setAction] = useState<"preview" | "remove" | null>(null);
@@ -27,8 +28,9 @@ export function CandidateKeywordReview({ onChanged }: { onChanged: () => void })
       const response = await fetch("/api/keywords/candidates/cleanup", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.message ?? "预览读取失败");
-      setPlan(body);
-      setSelected(body.rows.filter((row: { kind: CandidateReviewKind }) => row.kind !== "KEEP").map((row: { id: string }) => row.id));
+      const rows = (body as CandidateReviewPreview).rows.filter(row => !businessCategory || row.businessCategory === businessCategory);
+      setPlan({ ...body, rows, total: rows.length, suggested: rows.filter(row => row.kind !== "KEEP").length });
+      setSelected(rows.filter(row => row.kind !== "KEEP").map(row => row.id));
       onChanged();
     } catch (error) { setNotice({ type: "error", text: error instanceof Error ? error.message : "预览失败" }); }
     finally { setAction(null); }
@@ -46,7 +48,7 @@ export function CandidateKeywordReview({ onChanged }: { onChanged: () => void })
       if (!response.ok) throw new Error(body.message ?? "移除失败");
       setReceipt(body); setPlan(null); setSelected([]);
       dashboardStore.clear(); onChanged(); window.dispatchEvent(new Event("seo-rankings-updated"));
-      setNotice({ type: "success", text: `已移除 ${number(body.changed)} 个词，剩余 ${number(body.remaining)} 个` });
+      setNotice({ type: "success", text: `已移除 ${number(body.changed)} 个词，${businessLabel} 剩余 ${number(plan.total - body.changed)} 个` });
     } catch (error) {
       setPlan(null); setSelected([]);
       setNotice({ type: "error", text: error instanceof Error ? error.message : "移除失败，请重新筛选" });
@@ -70,7 +72,7 @@ export function CandidateKeywordReview({ onChanged }: { onChanged: () => void })
       <div className={styles.title}>
         <span className={styles.titleIcon}><ScanSearch size={18} aria-hidden="true" /></span>
         <h2 id="candidate-review-heading">候选词清理</h2>
-        <Tooltip trigger={["hover", "focus", "click"]} title={<div className={styles.help}>筛查业务无关、竞品品牌和低质量词，默认勾选建议移除项，可手动调整。仅处理 Flatkey 候选词，正式词和受保护模型词不受影响。移除后可在「数据管理 → 清理记录」恢复。</div>}>
+        <Tooltip trigger={["hover", "focus", "click"]} title={<div className={styles.help}>筛查业务无关、竞品品牌和低质量词，默认勾选建议移除项，可手动调整。仅处理当前 {businessLabel} 分类下来自 Flatkey 的候选词，正式词和受保护模型词不受影响。移除后可在「数据管理 → 清理记录」恢复。</div>}>
           <button type="button" className={styles.infoButton} aria-label="筛选规则与恢复说明"><Info size={16} aria-hidden="true" /></button>
         </Tooltip>
       </div>
