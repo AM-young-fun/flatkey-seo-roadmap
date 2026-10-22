@@ -1046,3 +1046,13 @@ test("Labs observations round-trip through the existing importer with real SERP 
   assert.equal(observations[0].dataUpdatedAt.toISOString(),"2026-10-01T00:00:00.000Z");assert.equal(observations[0].periodStart,null);
   assert.equal((await (await route.POST(request(payload))).json()).duplicate,true);assert.equal(observations.length,1);
 });
+
+
+test("an unscoped default search volume never becomes a US measurement", () => {
+  const row = { id: "ja", text: "モデル API", type: "MAIN", siteDomain: "flatkey.ai", topicId: null, topicText: null,
+    topicTexts: [], parentId: null, parentIds: [], origin: "PLANNED", targetUrls: [], defaultVolume: 9000, lastSyncedAt: null, sourceLanguages: ["ja"] };
+  const value = assembleDashboard("all", [], [row], [], [{ keywordId: "ja", region: "JP", volume: 9000, fetchedAt: new Date(collectedAt) }], null);
+  assert.equal(value.keywords[0].marketVolumes.US, null);
+  assert.equal(value.keywords[0].marketVolumes.JP, 9000);
+  assert.deepEqual(value.keywords[0].sourceLanguages, ["ja"]);
+});

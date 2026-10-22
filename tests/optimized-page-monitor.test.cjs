@@ -291,3 +291,17 @@ test("API requires login, blocks cross-site writes and refuses bulk payloads", a
   assert.equal((await route.POST(request({ action: "start", pageIds: [] }))).status, 400);
   assert.equal(state.runs.length, 0); assert.equal(submits, 0);
 });
+
+
+test("optimization dates come only from saved source dates, preserve date precision and do not alter paid identities", () => {
+  const original = source(), first = lib.buildOptimizedPages([original], cohort)[0];
+  assert.equal(first.optimizedAt, null);
+  const dated = structuredClone(original); dated.snapshot.optimizedAt = "2026-10-12"; dated.snapshot.optimizationNote = "Blogger 2026-10-12 更新批次";
+  const page = lib.buildOptimizedPages([dated], cohort)[0];
+  assert.equal(page.optimizedAt, "2026-10-12"); assert.equal(page.optimizationNote, dated.snapshot.optimizationNote);
+  assert.equal(page.hash, first.hash); assert.equal(page.id, first.id);
+  const later = source("later"); later.snapshot.optimizedAt = "2026-10-16T08:00:00+08:00";
+  assert.equal(lib.buildOptimizedPages([later, dated], cohort)[0].optimizedAt, later.snapshot.optimizedAt);
+  const invalid = source(); invalid.snapshot.optimizedAt = "2026-02-30";
+  assert.equal(lib.buildOptimizedPages([invalid], cohort)[0].optimizedAt, null);
+});

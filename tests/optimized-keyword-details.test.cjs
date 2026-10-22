@@ -71,7 +71,7 @@ test("optimized filter renders keyword rows and capture controls in details, wit
   const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
   const mock = (relative, exports) => { const filename = path.join(root, relative); require.cache[filename] = { id: filename, filename, loaded: true, exports }; };
   const first = keyword("first", "first api"), second = keyword("second", "second api"), pending = keyword("pending", "pending api");
-  const words = [first, second, pending], optimized = page([first.text, second.text], [result(first.text, 7), result(second.text, 9)]);
+  const words = [first, second, pending], optimized = {...page([first.text, second.text], [result(first.text, 7), result(second.text, 9)]), optimizedAt:"2026-10-12"};
   mock("src/components/useDashboard.ts", { useDashboard: () => ({ data: { keywords: words }, refresh: () => {} }) });
   mock("src/components/useKeywordOkr.ts", { useKeywordOkr: () => ({ data: { initialized: true, keywords: words.map(word => ({
     id: word.id.slice("flatkey.ai:".length), text: word.text, pool: "FORMAL", active: true, siteDomain: "flatkey.ai", businessCategory: "FLATKEY_API",
@@ -85,6 +85,7 @@ test("optimized filter renders keyword rows and capture controls in details, wit
   const html = renderToStaticMarkup(React.createElement(KeywordDetails, { initiallyOptimized: true }));
   assert.ok(html.includes("first api")); assert.ok(html.includes("second api"));
   assert.ok(!html.includes("pending api"));
+  assert.ok(html.includes("优化完成时间")); assert.ok(html.includes("2026-10-12（日期）"));
   assert.ok(html.includes("业务分类")); assert.ok(html.includes("已优化")); assert.ok(html.includes("抓取排名"));
   assert.ok(!html.includes('href="/monitor"')); assert.ok(!html.includes("全部网站"));
   const { default: LegacyMonitor } = require("../src/app/monitor/page.tsx");
@@ -105,4 +106,18 @@ test("persisted keyword rows include business, optimization status and current r
   assert.equal(flat.find(row=>row.text===api.text).latestRanks.US.rank,7);
   assert.equal(flat.find(row=>row.text===api.text).businessCategory,"FLATKEY_API");
   assert.ok(flat.filter(row=>row.text===gpu.text).every(row=>!row._optimized && row.businessCategory==="CLOUD_GPU"));
+});
+
+
+test("saved country scopes filter Japanese targets before server pagination while retaining cross-language evidence", () => {
+  const { keywordDisplayRows } = require("../src/lib/keyword-display-rows.ts");
+  const en = keyword("en", "model api", { sourceLanguages:["en"] });
+  const ja = keyword("ja", "モデル API", { sourceLanguages:["ja"], latestRanks:{US:savedRank(3),JP:savedRank(4),ES:null,BR:null} });
+  const targets = [en,ja].map(word => ({id:word.id.slice("flatkey.ai:".length),text:word.text,siteDomain:"flatkey.ai",active:true,pool:"FORMAL",businessCategory:"FLATKEY_API",targetUrls:[url],candidateUrls:[]}));
+  const groups = keywordDisplayRows({keywords:[en,ja],usingDemoData:false},{initialized:true,keywords:targets});
+  const english = groups.flatMap(group=>group.members).find(row=>row.text===en.text);
+  const japanese = groups.flatMap(group=>group.members).find(row=>row.text===ja.text);
+  assert.deepEqual(english._countryScopes,["US"]);
+  assert.deepEqual(japanese._countryScopes,["JP"]);
+  assert.ok(japanese._crossCountryScopes.includes("US"));
 });

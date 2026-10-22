@@ -338,3 +338,19 @@ test("a preview token also binds the proposed content, not just the current data
   await assert.rejects(syncKeywordSources(altered), /重新预览/);
   assert.equal(state.dataWrites, 0);
 });
+
+
+test("optimization source dates persist through older collectors and preserve source chronology", async () => {
+  const incoming = payload([row("optimization:date", [word("date api")], { optimizedAt: "2026-10-12", optimizationNote: "Blogger 2026-10-12 更新批次" })], { sourceId: "optimization", collectedAt: "2026-10-20T02:00:00Z" });
+  await syncKeywordSources(incoming);
+  const stored = structuredClone(state.sourceRows[0]);
+  assert.equal(stored.snapshot.optimizedAt, "2026-10-12");
+  const olderCollector = structuredClone(incoming);
+  delete olderCollector.rows[0].optimizedAt; delete olderCollector.rows[0].optimizationNote;
+  const receipt = await syncKeywordSources({ ...olderCollector, requestId: "date-retry", collectedAt: "2026-10-21T02:00:00Z" });
+  assert.equal(receipt.imported, 0); assert.deepEqual(state.sourceRows[0], stored);
+  const corrected = structuredClone(incoming); corrected.rows[0].optimizedAt = "2026-10-13";
+  await syncKeywordSources({ ...corrected, collectedAt: "2026-10-21T02:00:00Z" });
+  assert.equal(state.sourceRows[0].snapshot.optimizedAt, "2026-10-13");
+  assert.equal(sourceSyncSchema.safeParse({ ...corrected, rows: [{ ...corrected.rows[0], optimizedAt: "2026-02-30" }] }).success, false);
+});

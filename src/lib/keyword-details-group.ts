@@ -2,10 +2,18 @@ import type { DashboardKeyword, RankSummary } from "./types";
 import { REGION_CODES, type SearchRegionCode } from "./seo";
 import { normalizeKeywordText } from "./keyword-relevance";
 import { keywordBusiness, type KeywordBusiness } from "./keyword-business";
+import { keywordMatchesCountry } from "./keyword-market";
 
 export type KeywordCountryScope = "all" | SearchRegionCode;
 export type KeywordDetailGroup = { id: string; text: string; members: DashboardKeyword[] };
 export type KeywordCountryRank = { region: SearchRegionCode; member: DashboardKeyword; rank: RankSummary | null };
+
+export function scopeKeywordDetails(groups: KeywordDetailGroup[], country: KeywordCountryScope, includeCrossLanguage = false): KeywordDetailGroup[] {
+  return groups.flatMap(group => {
+    const members = group.members.filter(member => keywordMatchesCountry(member, country, includeCrossLanguage));
+    return members.length ? [{ ...group, members }] : [];
+  });
+}
 
 export function groupKeywordDetails(keywords: DashboardKeyword[], site = "all", business?: KeywordBusiness): KeywordDetailGroup[] {
   const grouped = new Map<string, KeywordDetailGroup>();

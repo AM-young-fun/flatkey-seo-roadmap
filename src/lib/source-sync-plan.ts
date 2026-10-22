@@ -7,6 +7,7 @@ import { SOURCE_SYNC_SOURCES, type SourceSyncPayload, type SourceSyncResult } fr
 type InputRow = SourceSyncPayload["rows"][number];
 export type SourceSnapshot = { version: 1; rowKey: string; slug: string; language: string; title: string; topic: string;
   completion: InputRow["completion"]; rawStatus: string; pageUrl: string | null;
+  optimizedAt?: string | null; optimizationNote?: string;
   publication: { pageVerified: boolean; verificationReason: string };
   keywords: Array<{ keyword: string; role: "PRIMARY" | "SECONDARY"; relevance: "RELEVANT" | "REVIEW" | "UNRELATED"; reason: string; pageIntentMatched: boolean; newModel: boolean }>;
 };
@@ -38,14 +39,24 @@ export function normalizeSourceRows(payload: SourceSyncPayload): SourceSnapshot[
     if (new Set(keywords.map(word => word.keyword)).size !== keywords.length) throw new ImportRequestError(`来源行 ${row.rowKey} 存在规范化重复词，请先去重`, 400);
     return { version: 1 as const, rowKey: row.rowKey.normalize("NFKC").trim(), slug: tidy(row.slug), language: tidy(row.language).toLowerCase(), title: tidy(row.title), topic: tidy(row.topic),
       completion: row.completion, rawStatus: tidy(row.rawStatus), pageUrl,
+      ...(row.optimizedAt !== undefined ? { optimizedAt: row.optimizedAt } : {}),
+      ...(row.optimizationNote !== undefined ? { optimizationNote: tidy(row.optimizationNote) } : {}),
       publication: { pageVerified: row.publication.pageVerified, verificationReason: tidy(row.publication.verificationReason) }, keywords };
   }).sort((a, b) => a.rowKey.localeCompare(b.rowKey));
 }
 
 export function planSourceSync(payload: SourceSyncPayload, priorRows: SourceState[], keywords: SyncKeyword[], links: SyncMembership[]): SourceSyncPlan {
-  const normalized = normalizeSourceRows(payload);
-  if (new Set(normalized.map(row => row.rowKey)).size !== normalized.length) throw new ImportRequestError("来源行标识规范化后重复", 400);
   const priorByKey = new Map(priorRows.map(row => [row.rowKey, row]));
+  const normalized = normalizeSourceRows({ ...payload, rows: payload.rows.map(row => {
+    // Older collectors do not yet send the publication date. Their next sync
+    // must not erase a date already read from the optimization sheet.
+    const prior = priorByKey.get(row.rowKey.normalize("NFKC").trim())?.snapshot as SourceSnapshot | undefined;
+    return { ...row,
+      ...(row.optimizedAt === undefined && prior?.optimizedAt !== undefined ? { optimizedAt: prior.optimizedAt } : {}),
+      ...(row.optimizationNote === undefined && prior?.optimizationNote !== undefined ? { optimizationNote: prior.optimizationNote } : {}),
+    };
+  }) });
+  if (new Set(normalized.map(row => row.rowKey)).size !== normalized.length) throw new ImportRequestError("来源行标识规范化后重复", 400);
   const snapshots = normalized.map(row => ({ row, hash: sourceSyncHash(row) })).filter(({ row, hash }) => priorByKey.get(row.rowKey)?.snapshotHash !== hash);
   for (const { row } of snapshots) {
     const prior = priorByKey.get(row.rowKey);

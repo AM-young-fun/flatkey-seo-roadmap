@@ -28,7 +28,7 @@ export const optimizedPageMutationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("poll"), runId: z.string().regex(/^optimized-\d{4}-\d{2}-\d{2}-[a-f0-9]{64}$/) }).strict(),
 ]);
 export type OptimizedPageMutation = z.infer<typeof optimizedPageMutationSchema>;
-export type OptimizedPageTarget = { id: string; url: string; title: string; sourceRows: string[]; keywords: string[]; targets: SerpTarget[]; sourceKeywordCount: number; hash: string };
+export type OptimizedPageTarget = { id: string; url: string; title: string; optimizedAt: string | null; optimizationNote: string | null; sourceRows: string[]; keywords: string[]; targets: SerpTarget[]; sourceKeywordCount: number; hash: string };
 export type OptimizedPageRank = { keyword: string; region: SerpRegion; rank: number | null; status: string; checkedAt: string | null; googleUrl: string | null; otherPages: Array<{ url: string; rank: number }> };
 export type OptimizedPageMonitorResponse = {
   day: string; connectionConfigured: boolean; externalEnabled: boolean; activeRunId: string | null;
@@ -36,7 +36,7 @@ export type OptimizedPageMonitorResponse = {
 };
 
 export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unknown }>, targets: SerpTarget[]): OptimizedPageTarget[] {
-  const groups = new Map<string, { url: string; title: string; rowKeys: Set<string>; words: Set<string>; eligible: Map<string, SerpTarget> }>();
+  const groups = new Map<string, { url: string; title: string; optimizedAt: string | null; optimizationNote: string | null; rowKeys: Set<string>; words: Set<string>; eligible: Map<string, SerpTarget> }>();
   const byWord = new Map(targets.map(target => [normalizeKeywordText(target.keyword), target]));
   for (const row of rows) {
     const snapshot = record(row.snapshot);
@@ -45,7 +45,13 @@ export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unkn
     if (snapshot.completion !== "COMPLETED") continue;
     const url = typeof snapshot.pageUrl === "string" ? optimizedPageUrl(snapshot.pageUrl) : null;
     if (!url) continue;
-    const group = groups.get(url) ?? { url, title: typeof snapshot.title === "string" ? snapshot.title : url, rowKeys: new Set<string>(), words: new Set<string>(), eligible: new Map<string, SerpTarget>() };
+    const group = groups.get(url) ?? { url, title: typeof snapshot.title === "string" ? snapshot.title : url, optimizedAt: null, optimizationNote: null, rowKeys: new Set<string>(), words: new Set<string>(), eligible: new Map<string, SerpTarget>() };
+    const optimizedAt = typeof snapshot.optimizedAt === "string" &&
+      (z.iso.date().safeParse(snapshot.optimizedAt).success || z.iso.datetime({ offset: true }).safeParse(snapshot.optimizedAt).success) ? snapshot.optimizedAt : null;
+    if (optimizedAt && (!group.optimizedAt || Date.parse(optimizedAt) > Date.parse(group.optimizedAt))) {
+      group.optimizedAt = optimizedAt;
+      group.optimizationNote = typeof snapshot.optimizationNote === "string" ? snapshot.optimizationNote : null;
+    }
     group.rowKeys.add(row.rowKey);
     for (const raw of Array.isArray(snapshot.keywords) ? snapshot.keywords : []) {
       const word = record(raw);
@@ -64,7 +70,7 @@ export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unkn
   return [...groups.values()].map(group => {
     const selected = [...group.eligible.values()].sort((a, b) => a.keywordId.localeCompare(b.keywordId));
     const id = optimizedPageId(group.url);
-    return { id, url: group.url, title: group.title, sourceRows: [...group.rowKeys].sort(), keywords: [...group.words], targets: selected, sourceKeywordCount: group.words.size,
+    return { id, url: group.url, title: group.title, optimizedAt: group.optimizedAt, optimizationNote: group.optimizationNote, sourceRows: [...group.rowKeys].sort(), keywords: [...group.words], targets: selected, sourceKeywordCount: group.words.size,
       hash: createHash("sha256").update(JSON.stringify({ id, targets: selected })).digest("hex") };
   }).sort((a, b) => a.url.localeCompare(b.url));
 }

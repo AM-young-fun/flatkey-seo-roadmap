@@ -12,7 +12,7 @@ import { loadOptimizedPageMonitor } from "./optimized-page-monitor";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
 const trafficDisplayVersion = "declines-v2";
-const dashboardDisplayVersion = "business-optimized-v1";
+const dashboardDisplayVersion = "keyword-market-demand-v2";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";

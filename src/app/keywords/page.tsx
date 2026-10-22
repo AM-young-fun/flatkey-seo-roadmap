@@ -1,5 +1,8 @@
 import { KeywordDetails } from "@/components/KeywordDetails";
-export default async function Page({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
+export default async function Page({ searchParams }: { searchParams: Promise<{ status?: string; country?: string; keyword?: string; business?: string; crossLanguage?: string }> }) {
   const params = await searchParams;
-  return <KeywordDetails initiallyOptimized={params.status === "optimized"} />;
+  const country = REGION_CODES.includes(params.country as SearchRegionCode) ? params.country as SearchRegionCode : "all";
+  return <KeywordDetails initiallyOptimized={params.status === "optimized"} initialCountry={country} initialSearch={params.keyword ?? ""}
+    initialBusiness={params.business === "CLOUD_GPU" ? "CLOUD_GPU" : "FLATKEY_API"} initialCrossLanguage={params.crossLanguage === "1"} />;
 }

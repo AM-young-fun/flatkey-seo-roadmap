@@ -12,9 +12,9 @@ export const maxDuration = 300;
 export async function GET(request: Request) {
   const started = performance.now(), p = new URL(request.url).searchParams;
   const country = p.get("country") ?? "all", site = p.get("site") ?? "all", pool = p.get("pool") ?? "FORMAL", view = p.get("rank") ?? "FORMAL", mapping = p.get("pageStatus") ?? "ALL";
-  const business = p.get("business") ?? "all";
+  const business = p.get("business") ?? "all", crossLanguage = p.get("crossLanguage") ?? "0";
   const page = Number(p.get("page") ?? "1"), q = normalizeKeywordText(p.get("q") ?? "");
-  if (!["all",...REGION_CODES].includes(country) || !["all","flatkey.ai","rackrate.org","modelfit.cc"].includes(site) || !["FORMAL","RESEARCH"].includes(pool)
+  if (!["0","1"].includes(crossLanguage) || !["all",...REGION_CODES].includes(country) || !["all","flatkey.ai","rackrate.org","modelfit.cc"].includes(site) || !["FORMAL","RESEARCH"].includes(pool)
     || !["FORMAL","EVIDENCE","TOP_10","TOP_30","TOP_50","TOP_100","UNRANKED"].includes(view) || !["ALL","MONITORABLE","PAGE_BUILD","PAGE_EXPAND","PAGE_OPTIMIZED"].includes(mapping)
     || !["all","FLATKEY_API","CLOUD_GPU"].includes(business) || !Number.isSafeInteger(page) || page < 1 || page > 100000 || q.length > 300) return NextResponse.json({message:"筛选参数无效"},{status:400});
   const spec = displayViewSpec(new URLSearchParams({view:"dashboard",includeResearch:pool === "RESEARCH" ? "1" : "0"}));
@@ -25,7 +25,8 @@ export async function GET(request: Request) {
     scoped AS (SELECT g->>'id' AS id, g->>'text' AS text, m.members
       FROM saved CROSS JOIN LATERAL jsonb_array_elements("keywordRows") g
       CROSS JOIN LATERAL (SELECT jsonb_agg(member) AS members FROM jsonb_array_elements(g->'members') member WHERE (${site} = 'all' OR COALESCE(member->>'siteDomain','flatkey.ai') = ${site})
-        AND (${business} = 'all' OR member->>'businessCategory' = ${business})) m
+        AND (${business} = 'all' OR member->>'businessCategory' = ${business})
+        AND (${country} = 'all' OR member->'_countryScopes' ? ${country} OR (${crossLanguage} = '1' AND member->'_crossCountryScopes' ? ${country}))) m
       WHERE m.members IS NOT NULL),
     prepared AS (SELECT scoped.*, (SELECT MIN((r.value->>'rank')::numeric) FROM jsonb_array_elements(members) member CROSS JOIN LATERAL jsonb_each(member->'latestRanks') r
       WHERE (${country} = 'all' OR r.key = ${country}) AND r.value->>'source' = 'dataforseo_serp' AND r.value->>'rankStatus' = 'ranked' AND (r.value->>'rank')::numeric BETWEEN 1 AND 100) AS position FROM scoped),

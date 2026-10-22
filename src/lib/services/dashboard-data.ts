@@ -22,7 +22,7 @@ type TopicRow = Pick<DashboardTopic, "id" | "text" | "type" | "parentId" | "pare
 type KeywordRow = Pick<DashboardKeyword, "id" | "text" | "type" | "parentId" | "parentIds" | "topicId" | "topicText"> & {
   siteDomain: string; topicTexts: string[]; origin: string; targetUrls: string[];
   defaultVolume: number; lastSyncedAt: Date | null;
-  firstTrackedAt?: Date; hasSearchActivity?: boolean; hasObservedPage?: boolean;
+  firstTrackedAt?: Date; hasSearchActivity?: boolean; hasObservedPage?: boolean; sourceLanguages?: string[];
 };
 type VolumeRow = { keywordId: string; region: SearchRegionCode; volume: number; fetchedAt: Date; volumeHistory?: VolumeReviewSample[] };
 type RankRow = RankingObservationRow;
@@ -64,7 +64,9 @@ export function assembleDashboard(
     const updated = row.lastSyncedAt ? [row.lastSyncedAt.toISOString()] : [];
     for (const region of REGION_CODES) {
       const volume = volumeMap.get(`${row.id}:${region}`);
-      marketVolumes[region] = volume?.volume ?? (region === "US" && row.defaultVolume > 0 ? row.defaultVolume : null);
+      // defaultVolume can be the maximum across countries. It cannot prove US
+      // demand or fill a missing country-specific measurement.
+      marketVolumes[region] = volume?.volume ?? null;
       if (volume) updated.push(volume.fetchedAt.toISOString());
       const key = `${row.siteDomain}:${row.id}:${region}`;
       const queryRows = ranksByKey.get(key) ?? [], pageRows = pagesByKey.get(key) ?? [];
@@ -111,7 +113,7 @@ export function assembleDashboard(
       siteDomain: row.siteDomain, siteName: NAMES[row.siteDomain] ?? row.siteDomain,
       topicId: row.topicId ? scoped(row.siteDomain, row.topicId) : null, topicText: row.topicText,
       topicTexts: [...new Set([row.topicText, ...row.topicTexts].filter((value): value is string => Boolean(value)))],
-      origin: row.origin, targetUrls: row.targetUrls,
+      origin: row.origin, targetUrls: row.targetUrls, sourceLanguages: row.sourceLanguages ?? [],
       parentId: row.parentId ? scoped(row.siteDomain, row.parentId) : null,
       parentIds: (row.parentIds.length ? row.parentIds : row.parentId ? [row.parentId] : []).map(id => scoped(row.siteDomain, id)),
       lastSyncedAt: updated.sort().at(-1) ?? null,
@@ -183,8 +185,20 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
     `),
     prisma.$queryRaw<KeywordRow[]>(Prisma.sql`
       /* dashboard:keywords */
+      WITH source_languages AS (
+        SELECT source."siteDomain", lower(trim(word->>'keyword')) AS text,
+          array_agg(DISTINCT source.snapshot->>'language') AS languages
+        FROM "KeywordSourceRow" source
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(source.snapshot->'keywords') = 'array'
+          THEN source.snapshot->'keywords' ELSE '[]'::jsonb END) word
+        WHERE source."siteDomain" IN (${domains}) AND source."sourceId" IN ('api_main','cloud_main','optimization')
+          AND NULLIF(trim(source.snapshot->>'language'), '') IS NOT NULL
+          AND word->>'relevance' IS DISTINCT FROM 'UNRELATED'
+        GROUP BY source."siteDomain", lower(trim(word->>'keyword'))
+      )
       SELECT sk."siteDomain", k.id, k.text, k.type, sk."topicId", t.text AS "topicText",
         k."parentId", k."defaultVolume", k."lastSyncedAt", sk.origin, sk."targetUrls",
+        COALESCE(source.languages, ARRAY[]::text[]) AS "sourceLanguages",
         sk."createdAt" AS "firstTrackedAt",
         (EXISTS(SELECT 1 FROM "KeywordObservation" o WHERE o."siteDomain" = sk."siteDomain" AND o."keywordId" = k.id
             AND o.source IN ('gsc','ahrefs') AND (o.clicks > 0 OR o.impressions > 0))
@@ -200,6 +214,7 @@ export async function loadDashboard(site: string, source = "dataforseo_serp", pe
       FROM "SiteKeyword" sk JOIN "Keyword" k ON k.id = sk."keywordId"
       JOIN "SeoSite" current_site ON current_site.domain = sk."siteDomain" AND current_site.active = true
       LEFT JOIN "Topic" t ON t.id = sk."topicId"
+      LEFT JOIN source_languages source ON source."siteDomain" = sk."siteDomain" AND source.text = lower(trim(k.text))
       WHERE sk."siteDomain" IN (${domains}) AND sk.active = true AND ${membershipScope} AND k.active = true
       ORDER BY sk."siteDomain", k.type, k.text
     `),

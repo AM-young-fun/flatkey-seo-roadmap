@@ -5,7 +5,7 @@ export type OverviewPayload = Omit<DashboardResponse,"keywords"> & {format:"over
 /** Graphs need colours and names, not full query receipts repeated 6,516 times. */
 export function overviewPayload(data: DashboardResponse): OverviewPayload {
   return {...data,format:"overview-v1",topics:[],keywords:data.keywords.map(keyword=>({
-    id:keyword.id,text:keyword.text,type:keyword.type,topicId:keyword.topicId,topicText:keyword.topicText,siteDomain:keyword.siteDomain,siteName:keyword.siteName,
+    id:keyword.id,text:keyword.text,type:keyword.type,topicId:keyword.topicId,topicText:keyword.topicText,siteDomain:keyword.siteDomain,siteName:keyword.siteName,businessCategory:keyword.businessCategory,sourceLanguages:keyword.sourceLanguages,
     parentId:keyword.parentId,parentIds:keyword.parentIds,active:keyword.active,lastSyncedAt:null,volume:keyword.volume,marketVolumes:keyword.marketVolumes,monitoringEligible:keyword.monitoringEligible,
     latestRanks:Object.fromEntries(REGION_CODES.map(region=>{
       const rank=keyword.latestRanks[region];

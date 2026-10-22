@@ -4,6 +4,8 @@ import { keywordRelevance, normalizeKeywordText } from "./keyword-relevance";
 import { keywordPageTag } from "./keyword-status-tags";
 import type { OptimizedPageMonitorResponse } from "./optimized-page-monitor";
 import { optimizedPagesForKeyword, withOptimizedKeywordRanks } from "./optimized-keyword-details";
+import { keywordMatchesCountry } from "./keyword-market";
+import { REGION_CODES } from "./seo";
 import { groupKeywordDetails } from "./keyword-details-group";
 
 /** The exact same formal membership and page tags as the detail UI. */
@@ -25,7 +27,8 @@ export function keywordDisplayRows(data: DashboardResponse, okr: KeywordOkrRespo
     const review = member.monitoringHoldCode === "NO_VERIFIED_PAGE" || member.monitoringHoldCode === "PAGE_REVIEW_REQUIRED";
     const tag = keywordPageTag({siteDomain:member.siteDomain ?? "flatkey.ai",mappingStatus:target?.mappingStatus ?? (member.monitoringEligible === true ? "READY" : undefined),targetUrls:target?.targetUrls ?? member.targetUrls,candidateUrls:target?.candidateUrls,
       latestPageAuditVerdict:member.monitoringHoldCode === "PAGE_NOT_BUILT" ? "NO_MATCH" : review ? "REVIEW" : target?.latestPageAuditVerdict});
-    return {...withOptimizedKeywordRanks(member, optimizedPages), businessCategory:target?.businessCategory ?? member.businessCategory, _optimized:optimizedPagesForKeyword(member, optimizedPages).length > 0, _okr:target, _pageKey:tag.key, _search:normalizeKeywordText(`${member.text} ${member.topicText ?? ""} ${target?.reason ?? ""}`)};
+    const ranked = withOptimizedKeywordRanks(member, optimizedPages);
+    return {...ranked, _countryScopes: REGION_CODES.filter(region => keywordMatchesCountry(ranked, region)), _crossCountryScopes: REGION_CODES.filter(region => keywordMatchesCountry(ranked, region, true)), businessCategory:target?.businessCategory ?? member.businessCategory, _optimized:optimizedPagesForKeyword(member, optimizedPages).length > 0, _okr:target, _pageKey:tag.key, _search:normalizeKeywordText(`${member.text} ${member.topicText ?? ""} ${target?.reason ?? ""}`)};
   });
   return groupKeywordDetails(members);
 }

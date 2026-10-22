@@ -9,13 +9,14 @@ import { databaseErrorCode } from "@/lib/database-read";
 import { sourceSyncSchema } from "@/lib/source-sync";
 import { syncKeywordSources } from "@/lib/services/source-sync";
 import { loadSourceSyncHealth } from "@/lib/services/source-sync-health";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
 
-export async function GET() {
+export async function GET(request: Request) {
   // The narrow collector bearer can submit reviewed source rows, but must not
   // replace an administrator session for source configuration/status reads.
   if (!isAuthEnabled() || !await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value)) {
@@ -23,6 +24,13 @@ export async function GET() {
   }
   if (!isDatabaseConfigured()) return NextResponse.json({ message: "DATABASE_URL is not configured" }, { status: 503, headers });
   try {
+    // Review exact saved rows before importing dates; never replace newer
+    // source content with a stale local copy of the optimization sheet.
+    if (request && new URL(request.url).searchParams.get("includeRows") === "optimization") {
+      const rows = await prisma.keywordSourceRow.findMany({ where: { siteDomain: "flatkey.ai", sourceId: "optimization" },
+        select: { rowKey: true, snapshot: true, observedAt: true }, orderBy: { rowKey: "asc" } });
+      return NextResponse.json({ kind: "source-rows", sourceId: "optimization", rows }, { headers });
+    }
     return NextResponse.json(await loadSourceSyncHealth(), { headers });
   } catch (error) {
     const code = databaseErrorCode(error);

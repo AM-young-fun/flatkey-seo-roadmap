@@ -18,6 +18,8 @@ export const sourceSyncSchema = z.object({
     slug: z.string().trim().max(500).optional(), language: z.string().trim().max(40).optional(),
     title: z.string().trim().max(1000).optional(), topic: z.string().trim().max(500).optional(),
     completion: z.enum(["COMPLETED", "PENDING"]), rawStatus: z.string().trim().max(300).optional(),
+    optimizedAt: z.union([z.iso.date(), z.iso.datetime({ offset: true })]).nullable().optional(),
+    optimizationNote: z.string().trim().max(300).optional(),
     pageUrl: z.url().max(2000).optional(),
     publication: z.object({ pageVerified: z.boolean().default(false), verificationReason: z.string().trim().max(2000).optional() }).strict().default({ pageVerified: false }),
     keywords: z.array(z.object({ keyword: text, role: z.enum(["PRIMARY", "SECONDARY"]).default("SECONDARY"),
