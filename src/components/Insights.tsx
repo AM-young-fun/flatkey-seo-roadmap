@@ -10,9 +10,11 @@ import type { WeeklyReportDraftPayload } from "@/lib/weekly-report-draft";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import { weeklyFunnelMetrics } from "@/lib/weekly-funnel-metrics";
 import { weeklySummaryText } from "@/lib/weekly-summary";
+import { pageVisitorRows, type WeeklyPageVisitors } from "@/lib/weekly-page-visitors";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
+  pageVisitors?: WeeklyPageVisitors | null;
   displaySnapshot?: {pending?:boolean};
   periods: ReturnType<typeof activeReportPeriods>; history: string[];
   traffic: { current: Week | null; previous: Week | null; currentSites: string[]; previousSites: string[]; comparable: boolean; complete?: boolean; siteTraffic?: {siteDomain:string;current:Pick<Week,"newUsers"|"newRegistrations"|"registrationRate">|null}[]; changes: { newUsers: number | null; newRegistrations: number | null; registrationRate: number | null; ratePoints: number | null } };
@@ -141,6 +143,22 @@ function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
   </>;
 }
 
+function WeeklyPillarVisitors({ data }: { data: InsightData | null }) {
+  const periods = data?.periods;
+  const rows = pageVisitorRows(data?.pageVisitors, Boolean(data?.pageVisitors && !data.draft));
+  return <section className="dailyPanel" aria-label="核心页面访客量"><h2>核心页面访客量</h2>
+    <p className="chartNote">Flatkey · 整周去重访客 · 包含新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
+    <div className="siteTrafficTable"><table><thead><tr><th>页面类型</th><th>上周访客量</th><th>本周访客量</th><th>增减人数</th><th>环比</th></tr></thead><tbody>{rows.map(row => <tr key={row.key}>
+      <th>{row.name}<small>{row.scope}</small></th>
+      <td>{!data ? "加载中…" : row.previous == null ? "待采集" : row.previous.toLocaleString()}</td>
+      <td>{!data ? "加载中…" : row.current == null ? "待采集" : row.current.toLocaleString()}</td>
+      <td>{row.delta == null ? "—" : delta(row.delta)}</td>
+      <td>{row.newTraffic ? "新增" : row.delta === 0 ? "0.0%" : row.rate == null ? "—" : change(row.rate)}</td>
+    </tr>)}</tbody></table></div>
+    <p className="chartNote">同一访客在同类页面内只计一次；访问两类页面会分别计入，两类人数不相加。{data?.draft ? "完整周数据待补齐。" : ""}</p>
+  </section>;
+}
+
 export function TrafficReport() {
   const [week, setWeek] = useState("");
   const { data, error, retry } = useInsights(week);
@@ -174,6 +192,7 @@ export function TrafficReport() {
         {metric.key === "conversion" && funnel ? <div className="conversionBasis"><p>Flatkey · 新访客注册人数 / 漏斗新访客</p><p>本期 {funnel.current.registrations.toLocaleString()} / {funnel.current.visitors.toLocaleString()} · 上期 {funnel.previous.registrations.toLocaleString()} / {funnel.previous.visitors.toLocaleString()}</p>{conversionComparable && funnel.ratePoints != null ? <p className={`reportDelta ${funnel.ratePoints > 0 ? "increase" : funnel.ratePoints < 0 ? "decrease" : ""}`}>{funnel.ratePoints > 0 ? "+" : ""}{funnel.ratePoints.toFixed(2)} 个百分点</p> : null}</div> : null}
       </article>;
     })}</section>
+    <WeeklyPillarVisitors data={data} />
     <WeeklyEvidenceTables data={data} />
     <WeeklyKeywordChanges data={data} />
     {summary?<section className="dailyPanel weeklySummary" aria-label="本周总结"><h2>本周总结</h2><p>{summary}</p></section>:null}

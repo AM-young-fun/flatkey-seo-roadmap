@@ -40,3 +40,13 @@ test("a GA4 receipt cannot claim success until the full report contains Codex's 
   assert.equal(weeklyEvidenceSchema.safeParse(evidence).success,true);assert.equal((await POST(request(body))).status,200);
   assert.equal(weeklyEvidenceSchema.safeParse({...evidence,codexSummary:{...evidence.codexSummary,findings:[]}}).success,false);
 });
+test("new weekly GA4 completion requires both pillar counts; a missing prior baseline is allowed",async()=>{
+  session=true;
+  const body={kind:"GA4",periodStart:"2026-10-20",status:"COMPLETED"};
+  report={newUsers:10,newRegistrations:2,analysis:{complete:true,totals:{current:{newUsers:10,newRegistrations:2},previous:{newUsers:8,newRegistrations:1}},channels:[{name:"Direct",newUsers:{current:10,previous:8},registrations:{current:2,previous:1}}],sources:["https://analytics.google.com/analytics/web/"],codexSummary:{preparedAt:"2026-10-20T00:00:00Z",findings:[{title:"核对完成",evidence:"来源一致。",action:"保存。",level:"finding"}]}}};
+  assert.equal((await POST(request(body))).status,409);assert.equal(writes,0);
+  report.analysis.pageVisitors={metric:"totalUsers",eventName:"page_view",ruleVersion:1,sourceUrl:"https://analytics.google.com/analytics/web/",groups:[{key:"models",users:{current:20,previous:null}},{key:"prompts",users:{current:null,previous:null}}]};
+  assert.equal((await POST(request(body))).status,409);assert.equal(writes,0);
+  report.analysis.pageVisitors.groups[1].users.current=0;
+  assert.equal((await POST(request(body))).status,200);assert.equal(stored.status,"COMPLETED");
+});

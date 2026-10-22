@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { weeklyPageVisitorsSchema } from "./weekly-page-visitors";
 const count = z.number().int().min(0), pair = z.object({current:count,previous:count}).strict();
 const step = z.object({name:z.string().min(1).max(100),users:count,completionRate:z.number().min(0).max(1).nullable()}).strict();
 const funnel = z.object({current:z.array(step).min(2).max(10),previous:z.array(step).min(2).max(10)}).strict().superRefine((data,ctx)=>{
@@ -7,6 +8,7 @@ const funnel = z.object({current:z.array(step).min(2).max(10),previous:z.array(s
 });
 export const weeklyEvidenceSchema = z.object({
   complete:z.literal(true),
+  pageVisitors:weeklyPageVisitorsSchema.optional(),
   codexSummary:z.object({preparedAt:z.iso.datetime({offset:true}).refine(value=>Date.parse(value)<=Date.now()+300000),text:z.string().trim().min(1).max(800).optional(),findings:z.array(z.object({title:z.string().trim().min(1).max(80),evidence:z.string().trim().min(1).max(500),action:z.string().trim().min(1).max(300),level:z.enum(["issue","finding","unresolved"])}).strict()).min(1).max(6)}).strict().optional(),
   totals:z.object({current:z.object({newUsers:count,newRegistrations:count}).strict(),previous:z.object({newUsers:count,newRegistrations:count}).strict()}).strict(),
   channels:z.array(z.object({name:z.string().min(1).max(100),newUsers:pair,registrations:pair}).strict()).max(50),

@@ -6,6 +6,7 @@ import { getRankingImportSecret } from "@/lib/import-credential";
 import { importSecretMatches,readImportJson } from "@/lib/ranking-import";
 import { collectorRunId,collectorRunSchema } from "@/lib/collector-runs";
 import { weeklyEvidenceSchema } from "@/lib/weekly-evidence-schema";
+import { PILLAR_VISITORS_START } from "@/lib/weekly-page-visitors";
 import { prisma } from "@/lib/prisma";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -19,6 +20,7 @@ export async function POST(request:Request){
       const report=await prisma.weeklyTraffic.findFirst({where:{siteDomain:"flatkey.ai",periodStart:new Date(input.periodStart)},orderBy:{collectedAt:"desc"}});
       const evidence=weeklyEvidenceSchema.safeParse(report?.analysis);
       if(!report||!evidence.success||!evidence.data.codexSummary||evidence.data.totals.current.newUsers!==report.newUsers||evidence.data.totals.current.newRegistrations!==report.newRegistrations)return NextResponse.json({message:"须先保存已核对并含 Codex 总结的完整周报"},{status:409,headers});
+      if(input.periodStart>=PILLAR_VISITORS_START&&(!evidence.data.pageVisitors||evidence.data.pageVisitors.groups.some(group=>group.users.current===null)))return NextResponse.json({message:"须先补齐本周模型页和提示词页的去重访客量"},{status:409,headers});
     }
     const existing=await prisma.collectorRun.findUnique({where:{id},select:{status:true}});
     if(existing?.status==="COMPLETED")return NextResponse.json({id,status:"COMPLETED",duplicate:true},{headers});
