@@ -50,6 +50,8 @@ test("dot size grows with demand while missing volume stays distinct from an exp
   const missing=keyword("a","unknown"),zero=keyword("b","zero",{marketVolumes:{US:0}});
   assert.equal(keywordGraphVolume(missing,"US").value,null);assert.equal(keywordGraphVolume(zero,"US").value,0);
   const sizes=[0,10,1000,2000000].map(value=>keywordGraphSize(value,2000000,1622));
-  assert.ok(sizes.every((value,index)=>index===0 || value>sizes[index-1]));
-  assert.ok(sizes.at(-1)<20);assert.ok(Number.isFinite(keywordGraphSize(null,0,0)));
+  assert.ok(sizes.every((value,index)=>index===0 || value>=sizes[index-1]));
+  assert.ok(sizes.at(-1)<36);
+  const small=keywordGraphSize(1000,10000,1622),large=keywordGraphSize(4000,10000,1622);
+  assert.ok(Math.abs(large*large/(small*small)-4)<1e-9,"four times demand produces four times circle area above the visibility floor");assert.ok(Number.isFinite(keywordGraphSize(null,0,0)));
 });

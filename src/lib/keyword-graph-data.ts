@@ -14,10 +14,12 @@ export function keywordGraphVolume(keyword: DashboardKeyword, region: "all" | Se
 
 export function keywordGraphSize(volume: number | null, maximum: number, count: number) {
   const base = Math.max(3, Math.min(18, 560 / Math.sqrt(Math.max(1, count))));
-  // Bound the logarithmic area scale so high-volume words remain readable
-  // inside the original disk without covering neighbouring keywords.
-  const weight = volume == null || maximum <= 0 ? 0 : Math.log1p(volume) / Math.log1p(maximum);
-  return base * Math.sqrt(0.3 + 1.3 * weight);
+  // Circle area follows actual demand. Keep a small solid dot for values
+  // below the visibility floor, including missing volume (identified on hover).
+  const minimum = 2.5;
+  const maximumSize = Math.max(18, base * 2.4);
+  const ratio = volume == null || maximum <= 0 ? 0 : Math.max(0, Math.min(1, volume / maximum));
+  return Math.max(minimum, maximumSize * Math.sqrt(ratio));
 }
 
 export function keywordGraphKeywords(keywords: DashboardKeyword[], region: "all" | SearchRegionCode, includeCrossLanguage = false): DashboardKeyword[] {
