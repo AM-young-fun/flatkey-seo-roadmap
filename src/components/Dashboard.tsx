@@ -5,7 +5,7 @@ import { REGIONS, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
 import { RankingTrend } from "@/components/RankingTrend";
 import { PageHeader } from "@/components/PageHeader";
 import { SerpOverview } from "@/components/SerpOverview";
-import { KeywordDemand } from "@/components/KeywordDemand";
+import { KeywordNetwork } from "@/components/KeywordNetwork";
 
 export function Dashboard() {
   const [region,setRegion] = useState<"all" | SearchRegionCode>("all");
@@ -16,7 +16,7 @@ export function Dashboard() {
       <SerpOverview site="all" region={region} />
       <RankingTrend region={region} />
 
-      <KeywordDemand key={region} initialRegion={region === "all" ? "US" : region} />
+      <KeywordNetwork region={region} />
     </main>
   );
 }

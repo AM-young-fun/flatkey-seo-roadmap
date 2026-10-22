@@ -3,15 +3,16 @@ import type * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { DashboardKeyword } from "@/lib/types";
 import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
+import { keywordGraphVolume, keywordGraphSize } from "@/lib/keyword-graph-data";
 import {
   displayBucket,
   displayRank,
 } from "@/lib/rank-display";
 
 export function KeywordGraph({
-  keywords, region,
+  keywords, region = "all",
 }: {
-  keywords: DashboardKeyword[]; region: "all" | SearchRegionCode;
+  keywords: DashboardKeyword[]; region?: "all" | SearchRegionCode;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const option = useMemo<echarts.EChartsOption>(() => {
@@ -51,21 +52,23 @@ export function KeywordGraph({
       );
       sorted.slice(1).forEach((member) => addEdge(sorted[0].id, member.id));
     });
+    const maximum = Math.max(0, ...keywords.map(keyword => keywordGraphVolume(keyword, region).value ?? 0));
     const nodes = keywords.map((keyword) => {
-      const dotSize = Math.max(3, Math.min(18, 560 / Math.sqrt(keywords.length)));
+      const volume = keywordGraphVolume(keyword, region);
+      const dotSize = keywordGraphSize(volume.value, maximum, keywords.length);
       const regions = region === "all" ? REGION_CODES : [region];
       const rank = regions.map(code=>keyword.latestRanks[code]).filter(value=>value?.source === "dataforseo_serp" && value.rankStatus === "ranked" && value.rank != null && value.rank >= 1 && value.rank <= 100).sort((a,b)=>a!.rank!-b!.rank!)[0];
       return {
         id: keyword.id,
         name: keyword.text,
-        tip: `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${regions.map(code=>`${REGIONS[code].label}：${!keyword.latestRanks[code] && keyword.monitoringEligible === false ? "暂不监控" : displayRank(keyword.latestRanks[code])}`).join("\n")}`,
+        tip: `${keyword.text}\n所属网站：${keyword.siteName ?? "Flatkey"}\n所属话题：${keyword.topicText ?? "—"}\n${region === "all" ? `四国已知月搜索量合计（${volume.known}/4国）` : `${REGIONS[region].label}月搜索量`}：${volume.value == null ? "未提供" : volume.value.toLocaleString("zh-CN")}\n${regions.map(code=>`${REGIONS[code].label}：${!keyword.latestRanks[code] && keyword.monitoringEligible === false ? "暂不监控" : displayRank(keyword.latestRanks[code])}`).join("\n")}`,
         x: positions.get(keyword.id)!.x,
         y: positions.get(keyword.id)!.y,
         symbolSize: dotSize,
         itemStyle: {
-          color: displayBucket(rank?.rank).color,
-          borderColor: "#fff",
-          borderWidth: large ? 0.5 : 2,
+          color: volume.value == null ? "#fff" : displayBucket(rank?.rank).color,
+          borderColor: volume.value == null ? displayBucket(rank?.rank).color : "#fff",
+          borderWidth: volume.value == null ? 1 : large ? 0.5 : 2,
           shadowBlur: large ? 0 : 8,
           shadowColor: "rgba(15,23,42,0.08)",
         },
@@ -130,7 +133,7 @@ export function KeywordGraph({
       ref={element}
       className="keywordGraph"
       role="img"
-      aria-label={`${region === "all" ? "四国汇总" : REGIONS[region].label}关键词关系图，按该国自然排名着色`}
+      aria-label={`${region === "all" ? "四国汇总" : REGIONS[region].label}关键词关系图，圆点大小表示月搜索量，颜色表示实际排名，空心点表示声量未提供`}
     />
   ) : (
     <div className="emptyGraph">暂无关键词，请通过顶部「数据管理」导入</div>
