@@ -17,3 +17,13 @@ test("range reports identical three-week coverage and filters a shared seven-day
   const next=pageTrafficWindow(extended,"21");assert.equal(next.start,"2026-10-09");assert.equal(next.sameAsAll,false);assert.equal(next.series[0].points.length,21);assert.equal(extended[0].points.length,28);
   const sparse=series.map((g,i)=>({...g,points:i===1?g.points.slice(0,-3):g.points}));assert.equal(pageTrafficWindow(sparse,"7").series[1].points[0].date,"2026-10-16");
 });
+
+test("weekly totals are saved independently, never summed from daily visitors",()=>{
+  const d=evidence("2026-10-02",10);d.groups.forEach(g=>{g.points.push({date:"2026-10-03",users:10,pageViews:20});g.weeks=[{periodStart:"2026-10-02",periodEnd:"2026-10-08",users:12,pageViews:30}];});
+  assert.equal(pageTrafficHistorySchema.safeParse(d).success,true);
+  const result=mergePageTrafficHistory([{analysis:{pageTrends:d},collectedAt:new Date("2026-10-23")}],"2026-10-22");
+  assert.equal(result[0].weeks[0].users,12);assert.equal(result[0].points.reduce((n,p)=>n+p.users,0),20);
+  assert.equal(pageTrafficWindow(result,"7").series[0].weeks.length,1);
+  assert.equal(mergePageTrafficHistory([{analysis:{pageTrends:d},collectedAt:new Date("2026-10-23")}],"2026-10-07")[0].weeks.length,0);
+  d.groups[0].weeks[0].periodEnd="2026-10-09";assert.equal(pageTrafficHistorySchema.safeParse(d).success,false);
+});
