@@ -1,3 +1,4 @@
+import { mergePageTrafficHistory } from "@/lib/page-traffic-history";
 import { prisma } from "@/lib/prisma";
 import { settleReads } from "@/lib/database-read";
 import { timedRead } from "@/lib/read-profile";
@@ -13,11 +14,12 @@ import { comparableWeeklyCutoffs, reportingCutoff } from "@/lib/weekly-cutoff";
 export async function buildWeeklyReport(periods: ReturnType<typeof weeklyPeriods>) {
   const domains = ["flatkey.ai", "rackrate.org", "modelfit.cc"];
   const archiveEvidence = weeklyTrafficEvidence(periods.current.start);
-  const [weekly, weeks, serp, savedDraft] = await settleReads([
+  const [weekly, weeks, serp, savedDraft, pageHistory] = await settleReads([
     timedRead("weekly.traffic", () => prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { in: [new Date(periods.current.start), new Date(periods.previous.start)] } }, orderBy: [{ collectedAt: "desc" }, { importedAt: "desc" }] })),
     prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { lte: new Date(weeklyPeriods().current.start) } }, distinct: ["periodStart"], select: { periodStart: true }, orderBy: { periodStart: "desc" } }),
     timedRead("weekly.serp", () => loadWeeklySerp(periods)),
     prisma.weeklyReportDraft.findUnique({where:{siteDomain_periodStart:{siteDomain:"flatkey.ai",periodStart:new Date(periods.current.start)}}}),
+    prisma.weeklyTraffic.findMany({where:{siteDomain:"flatkey.ai",periodStart:{lte:new Date(periods.current.start)}},select:{analysis:true,collectedAt:true}}),
   ]);
   const parsedDraft=weeklyReportDraftSchema.safeParse(savedDraft?.payload);
   const preparedDraft=parsedDraft.success && !weekly.some(row=>row.siteDomain === "flatkey.ai" && row.periodStart.toISOString().slice(0,10) === periods.current.start) ? parsedDraft.data : null;
@@ -61,7 +63,7 @@ export async function buildWeeklyReport(periods: ReturnType<typeof weeklyPeriods
   const movements = serp;
   const comparableRanks = movements.ranking.baseline || movements.ranking.noNewCapture || movements.ranking.waiting ? null : movements.comparison;
   const diagnosis = preparedDraft ? {significant:true,findings:preparedDraft.findings} : evidence?.codexSummary ? {significant:true,findings:evidence.codexSummary.findings} : evidence?.complete ? auditedWeeklyDiagnosis(evidence) : await diagnoseWeeklyReport({ current, previous, currentSites, previousSites, comparable, siteTraffic }, comparableRanks, periods.current.end);
-  return {periods,evidence,pageVisitors,reportingCutoff:cutoff ? {...cutoff,collectedAt:flatkey!.collectedAt.toISOString(),comparable:sameCutoff}:null,draft:preparedDraft,history:[...new Set([activeReportPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
+  return {periods,evidence,pageVisitors,pageTrafficHistory:mergePageTrafficHistory(pageHistory,periods.current.end),reportingCutoff:cutoff ? {...cutoff,collectedAt:flatkey!.collectedAt.toISOString(),comparable:sameCutoff}:null,draft:preparedDraft,history:[...new Set([activeReportPeriods().current.start,...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse(),
     traffic:{current,previous,complete,currentSites,previousSites,comparable,siteTraffic:siteTraffic.map(site=>({siteDomain:site.siteDomain,current:site.current ? {newUsers:site.current.newUsers,newRegistrations:site.current.newRegistrations,registrationRate:registrationRate(site.current.newUsers,site.current.newRegistrations)}:null})),changes:{
       newUsers:comparable?relativeChange(current!.newUsers,previous!.newUsers):null,newRegistrations:comparable?relativeChange(current!.newRegistrations,previous!.newRegistrations):null,
       registrationRate:comparable?relativeChange(current!.registrationRate,previous!.registrationRate):null,

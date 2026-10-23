@@ -1,4 +1,6 @@
 "use client";
+import { PageTrafficCharts } from "./PageTrafficCharts";
+import type { PageTrafficSeries } from "@/lib/page-traffic-history";
 import { useEffect, useState } from "react";
 import { Select } from "antd";
 import { PageHeader } from "@/components/PageHeader";
@@ -16,6 +18,7 @@ import type { WeeklyReportingCutoff } from "@/lib/weekly-cutoff";
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
   pageVisitors?: WeeklyPageVisitors | null;
+  pageTrafficHistory?: PageTrafficSeries;
   reportingCutoff?: (WeeklyReportingCutoff & {collectedAt:string;comparable:boolean}) | null;
   displaySnapshot?: {pending?:boolean};
   periods: ReturnType<typeof activeReportPeriods>; history: string[];
@@ -198,6 +201,7 @@ export function TrafficReport() {
         {metric.key === "conversion" && funnel ? <div className="conversionBasis"><p>Flatkey · 新访客注册人数 / 漏斗新访客</p><p>本期 {funnel.current.registrations.toLocaleString()} / {funnel.current.visitors.toLocaleString()} · 上期 {funnel.previous.registrations.toLocaleString()} / {funnel.previous.visitors.toLocaleString()}</p>{conversionComparable && funnel.ratePoints != null ? <p className={`reportDelta ${funnel.ratePoints > 0 ? "increase" : funnel.ratePoints < 0 ? "decrease" : ""}`}>{funnel.ratePoints > 0 ? "+" : ""}{funnel.ratePoints.toFixed(2)} 个百分点</p> : null}</div> : null}
       </article>;
     })}</section>
+    <PageTrafficCharts series={data?.pageTrafficHistory} />
     <WeeklyPillarVisitors data={data} />
     <WeeklyEvidenceTables data={data} />
     <WeeklyKeywordChanges data={data} />
