@@ -166,8 +166,8 @@ test("biweekly Tuesday slots retain legacy snapshots and cross month/year bounda
   assert.equal(serpPeriod("2026-10-20T02:30:00Z").key, "2026-10-20");
   assert.equal(serpPeriodFromKey("2026-10-20").label, "2026年10月第2期");
   assert.equal(nextSerpPeriodDue("2026-10-19T03:00:00Z").toISOString(), "2026-10-20T02:30:00.000Z");
-  assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-02T16:00:00.000Z");
-  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-25T16:00:00.000Z");
+  assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-05T00:00:00.000Z");
+  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-28T00:00:00.000Z");
   assert.equal(periodDue("2026-10-2").toISOString(), "2026-10-16T02:30:00.000Z", "historical keys retain their actual dates");
   assert.equal(serpPeriodFromKey("2028-02-2").end, "2028-02-29");
   assert.throws(() => serpPeriodFromKey("2026-10-21"));
@@ -181,11 +181,11 @@ test("October's initial sample is displayed as issue one while ledger keys and a
   assert.equal(result.checkedAt,"2026-10-16T03:00:00.000Z");
   assert.equal(serpPeriodFromKey("2026-10-20").label,"2026年10月第2期");
 });
-test("Monday midnight moves future cursors without changing period IDs, custom deferrals or historical slots", () => {
+test("Thursday 08:00 moves future cursors without changing period IDs, custom deferrals or historical slots", () => {
   assert.equal(serpPeriod("2026-11-02T15:59:59Z").key,"2026-10-20");
   assert.equal(serpPeriod("2026-11-02T16:00:00Z").key,"2026-11-03");
-  assert.equal(scheduledSerpDue("2026-11-03T02:30:00Z").toISOString(),"2026-11-02T16:00:00.000Z");
-  assert.equal(scheduledSerpDue("2026-11-02T16:00:00Z").toISOString(),"2026-11-02T16:00:00.000Z");
+  assert.equal(scheduledSerpDue("2026-11-03T02:30:00Z").toISOString(),"2026-11-05T00:00:00.000Z");
+  assert.equal(scheduledSerpDue("2026-11-02T16:00:00Z").toISOString(),"2026-11-05T00:00:00.000Z");
   assert.equal(scheduledSerpDue("2026-11-03T05:00:00Z").toISOString(),"2026-11-03T05:00:00.000Z");
   assert.equal(scheduledSerpDue("2026-10-20T02:30:00Z").toISOString(),"2026-10-20T02:30:00.000Z");
 });

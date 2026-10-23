@@ -195,7 +195,7 @@ test("advancing Oct20 keeps its single ledger and completion schedules Nov3 rath
   const first = await startSerpScheduledPeriod("2026-10-20", "a".repeat(64), deadline);
   assert.equal(first.periodKey, "2026-10-20");
   await mutateSerpMonitor({ action: "resume", runId: first.id });
-  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-02T16:00:00.000Z");
+  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-05T00:00:00.000Z");
   assert.equal(state.config.paidEnabled, true);
   await startSerpScheduledPeriod("2026-10-20", "a".repeat(64), deadline);
   assert.equal(state.runs.length, 1); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
@@ -209,7 +209,7 @@ test("cron can start the period already advanced by discovery and keeps the next
   assert.equal((await runSerpMonitorCron()).status, "NOT_DUE");
   const result = await runSerpMonitorCron({ periodKey: "2026-10-20" });
   assert.equal(result.status, "FINISHED"); assert.equal(state.runs[0].periodKey, "2026-10-20");
-  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-02T16:00:00.000Z");
+  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-05T00:00:00.000Z");
   assert.equal(fetches.filter(row => row.method === "POST").length, 1);
 });
 
@@ -220,8 +220,8 @@ test("every daily cron while paused is a zero-provider-call no-op, including no 
   assert.equal((await runSerpMonitorCron()).status, "DISABLED");
   assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
 });
-test("an existing 10:30 server cursor starts once at Monday midnight and never creates a second ledger at the old time",async t=>{
- t.mock.timers.enable({apis:["Date"],now:new Date("2026-11-02T15:59:59Z")});
+test("an existing 10:30 server cursor starts once at Thursday 08:00 and never creates a second ledger at the old time",async t=>{
+ t.mock.timers.enable({apis:["Date"],now:new Date("2026-11-04T23:59:59Z")});
  state.config.paidEnabled=true;state.config.nextDueAt=new Date("2026-11-03T02:30:00Z");
  assert.equal((await runSerpMonitorCron()).status,"NOT_DUE");assert.equal(fetches.length,0);
  t.mock.timers.tick(1000);
@@ -231,7 +231,7 @@ test("an existing 10:30 server cursor starts once at Monday midnight and never c
  t.mock.timers.tick(10.5*60*60*1000);
  await runSerpMonitorCron();
  assert.equal(state.runs.length,1);assert.equal(fetches.filter(row=>row.method==="POST").length,1);
- assert.equal(state.config.nextDueAt.toISOString(),"2026-11-16T16:00:00.000Z");
+ assert.equal(state.config.nextDueAt.toISOString(),"2026-11-19T00:00:00.000Z");
 });
 
 test("status exposes only whether cron authentication is configured, never the cron secret", async () => {

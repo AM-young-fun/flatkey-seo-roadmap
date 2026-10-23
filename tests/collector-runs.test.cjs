@@ -12,11 +12,11 @@ const {collectorRunSchema}=require("../src/lib/collector-runs.ts"),{weeklyEviden
 beforeEach(()=>{session=false;stored=null;report=null;writes=0;});
 const sourceChecks=["api_main","cloud_main","optimization"].map(sourceId=>({sourceId,status:"COMPLETED",rows:5}));
 const request=body=>new Request("https://example.com/api/collectors/runs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-test("Codex keeps daily sheets at 10:30 and the existing weekly report at Tuesday 10:10",()=>{
+test("Codex keeps daily sheets at 10:30 and the existing weekly report at Friday 10:10",()=>{
   const now=new Date("2026-10-20T03:00Z");
   assert.equal(nextCollectorTime(now,"sheets"),"2026-10-21T02:30:00.000Z");
-  assert.equal(nextCollectorTime(now,"ahrefs"),"2026-10-27T02:10:00.000Z");
-  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-27T02:10:00.000Z");
+  assert.equal(nextCollectorTime(now,"ahrefs"),"2026-10-23T02:10:00.000Z");
+  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-23T02:10:00.000Z");
 });
 test("three-table completion needs all three actual success receipts; zero changes need not mean no read",()=>{
   const base={kind:"SHEETS",periodStart:"2026-10-20",status:"COMPLETED",checkedItems:15};
@@ -49,4 +49,12 @@ test("new weekly GA4 completion requires both pillar counts; a missing prior bas
   assert.equal((await POST(request(body))).status,409);assert.equal(writes,0);
   report.analysis.pageVisitors.groups[1].users.current=0;
   assert.equal((await POST(request(body))).status,200);assert.equal(stored.status,"COMPLETED");
+});
+
+test("Friday GA4 completion requires model details, prompt library and the whole-site denominator",async()=>{
+ session=true;const body={kind:"GA4",periodStart:"2026-10-16",status:"COMPLETED"};
+ const pageVisitors={metric:"totalUsers",eventName:"page_view",ruleVersion:2,sourceUrl:"https://analytics.google.com/analytics/web/",siteUsers:{current:null,previous:null},groups:[{key:"models",users:{current:60,previous:null}},{key:"prompts",users:{current:50,previous:null}}]};
+ report={newUsers:10,newRegistrations:2,analysis:{complete:true,pageVisitors,totals:{current:{newUsers:10,newRegistrations:2},previous:{newUsers:8,newRegistrations:1}},channels:[{name:"Direct",newUsers:{current:10,previous:8},registrations:{current:2,previous:1}}],sources:["https://analytics.google.com/analytics/web/"],codexSummary:{preparedAt:"2026-10-23T02:10:00Z",text:"本周核心业务访客占比。",findings:[{title:"核心业务",evidence:"已核对GA4",action:"保留证据",level:"finding"}]}}};
+ assert.equal((await POST(request(body))).status,409);
+ pageVisitors.siteUsers.current=100;assert.equal((await POST(request(body))).status,200);
 });

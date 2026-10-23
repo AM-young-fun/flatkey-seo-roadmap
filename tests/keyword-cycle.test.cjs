@@ -12,7 +12,7 @@ test("the discovery cycle binds four Flatkey markets and never starts on an inte
  for(const job of plan.jobs){assert.equal(job.targetDomain,"flatkey.ai");assert.equal(job.task.target,job.targetDomain);assert.equal(job.task.include_clickstream_data,false);assert.equal(job.task.offset,0);}
  assert.equal(keywordCyclePlan(new Date("2026-10-27T02:30:00Z")).mayStart,false);
  assert.equal(keywordCyclePlan(new Date("2026-10-20T02:29:59Z")).mayStart,false);
- assert.equal(keywordCyclePlan(new Date("2026-11-03T02:30:00Z")).mayStart,true);
+ assert.equal(keywordCyclePlan(new Date("2026-11-03T02:30:00Z")).mayStart,false);
  assert.throws(()=>buildRankedKeywordsTask(1000,"test",{targetDomain:"evil.example",region:"US"}));
 });
 
@@ -25,11 +25,11 @@ test("historical foreign-market results are rejected and business intent must ma
  assert.equal(parsed.region,"JP");assert.equal(parsed.targetDomain,"rackrate.org");assert.equal(parsed.realTimeSerpFetch,false);
  assert.throws(()=>normalizeRankedKeywords(raw,{runId:"market-test",collectedAt:"2026-10-19T03:00:00Z"}));
 });
-test("the next discovery cycle starts at Monday 24:00 with unchanged four-market request IDs",()=>{
- assert.equal(keywordCyclePlan(new Date("2026-11-02T15:59:59Z")).mayStart,false);
- const plan=keywordCyclePlan(new Date("2026-11-02T16:00:00Z"));
+test("the next discovery cycle starts at Thursday 08:00 with unchanged four-market request IDs",()=>{
+ assert.equal(keywordCyclePlan(new Date("2026-11-04T23:59:59Z")).mayStart,false);
+ const plan=keywordCyclePlan(new Date("2026-11-05T00:00:00Z"));
  assert.equal(plan.mayStart,true);assert.equal(plan.period.key,"2026-11-03");
- assert.equal(plan.period.dueAt,"2026-11-02T16:00:00.000Z");
+ assert.equal(plan.period.dueAt,"2026-11-05T00:00:00.000Z");
  assert.ok(plan.jobs.every(job=>job.requestId.startsWith("discovery-2026-11-03-flatkey-ai-")));
  assert.equal(keywordCyclePlan(new Date("2026-11-09T16:00:00Z")).mayStart,false);
 });
@@ -121,10 +121,10 @@ test("server discovery normalizes an existing future 10:30 cursor and never resu
   fetches++;const task=JSON.parse(options.body)[0];
   return new Response(JSON.stringify({status_code:20000,tasks_error:0,tasks_count:1,cost:.012,tasks:[{status_code:20000,result:[{target:task.target,location_code:task.location_code,language_code:task.language_code,items:[],items_count:0,total_count:0}]}]}));
  });
- const early=await runKeywordDiscoveryCycle({now:new Date("2026-11-02T15:59:59Z")});
+ const early=await runKeywordDiscoveryCycle({now:new Date("2026-11-04T23:59:59Z")});
  assert.equal(early.status,"NOT_DUE");assert.equal(fetches,0);
- for(let index=0;index<4;index++)await runKeywordDiscoveryCycle({now:new Date("2026-11-02T16:00:00Z")});
+ for(let index=0;index<4;index++)await runKeywordDiscoveryCycle({now:new Date("2026-11-05T00:00:00Z")});
  assert.equal(fetches,4);assert.ok(runs.every(row=>row.requestId.startsWith("discovery-2026-11-03-")));
- assert.equal((await runKeywordDiscoveryCycle({now:new Date("2026-11-03T02:30:00Z")})).ready,true);assert.equal(fetches,4);
+ assert.equal((await runKeywordDiscoveryCycle({now:new Date("2026-11-05T02:30:00Z")})).ready,true);assert.equal(fetches,4);
  scheduleEnabled=false;
 });

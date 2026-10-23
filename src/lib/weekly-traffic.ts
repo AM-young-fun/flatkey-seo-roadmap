@@ -14,8 +14,9 @@ export function weeklyPeriods(now = new Date(), timezone = "Asia/Shanghai") {
     timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
   }).format(now);
   const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
-  // Monday is still in progress: only include it starting on Tuesday.
-  const end = shift(today, -((weekday + 6) % 7 || 7));
+  // Retain historical calendar behavior before the Friday schedule switch.
+  const endDay = today >= "2026-10-23" ? 4 : 1;
+  const end = shift(today, -((weekday - endDay + 7) % 7 || 7));
   return {
     current: { start: shift(end, -6), end },
     previous: { start: shift(end, -13), end: shift(end, -7) },
@@ -27,16 +28,18 @@ export function reportPeriods(start: string) {
   return { current: { start, end: shift(start, 6) }, previous: { start: shift(start, -7), end: shift(start, -1) } };
 }
 
-// On Monday show the report being prepared for Tuesday, without calling the
-// still-open GA4 week complete. Imports continue to use weeklyPeriods().
+// Show the week being prepared on the day before publication. Import
+// completeness is validated separately against the property timezone/cutoff.
 export function activeReportPeriods(now = new Date()) {
   const closed = weeklyPeriods(now);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
-  return new Date(`${today}T00:00:00Z`).getUTCDay() === 1 ? reportPeriods(shift(closed.current.start, 7)) : closed;
+  return new Date(`${today}T00:00:00Z`).getUTCDay() === (today >= "2026-10-23" ? 4 : 1) ? reportPeriods(shift(closed.current.start, 7)) : closed;
 }
 
 export function isWeeklyPeriod(start: string, end: string): boolean {
-  return new Date(`${start}T00:00:00Z`).getUTCDay() === 2 && shift(start, 6) === end;
+  const weekday = new Date(`${start}T00:00:00Z`).getUTCDay();
+  // Tuesday periods remain readable for saved reports; new periods use Friday.
+  return (weekday === 2 || weekday === 5) && shift(start, 6) === end;
 }
 
 export function registrationRate(users: number, registrations: number): number | null {

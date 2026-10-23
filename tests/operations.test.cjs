@@ -33,11 +33,11 @@ test("configured schedule and unfinished heartbeat cannot masquerade as successf
   assert.equal(schedulerState({ ...last, startedAt: new Date("2026-10-19T06:00:00Z"), completedAt: now, status: "COMPLETED" }, now), "OVERDUE");
   assert.equal(schedulerState({ ...last, status: "NEEDS_REVIEW" }, now), "ERROR");
   assert.equal(plannedRankingTime(now, null), "2026-10-20T02:30:00.000Z");
-  assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z")), "2026-11-02T16:00:00.000Z");
+  assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z")), "2026-11-05T00:00:00.000Z");
   const due = new Date("2026-10-20T02:30:00Z");
-  assert.equal(plannedRankingTime(now, due, ["2026-10-20"]), "2026-11-02T16:00:00.000Z");
+  assert.equal(plannedRankingTime(now, due, ["2026-10-20"]), "2026-11-05T00:00:00.000Z");
   assert.equal(due.toISOString(), "2026-10-20T02:30:00.000Z", "displaying the next slot cannot move the unfinished worker cursor");
-  assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z"), ["2026-10-20"]), "2026-11-02T16:00:00.000Z");
+  assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z"), ["2026-10-20"]), "2026-11-05T00:00:00.000Z");
   assert.equal(operationStateLabels.WAITING_FOR_DISCOVERY, "等待新词发现完成");
 });
 test("operational view reads metadata only and distinguishes online ranking from external collectors", async t => {
@@ -51,7 +51,7 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.plans[1].state, "Codex 采集");
   assert.equal(status.plans[2].name, "Ahrefs 数据");
   assert.equal(status.plans[3].state, "Codex 整理");
-  assert.equal(status.plans[3].nextAt,"2026-10-20T02:10:00.000Z");
+  assert.equal(status.plans[3].nextAt,"2026-10-23T02:10:00.000Z");
   assert.match(status.records[0].name, /第1期/);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
   for (const secret of ["encryptedCredentials", "LOGIN_PWD", "CRON_SECRET", "rawResponse", "configJson"]) assert.ok(!JSON.stringify(status).includes(secret));
@@ -74,7 +74,7 @@ test("an advanced unfinished round is separate from the next automatic date", as
     return ["US","JP","ES","BR"].map(region => ({requestId:`discovery-2026-10-20-flatkey-ai-${region}`,siteDomain:"flatkey.ai",status:"COMPLETED",createdAt:new Date("2026-10-19T07:00Z"),completedAt:new Date("2026-10-19T07:10Z")}));
   });
   const result = await loadOperationsStatus(new Date("2026-10-19T08:00Z"));
-  assert.equal(result.plans[0].nextAt, "2026-11-02T16:00:00.000Z");
+  assert.equal(result.plans[0].nextAt, "2026-11-05T00:00:00.000Z");
   assert.match(result.plans[0].currentExecution, /4\/4 国已完成，实际排名待开始/);
   assert.equal(result.controls.discoveryMaxCostMicros, 528000);
   assert.equal(due.toISOString(), "2026-10-20T02:30:00.000Z");

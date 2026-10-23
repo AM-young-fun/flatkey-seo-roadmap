@@ -148,16 +148,19 @@ function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
 function WeeklyPillarVisitors({ data }: { data: InsightData | null }) {
   const periods = data?.periods;
   const rows = pageVisitorRows(data?.pageVisitors, Boolean(data?.pageVisitors && !data.draft));
-  return <section className="dailyPanel" aria-label="核心页面访客量"><h2>核心页面访客量</h2>
-    <p className="chartNote">Flatkey · {data?.reportingCutoff ? "周二10:10截数快照 · 区间去重访客" : "整周去重访客"} · 包含新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
-    <div className="siteTrafficTable"><table><thead><tr><th>页面类型</th><th>上周访客量</th><th>本周访客量</th><th>增减人数</th><th>环比</th></tr></thead><tbody>{rows.map(row => <tr key={row.key}>
+  return <section className="dailyPanel" aria-label="核心业务流量占比"><h2>模型详情与 Prompt Library 流量占比</h2>
+    <p className="chartNote">Flatkey · {data?.reportingCutoff ? `${data.reportingCutoff.kind === "FRIDAY_1010_SNAPSHOT" ? "周五" : "周二"}10:10截数快照 · 区间去重访客` : "整周去重访客"} · 包含新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
+    <div className="siteTrafficTable"><table><thead><tr><th>页面类型</th><th>本周占比</th><th>上周占比</th><th>占比变化</th><th>上周访客量</th><th>本周访客量</th><th>增减人数</th><th>环比</th></tr></thead><tbody>{rows.map(row => <tr key={row.key}>
       <th>{row.name}<small>{row.scope}</small></th>
+      <td><strong>{row.currentShare == null ? "待采集" : pct(row.currentShare)}</strong></td>
+      <td>{row.previousShare == null ? "—" : pct(row.previousShare)}</td>
+      <td>{row.sharePoints == null ? "—" : `${row.sharePoints > 0 ? "+" : ""}${row.sharePoints.toFixed(1)} 个百分点`}</td>
       <td>{!data ? "加载中…" : row.previous == null ? "待采集" : row.previous.toLocaleString()}</td>
       <td>{!data ? "加载中…" : row.current == null ? "待采集" : row.current.toLocaleString()}</td>
       <td>{row.delta == null ? "—" : delta(row.delta)}</td>
       <td>{row.newTraffic ? "新增" : row.delta === 0 ? "0.0%" : row.rate == null ? "—" : change(row.rate)}</td>
     </tr>)}</tbody></table></div>
-    <p className="chartNote">同一访客在同类页面内只计一次；访问两类页面会分别计入，两类人数不相加。{data?.draft ? "完整周数据待补齐。" : ""}</p>
+    <p className="chartNote">占比 = 该组去重访客 / 同期全站去重访客（包含新老访客）。同一人可访问两组，占比存在重叠，不相加为100%。模型详情不含模型目录；Prompt Library 包含提示词库、详情及模型内提示词。{data?.draft ? "完整周数据待补齐。" : ""}</p>
   </section>;
 }
 
@@ -180,12 +183,12 @@ export function TrafficReport() {
     { label: "新访客注册转化率", key: "conversion", format: pct, current: funnel?.current.rate, previous: funnel?.previous.rate, change: conversionComparable ? funnel?.change : null },
   ];
   return <main className="appShell"><PageHeader active="traffic" />
-    <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>流量、注册与关键词按周期环比 · 每周二更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
+    <div className="reportIntro"><div className="pageIntro"><h1>流量周报</h1><p>上周五至本周四 · 每周五10:10更新 · 重点查看模型详情与 Prompt Library 占比</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <div className="periodComparison"><span><i className="currentDot" />本期 {trafficPeriods.current.start} — {trafficPeriods.current.end}</span><span><i />上期 {trafficPeriods.previous.start} — {trafficPeriods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
     {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期周报整理中。</p> : null}
     <p className="chartNote reportScope">GA4 · {draft ? "Flatkey · 更新中" : `三站汇总${data ? ` · 已导入 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
-    {data?.reportingCutoff ? <p className="chartNote">每周二10:10截数 · 实际采集 {new Date(data.reportingCutoff.collectedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}（北京时间）{!data.reportingCutoff.comparable ? " · 首期截数基线，与历史完整周暂不计算环比" : ""}</p> : null}
+    {data?.reportingCutoff ? <p className="chartNote">{data.reportingCutoff.kind === "FRIDAY_1010_SNAPSHOT" ? "每周五" : "每周二"}10:10截数 · 实际采集 {new Date(data.reportingCutoff.collectedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}（北京时间）{!data.reportingCutoff.comparable ? " · 首期截数基线，与历史完整周暂不计算环比" : ""}</p> : null}
     <section className="trafficGrid" aria-label="流量与注册概览">{metrics.map((metric) => {
       const current = metric.current; const previous = metric.previous;
       const maximum = Math.max(current ?? 0, previous ?? 0, 1);

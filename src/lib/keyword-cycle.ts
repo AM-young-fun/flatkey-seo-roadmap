@@ -12,7 +12,7 @@ export function keywordCyclePlan(now = new Date(), periodKey?: string) {
   }));
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
   return { period, jobs, maxDiscoveryCostMicros: quoteForLimit(limit).maxCostMicros * jobs.length,
-    mayStart: day >= "2026-10-20" && day === period.start && now.getTime() >= Date.parse(period.dueAt) };
+    mayStart: day >= "2026-10-20" && day === new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(period.dueAt)) && now.getTime() >= Date.parse(period.dueAt) };
 }
 
 // A historical matching URL alone cannot establish current intent. Only a
