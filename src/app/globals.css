@@ -2409,3 +2409,31 @@ a:focus-visible {
 }
 @keyframes collectionLightFlow { from { background-position:100% 0; } to { background-position:0% 0; } }
 @media(prefers-reduced-motion:reduce) { .collectionFloat.isActive .collectionFloatButton::before { animation:none; } }
+
+/* Keep the traffic toolbar aligned with the report cards at every viewport. */
+.pageTrafficHistory { margin:24px 0; min-width:0; }
+.pageTrafficHeading { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 25px; margin-bottom:16px; border:1px solid var(--border); border-radius:14px; background:#fff; }
+.pageTrafficHeading > div:first-child { min-width:0; }
+.pageTrafficHeading h2 { font-size:16px; line-height:1.5; color:#23395c; }
+.pageTrafficHeading .chartNote { margin-top:6px; font-size:11px; line-height:1.8; }
+.pageTrafficRange { display:flex; align-items:center; gap:12px; flex-shrink:0; font-size:12px; color:#8290a5; }
+.pageTrafficRange .originSelect { width:144px; height:38px; }
+.pageTrafficCards { display:grid; gap:18px; min-width:0; }
+.pageTrafficCard.dailyPanel { margin:0; min-width:0; }
+.pageTrafficCard .dailyHeading { margin-bottom:14px; }
+.pageTrafficCard .chartNote { margin-top:6px; font-size:11px; }
+.pageTrafficPlot { height:260px; width:100%; min-width:0; }
+.pageTrafficDetails { margin-top:8px; padding-top:12px; border-top:1px solid #edf1f6; font-size:12px; color:#72849b; }
+.pageTrafficDetails > summary { display:flex; align-items:center; gap:8px; width:fit-content; padding:4px 0; list-style:none; cursor:pointer; }
+.pageTrafficDetails > summary::-webkit-details-marker { display:none; }
+.pageTrafficDetails > summary::before { content:""; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .15s; }
+.pageTrafficDetails[open] > summary::before { transform:rotate(45deg); }
+.pageTrafficDetails > summary:focus-visible { outline:2px solid #4485d5; outline-offset:4px; border-radius:3px; }
+.pageTrafficDetails .siteTrafficTable { margin-top:12px; }
+@media(max-width:700px) {
+  .pageTrafficHeading { align-items:stretch; flex-direction:column; gap:16px; padding:18px 16px; }
+  .pageTrafficRange { justify-content:space-between; }
+  .pageTrafficRange .originSelect { width:150px; }
+  .pageTrafficCard.dailyPanel { padding:18px 14px; }
+  .pageTrafficPlot { height:240px; }
+}
