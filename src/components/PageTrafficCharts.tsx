@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { Select } from "antd";
 import type * as echarts from "echarts";
 import { PAGE_TRAFFIC_GROUPS, type PageTrafficSeries } from "@/lib/page-traffic-history";
 function TrafficLine({series,range}:{series:PageTrafficSeries[number];range:string}) {
@@ -18,10 +19,10 @@ function TrafficLine({series,range}:{series:PageTrafficSeries[number];range:stri
     return()=>{disposed=true;observer?.disconnect();chart?.dispose();};
   // signature tracks the selected data without rebuilding on unrelated report updates.
   },[signature,series.color,series.name]);
-  return <section className="dailyPanel" aria-label={`${series.name}流量趋势`}><div className="dailyHeading"><div><h2>{series.name}</h2><p className="chartNote">每日去重访客 · 含各语言版本{points.length?` · ${points[0].date} — ${points.at(-1)!.date}`:""}</p></div></div>{points.length?<><div ref={element} style={{height:260,width:"100%"}} role="img" aria-label={`${series.name}每日访客折线图，共${points.length}天，鼠标悬停查看数据`}/><details><summary>查看每日数据</summary><div className="siteTrafficTable"><table><thead><tr><th>日期</th><th>访客</th><th>浏览次数</th></tr></thead><tbody>{points.map(p=><tr key={p.date}><td>{p.date}</td><td>{p.users??"未采集"}</td><td>{p.pageViews??"未采集"}</td></tr>)}</tbody></table></div></details></>:<p className="muted">尚无已保存的每日数据，采集后持续累积。</p>}</section>;
+  return <section className="dailyPanel pageTrafficCard" aria-label={`${series.name}流量趋势`}><div className="dailyHeading"><div><h2>{series.name}</h2><p className="chartNote">每日去重访客 · 含各语言版本{points.length?` · ${points[0].date} — ${points.at(-1)!.date}`:""}</p></div></div>{points.length?<><div ref={element} className="pageTrafficPlot" role="img" aria-label={`${series.name}每日访客折线图，共${points.length}天，鼠标悬停查看数据`}/><details className="pageTrafficDetails"><summary>查看每日数据</summary><div className="siteTrafficTable"><table><thead><tr><th>日期</th><th>访客</th><th>浏览次数</th></tr></thead><tbody>{points.map(p=><tr key={p.date}><td>{p.date}</td><td>{p.users??"未采集"}</td><td>{p.pageViews??"未采集"}</td></tr>)}</tbody></table></div></details></>:<p className="muted">尚无已保存的每日数据，采集后持续累积。</p>}</section>;
 }
 export function PageTrafficCharts({series}:{series?:PageTrafficSeries}) {
   const [range,setRange]=useState("all");
   const groups=series??PAGE_TRAFFIC_GROUPS.map(g=>({...g,timezone:null,points:[]}));
-  return <section aria-label="核心页面历史流量曲线"><div className="dailyHeading"><div><h2>核心页面流量趋势</h2><p className="chartNote">历史数据永久保存，每周追加。每日去重访客不可相加为整周去重访客；缺失日期断线显示。</p></div><label>时间范围 <select aria-label="流量曲线时间范围" value={range} onChange={e=>setRange(e.target.value)}><option value="all">全部历史</option><option value="21">最近三周</option><option value="90">最近90天</option></select></label></div>{groups.map(g=><TrafficLine key={g.key} series={g} range={range}/>)}</section>;
+  return <section className="pageTrafficHistory" aria-label="核心页面历史流量曲线"><div className="pageTrafficHeading"><div><h2>核心页面流量趋势</h2><p className="chartNote">每日去重访客 · 历史持续保留，每周新增 · 未取得数据的日期断线显示。</p></div><div className="pageTrafficRange"><span id="traffic-range-label">时间范围</span><Select aria-label="流量曲线时间范围" className="originSelect" value={range} onChange={setRange} options={[{value:"all",label:"全部历史"},{value:"21",label:"最近三周"},{value:"90",label:"最近90天"}]} /></div></div><div className="pageTrafficCards">{groups.map(g=><TrafficLine key={g.key} series={g} range={range}/>)}</div></section>;
 }
