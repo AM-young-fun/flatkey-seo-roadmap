@@ -41,3 +41,12 @@ WeeklyTraffic.analysis存于PostgreSQL，每周追加，保留旧记录；历史
 ## 按周总数（2026-10-23追加）
 
 图表默认按周汇总，保留按天切换。每组除points每日记录外，另存weeks:[{periodStart:"YYYY-MM-DD",periodEnd:"YYYY-MM-DD",users:整周去重totalUsers,pageViews:整周浏览次数}]，按周五至周四连续7天单独查询。不能相加每日访客冒充整周去重用户；不能使用GA4默认周日/周一分周。每期只追加新周weeks，读取历史合并成整体周曲线，旧日报永久保留。缺少整周查询时显示待采集，不由points推算。
+
+
+## 页面访问后注册转化（2026-10-23追加）
+
+每周曲线增加注册人数（右轴）。使用同一GA4属性、相同周五至周四区间的闭合顺序漏斗：第一步page_view，事件page_location限制flatkey.ai/www.flatkey.ai及对应页面组（含语言、允许查询参数）；间接后跟第二步sign_up_success。不要把页面过滤器施加到整个漏斗导致注册事件因页面地址不同被剔除；不限定首次访问，不将全站注册人数或独立事件人数当页面组转化。用户可跨组重叠，组间不相加。
+
+每个weeks记录可保存registrationFunnel:{ruleVersion:1,entrants:入口去重人数,users:完成注册去重人数,sourceUrl:GA4来源,collectedAt:实际采集ISO时间}。users不得超过entrants；未知留空，真实零保存0。漏斗入口与流量totalUsers口径可能不同，不能直接用流量人数计算该漏斗转化率。没有每日归因证据时，注册曲线仅在按周视图显示。
+
+后续每周随新一期采集，永续追加；没有registrationFunnel的新流量导入不得清除已保存转化。历史转化证据保留来源和时间，禁止相加每日注册去重数代替整周顺序漏斗。

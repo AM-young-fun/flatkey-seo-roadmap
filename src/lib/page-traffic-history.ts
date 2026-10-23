@@ -6,17 +6,19 @@ export const PAGE_TRAFFIC_GROUPS = [
   {key:"prompts",name:"Prompt Library",pathPattern:`^${locale}/(?:prompts(?:/.*)?|models/[^/]+/prompts(?:/.*)?)/?$`,color:"#a371ef"},
 ] as const;
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value=>Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value);
+const registrationFunnelSchema = z.object({ruleVersion:z.literal(1),entrants:z.number().int().nonnegative(),users:z.number().int().nonnegative(),sourceUrl:z.url().refine(value=>{const u=new URL(value);return u.protocol==="https:"&&u.hostname==="analytics.google.com"&&!u.username&&!u.password;}),collectedAt:z.iso.datetime({offset:true})}).strict().superRefine((v,ctx)=>{if(v.users>v.entrants)ctx.addIssue({code:"custom",message:"顺序漏斗注册人数不能超过入口人数"});});
+export type PageRegistrationFunnel = z.infer<typeof registrationFunnelSchema>;
 export const pageTrafficHistorySchema = z.object({
   metric:z.literal("totalUsers"),eventName:z.literal("page_view"),ruleVersion:z.literal(1),
   timezone:z.string().refine(value=>{try{new Intl.DateTimeFormat("en",{timeZone:value});return true;}catch{return false;}}),
   sourceUrl:z.url().refine(value=>{const u=new URL(value);return u.protocol==="https:"&&u.hostname==="analytics.google.com"&&!u.username&&!u.password;}),
-  groups:z.array(z.object({key:z.enum(["models","compute","prompts"]),points:z.array(z.object({date,users:z.number().int().nonnegative().nullable(),pageViews:z.number().int().nonnegative().nullable()}).strict()).min(1).max(366),weeks:z.array(z.object({periodStart:date,periodEnd:date,users:z.number().int().nonnegative().nullable(),pageViews:z.number().int().nonnegative().nullable()}).strict().superRefine((w,ctx)=>{if(Date.parse(w.periodEnd)-Date.parse(w.periodStart)!==6*86400000||new Date(w.periodStart).getUTCDay()!==5)ctx.addIssue({code:"custom",message:"周汇总必须为周五至周四的7天"});})).max(53).optional()}).strict()).length(3),
+  groups:z.array(z.object({key:z.enum(["models","compute","prompts"]),points:z.array(z.object({date,users:z.number().int().nonnegative().nullable(),pageViews:z.number().int().nonnegative().nullable()}).strict()).min(1).max(366),weeks:z.array(z.object({periodStart:date,periodEnd:date,users:z.number().int().nonnegative().nullable(),pageViews:z.number().int().nonnegative().nullable(),registrationFunnel:registrationFunnelSchema.optional()}).strict().superRefine((w,ctx)=>{if(Date.parse(w.periodEnd)-Date.parse(w.periodStart)!==6*86400000||new Date(w.periodStart).getUTCDay()!==5)ctx.addIssue({code:"custom",message:"周汇总必须为周五至周四的7天"});})).max(53).optional()}).strict()).length(3),
 }).strict().superRefine((value,ctx)=>{
   if(new Set(value.groups.map(g=>g.key)).size!==3)ctx.addIssue({code:"custom",message:"三类页面组必须各有一条曲线"});
   for(const group of value.groups){if(new Set(group.points.map(p=>p.date)).size!==group.points.length)ctx.addIssue({code:"custom",message:"同一组不能重复日期"});if(new Set(group.weeks?.map(w=>w.periodStart)).size!==(group.weeks?.length??0))ctx.addIssue({code:"custom",message:"同一组不能重复周区间"});}
 });
 export type PageTrafficHistory = z.infer<typeof pageTrafficHistorySchema>;
-export type PageTrafficWeek = {periodStart:string;periodEnd:string;users:number|null;pageViews:number|null;collectedAt:string;sourceUrl:string};
+export type PageTrafficWeek = {registrationFunnel?:PageRegistrationFunnel;periodStart:string;periodEnd:string;users:number|null;pageViews:number|null;collectedAt:string;sourceUrl:string};
 export type PageTrafficSeries = {key:string;name:string;color:string;timezone:string|null;weeks?:PageTrafficWeek[];points:{date:string;users:number|null;pageViews:number|null;collectedAt:string;sourceUrl:string}[]}[];
 // WeeklyTraffic is append-only. Merge every saved week, never just the two
 // comparison weeks or a browser cache. A missing new sample cannot erase an old one.
@@ -30,7 +32,7 @@ export function mergePageTrafficHistory(rows:{analysis:unknown;collectedAt:Date}
       points.set(p.date,{...p,collectedAt:row.collectedAt.toISOString(),sourceUrl:data.data.sourceUrl});
     }
     const weeks=new Map<string,PageTrafficWeek>();
-    for(const {row,data} of parsed)if(data.success&&data.data.timezone===timezone)for(const w of data.data.groups.find(g=>g.key===group.key)!.weeks??[]){if(w.periodEnd>end||w.users===null&&weeks.has(w.periodStart))continue;weeks.set(w.periodStart,{...w,collectedAt:row.collectedAt.toISOString(),sourceUrl:data.data.sourceUrl});}
+    for(const {row,data} of parsed)if(data.success&&data.data.timezone===timezone)for(const w of data.data.groups.find(g=>g.key===group.key)!.weeks??[]){if(w.periodEnd>end||w.users===null&&weeks.has(w.periodStart))continue;weeks.set(w.periodStart,{...w,registrationFunnel:w.registrationFunnel??weeks.get(w.periodStart)?.registrationFunnel,collectedAt:row.collectedAt.toISOString(),sourceUrl:data.data.sourceUrl});}
     return {...group,timezone,weeks:[...weeks.values()].sort((a,b)=>a.periodStart.localeCompare(b.periodStart)),points:[...points.values()].sort((a,b)=>a.date.localeCompare(b.date))};
   });
 }

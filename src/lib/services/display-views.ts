@@ -11,7 +11,7 @@ import { loadKeywordOkr } from "./keyword-okr";
 import { loadOptimizedPageMonitor } from "./optimized-page-monitor";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
-const trafficDisplayVersion = "page-history-weekly-v4";
+const trafficDisplayVersion = "page-history-registrations-v5";
 const dashboardDisplayVersion = "keyword-market-demand-v2";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {

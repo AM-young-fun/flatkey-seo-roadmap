@@ -27,3 +27,13 @@ test("weekly totals are saved independently, never summed from daily visitors",(
   assert.equal(mergePageTrafficHistory([{analysis:{pageTrends:d},collectedAt:new Date("2026-10-23")}],"2026-10-07")[0].weeks.length,0);
   d.groups[0].weeks[0].periodEnd="2026-10-09";assert.equal(pageTrafficHistorySchema.safeParse(d).success,false);
 });
+
+test("registration conversions require independent funnel evidence and survive a later traffic-only import",()=>{
+  const d=evidence("2026-10-02",10);d.groups.forEach(g=>{g.weeks=[{periodStart:"2026-10-02",periodEnd:"2026-10-08",users:12,pageViews:30,registrationFunnel:{ruleVersion:1,entrants:11,users:3,sourceUrl:"https://analytics.google.com/analytics/web/",collectedAt:"2026-10-23T03:00:00Z"}}];});
+  assert.equal(pageTrafficHistorySchema.safeParse(d).success,true);
+  const trafficOnly=JSON.parse(JSON.stringify(d));trafficOnly.groups.forEach(g=>delete g.weeks[0].registrationFunnel);
+  const merged=mergePageTrafficHistory([{analysis:{pageTrends:d},collectedAt:new Date("2026-10-23")},{analysis:{pageTrends:trafficOnly},collectedAt:new Date("2026-10-24")}],"2026-10-22");
+  assert.equal(merged[0].weeks[0].registrationFunnel.users,3);assert.equal(mergePageTrafficHistory([{analysis:{pageTrends:trafficOnly},collectedAt:new Date("2026-10-24")}],"2026-10-22")[0].weeks[0].registrationFunnel,undefined);
+  d.groups[0].weeks[0].registrationFunnel.users=12;assert.equal(pageTrafficHistorySchema.safeParse(d).success,false);
+  d.groups[0].weeks[0].registrationFunnel.users=0;assert.equal(pageTrafficHistorySchema.safeParse(d).success,true);
+});
