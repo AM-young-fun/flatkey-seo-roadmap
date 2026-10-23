@@ -11,7 +11,7 @@ import { timedRead } from "@/lib/read-profile";
 const nextDay = (value: string) => new Date(Date.parse(`${value}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
 export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) {
   const publicationDay = nextDay(periods.current.end), previousPublicationDay = nextDay(periods.previous.end);
-  const slot = serpPeriod(`${publicationDay}T02:30:00Z`), captureWeek = slot.start === publicationDay;
+  const slot = serpPeriod(`${publicationDay}T02:30:00Z`), captureWeek = slot.start === publicationDay || (new Date(periods.current.start).getUTCDay() === 5 && slot.dueAt.slice(0,10) >= periods.current.start && slot.dueAt.slice(0,10) <= periods.current.end);
   const cohort = await timedRead("weekly.cohort", () => loadSerpTargetCohort());
   const previousSlot = serpPeriod(`${previousPublicationDay}T02:30:00Z`);
   const [run, previousRun] = await timedRead("weekly.run-metadata", () => Promise.all([slot,previousSlot].map(period=>prisma.serpMonitorRun.findUnique({where:{periodKey_scope:{periodKey:period.key,scope:"SCHEDULED"}}}))));

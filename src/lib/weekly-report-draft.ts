@@ -18,7 +18,7 @@ export const weeklyReportDraftSchema = z.object({
     registrationStatus:z.literal("UNVERIFIED"),sourceUrl:source}).strict()).max(2).default([]),
 }).strict().superRefine((data,ctx)=>{
   const issue=(message:string)=>ctx.addIssue({code:"custom",message});
-  if(!isWeeklyPeriod(data.periodStart,data.periodEnd))issue("草稿必须属于周二至周一的一期周报");
+  if(!isWeeklyPeriod(data.periodStart,data.periodEnd))issue("草稿必须属于周五至周四的一期周报；历史周二至周一期次保留兼容");
   const stamp=Date.parse(data.collectedAt), today=new Intl.DateTimeFormat("en-CA",{timeZone:data.timezone}).format(new Date(stamp));
   if(stamp>Date.now()+300000 || Date.parse(data.stageTotals.collectedAt)>stamp || data.periodStart>today)issue("草稿采集时间无效");
   const {current,previous}=data.comparisonPeriods, days=(a:string,b:string)=>(Date.parse(b)-Date.parse(a))/86400000;

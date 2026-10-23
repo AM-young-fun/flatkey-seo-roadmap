@@ -1,5 +1,6 @@
 import type { WeeklyReportDiagnosis } from "./weekly-report-diagnosis";
 import type { WeeklyTrafficEvidence } from "./weekly-traffic-evidence";
+import { pageVisitorRows } from "./weekly-page-visitors";
 import { weeklyFunnelMetrics } from "./weekly-funnel-metrics";
 
 type Totals = {newUsers:number;newRegistrations:number};
@@ -20,6 +21,8 @@ export function weeklySummaryText(input:SummaryInput):string {
     const funnel=weeklyFunnelMetrics(input.evidence?.newVisitorFunnel);
     if(input.comparable&&funnel&&funnel.current.rate!==null&&funnel.previous.rate!==null)parts.push(`新访客注册转化率由 ${(funnel.previous.rate*100).toFixed(1)}% ${funnel.current.rate===funnel.previous.rate?"维持在":funnel.current.rate>funnel.previous.rate?"升至":"降至"} ${(funnel.current.rate*100).toFixed(1)}%。`);
   }
+  const shares=pageVisitorRows(input.evidence?.pageVisitors, input.comparable).filter(row=>row.currentShare!==null);
+  if(shares.length)parts.push(shares.map(row=>`${row.name}访客占全站 ${(row.currentShare!*100).toFixed(1)}%${row.sharePoints===null?"":`，较上期${row.sharePoints>=0?"增加":"减少"} ${Math.abs(row.sharePoints).toFixed(1)} 个百分点`}`).join("；")+"。");
   const conclusions=input.diagnosis.findings.filter(row=>row.level!=="unresolved"&&!/待确认|待核|尚未|暂无|缺少.*证据|技术根因|表单|排查/u.test(row.title)).slice(0,2).map(row=>{
     const text=/变化$|集中位置$|渠道变化/u.test(row.title)?row.evidence.split("。")[0]:row.title;
     return text.replace(/[。；]$/u,"");

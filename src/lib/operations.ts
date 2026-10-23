@@ -27,7 +27,7 @@ export function nextCollectorTime(now:Date,kind:"sheets"|"ahrefs"|"traffic"):str
   const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai"}).format(now);
   for(let offset=0;offset<8;offset++){
     const day=new Date(Date.parse(`${today}T00:00:00Z`)+offset*86400000).toISOString().slice(0,10);
-    if(kind!=="sheets"&&new Date(day).getUTCDay()!==2)continue;
+    if(kind!=="sheets"&&new Date(day).getUTCDay()!==5)continue;
     const clock = kind === "sheets" ? "10:30" : "10:10";
     const candidate=new Date(`${day}T${clock}:00+08:00`);if(candidate>now)return candidate.toISOString();
   }

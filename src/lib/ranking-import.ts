@@ -170,12 +170,12 @@ export const rankingImportSchema = z
       collectedAt: z.iso.datetime({ offset: true }),
     }).strict().superRefine((row, ctx) => {
       if (row.analysis && (row.analysis.totals.current.newUsers !== row.newUsers || row.analysis.totals.current.newRegistrations !== row.newRegistrations)) ctx.addIssue({code:"custom",message:"渠道与漏斗分析必须属于本次流量汇总"});
-      if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周二至周一的连续 7 天" });
+      if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周五至周四的连续 7 天；历史周二至周一报告保留兼容" });
       let closedEnd: string;
-      try { closedEnd = weeklyPeriods(new Date(row.collectedAt), row.timezone).current.end; } catch { ctx.addIssue({ code: "custom", message: "报告时区或采集时间无效" }); return; }
+      try { closedEnd = new Date(Date.parse(new Intl.DateTimeFormat("en-CA", {timeZone:row.timezone}).format(new Date(row.collectedAt))) - 86400000).toISOString().slice(0,10); } catch { ctx.addIssue({ code: "custom", message: "报告时区或采集时间无效" }); return; }
       const cutoff = row.analysis?.reportingCutoff;
-      if (cutoff && (row.periodStart < "2026-10-20" || Date.parse(cutoff.scheduledAt) !== Date.parse(weeklySnapshotAt(row.periodEnd)) || Date.parse(row.collectedAt) < Date.parse(cutoff.scheduledAt))) ctx.addIssue({code:"custom",message:"周二快照须在该期北京时间周二10:10或之后采集，不能提前截数"});
-      if ((!cutoff && row.periodEnd > closedEnd) || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报或明确标记的周二10:10快照，采集时间不能在未来" });
+      if (cutoff && ((cutoff.kind === "FRIDAY_1010_SNAPSHOT" ? row.periodStart < "2026-10-16" || new Date(row.periodStart).getUTCDay() !== 5 : row.periodStart < "2026-10-20" || new Date(row.periodStart).getUTCDay() !== 2) || Date.parse(cutoff.scheduledAt) !== Date.parse(weeklySnapshotAt(row.periodEnd)) || Date.parse(row.collectedAt) < Date.parse(cutoff.scheduledAt))) ctx.addIssue({code:"custom",message:"快照须匹配报告起始星期，并在该期结束后北京时间10:10或之后采集，不能提前截数"});
+      if ((!cutoff && row.periodEnd > closedEnd) || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报或明确标记的10:10快照，采集时间不能在未来" });
     })).max(52).default([]),
   })
   .strict()

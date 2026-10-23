@@ -9,11 +9,11 @@ const sample = () => ({ metric: "totalUsers", eventName: "page_view", ruleVersio
 
 test("page scope includes every language, and model prompt details belong only to prompts", () => {
   for (const prefix of ["", "/en", "/zh", "/es", "/fr", "/pt", "/ru", "/ja", "/vi", "/de", "/id"]) {
-    for (const [path, expected] of [["/models", "models"], ["/models/", "models"], ["/models/gpt-image-2", "models"], ["/prompts", "prompts"], ["/prompts/image/poster", "prompts"], ["/prompts/video", "prompts"], ["/prompts/model/seedance-2", "prompts"], ["/models/gpt-image-2/prompts/poster", "prompts"]]) {
+    for (const [path, expected] of [["/models/gpt-image-2", "models"], ["/prompts", "prompts"], ["/prompts/image/poster", "prompts"], ["/prompts/video", "prompts"], ["/prompts/model/seedance-2", "prompts"], ["/models/gpt-image-2/prompts/poster", "prompts"]]) {
       assert.deepEqual(PILLAR_PAGE_GROUPS.filter(group => new RegExp(group.pathPattern).test(prefix + path)).map(group => group.key), [expected], prefix + path);
     }
   }
-  for (const path of ["/models-fake", "/prompts-fake", "/blog/models", "/api/prompts", "/models/a/pricing", "/not-a-locale/models"]) {
+  for (const path of ["/models", "/models/", "/models-fake", "/prompts-fake", "/blog/models", "/api/prompts", "/models/a/pricing", "/not-a-locale/models"]) {
     assert.equal(PILLAR_PAGE_GROUPS.some(group => new RegExp(group.pathPattern).test(path)), false, path);
   }
 });

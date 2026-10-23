@@ -30,7 +30,7 @@ function configuration(row: SerpMonitorConfig | null): SerpMonitorConfiguration 
   if (!row) return { ...SERP_DEFAULT_CONFIG };
   return { region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840,
     device: row.device as "desktop", depth: row.depth as 100, intervalDays: row.intervalDays as 14, paidEnabled: row.paidEnabled,
-    schedule: "BIWEEKLY_TUESDAY", scheduleDays: [2], timezone: "Asia/Shanghai", localTime: "00:00",
+    schedule: "BIWEEKLY_TUESDAY", scheduleDays: [4], timezone: "Asia/Shanghai", localTime: "08:00",
     maxRunCostMicros: row.maxRunCostMicros, maxMonthCostMicros: row.maxMonthCostMicros, revision: row.revision,
     nextDueAt: row.nextDueAt ? scheduledSerpDue(row.nextDueAt).toISOString() : null };
 }
@@ -63,7 +63,7 @@ export async function loadSerpMonitorStatus(): Promise<SerpMonitorStatus> {
 export async function previewSerpMonitor(): Promise<SerpMonitorPreview> {
   const [row, cohort] = await Promise.all([prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), loadSerpTargetCohort()]);
   return { action: "preview", cohortHash: cohort.hash, quote: quoteSerpTargets(cohort.targets, SERP_MARKETS), configuration: configuration(row), paidEnabled: false,
-    message: "仅预览目标、去重查询及费用；未提交供应商任务。隔周周一晚24:00（周二00:00）上海时间采集，付费抓取保持关闭。" };
+    message: "仅预览目标、去重查询及费用；未提交供应商任务。隔周周四08:00上海时间采集，付费抓取保持关闭。" };
 }
 async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "configure" }>) {
   await prisma.$transaction(async tx => {
@@ -98,7 +98,7 @@ async function reserveRun(id: string, expectedCohortHash: string, earlyPeriodKey
     const row = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), config = configuration(row);
     if (!isSerpScheduleAuthorized(row)) throw new ImportRequestError("请先在数据管理开启隔周自动更新，本次未请求供应商", 409);
     if (earlyPeriodKey && (!row?.nextDueAt || scheduledSerpDue(row.nextDueAt).toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000)) throw new ImportRequestError("只能提前执行24小时内的下一计划期", 409);
-    if (!earlyPeriodKey && row?.nextDueAt && scheduledSerpDue(row.nextDueAt).getTime() > Date.now()) throw new ImportRequestError("尚未到下次隔周周一晚24:00的采集时间", 409);
+    if (!earlyPeriodKey && row?.nextDueAt && scheduledSerpDue(row.nextDueAt).getTime() > Date.now()) throw new ImportRequestError("尚未到下次隔周周四08:00的采集时间", 409);
     if (await tx.serpMonitorRun.findFirst({ where: { status: { in: OPEN_RUNS } }, select: { id: true } })) throw new ImportRequestError("已有未完成或结果不明的SERP采集，请续跑原账本，不能重复扣费", 409);
     if (quote.maxCostMicros > config.maxRunCostMicros || await monthReserved(tx) + quote.maxCostMicros > config.maxMonthCostMicros) {
       // Commit the pause rather than rolling it back with the error. Otherwise

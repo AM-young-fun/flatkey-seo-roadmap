@@ -49,7 +49,11 @@ export async function buildWeeklyReport(periods: ReturnType<typeof weeklyPeriods
   const flatkeyPrevious = siteTraffic.find(row=>row.siteDomain === "flatkey.ai")?.previous;
   const cutoff = !preparedDraft ? reportingCutoff(flatkey?.analysis) : null;
   const sameCutoff = comparableWeeklyCutoffs(flatkey?.analysis, flatkeyPrevious?.analysis);
-  if (cutoff && !sameCutoff && pageVisitors) pageVisitors = {...pageVisitors,groups:pageVisitors.groups.map(group=>({...group,users:{...group.users,previous:null}}))};
+  const previousEvidence = weeklyEvidenceSchema.safeParse(flatkeyPrevious?.analysis);
+  const samePageRule = previousEvidence.success && previousEvidence.data.pageVisitors?.ruleVersion === pageVisitors?.ruleVersion;
+  if (pageVisitors && ((cutoff && !sameCutoff) || (pageVisitors.ruleVersion === 2 && !samePageRule))) pageVisitors = {...pageVisitors,
+    ...(pageVisitors.siteUsers ? {siteUsers:{...pageVisitors.siteUsers,previous:null}} : {}),
+    groups:pageVisitors.groups.map(group=>({...group,users:{...group.users,previous:null}}))};
   const evidence = preparedDraft?.evidence ?? (candidateEvidence && flatkey && flatkeyPrevious &&
     candidateEvidence.totals.current.newUsers === flatkey.newUsers && candidateEvidence.totals.current.newRegistrations === flatkey.newRegistrations &&
     candidateEvidence.totals.previous.newUsers === flatkeyPrevious.newUsers && candidateEvidence.totals.previous.newRegistrations === flatkeyPrevious.newRegistrations ? candidateEvidence : null);

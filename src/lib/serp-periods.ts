@@ -24,9 +24,9 @@ function biweeklyPeriod(start: string): SerpPeriod {
   const firstDay = `${start.slice(0, 7)}-01`;
   const firstSlot = addDays(ANCHOR, Math.ceil((Date.parse(`${firstDay}T00:00:00Z`) - Date.parse(`${ANCHOR}T00:00:00Z`)) / (14 * DAY)) * 14);
   const part = Math.round((parsed - Date.parse(`${firstSlot}T00:00:00Z`)) / (14 * DAY)) + 1;
-  // Preserve existing October ledgers; later slots move to Monday 24:00
-  // (Tuesday 00:00 Shanghai) without changing their period or request IDs.
-  const dueAt = start >= "2026-11-03" ? new Date(`${start}T00:00:00+08:00`).toISOString() : `${start}T02:30:00.000Z`;
+  // Keep the Tuesday period IDs and paid ledgers; future execution moves
+  // two days later to Thursday 08:00 Shanghai, retaining the 14-day phase.
+  const dueAt = start >= "2026-11-03" ? new Date(`${addDays(start, 2)}T08:00:00+08:00`).toISOString() : `${start}T02:30:00.000Z`;
   return { key: start, label: `${year}年${month}月第${part}期`, start, end: addDays(start, 13), dueAt };
 }
 export function serpPeriod(value: Date | string = new Date()): SerpPeriod {
@@ -57,7 +57,7 @@ export function periodDue(key: string): Date {
 // budget, revision, or an unfinished/completed paid ledger.
 export function scheduledSerpDue(value: Date | string): Date {
   const date = new Date(value), key = storedSerpPeriod(date).key;
-  return key >= "2026-11-03" && date.toISOString() === `${key}T02:30:00.000Z` ? periodDue(key) : date;
+  return key >= "2026-11-03" && [ `${key}T02:30:00.000Z`, new Date(`${key}T00:00:00+08:00`).toISOString() ].includes(date.toISOString()) ? periodDue(key) : date;
 }
 
 // The next fixed slot belongs to the next reporting period, never completion
