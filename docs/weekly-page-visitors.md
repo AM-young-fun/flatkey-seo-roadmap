@@ -36,3 +36,8 @@
 每次仅采新一周每日去重人数和浏览次数，存traffic[].analysis.pageTrends：{metric:"totalUsers",eventName:"page_view",ruleVersion:1,timezone:"America/Los_Angeles",sourceUrl:GA4链接,groups:[{key:"models",points:[{date:"YYYY-MM-DD",users:数字或null,pageViews:数字或null}]},{key:"compute",points:[...]},{key:"prompts",points:[...]}]}。首次可回填已核对三周；未取得日期用null，不能填零，不相加每日人数当周去重人数。
 
 WeeklyTraffic.analysis存于PostgreSQL，每周追加，保留旧记录；历史曲线读取所有已保存周，按组和日期拼接，重复日期采用最新有效证据，空缺不抹除已知值。默认全部历史，可切换最近三周/90天。无需重抓历史、浏览器缓存或重新部署维持数据。
+
+
+## 按周总数（2026-10-23追加）
+
+图表默认按周汇总，保留按天切换。每组除points每日记录外，另存weeks:[{periodStart:"YYYY-MM-DD",periodEnd:"YYYY-MM-DD",users:整周去重totalUsers,pageViews:整周浏览次数}]，按周五至周四连续7天单独查询。不能相加每日访客冒充整周去重用户；不能使用GA4默认周日/周一分周。每期只追加新周weeks，读取历史合并成整体周曲线，旧日报永久保留。缺少整周查询时显示待采集，不由points推算。
