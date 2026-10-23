@@ -27,3 +27,12 @@
 ```
 
 示例数字仅演示结构。上述对象存入analysis.pageVisitors。previous仅复用已保存、同为周五至周四、同ruleVersion=2、同截数口径的相邻期。没有基线时用null，不重抓历史快照。旧ruleVersion=1含模型目录，保留历史展示，不当成新模型详情基线；旧证据无全站分母时不计算占比。两组本期人数或全站分母缺失时只能PARTIAL，不能GA4 COMPLETED。完成后将两组占比与变化写入本周总结。
+
+
+## 核心页面历史折线图（2026-10-23）
+
+三张独立每日totalUsers曲线：模型详情＋列表（/models、/models/<slug>），GPU Compute（/compute及子页面），Prompt Library（既有提示词规则）。含支持的语言前缀，eventName=page_view，主机名限定flatkey.ai/www.flatkey.ai。曲线模型组与仅模型详情占比表不同，名称明确区分。
+
+每次仅采新一周每日去重人数和浏览次数，存traffic[].analysis.pageTrends：{metric:"totalUsers",eventName:"page_view",ruleVersion:1,timezone:"America/Los_Angeles",sourceUrl:GA4链接,groups:[{key:"models",points:[{date:"YYYY-MM-DD",users:数字或null,pageViews:数字或null}]},{key:"compute",points:[...]},{key:"prompts",points:[...]}]}。首次可回填已核对三周；未取得日期用null，不能填零，不相加每日人数当周去重人数。
+
+WeeklyTraffic.analysis存于PostgreSQL，每周追加，保留旧记录；历史曲线读取所有已保存周，按组和日期拼接，重复日期采用最新有效证据，空缺不抹除已知值。默认全部历史，可切换最近三周/90天。无需重抓历史、浏览器缓存或重新部署维持数据。

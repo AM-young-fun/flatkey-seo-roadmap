@@ -4,6 +4,7 @@ import type { WeeklyReportingCutoff } from "./weekly-cutoff";
 
 export type WeeklyTrafficEvidence = {
   complete: boolean;
+  pageTrends?: import("./page-traffic-history").PageTrafficHistory;
   reportingCutoff?: WeeklyReportingCutoff;
   pageVisitors?: WeeklyPageVisitors;
   totals: { current: { newUsers: number; newRegistrations: number }; previous: { newUsers: number; newRegistrations: number } };
