@@ -2437,3 +2437,6 @@ a:focus-visible {
   .pageTrafficCard.dailyPanel { padding:18px 14px; }
   .pageTrafficPlot { height:240px; }
 }
+
+.pageTrafficWindow { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 16px; margin:-4px 0 16px; padding:0 4px; color:#8290a5; font-size:11px; line-height:1.8; }
+.pageTrafficWindow strong { color:#536d90; font-weight:500; }

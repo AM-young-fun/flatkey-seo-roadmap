@@ -31,3 +31,13 @@ export function mergePageTrafficHistory(rows:{analysis:unknown;collectedAt:Date}
     return {...group,timezone,points:[...points.values()].sort((a,b)=>a.date.localeCompare(b.date))};
   });
 }
+
+export type PageTrafficRange = "all" | "7" | "21" | "90";
+export function pageTrafficWindow(series:PageTrafficSeries,range:PageTrafficRange) {
+  const dates=series.flatMap(group=>group.points.map(point=>point.date)).sort();
+  const availableStart=dates[0]??null,end=dates.at(-1)??null;
+  const requestedStart=end&&range!=="all"?new Date(Date.parse(end)-(Number(range)-1)*86400000).toISOString().slice(0,10):availableStart;
+  const start=availableStart&&requestedStart?(availableStart>requestedStart?availableStart:requestedStart):null;
+  const days=start&&end?Math.round((Date.parse(end)-Date.parse(start))/86400000)+1:0;
+  return {start,end,days,sameAsAll:range!=="all"&&Boolean(start&&start===availableStart),series:series.map(group=>({...group,points:group.points.filter(point=>Boolean(start&&end&&point.date>=start&&point.date<=end))}))};
+}
