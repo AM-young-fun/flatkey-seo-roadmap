@@ -67,6 +67,56 @@ test("newer scheduled ranks win; pending or invalid manual attempts cannot erase
   assert.equal(merged.latestRanks.US.rankStatus, "outside_top100"); assert.equal(merged.latestRanks.US.movement, "DROPPED_OUT");
 });
 
+test("failed daily capture keeps the last valid ranking and shows failure instead of success", () => {
+  const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
+  const { KeywordRankActions } = require("../src/components/KeywordRankActions.tsx");
+  const stored = savedRank(9, before, { movement: "FIRST_CHECK" });
+  const word = keyword("api", "example api", { latestRanks: { US: stored, JP: null, ES: null, BR: null } });
+  const optimized = { ...page([word.text], [result(word.text, null, null, { status: "FAILED" })]), usedToday: true,
+    run: { status: "FAILED", queryCount: 16, taskCounts: { FAILED: 16 } } };
+  const capture = { data: { connectionConfigured: true, externalEnabled: true, activeRunId: null }, busy: null,
+    start: () => assert.fail("displaying a failed receipt must not submit a new paid capture") };
+  assert.deepEqual(withOptimizedKeywordRanks(word, [optimized]).latestRanks.US, stored);
+  const render = value => renderToStaticMarkup(React.createElement(KeywordRankActions, { pages: [value], capture }));
+  const failed = render(optimized);
+  assert.ok(failed.includes("今日抓取失败")); assert.ok(!failed.includes("今日已抓取"));
+  assert.ok(failed.includes("16/16 个任务失败")); assert.ok(failed.includes("本次未更新排名"));
+  assert.match(failed, /<button[^>]*disabled/);
+  const partial = render({ ...optimized, run: { ...optimized.run, status: "PARTIAL", taskCounts: { COMPLETE: 8, FAILED: 8 } } });
+  assert.ok(partial.includes("今日部分完成")); assert.ok(partial.includes("对应排名保留历史结果"));
+  const tomorrow = render({ ...optimized, usedToday: false });
+  assert.ok(tomorrow.includes("抓取排名")); assert.ok(tomorrow.includes("上次抓取失败"));
+  assert.doesNotMatch(tomorrow, /<button[^>]*disabled/);
+  assert.ok(render({ ...optimized, run: { ...optimized.run, status: "RUNNING" } }).includes("处理中"));
+  assert.ok(render({ ...optimized, run: { ...optimized.run, status: "UNKNOWN" } }).includes("需核对"));
+  assert.ok(render({ ...optimized, run: { ...optimized.run, status: "COMPLETED", taskCounts: { COMPLETE: 16 } } }).includes("今日已完成"));
+});
+
+test("capture controls show processing and progress from submission through waiting and result parsing", () => {
+  const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
+  const { KeywordRankActions } = require("../src/components/KeywordRankActions.tsx");
+  const optimized = page(["example api"]);
+  const capture = { data: { connectionConfigured: true, externalEnabled: true, activeRunId: null }, busy: null,
+    start: () => assert.fail("rendering progress cannot submit another paid request") };
+  const render = (value, busy = null) => renderToStaticMarkup(React.createElement(KeywordRankActions, { pages: [value], capture: { ...capture, busy } }));
+  const submitting = render(optimized, optimized.id);
+  assert.ok(submitting.includes("处理中")); assert.ok(submitting.includes("正在提交抓取任务"));
+  assert.match(submitting, /<button[^>]*disabled/);
+  for (const [status, taskCounts, message] of [
+    ["PLANNED", { PLANNED: 16 }, "等待提交 16 项"],
+    ["RUNNING", { SUBMITTING: 16 }, "正在提交 16 项"],
+    ["RUNNING", { COMPLETE: 4, QUEUED: 12 }, "已返回 4/16 项 · 等待结果 12 项"],
+    ["RUNNING", { COMPLETE: 8, RECEIVED: 8 }, "已返回 8/16 项 · 正在处理结果 8 项"],
+  ]) {
+    // Even if the daily flag or global active ID has not refreshed, this
+    // page's own in-flight run must keep its capture control disabled.
+    const html = render({ ...optimized, run: { status, queryCount: 16, taskCounts } });
+    assert.ok(html.includes("处理中")); assert.ok(html.includes(message));
+    assert.ok(html.includes("完成后自动更新排名")); assert.ok(!html.includes("今日已完成"));
+    assert.ok(!html.includes("上次已返回")); assert.match(html, /<button[^>]*disabled/);
+  }
+});
+
 test("optimized filter renders keyword rows and capture controls in details, with no separate monitor navigation", () => {
   const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
   const mock = (relative, exports) => { const filename = path.join(root, relative); require.cache[filename] = { id: filename, filename, loaded: true, exports }; };
@@ -77,7 +127,9 @@ test("optimized filter renders keyword rows and capture controls in details, wit
     id: word.id.slice("flatkey.ai:".length), text: word.text, pool: "FORMAL", active: true, siteDomain: "flatkey.ai", businessCategory: "FLATKEY_API",
     targetUrls: [url], candidateUrls: [], actualPages: [], mappingStatus: "NEEDS_EXPANSION", latestPageAuditVerdict: "CONTENT_GAP",
   })) }, refresh: () => {} }) });
-  mock("src/components/useOptimizedPageCapture.ts", { useOptimizedPageCapture: () => ({ data: { day: "2026-10-22", connectionConfigured: true, externalEnabled: true, pages: [optimized] }, start: () => assert.fail("render cannot submit a paid request") }) });
+  let captureState = { data: { day: "2026-10-22", connectionConfigured: true, externalEnabled: true, pages: [optimized] }, busy: null,
+    start: () => assert.fail("render cannot submit a paid request") };
+  mock("src/components/useOptimizedPageCapture.ts", { useOptimizedPageCapture: () => captureState });
   const targets = words.map(word => ({ id: word.id.slice("flatkey.ai:".length), text:word.text, pool:"FORMAL", active:true,
     siteDomain:"flatkey.ai", businessCategory:"FLATKEY_API", targetUrls:[url], candidateUrls:[], actualPages:[], mappingStatus:"NEEDS_EXPANSION", latestPageAuditVerdict:"CONTENT_GAP" }));
   mock("src/components/useKeywordPage.ts", { useKeywordPage: () => ({data:{keywords:[first,second],okr:{initialized:true,keywords:targets,tasks:[]},total:2},page:1,setPage:()=>{},refresh:()=>{}}) });
@@ -88,6 +140,20 @@ test("optimized filter renders keyword rows and capture controls in details, wit
   assert.ok(html.includes("优化完成时间")); assert.ok(html.includes("2026-10-12（日期）"));
   assert.ok(html.includes("业务分类")); assert.ok(html.includes("已优化")); assert.ok(html.includes("抓取排名"));
   assert.ok(!html.includes('href="/monitor"')); assert.ok(!html.includes("全部网站"));
+  for (const phase of ["submitting", "PLANNED", "RUNNING"]) {
+    captureState = { ...captureState, busy: phase === "submitting" ? optimized.id : null,
+      data: { ...captureState.data, pages: [{ ...optimized, run: phase === "submitting" ? null : { status: phase, queryCount: 16, taskCounts: { QUEUED: 16 } } }] } };
+    const pending = renderToStaticMarkup(React.createElement(KeywordDetails, { initiallyOptimized: true }));
+    const firstRow = pending.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g).find(row => row.includes("first api"));
+    assert.ok(firstRow.includes("<strong>处理中</strong>"), phase);
+    assert.ok(firstRow.includes("上次有效排名 · 本次处理中"), phase);
+    assert.ok(firstRow.includes("#7"), "keep the last valid position visible");
+    assert.ok(!firstRow.includes("<strong>仅一次有效实测</strong>"), phase);
+  }
+  captureState = { ...captureState, busy: null, data: { ...captureState.data, pages: [optimized] } };
+  const finished = renderToStaticMarkup(React.createElement(KeywordDetails, { initiallyOptimized: true }));
+  assert.ok(finished.includes("<strong>仅一次有效实测</strong>"));
+  assert.ok(!finished.includes("本次排名处理中"));
   const { default: LegacyMonitor } = require("../src/app/monitor/page.tsx");
   assert.throws(() => LegacyMonitor(), error => error.digest?.includes("/keywords?status=optimized"));
 });
