@@ -378,3 +378,28 @@ test("a failed page does not lock another eligible page, while retry respects an
   await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId: first.runId }), /另一个页面/);
   assert.equal(submits, 2);
 });
+
+
+test("site evidence accepts verified shallow positive matches while preserving target-page history", async () => {
+  const older = savedTask("older", 20, "2026-10-16T03:00Z"), prior = savedTask("prior", 14, "2026-10-20T03:00Z");
+  const shallow = savedTask("shallow", null, "2026-10-30T03:00Z");
+  shallow.normalizedJson.completeDepth = false;
+  shallow.normalizedJson.organicResults = [{ url: "https://flatkey.ai/blog/other", domain: "flatkey.ai", rankGroup: 16 }];
+  const latest = { startedAt: shallow.checkedAt, tasks: [shallow] };
+  const page = lib.savedPageRankingComparison(url, [target.keyword], [older, prior, shallow], latest);
+  const site = lib.savedPageRankingComparison(url, [target.keyword], [older, prior, shallow], latest, undefined, true);
+  assert.equal(page.results[0].rank, 14); assert.equal(page.previousResults[0].rank, 20);
+  assert.equal(site.results[0].status, "NOT_FOUND_CAPTURE"); assert.equal(site.results[0].otherPages[0].rank, 16);
+  assert.equal(site.previousResults[0].rank, 14);
+  state.baselines = [older, prior, shallow];
+  const loaded = await service.loadOptimizedPageMonitor(new Date("2026-10-30T04:00Z"));
+  const loadedPage = loaded.pages.find(page => page.url === url);
+  assert.equal(loadedPage.results[0].rank, 14);
+  assert.equal(loadedPage.siteResults[0].otherPages[0].rank, 16);
+  assert.equal(loadedPage.previousSiteResults[0].rank, 14);
+  for (const mutate of [task => task.normalizedJson.organicResults = [], task => task.normalizedJson.queryStatus = "AUTOCORRECTED", task => task.normalizedJson.rankingVerified = false]) {
+    const invalid = structuredClone(shallow); mutate(invalid);
+    const history = lib.savedPageRankingComparison(url, [target.keyword], [older, prior, invalid], { ...latest, tasks: [invalid] }, undefined, true);
+    assert.equal(history.results[0].rank, 14);
+  }
+});

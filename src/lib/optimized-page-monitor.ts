@@ -33,7 +33,7 @@ export type OptimizedPageTarget = { id: string; url: string; title: string; opti
 export type OptimizedPageRank = { keyword: string; region: SerpRegion; rank: number | null; status: string; checkedAt: string | null; googleUrl: string | null; otherPages: Array<{ url: string; rank: number }> };
 export type OptimizedPageMonitorResponse = {
   day: string; connectionConfigured: boolean; externalEnabled: boolean; activeRunId: string | null;
-  pages: Array<OptimizedPageTarget & { queryCount: number; maxCostMicros: number; usedToday: boolean; retryableTaskCount: number; run: SerpMonitorRunDto | null; results: OptimizedPageRank[]; previousResults: OptimizedPageRank[] }>;
+  pages: Array<OptimizedPageTarget & { queryCount: number; maxCostMicros: number; usedToday: boolean; retryableTaskCount: number; run: SerpMonitorRunDto | null; results: OptimizedPageRank[]; previousResults: OptimizedPageRank[]; siteResults?: OptimizedPageRank[]; previousSiteResults?: OptimizedPageRank[] }>;
 };
 
 export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unknown }>, targets: SerpTarget[]): OptimizedPageTarget[] {
@@ -93,7 +93,7 @@ export function optimizedPageRank(pageUrl: string, task: { keyword: string; regi
 }
 
 export type SavedPageRankingTask = { id?: string; pageUrl?: string; keyword: string; region: string; state: string; normalizedJson: unknown; checkedAt: Date | null };
-export function savedPageRankingComparison(pageUrl: string, keywords: string[], saved: SavedPageRankingTask[], latest?: { startedAt: Date; tasks: SavedPageRankingTask[] }, previous?: { tasks: SavedPageRankingTask[] }) {
+export function savedPageRankingComparison(pageUrl: string, keywords: string[], saved: SavedPageRankingTask[], latest?: { startedAt: Date; tasks: SavedPageRankingTask[] }, previous?: { tasks: SavedPageRankingTask[] }, siteBest = false) {
   const results: OptimizedPageRank[] = [], previousResults: OptimizedPageRank[] = [];
   const tasks = [...saved.filter(task => !task.pageUrl || task.pageUrl === pageUrl), ...(latest?.tasks ?? []), ...(previous?.tasks ?? [])];
   for (const keyword of keywords) for (const region of ["US", "JP", "ES", "BR"]) {
@@ -101,7 +101,7 @@ export function savedPageRankingComparison(pageUrl: string, keywords: string[], 
     // Rank evidence is shared across manual and scheduled captures. Pending or
     // invalid attempts must not hide the most recent valid rank for this page.
     const history = tasks.filter(sameQuery).map(task => optimizedPageRank(pageUrl, task))
-      .filter(rank => rank.status === "RANKED" || rank.status === "OUTSIDE_TOP100")
+      .filter(rank => rank.status === "RANKED" || rank.status === "OUTSIDE_TOP100" || siteBest && rank.status === "NOT_FOUND_CAPTURE" && rank.otherPages.length > 0)
       .sort((a, b) => Date.parse(b.checkedAt!) - Date.parse(a.checkedAt!));
     const fallback = latest?.tasks.find(sameQuery);
     const current = history[0] ?? (fallback ? optimizedPageRank(pageUrl, fallback) : undefined);
