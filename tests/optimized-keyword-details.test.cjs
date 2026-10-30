@@ -156,11 +156,11 @@ test("optimized filter renders keyword rows and capture controls in details, wit
   assert.ok(!finished.includes("本次排名处理中"));
   // The all-country default must surface today's US comparison even
   // when an older Japanese rank is the best numeric position.
-  first.latestRanks = { US: savedRank(14, before), JP: savedRank(9, before), ES: null, BR: null };
+  first.latestRanks = { US: savedRank(14, before), JP: savedRank(9, before), ES: savedRank(null, before, { rankStatus: "not_found_capture" }), BR: null };
   const fresh = result(first.text, null, at, { status: "NOT_FOUND_CAPTURE", otherPages: [{ url: "https://flatkey.ai/blog/new-ranking-page", rank: 16 }] });
   const miss = { ...fresh, region: "JP", otherPages: [] };
   captureState = { ...captureState, data: { ...captureState.data, pages: [{ ...optimized,
-    run: { status: "COMPLETED", queryCount: 8, taskCounts: { COMPLETE: 8 } }, results: [fresh], attemptResults: [fresh, miss],
+    run: { status: "COMPLETED", queryCount: 8, taskCounts: { COMPLETE: 8 } }, results: [fresh], attemptResults: [fresh, miss, { ...miss, region: "ES" }],
   }] } };
   const updated = renderToStaticMarkup(React.createElement(KeywordDetails, { initiallyOptimized: true }));
   const updatedRow = updated.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g).find(row => row.includes("first api"));
@@ -170,6 +170,10 @@ test("optimized filter renders keyword rows and capture controls in details, wit
   assert.ok(text.includes("有效采集：2026/10/22 11:00:00"));
   assert.ok(text.includes("日本 · 本次暂无可比结果"));
   assert.ok(text.includes("本次未取得有效名次，保留历史排名"));
+  const spain = text.split("西班牙：")[1].split("巴西：")[0];
+  assert.ok(spain.includes("本次未取得有效名次"));
+  assert.ok(!spain.includes("有效采集："), "invalid historical attempts are not valid captures");
+  assert.ok(!spain.includes("保留历史排名"), "a country without a valid rank cannot claim a retained historical ranking");
   const cells = updatedRow.match(/<td\b[^>]*>[\s\S]*?<\/td>/g);
   const observed = cells.find(cell => cell.includes("排名采集："));
   assert.ok(observed.indexOf("new-ranking-page") < observed.indexOf("<details"), "newest country page is visible before historical pages");
