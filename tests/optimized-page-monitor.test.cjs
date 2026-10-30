@@ -409,3 +409,25 @@ test("site evidence accepts verified shallow positive matches while preserving t
     assert.equal(history.results[0].rank, 14);
   }
 });
+
+
+test("legacy REVIEW source flags do not veto an independently verified formal keyword for the exact page", async () => {
+  const legacy = source();
+  legacy.snapshot.publication.pageVerified = true;
+  legacy.snapshot.keywords[0] = { ...legacy.snapshot.keywords[0], relevance: "REVIEW", pageIntentMatched: false,
+    reason: "Old import kept a pending review before the independent formal keyword page audit passed." };
+  legacy.snapshot.keywords.push({ keyword: "other page keyword", relevance: "REVIEW", pageIntentMatched: false });
+  state.sources = [legacy];
+  cohort = [target, { ...target, keywordId: "other", keyword: "other page keyword", targetUrls: ["https://flatkey.ai/blog/elsewhere"] }];
+  const page = lib.buildOptimizedPages(state.sources, cohort)[0];
+  assert.equal(page.sourceKeywordCount, 2);
+  assert.deepEqual(page.targets, [target], "only the independently verified exact page association may be captured");
+  const loaded = await service.loadOptimizedPageMonitor();
+  assert.equal(loaded.pages[0].queryCount, 4);
+  await start();
+  assert.equal(submits, 1); assert.equal(state.tasks.length, 4);
+  assert.ok(state.tasks.every(task => task.keyword === target.keyword));
+  assert.equal(lib.buildOptimizedPages([legacy], [])[0].targets.length, 0, "old completion/review alone cannot create paid eligibility");
+  legacy.snapshot.keywords[0].relevance = "UNRELATED";
+  assert.equal(lib.buildOptimizedPages([legacy], cohort)[0].targets.length, 0, "explicit exclusions still block the source association");
+});
