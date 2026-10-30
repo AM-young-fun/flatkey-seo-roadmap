@@ -59,10 +59,10 @@ export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unkn
       if (typeof word.keyword !== "string") continue;
       const key = normalizeKeywordText(word.keyword); group.words.add(key);
       const target = byWord.get(key);
-      // `targets` is the independently audited monitoring cohort. Its exact
-      // verified URL is sufficient even when this old source flag is false.
+      // The monitoring cohort already requires a formal keyword and verified
+      // page evidence. Legacy REVIEW flags must not veto that independent
+      // approval; keep explicit exclusions and exact page matching in force.
       if (!target || word.relevance === "UNRELATED" ||
-        !(word.relevance === "RELEVANT" || word.newModel === true && typeof word.reason === "string" && word.reason.trim().length >= 20) ||
         !target.targetUrls.some(page => optimizedPageUrl(page) === url)) continue;
       group.eligible.set(target.keywordId, { ...target, targetUrls: [url] });
     }
