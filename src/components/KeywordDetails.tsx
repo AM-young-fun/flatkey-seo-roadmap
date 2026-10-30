@@ -187,11 +187,11 @@ export function KeywordDetails({ initiallyOptimized = false, initialCountry = "a
       const best = bestKeywordDetailRank(group, country);
       return <div className="evidenceSummary">{processingFor(group) ? <small>{best?.rank?.checkedAt ? "上次有效排名 · 本次处理中" : "本次排名处理中"}</small> : null}{validKeywordDetailRank(best?.rank) ? <strong>{country === "all" ? "四国最佳：" : ""}#{best.rank.rank} · {REGIONS[best.region].label}{group.members.length > 1 ? ` · ${siteName(best.member)}` : ""}</strong> : <strong>{tagFor(group).label}</strong>}
         {country === "all" ? keywordDetailCountryRanks(group, country).map(value => {
-          const missing = missingAttemptFor(value);
+          const missing = missingAttemptFor(value), validEvidence = validKeywordDetailRank(value.rank) || value.rank?.rankStatus === "outside_top100";
           return <div className="evidenceSummary" key={value.region}>
             <small>{REGIONS[value.region].label}：{validKeywordDetailRank(value.rank) ? `#${value.rank.rank}${group.members.length > 1 ? ` · ${siteName(value.member)}` : ""}` : tagFor(group, value.region).label}</small>
-            {value.rank?.checkedAt ? <small>有效采集：{localDate(value.rank.checkedAt)}</small> : null}
-            {missing ? <small>本次未取得有效名次{value.rank?.checkedAt ? "，保留历史排名" : ""} · {localDate(missing.checkedAt)}</small> : null}
+            {validEvidence && value.rank?.checkedAt ? <small>有效采集：{localDate(value.rank.checkedAt)}</small> : null}
+            {missing ? <small>本次未取得有效名次{validEvidence ? "，保留历史排名" : ""} · {localDate(missing.checkedAt)}</small> : null}
           </div>;
         }) : best?.rank?.checkedAt ? <small>{localDate(best.rank.checkedAt)}</small> : null}{best?.rank && country !== "all" && coverage(best.rank) ? <small>{coverage(best.rank)}</small> : null}
       </div>;
