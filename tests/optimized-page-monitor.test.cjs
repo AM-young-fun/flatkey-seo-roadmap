@@ -26,6 +26,7 @@ function matches(row, where = {}) {
     if (value && typeof value === "object") {
       if (Object.hasOwn(value, "in")) return value.in.includes(row[key]);
       if (Object.hasOwn(value, "gte")) return row[key] != null && row[key] >= value.gte;
+      if (Object.hasOwn(value, "not")) return row[key] !== value.not;
     }
     return row[key] === value;
   });
@@ -47,10 +48,14 @@ const db = {
     findUnique: async ({ where }) => state.runs.find(run => matches(run, where)) ?? null,
     findFirst: async ({ where }) => state.runs.find(run => matches(run, where)) ?? null,
     findMany: async ({ where }) => state.runs.filter(run => matches(run, where)).sort((a, b) => b.createdAt - a.createdAt).map(run => ({ ...run, tasks: state.tasks.filter(task => task.runId === run.id) })),
+    update: async ({ where, data }) => { const row = state.runs.find(run => matches(run, where)); Object.assign(row, data); return row; },
     aggregate: async () => ({ _sum: { reservedCostMicros: state.runs.reduce((sum, run) => sum + run.reservedCostMicros, 0) } }),
     create: async ({ data }) => { const run = { ...data, startedAt: new Date(), createdAt: new Date(), completedAt: null, actualCostMicros: null, errorCode: null }; state.runs.push(run); return run; },
   },
-  serpMonitorTask: { createMany: async ({ data }) => { state.tasks.push(...data.map(task => ({ ...task, checkedAt: null, normalizedJson: null }))); } },
+  serpMonitorTask: {
+    findMany: async ({ where }) => state.tasks.filter(task => matches(task, where)),
+    updateMany: async ({ where, data }) => { const rows = state.tasks.filter(task => matches(task, where)); rows.forEach(task => Object.assign(task, data)); return { count: rows.length }; },
+    createMany: async ({ data }) => { state.tasks.push(...data.map(task => ({ ...task, checkedAt: null, normalizedJson: null }))); } },
 };
 mock("src/lib/prisma.ts", { prisma: db });
 mock("src/lib/dataforseo-credentials.ts", { decryptDataForSeoCredentials: () => ({ apiLogin: "private-login", apiPassword: "private-password" }) });
@@ -304,4 +309,72 @@ test("optimization dates come only from saved source dates, preserve date precis
   assert.equal(lib.buildOptimizedPages([later, dated], cohort)[0].optimizedAt, later.snapshot.optimizedAt);
   const invalid = source(); invalid.snapshot.optimizedAt = "2026-02-30";
   assert.equal(lib.buildOptimizedPages([invalid], cohort)[0].optimizedAt, null);
+});
+
+
+test("failed paid tasks can be retried for free despite the consumed daily allowance and changed current targets", async () => {
+  const { runId } = await start();
+  const run = state.runs[0]; run.status = "PARTIAL"; run.completedAt = new Date(); run.actualCostMicros = 24000;
+  state.tasks.forEach((task, i) => Object.assign(task, { state: i === 0 ? "COMPLETE" : "FAILED", providerTaskId: i === 3 ? null : `original-provider-${i}`,
+    errorCode: i === 0 ? null : "PROVIDER_40601", costMicros: 6000, rawResponse: "original-receipt" }));
+  const complete = structuredClone(state.tasks[0]);
+  let page = (await service.loadOptimizedPageMonitor()).pages[0];
+  assert.equal(page.usedToday, true); assert.equal(page.retryableTaskCount, 2);
+  // Reading a paid task never needs today's source to re-authorize a new POST.
+  cohort = []; state.sources = [];
+  const response = await service.mutateOptimizedPageMonitor({ action: "retry", runId });
+  assert.equal(response.action, "retry"); assert.equal(submits, 1); assert.equal(polls, 1);
+  assert.equal(state.runs.length, 1); assert.equal(run.status, "RUNNING"); assert.equal(run.completedAt, null);
+  assert.equal(run.actualCostMicros, 24000); assert.equal(run.reservedCostMicros, 24000);
+  assert.deepEqual(state.tasks[0], complete, "a completed country result is never reset");
+  for (const task of state.tasks.slice(1, 3)) {
+    assert.equal(task.state, "QUEUED"); assert.equal(task.lastPolledAt, null);
+    assert.equal(task.costMicros, 6000); assert.equal(task.rawResponse, "original-receipt");
+    assert.ok(task.providerTaskId.startsWith("original-provider-"));
+  }
+  assert.equal(state.tasks[3].state, "FAILED", "a missing provider ID cannot authorize another paid submission");
+});
+
+test("concurrent retries keep one original ledger and never submit paid tasks again", async () => {
+  const { runId } = await start(); state.runs[0].status = "FAILED";
+  state.tasks.forEach((task, i) => Object.assign(task, { state: "FAILED", providerTaskId: `original-provider-${i}` }));
+  const ids = state.tasks.map(task => [task.id, task.providerTaskId]);
+  await Promise.all(Array.from({ length: 3 }, () => service.mutateOptimizedPageMonitor({ action: "retry", runId })));
+  assert.equal(submits, 1); assert.equal(state.runs.length, 1);
+  assert.deepEqual(state.tasks.map(task => [task.id, task.providerTaskId]), ids);
+  assert.ok(state.tasks.every(task => task.state === "QUEUED"));
+});
+
+test("retry refuses unknown, completed, expired, foreign and unsent records without another charge", async () => {
+  const { runId } = await start();
+  state.tasks.forEach((task, i) => Object.assign(task, { state: "FAILED", providerTaskId: `original-provider-${i}` }));
+  for (const status of ["UNKNOWN", "COMPLETED", "PLANNED"]) {
+    state.runs[0].status = status;
+    await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId }), /无需重试|核对/);
+  }
+  state.runs[0].status = "FAILED"; state.runs[0].scope = "SCHEDULED";
+  await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId }), /未找到/);
+  state.runs[0].scope = "OPTIMIZED_PAGE"; state.runs[0].startedAt = new Date(Date.now() - 31 * 86400000);
+  assert.equal((await service.loadOptimizedPageMonitor()).pages[0].retryableTaskCount, 0);
+  await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId }), /保留期/);
+  state.runs[0].startedAt = new Date(); process.env.DISABLE_EXTERNAL_FETCH = "true";
+  await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId }), /暂停/);
+  delete process.env.DISABLE_EXTERNAL_FETCH;
+  state.tasks.forEach(task => { task.providerTaskId = null; });
+  await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId }), /没有可取回/);
+  assert.equal(submits, 1); assert.equal(polls, 0);
+  assert.ok(lib.optimizedPageMutationSchema.safeParse({ action: "retry", runId }).success);
+  assert.equal(lib.optimizedPageMutationSchema.safeParse({ action: "retry", runId, force: true }).success, false);
+});
+
+test("a failed page does not lock another eligible page, while retry respects an actively processing page", async () => {
+  const first = await start(); state.runs[0].status = "FAILED";
+  state.tasks.forEach((task, i) => Object.assign(task, { state: "FAILED", providerTaskId: `original-provider-${i}` }));
+  const secondUrl = "https://flatkey.ai/blog/second";
+  state.sources.push(source("second", secondUrl)); cohort[0].targetUrls.push(secondUrl);
+  const second = lib.buildOptimizedPages(state.sources, cohort).find(page => page.url === secondUrl);
+  await service.mutateOptimizedPageMonitor({ action: "start", pageId: second.id, expectedHash: second.hash, day: lib.monitorDay() });
+  assert.equal(submits, 2, "a terminal failure cannot disable unrelated eligible pages");
+  await assert.rejects(service.mutateOptimizedPageMonitor({ action: "retry", runId: first.runId }), /另一个页面/);
+  assert.equal(submits, 2);
 });

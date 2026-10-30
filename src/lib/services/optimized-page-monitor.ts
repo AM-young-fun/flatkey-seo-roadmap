@@ -5,7 +5,7 @@ import { envBool } from "@/lib/env";
 import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { buildSerpTask, configForSerpRegion, groupSerpMarketQueries, quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS } from "@/lib/dataforseo-serp";
-import { serpTaskId } from "@/lib/dataforseo-serp";
+import { providerIdIsSafe, serpTaskId } from "@/lib/dataforseo-serp";
 import { buildOptimizedPages, monitorDay, OPTIMIZED_PAGE_MAX_QUERIES, OPTIMIZED_PAGE_SCOPE, optimizedPagePeriod, savedPageRankingComparison, record,
   type SavedPageRankingTask, type OptimizedPageMutation, type OptimizedPageMonitorResponse } from "@/lib/optimized-page-monitor";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
@@ -37,7 +37,7 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
   const requested = pages.flatMap(page => page.keywords.map(keyword => Prisma.sql`(${page.url}, ${keyword})`));
   const [runs, saved] = await Promise.all([
     ids.length ? prisma.serpMonitorRun.findMany({ where: { id: { in: ids.map(row => row.id) } }, orderBy: { createdAt: "desc" },
-      include: { tasks: { select: { id: true, keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true } } } }) : Promise.resolve([]),
+      include: { tasks: { select: { id: true, keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true, providerTaskId: true } } } }) : Promise.resolve([]),
     requested.length ? prisma.$queryRaw<SavedPageRankingTask[]>(Prisma.sql`
       /* optimized-page:saved-ranking-baseline */
       WITH requested("pageUrl", keyword) AS (VALUES ${Prisma.join(requested)}), selected AS (
@@ -81,12 +81,39 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
           startedAt: latest.startedAt.toISOString(), completedAt: latest.completedAt?.toISOString() ?? null, errorCode: latest.errorCode,
           periodKey: latest.periodKey, periodLabel: latest.periodLabel, periodStart: latest.periodStart.toISOString(), periodEnd: latest.periodEnd.toISOString(), taskCounts: counts };
       }
-      return { ...page, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
+      const retryableTaskCount = latest && ["FAILED", "PARTIAL"].includes(latest.status) && now.getTime() - latest.startedAt.getTime() < 30 * 86400000
+        ? latest.tasks.filter(task => task.state === "FAILED" && providerIdIsSafe(task.providerTaskId)).length : 0;
+      return { ...page, retryableTaskCount, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
         ...savedPageRankingComparison(page.url, page.keywords, saved, latest, previous) };
     }) };
 }
 
 export async function mutateOptimizedPageMonitor(input: OptimizedPageMutation) {
+  if (input.action === "retry") {
+    if (envBool("DISABLE_EXTERNAL_FETCH")) throw new ImportRequestError("外部请求已暂停", 409);
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
+      const run = await tx.serpMonitorRun.findUnique({ where: { id: input.runId } });
+      if (!run || run.scope !== OPTIMIZED_PAGE_SCOPE) throw new ImportRequestError("未找到该页面的采集记录", 404);
+      if (!["FAILED", "PARTIAL", "RUNNING"].includes(run.status)) throw new ImportRequestError("该记录无需重试，或提交结果仍需核对", 409);
+      if (Date.now() - run.startedAt.getTime() >= 30 * 86400000) throw new ImportRequestError("原任务已超过供应商结果保留期，请重新抓取", 409);
+      const active = await tx.serpMonitorRun.findFirst({ where: { scope: OPTIMIZED_PAGE_SCOPE, status: { in: OPEN } }, select: { id: true } });
+      if (active && active.id !== run.id) throw new ImportRequestError("另一个页面正在处理，请等待其完成后重试", 409);
+      // An explicit retry only reopens FAILED tasks with their own known
+      // provider IDs. Never reset accepted tasks to PLANNED or issue a POST.
+      const failed = await tx.serpMonitorTask.findMany({ where: { runId: run.id, state: "FAILED", providerTaskId: { not: null } },
+        select: { id: true, providerTaskId: true } });
+      const ids = failed.filter(task => providerIdIsSafe(task.providerTaskId)).map(task => task.id);
+      if (!ids.length && run.status !== "RUNNING") throw new ImportRequestError("没有可取回的原任务，请核对提交记录；本次未重新扣费", 409);
+      if (ids.length) {
+        await tx.serpMonitorTask.updateMany({ where: { runId: run.id, id: { in: ids }, state: "FAILED" },
+          data: { state: "QUEUED", errorCode: null, lastPolledAt: null } });
+        await tx.serpMonitorRun.update({ where: { id: run.id }, data: { status: "RUNNING", completedAt: null, errorCode: null } });
+      }
+    }, { maxWait: 10_000, timeout: 20_000 });
+    await resumeSerpMonitorRun(input.runId, { allowSubmit: false });
+    return { action: "retry", runId: input.runId };
+  }
   if (input.action === "poll") {
     const run = await prisma.serpMonitorRun.findUnique({ where: { id: input.runId } });
     if (!run || run.scope !== OPTIMIZED_PAGE_SCOPE) throw new ImportRequestError("未找到该页面的采集记录", 404);

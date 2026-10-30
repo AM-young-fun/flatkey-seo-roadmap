@@ -187,3 +187,27 @@ test("saved country scopes filter Japanese targets before server pagination whil
   assert.deepEqual(japanese._countryScopes,["JP"]);
   assert.ok(japanese._crossCountryScopes.includes("US"));
 });
+
+
+test("failed rows offer free retries while unqueried rows explain their own missing eligibility", () => {
+  const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
+  const { KeywordRankActions } = require("../src/components/KeywordRankActions.tsx");
+  const failed = { ...page(["example api"]), usedToday: true, retryableTaskCount: 16,
+    run: { status: "FAILED", queryCount: 16, taskCounts: { FAILED: 16 } } };
+  const capture = { data: { connectionConfigured: true, externalEnabled: true, activeRunId: null }, busy: null,
+    start: () => assert.fail("render cannot submit"), retry: () => assert.fail("render cannot retrieve") };
+  const render = (pageValue, overrides = {}) => renderToStaticMarkup(React.createElement(KeywordRankActions, { pages: [pageValue], capture: { ...capture, ...overrides } }));
+  const retry = render(failed);
+  assert.ok(retry.includes("重试取结果")); assert.ok(retry.includes("不再次计费"));
+  assert.doesNotMatch(retry, /<button[^>]*disabled/);
+  const processing = render(failed, { busy: failed.id, busyAction: "retry" });
+  assert.ok(processing.includes("处理中")); assert.ok(processing.includes("正在重试读取原任务结果"));
+  assert.match(processing, /<button[^>]*disabled/);
+  const waiting = render(failed, { data: { ...capture.data, activeRunId: "another-run" } });
+  assert.match(waiting, /<button[^>]*disabled/);
+  const unqueried = render({ ...page(["ai api pricing"]), queryCount: 0, sourceKeywordCount: 8 });
+  assert.ok(unqueried.includes("待核对")); assert.ok(unqueried.includes("8 个关联词，暂无已核实的正式关键词"));
+  assert.ok(!unqueried.includes("今日抓取失败")); assert.ok(!unqueried.includes("上次该页"));
+  assert.match(unqueried, /<button[^>]*disabled/);
+  assert.doesNotMatch(render(page(["another eligible api"])), /<button[^>]*disabled/);
+});
