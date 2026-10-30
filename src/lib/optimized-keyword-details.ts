@@ -16,10 +16,11 @@ export function optimizedPagesForKeyword(keyword: Pick<DashboardKeyword, "siteDo
 }
 
 function siteCapture(page: Page, result: OptimizedPageRank): { summary: RankSummary; evidence: RankingEvidence } | null {
-  if (!result.checkedAt || !["RANKED", "OUTSIDE_TOP100"].includes(result.status)) return null;
+  if (!result.checkedAt || !["RANKED", "OUTSIDE_TOP100", "NOT_FOUND_CAPTURE"].includes(result.status)) return null;
   const pages = [...result.otherPages, ...(result.rank != null ? [{ url: page.url, rank: result.rank }] : [])]
     .filter(item => validSitePage(item.url, "flatkey.ai") && Number.isInteger(item.rank) && item.rank >= 1 && item.rank <= 100)
     .sort((a, b) => a.rank - b.rank);
+  if (result.status === "NOT_FOUND_CAPTURE" && !pages.length) return null;
   const rank = pages[0]?.rank ?? null, url = pages[0]?.url ?? null;
   const summary: RankSummary = { source: "dataforseo_serp", rankStatus: rank == null ? "outside_top100" : "ranked", rank, url,
     bucket: getRankBucket(rank), title: null, searchVolume: null, checkedAt: result.checkedAt, serpVerification: "verified",
@@ -40,13 +41,13 @@ export function withOptimizedKeywordRanks(keyword: DashboardKeyword, pages: Page
   const latestRanks = { ...keyword.latestRanks }, rankingEvidence = { US: [], JP: [], ES: [], BR: [], ...keyword.rankingEvidence };
   for (const region of REGION_CODES) {
     const matches = (result: OptimizedPageRank) => result.region === region && normalizeKeywordText(result.keyword) === normalizeKeywordText(keyword.text);
-    const captures = associated.flatMap(page => page.results.filter(matches).flatMap(result => {
+    const captures = associated.flatMap(page => (page.siteResults ?? page.results).filter(matches).flatMap(result => {
       const capture = siteCapture(page, result); return capture ? [{ page, ...capture }] : [];
     })).sort((a, b) => Date.parse(b.summary.checkedAt!) - Date.parse(a.summary.checkedAt!));
     const current = captures[0], stored = latestRanks[region];
     if (!current || stored?.source === "dataforseo_serp" && stored.checkedAt &&
       ["ranked", "outside_top100"].includes(stored.rankStatus ?? "") && Date.parse(stored.checkedAt) >= Date.parse(current.summary.checkedAt!)) continue;
-    const previous = associated.flatMap(page => page.previousResults.filter(matches).flatMap(result => {
+    const previous = associated.flatMap(page => (page.previousSiteResults ?? page.previousResults).filter(matches).flatMap(result => {
       const capture = siteCapture(page, result); return capture ? [capture.summary] : [];
     }));
     if (stored?.source === "dataforseo_serp" && ["ranked", "outside_top100"].includes(stored.rankStatus ?? "")) previous.push(stored);

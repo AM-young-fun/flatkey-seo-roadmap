@@ -211,3 +211,21 @@ test("failed rows offer free retries while unqueried rows explain their own miss
   assert.match(unqueried, /<button[^>]*disabled/);
   assert.doesNotMatch(render(page(["another eligible api"])), /<button[^>]*disabled/);
 });
+
+
+test("new verified site match updates keyword rank even when a shallow capture misses the target page", () => {
+  const word = keyword("api", "example api", { latestRanks: { US: savedRank(14), JP: null, ES: null, BR: null } });
+  const otherUrl = "https://flatkey.ai/blog/other", shallow = result(word.text, null, at, {
+    status: "NOT_FOUND_CAPTURE", otherPages: [{ url: otherUrl, rank: 16 }],
+  });
+  const optimized = { ...page([word.text], [result(word.text, 14, before)]), siteResults: [shallow], previousSiteResults: [result(word.text, 14, before)] };
+  const merged = withOptimizedKeywordRanks(word, [optimized]);
+  assert.equal(merged.latestRanks.US.rank, 16); assert.equal(merged.latestRanks.US.url, otherUrl);
+  assert.equal(merged.latestRanks.US.checkedAt, at); assert.equal(merged.latestRanks.US.rankDelta, -2);
+  assert.equal(merged.latestRanks.US.movement, "DOWN");
+  assert.equal(keywordRankingPages(merged.latestRanks.US, merged.rankingEvidence.US, "flatkey.ai")[0].checkedAt, at);
+  for (const otherPages of [[], [{ url: "https://unrelated.example/blog/other", rank: 3 }], [{ url: otherUrl, rank: 101 }]]) {
+    const invalid = { ...optimized, siteResults: [{ ...shallow, otherPages }] };
+    assert.equal(withOptimizedKeywordRanks(word, [invalid]).latestRanks.US.rank, 14);
+  }
+});

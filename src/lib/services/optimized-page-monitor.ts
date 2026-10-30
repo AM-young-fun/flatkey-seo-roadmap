@@ -40,9 +40,15 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
       include: { tasks: { select: { id: true, keyword: true, region: true, state: true, normalizedJson: true, checkedAt: true, providerTaskId: true } } } }) : Promise.resolve([]),
     requested.length ? prisma.$queryRaw<SavedPageRankingTask[]>(Prisma.sql`
       /* optimized-page:saved-ranking-baseline */
-      WITH requested("pageUrl", keyword) AS (VALUES ${Prisma.join(requested)}), selected AS (
+      WITH requested("pageUrl", keyword) AS (VALUES ${Prisma.join(requested)}), eligible AS (
         SELECT t.id, requested."pageUrl", t.keyword, t.region, t.state, t."checkedAt", t."normalizedJson",
-          ROW_NUMBER() OVER (PARTITION BY requested."pageUrl", requested.keyword, t.region ORDER BY t."checkedAt" DESC, r."createdAt" DESC, t.id DESC) AS n
+          r."createdAt" AS "runCreatedAt",
+          ((t."normalizedJson"->>'captureComplete' = 'true' AND t."normalizedJson"->>'completeDepth' = 'true') OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(t."normalizedJson"->'organicResults') item
+            WHERE item->>'rankGroup' ~ '^[0-9]+$' AND item->'rankGroup' >= '1'::jsonb AND item->'rankGroup' <= '100'::jsonb
+              AND rtrim(regexp_replace(split_part(split_part(item->>'url', '#', 1), '?', 1),
+                ${"^https://(www\\.)?flatkey\\.ai(:443)?(/|$)"}, 'https://flatkey.ai/', 'i'), '/') = rtrim(requested."pageUrl", '/')
+          )) AS "pageValid"
         FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
         JOIN requested ON lower(t.keyword) = requested.keyword
         WHERE r.scope IN ('SCHEDULED','SAMPLE','OPTIMIZED_PAGE') AND t.state IN ('COMPLETE','INCOMPLETE') AND t."checkedAt" IS NOT NULL
@@ -51,14 +57,16 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
           AND t."requestJson"->>'language_code' = CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END
           AND t."normalizedJson"->>'rankingVerified' = 'true' AND t."normalizedJson"->>'queryStatus' = 'EXACT'
           AND EXISTS (SELECT 1 FROM jsonb_array_elements(t."targetsJson") target WHERE target->>'siteDomain' = 'flatkey.ai')
-          -- Filter before limiting: shallow misses must not push older valid
-          -- ranks out of the two captures kept for each page/query/country.
+          -- A shallow capture can verify a positive ranking for another
+          -- site page, even when it cannot establish the target page's exit.
           AND ((t."normalizedJson"->>'captureComplete' = 'true' AND t."normalizedJson"->>'completeDepth' = 'true') OR EXISTS (
             SELECT 1 FROM jsonb_array_elements(t."normalizedJson"->'organicResults') item
             WHERE item->>'rankGroup' ~ '^[0-9]+$' AND item->'rankGroup' >= '1'::jsonb AND item->'rankGroup' <= '100'::jsonb
-              AND rtrim(regexp_replace(split_part(split_part(item->>'url', '#', 1), '?', 1),
-                ${"^https://(www\\.)?flatkey\\.ai(:443)?(/|$)"}, 'https://flatkey.ai/', 'i'), '/') = rtrim(requested."pageUrl", '/')
+              AND (item->>'domain' = 'flatkey.ai' OR item->>'domain' LIKE '%.flatkey.ai')
           ))
+      ), selected AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY "pageUrl", keyword, region, "pageValid"
+          ORDER BY "checkedAt" DESC, "runCreatedAt" DESC, id DESC) AS n FROM eligible
       ) SELECT id, "pageUrl", keyword, region, state, "checkedAt", jsonb_build_object(
         'queryStatus', "normalizedJson"->'queryStatus', 'rankingVerified', "normalizedJson"->'rankingVerified',
         'captureComplete', "normalizedJson"->'captureComplete', 'completeDepth', "normalizedJson"->'completeDepth', 'googleUrl', "normalizedJson"->'googleUrl',
@@ -83,7 +91,8 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
       }
       const retryableTaskCount = latest && ["FAILED", "PARTIAL"].includes(latest.status) && now.getTime() - latest.startedAt.getTime() < 30 * 86400000
         ? latest.tasks.filter(task => task.state === "FAILED" && providerIdIsSafe(task.providerTaskId)).length : 0;
-      return { ...page, retryableTaskCount, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
+      const site = savedPageRankingComparison(page.url, page.keywords, saved, latest, previous, true);
+      return { ...page, retryableTaskCount, siteResults: site.results, previousSiteResults: site.previousResults, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
         ...savedPageRankingComparison(page.url, page.keywords, saved, latest, previous) };
     }) };
 }
