@@ -5,6 +5,10 @@ import { getRankBucket, REGION_CODES } from "./seo";
 import { validSitePage } from "./keyword-volume-review";
 
 type Page = OptimizedPageMonitorResponse["pages"][number];
+export function optimizedPageCaptureProcessing(page: Page, busyPageId?: string | null): boolean {
+  return page.id === busyPageId || page.run?.status === "PLANNED" || page.run?.status === "RUNNING";
+}
+
 export function optimizedPagesForKeyword(keyword: Pick<DashboardKeyword, "siteDomain" | "text">, pages: Page[]): Page[] {
   if ((keyword.siteDomain ?? "flatkey.ai") !== "flatkey.ai") return [];
   const word = normalizeKeywordText(keyword.text);

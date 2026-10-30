@@ -321,6 +321,31 @@ test("free resume fetches only known task ids, caches raw before normalization a
   assert.ok(events.indexOf("persist:raw") < events.indexOf("persist:normalized"));
 });
 
+test("a task handed to DataForSEO remains queued until its original paid result is ready", async () => {
+  state.config.paidEnabled = true;
+  await start();
+  state.config.paidEnabled = false;
+  const ids = state.tasks.map(task => task.providerTaskId);
+  respond = async url => new Response(JSON.stringify({ status_code: 20000, tasks: [{
+    id: state.tasks.find(task => url.endsWith(task.providerTaskId)).providerTaskId,
+    status_code: 40601, status_message: "Task Handed.", result: null,
+  }] }));
+  const pending = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  assert.equal(pending.run.status, "RUNNING");
+  assert.equal(pending.run.taskCounts.QUEUED, 8);
+  assert.equal(pending.run.completedAt, null);
+  assert.ok(state.tasks.every(task => task.normalizedJson === null && task.checkedAt === null));
+  // The next free read must collect these same task IDs without paying again.
+  for (const task of state.tasks) task.lastPolledAt = new Date(Date.now() - 60_000);
+  respond = async url => new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)))));
+  const finished = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  assert.equal(finished.run.status, "COMPLETED");
+  assert.equal(finished.run.taskCounts.COMPLETE, 8);
+  assert.deepEqual(state.tasks.map(task => task.providerTaskId), ids);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+  assert.equal(fetches.filter(row => row.method === "GET").length, 16);
+});
+
 test("depth100 request, widgets count and rank100 alone do not prove complete top100 organic coverage", () => {
   const task = { providerTaskId: "fictional-provider-id", keyword: "model api price", requestJson: buildSerpTask(groupSerpQueries([target("model api price")])[0], "tag", SERP_DEFAULT_CONFIG) };
   const expected = { providerTaskId: task.providerTaskId, keyword: task.keyword, config: SERP_DEFAULT_CONFIG };

@@ -416,7 +416,10 @@ async function fetchResult(task: SerpMonitorTask, authorization: string, deadlin
   }
   catch { return pending("POLL_INVALID_RECEIPT"); }
   const code = Number(received.status_code);
-  if ([20100, 20101, 20102, 40602].includes(code)) return pending("PROVIDER_NOT_READY");
+  // 40601 is "Task Handed": accepted but not yet queued, not a failed task.
+  // Keep its paid ID eligible for free GETs just like "Task In Queue" (40602).
+  if ([20100, 20101, 20102, 40601, 40602].includes(code)) return pending("PROVIDER_NOT_READY");
+
   if (accountCode(code)) return pending(`PROVIDER_${code}`, `ACCOUNT_${code}`);
   if (code !== 20000) return { task, state: "FAILED", raw, cost: task.costMicros, error: `PROVIDER_${code}`, accountError: null };
   return { task, state: "RECEIVED", raw, cost: providerCostMicros(received.cost) ?? task.costMicros, error: null, accountError: null };
