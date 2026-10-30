@@ -6,7 +6,7 @@ import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { buildSerpTask, configForSerpRegion, groupSerpMarketQueries, quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS } from "@/lib/dataforseo-serp";
 import { providerIdIsSafe, serpTaskId } from "@/lib/dataforseo-serp";
-import { buildOptimizedPages, monitorDay, OPTIMIZED_PAGE_MAX_QUERIES, OPTIMIZED_PAGE_SCOPE, optimizedPagePeriod, savedPageRankingComparison, record,
+import { buildOptimizedPages, monitorDay, OPTIMIZED_PAGE_MAX_QUERIES, OPTIMIZED_PAGE_SCOPE, optimizedPagePeriod, optimizedPageRank, savedPageRankingComparison, record,
   type SavedPageRankingTask, type OptimizedPageMutation, type OptimizedPageMonitorResponse } from "@/lib/optimized-page-monitor";
 import { loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
 import { resumeSerpMonitorRun, submitOptimizedPageBatch } from "@/lib/services/serp-monitor";
@@ -92,7 +92,7 @@ export async function loadOptimizedPageMonitor(now = new Date()): Promise<Optimi
       const retryableTaskCount = latest && ["FAILED", "PARTIAL"].includes(latest.status) && now.getTime() - latest.startedAt.getTime() < 30 * 86400000
         ? latest.tasks.filter(task => task.state === "FAILED" && providerIdIsSafe(task.providerTaskId)).length : 0;
       const site = savedPageRankingComparison(page.url, page.keywords, saved, latest, previous, true);
-      return { ...page, retryableTaskCount, siteResults: site.results, previousSiteResults: site.previousResults, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
+      return { ...page, retryableTaskCount, attemptResults: latest?.tasks.map(task => optimizedPageRank(page.url, task)) ?? [], siteResults: site.results, previousSiteResults: site.previousResults, queryCount: quote.queryCount, maxCostMicros: quote.maxCostMicros, usedToday: latest?.periodKey === optimizedPagePeriod(page.id, day), run,
         ...savedPageRankingComparison(page.url, page.keywords, saved, latest, previous) };
     }) };
 }

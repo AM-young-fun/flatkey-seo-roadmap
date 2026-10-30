@@ -152,8 +152,28 @@ test("optimized filter renders keyword rows and capture controls in details, wit
   }
   captureState = { ...captureState, busy: null, data: { ...captureState.data, pages: [optimized] } };
   const finished = renderToStaticMarkup(React.createElement(KeywordDetails, { initiallyOptimized: true }));
-  assert.ok(finished.includes("<strong>仅一次有效实测</strong>"));
+  assert.ok(finished.includes("美国 · 仅一次有效实测"));
   assert.ok(!finished.includes("本次排名处理中"));
+  // The all-country default must surface today's US comparison even
+  // when an older Japanese rank is the best numeric position.
+  first.latestRanks = { US: savedRank(14, before), JP: savedRank(9, before), ES: null, BR: null };
+  const fresh = result(first.text, null, at, { status: "NOT_FOUND_CAPTURE", otherPages: [{ url: "https://flatkey.ai/blog/new-ranking-page", rank: 16 }] });
+  const miss = { ...fresh, region: "JP", otherPages: [] };
+  captureState = { ...captureState, data: { ...captureState.data, pages: [{ ...optimized,
+    run: { status: "COMPLETED", queryCount: 8, taskCounts: { COMPLETE: 8 } }, results: [fresh], attemptResults: [fresh, miss],
+  }] } };
+  const updated = renderToStaticMarkup(React.createElement(KeywordDetails, { initiallyOptimized: true }));
+  const updatedRow = updated.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g).find(row => row.includes("first api"));
+  const text = updatedRow.replace(/<[^>]+>/g, "");
+  assert.ok(text.includes("四国最佳：#9 · 日本"));
+  assert.ok(text.includes("美国 · ↓ 下降 2 位")); assert.ok(text.includes("#14 → #16"));
+  assert.ok(text.includes("有效采集：2026/10/22 11:00:00"));
+  assert.ok(text.includes("日本 · 本次暂无可比结果"));
+  assert.ok(text.includes("本次未取得有效名次，保留历史排名"));
+  const cells = updatedRow.match(/<td\b[^>]*>[\s\S]*?<\/td>/g);
+  const observed = cells.find(cell => cell.includes("排名采集："));
+  assert.ok(observed.indexOf("new-ranking-page") < observed.indexOf("<details"), "newest country page is visible before historical pages");
+  assert.ok(observed.includes("排名采集：2026/10/22 11:00:00"));
   const { default: LegacyMonitor } = require("../src/app/monitor/page.tsx");
   assert.throws(() => LegacyMonitor(), error => error.digest?.includes("/keywords?status=optimized"));
 });
