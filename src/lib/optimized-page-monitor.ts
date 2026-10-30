@@ -33,7 +33,7 @@ export type OptimizedPageTarget = { id: string; url: string; title: string; opti
 export type OptimizedPageRank = { keyword: string; region: SerpRegion; rank: number | null; status: string; checkedAt: string | null; googleUrl: string | null; otherPages: Array<{ url: string; rank: number }> };
 export type OptimizedPageMonitorResponse = {
   day: string; connectionConfigured: boolean; externalEnabled: boolean; activeRunId: string | null;
-  pages: Array<OptimizedPageTarget & { queryCount: number; maxCostMicros: number; usedToday: boolean; retryableTaskCount: number; run: SerpMonitorRunDto | null; results: OptimizedPageRank[]; previousResults: OptimizedPageRank[]; siteResults?: OptimizedPageRank[]; previousSiteResults?: OptimizedPageRank[] }>;
+  pages: Array<OptimizedPageTarget & { queryCount: number; maxCostMicros: number; usedToday: boolean; retryableTaskCount: number; run: SerpMonitorRunDto | null; results: OptimizedPageRank[]; previousResults: OptimizedPageRank[]; attemptResults?: OptimizedPageRank[]; siteResults?: OptimizedPageRank[]; previousSiteResults?: OptimizedPageRank[] }>;
 };
 
 export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unknown }>, targets: SerpTarget[]): OptimizedPageTarget[] {

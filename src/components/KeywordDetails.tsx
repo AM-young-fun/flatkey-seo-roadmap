@@ -24,7 +24,7 @@ import { keywordPageTag, keywordRankingTag, keywordRankingResultTag } from "@/li
 import { keywordMarketVolume } from "@/lib/keyword-market";
 import { keywordRankingPages } from "@/lib/keyword-ranking-pages";
 import { bestKeywordDetailRank, detailRegions, groupKeywordDetails, keywordDetailCountryRanks, validKeywordDetailRank,
-  type KeywordCountryScope, type KeywordDetailGroup } from "@/lib/keyword-details-group";
+  type KeywordCountryScope, type KeywordCountryRank, type KeywordDetailGroup } from "@/lib/keyword-details-group";
 
 const POOLS = { FORMAL: "业务目标", RESEARCH: "候选词" };
 const PAGE_FILTERS = [{ value: "PAGE_BUILD", label: "待建设" }, { value: "PAGE_EXPAND", label: "待优化" }, { value: "PAGE_OPTIMIZED", label: "已优化" }];
@@ -134,8 +134,16 @@ export function KeywordDetails({ initiallyOptimized = false, initialCountry = "a
   };
   const pagesFor = (group: KeywordDetailGroup): DetailPage[] => group.members.flatMap(member => detailRegions(country).flatMap(region =>
     validKeywordDetailRank(rankFor(member, region)) ? keywordRankingPages(rankFor(member, region), keywordEvidence(member, region), member.siteDomain ?? "flatkey.ai").map(page => ({ ...page, region, siteName: siteName(member), memberId: member.id })) : []
-  )).sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
+  )).sort((a, b) => (country === "all" ? Date.parse(b.checkedAt ?? "") - Date.parse(a.checkedAt ?? "") : 0) || (a.rank ?? Infinity) - (b.rank ?? Infinity));
   const capturePagesFor = (group: KeywordDetailGroup) => [...new Map(group.members.flatMap(member => optimizedPagesForKeyword(member, optimizedPages)).map(page => [page.id, page])).values()];
+  const attemptFor = (value: KeywordCountryRank) => optimizedPagesForKeyword(value.member, optimizedPages)
+    .flatMap(page => page.attemptResults ?? []).filter(result => result.region === value.region && normalizeKeywordText(result.keyword) === normalizeKeywordText(value.member.text))
+    .sort((a, b) => Date.parse(b.checkedAt ?? "") - Date.parse(a.checkedAt ?? ""))[0];
+  const missingAttemptFor = (value: KeywordCountryRank) => {
+    const attempt = attemptFor(value);
+    return attempt?.status === "NOT_FOUND_CAPTURE" && !attempt.otherPages.length && attempt.checkedAt &&
+      (!value.rank?.checkedAt || Date.parse(attempt.checkedAt) > Date.parse(value.rank.checkedAt)) ? attempt : null;
+  };
   const processingFor = (group: KeywordDetailGroup) => pool === "FORMAL" && capturePagesFor(group).some(page => optimizedPageCaptureProcessing(page, capture.busy));
   const tagFor = (group: KeywordDetailGroup, scope = country) => keywordRankingResultTag(bestKeywordDetailRank(group, scope)?.rank);
   const members = [...loaded, ...targetOnly].filter(member => isFlatkey(member) ? okr.data?.initialized && okrFor(member)?.pool === pool : pool === "FORMAL" && keywordRelevance(member.siteDomain ?? "flatkey.ai", member.text).status !== "unrelated");
@@ -177,14 +185,30 @@ export function KeywordDetails({ initiallyOptimized = false, initialCountry = "a
     }] : []),
     { title: country === "all" ? "四国实际名次" : `${REGIONS[country].label}实际名次`, key: "rank", width: 235, render: (_, group) => {
       const best = bestKeywordDetailRank(group, country);
-      return <div className="evidenceSummary">{processingFor(group) ? <small>{best?.rank?.checkedAt ? "上次有效排名 · 本次处理中" : "本次排名处理中"}</small> : null}{validKeywordDetailRank(best?.rank) ? <strong>#{best.rank.rank} · {REGIONS[best.region].label}{group.members.length > 1 ? ` · ${siteName(best.member)}` : ""}</strong> : <strong>{tagFor(group).label}</strong>}{country === "all" && keywordDetailCountryRanks(group, country).some(value => value.rank !== null) ? keywordDetailCountryRanks(group, country).map(value => <small key={value.region}>{REGIONS[value.region].label}：{validKeywordDetailRank(value.rank) ? `#${value.rank.rank}${group.members.length > 1 ? ` · ${siteName(value.member)}` : ""}` : tagFor(group, value.region).label}</small>) : best?.rank?.checkedAt ? <small>{localDate(best.rank.checkedAt)}</small> : null}{best?.rank && country !== "all" && coverage(best.rank) ? <small>{coverage(best.rank)}</small> : null}</div>;
+      return <div className="evidenceSummary">{processingFor(group) ? <small>{best?.rank?.checkedAt ? "上次有效排名 · 本次处理中" : "本次排名处理中"}</small> : null}{validKeywordDetailRank(best?.rank) ? <strong>{country === "all" ? "四国最佳：" : ""}#{best.rank.rank} · {REGIONS[best.region].label}{group.members.length > 1 ? ` · ${siteName(best.member)}` : ""}</strong> : <strong>{tagFor(group).label}</strong>}
+        {country === "all" ? keywordDetailCountryRanks(group, country).map(value => {
+          const missing = missingAttemptFor(value);
+          return <div className="evidenceSummary" key={value.region}>
+            <small>{REGIONS[value.region].label}：{validKeywordDetailRank(value.rank) ? `#${value.rank.rank}${group.members.length > 1 ? ` · ${siteName(value.member)}` : ""}` : tagFor(group, value.region).label}</small>
+            {value.rank?.checkedAt ? <small>有效采集：{localDate(value.rank.checkedAt)}</small> : null}
+            {missing ? <small>本次未取得有效名次{value.rank?.checkedAt ? "，保留历史排名" : ""} · {localDate(missing.checkedAt)}</small> : null}
+          </div>;
+        }) : best?.rank?.checkedAt ? <small>{localDate(best.rank.checkedAt)}</small> : null}{best?.rank && country !== "all" && coverage(best.rank) ? <small>{coverage(best.rank)}</small> : null}
+      </div>;
+
     } },
     { title: country === "all" ? "对应国家排名变化" : "较上次有效实测", key: "movement", width: 190, render: (_, group) => {
       const best = bestKeywordDetailRank(group, country), processing = processingFor(group);
-      return <div className="evidenceSummary"><strong>{processing ? "处理中" : rankMovement(best?.rank ?? null)}</strong>
-        {processing ? <small>本次完成后更新排名变化</small> : null}
-        {best?.rank ? <small>{processing ? `上次记录：${rankMovement(best.rank)} · ` : ""}{REGIONS[best.region].label} · {siteName(best.member)}{best.rank.previousPeriodLabel ? ` · 对比${best.rank.previousPeriodLabel}` : ""}</small> : null}
+      return <div className="evidenceSummary">{processing ? <><strong>处理中</strong><small>本次完成后更新排名变化</small></> : null}
+        {country === "all" ? keywordDetailCountryRanks(group, country).map(value => <div className="evidenceSummary" key={value.region}>
+          <strong>{REGIONS[value.region].label} · {missingAttemptFor(value) ? "本次暂无可比结果" : rankMovement(value.rank)}</strong>
+          {value.rank?.previousRank != null && value.rank.rank != null ? <small>#{value.rank.previousRank} → #{value.rank.rank}{group.members.length > 1 ? ` · ${siteName(value.member)}` : ""}</small> : null}
+          {value.rank?.previousCheckedAt ? <small>对比：{localDate(value.rank.previousCheckedAt)}</small> : null}
+          {processing && value.rank ? <small>上次记录：{rankMovement(value.rank)}</small> : null}
+        </div>) : <>{!processing ? <strong>{rankMovement(best?.rank ?? null)}</strong> : null}
+          {best?.rank ? <small>{processing ? `上次记录：${rankMovement(best.rank)} · ` : ""}{REGIONS[best.region].label} · {siteName(best.member)}{best.rank.previousPeriodLabel ? ` · 对比${best.rank.previousPeriodLabel}` : ""}</small> : null}</>}
       </div>;
+
     } },
     { title: "实际排名页面", key: "pages", width: 330, render: (_, group) => { const pages = pagesFor(group); return pages.length ? <ObservedPages pages={pages} compact /> : <span className="muted">—</span>; } },
     { title: "操作", key: "capture", width: 145, fixed: "right", render: (_, group) => {
