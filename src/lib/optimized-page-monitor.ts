@@ -25,6 +25,7 @@ export const monitorDay = (now = new Date()) => new Intl.DateTimeFormat("en-CA",
 export const optimizedPagePeriod = (pageId: string, day: string) => `${day}:page:${pageId}`;
 export const optimizedPageMutationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), pageId: z.string().regex(/^[a-f0-9]{64}$/), expectedHash: z.string().regex(/^[a-f0-9]{64}$/), day: z.iso.date() }).strict(),
+  z.object({ action: z.literal("retry"), runId: z.string().regex(/^optimized-\d{4}-\d{2}-\d{2}-[a-f0-9]{64}$/) }).strict(),
   z.object({ action: z.literal("poll"), runId: z.string().regex(/^optimized-\d{4}-\d{2}-\d{2}-[a-f0-9]{64}$/) }).strict(),
 ]);
 export type OptimizedPageMutation = z.infer<typeof optimizedPageMutationSchema>;
@@ -32,7 +33,7 @@ export type OptimizedPageTarget = { id: string; url: string; title: string; opti
 export type OptimizedPageRank = { keyword: string; region: SerpRegion; rank: number | null; status: string; checkedAt: string | null; googleUrl: string | null; otherPages: Array<{ url: string; rank: number }> };
 export type OptimizedPageMonitorResponse = {
   day: string; connectionConfigured: boolean; externalEnabled: boolean; activeRunId: string | null;
-  pages: Array<OptimizedPageTarget & { queryCount: number; maxCostMicros: number; usedToday: boolean; run: SerpMonitorRunDto | null; results: OptimizedPageRank[]; previousResults: OptimizedPageRank[] }>;
+  pages: Array<OptimizedPageTarget & { queryCount: number; maxCostMicros: number; usedToday: boolean; retryableTaskCount: number; run: SerpMonitorRunDto | null; results: OptimizedPageRank[]; previousResults: OptimizedPageRank[] }>;
 };
 
 export function buildOptimizedPages(rows: Array<{ rowKey: string; snapshot: unknown }>, targets: SerpTarget[]): OptimizedPageTarget[] {

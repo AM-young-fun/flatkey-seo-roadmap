@@ -11,6 +11,7 @@ export function useOptimizedPageCapture() {
   const [data, setData] = useState<OptimizedPageMonitorResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null), [error, setError] = useState<string | null>(null);
   const actionLock = useRef(false), pollLock = useRef(false);
+  const [busyAction, setBusyAction] = useState<"start" | "retry" | null>(null);
   const read = useCallback(async (notify = false) => {
     const response = await fetch(endpoint, { cache: "no-store" });
     const result = await response.json();
@@ -46,12 +47,13 @@ export function useOptimizedPageCapture() {
     const timer = window.setInterval(() => void collect(), 30_000);
     return () => window.clearInterval(timer);
   }, [activeRunId, read]);
-  async function start(page: OptimizedKeywordPage) {
-    if (!data || actionLock.current) return;
-    actionLock.current = true; setBusy(page.id); setError(null);
+  async function act(page: OptimizedKeywordPage, action: "start" | "retry") {
+    if (!data || actionLock.current || action === "retry" && !page.run) return;
+    actionLock.current = true; setBusy(page.id); setBusyAction(action); setError(null);
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", pageId: page.id, expectedHash: page.hash, day: data.day }) });
+        body: JSON.stringify(action === "retry" ? { action: "retry", runId: page.run!.id }
+          : { action: "start", pageId: page.id, expectedHash: page.hash, day: data.day }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message ?? "抓取结果暂时无法确认");
       await read(true);
@@ -59,7 +61,7 @@ export function useOptimizedPageCapture() {
       setError(failure instanceof Error ? failure.message : "抓取结果暂时无法确认");
       // A lost HTTP response must still reveal the committed daily claim.
       try { await read(); } catch { /* Preserve the submission error. */ }
-    } finally { actionLock.current = false; setBusy(null); }
+    } finally { actionLock.current = false; setBusy(null); setBusyAction(null); }
   }
-  return { data, busy, error, refresh, start };
+  return { data, busy, busyAction, error, refresh, start: (page: OptimizedKeywordPage) => act(page, "start"), retry: (page: OptimizedKeywordPage) => act(page, "retry") };
 }
