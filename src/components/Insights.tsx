@@ -1,6 +1,7 @@
 "use client";
 import { PageTrafficCharts } from "./PageTrafficCharts";
 import { DailySeoTrafficTrend } from "./DailySeoTrafficTrend";
+import { DailySeoPageGroups } from "./DailySeoPageGroups";
 import type { PageTrafficSeries } from "@/lib/page-traffic-history";
 import { useEffect, useState } from "react";
 import { Select } from "antd";
@@ -187,6 +188,7 @@ export function TrafficReport() {
   return <main className="appShell"><PageHeader active="traffic" />
     <div className="reportIntro"><div className="pageIntro"><h1>SEO 数据</h1><p>自然搜索获客与注册趋势 · 周报每周五10:10更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
     <DailySeoTrafficTrend />
+    <DailySeoPageGroups />
     <div className="periodComparison"><span><i className="currentDot" />本期 {trafficPeriods.current.start} — {trafficPeriods.current.end}</span><span><i />上期 {trafficPeriods.previous.start} — {trafficPeriods.previous.end}</span></div>
     {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
     {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期自然搜索周报数据待补采。</p> : loadedData && !data ? <p className="weeklyRankingState">自然搜索周报正在更新。</p> : null}
