@@ -4,6 +4,7 @@ import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { IMPORT_API_PATH } from "@/lib/ranking-import";
 import { SOURCE_SYNC_API_PATH } from "@/lib/source-sync";
 import { KEYWORD_EXPORT_API_PATH } from "@/lib/keyword-export";
+import { DAILY_SEO_TRAFFIC_API_PATH } from "@/lib/daily-seo-traffic";
 
 function isPublicPath(pathname: string): boolean {
   return pathname === "/login" || pathname.startsWith("/api/auth/");
@@ -22,7 +23,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 export async function proxy(request: NextRequest) {
   // These endpoints check their own dedicated credentials, even when page
   // login is disabled. Those credentials cannot access management routes.
-  if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH || request.nextUrl.pathname === KEYWORD_EXPORT_API_PATH || request.nextUrl.pathname === "/api/collectors/runs") return NextResponse.next();
+  if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH || request.nextUrl.pathname === KEYWORD_EXPORT_API_PATH || request.nextUrl.pathname === "/api/collectors/runs" || request.nextUrl.pathname === DAILY_SEO_TRAFFIC_API_PATH) return NextResponse.next();
   if (!isAuthEnabled() || isPublicPath(request.nextUrl.pathname) || isAuthorizedCron(request)) {
     return NextResponse.next();
   }

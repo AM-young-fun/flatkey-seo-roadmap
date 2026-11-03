@@ -427,4 +427,34 @@ CREATE TABLE IF NOT EXISTS "CollectorRun" (
 );
 CREATE INDEX IF NOT EXISTS "CollectorRun_kind_updatedAt_idx" ON "CollectorRun" (kind,"updatedAt" DESC);
 
+-- Append-only daily GA4 SEO evidence, separate from weekly reports and rankings.
+CREATE TABLE IF NOT EXISTS "DailySeoTrafficImport" (
+  "requestId" TEXT PRIMARY KEY,
+  "payloadHash" TEXT NOT NULL,
+  "pointCount" INTEGER NOT NULL,
+  "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"(domain) ON DELETE RESTRICT ON UPDATE CASCADE,
+  "ga4PropertyId" TEXT NOT NULL,
+  timezone TEXT NOT NULL,
+  "trafficScope" TEXT NOT NULL CHECK ("trafficScope" = 'organic_search'),
+  "channelName" TEXT NOT NULL CHECK ("channelName" = 'Organic Search'),
+  "channelDimension" TEXT NOT NULL CHECK ("channelDimension" IN ('firstUserPrimaryChannelGroup', 'firstUserDefaultChannelGroup')),
+  "registrationMetric" TEXT NOT NULL CHECK ("registrationMetric" = 'sign_up_success_distinct_users'),
+  sources TEXT[] NOT NULL,
+  "collectedAt" TIMESTAMP(3) NOT NULL,
+  "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS "daily_seo_import_cohort_date_idx" ON "DailySeoTrafficImport"
+  ("siteDomain", "ga4PropertyId", timezone, "channelDimension", "registrationMetric", "collectedAt" DESC);
+
+CREATE TABLE IF NOT EXISTS "DailySeoTrafficPoint" (
+  id TEXT PRIMARY KEY,
+  "importId" TEXT NOT NULL REFERENCES "DailySeoTrafficImport"("requestId") ON DELETE RESTRICT ON UPDATE CASCADE,
+  date DATE NOT NULL,
+  "newUsers" INTEGER CHECK ("newUsers" >= 0),
+  "newRegistrations" INTEGER CHECK ("newRegistrations" >= 0),
+  "missingReason" TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "DailySeoTrafficPoint_importId_date_key" ON "DailySeoTrafficPoint" ("importId", date);
+CREATE INDEX IF NOT EXISTS "DailySeoTrafficPoint_date_importId_idx" ON "DailySeoTrafficPoint" (date, "importId");
+
 COMMIT;

@@ -9,6 +9,8 @@ const funnel = z.object({current:z.array(step).min(2).max(10),previous:z.array(s
 });
 export const weeklyEvidenceSchema = z.object({
   complete:z.literal(true),
+  trafficScope:z.enum(["all_users","organic_search"]).optional(),
+  channelDimension:z.enum(["firstUserDefaultChannelGroup","firstUserPrimaryChannelGroup"]).optional(),
   reportingCutoff:z.object({kind:z.enum(["TUESDAY_1010_SNAPSHOT", "FRIDAY_1010_SNAPSHOT"]),scheduledAt:z.iso.datetime({offset:true})}).strict().optional(),
   pageVisitors:weeklyPageVisitorsSchema.optional(),
   pageTrends:pageTrafficHistorySchema.optional(),
@@ -21,6 +23,7 @@ export const weeklyEvidenceSchema = z.object({
   sources:z.array(z.url().refine(value=>{const url=new URL(value);return url.protocol==="https:"&&!url.username&&!url.password&&["analytics.google.com","search.google.com"].includes(url.hostname);})).min(1).max(20),
 }).strict().superRefine((data,ctx)=>{
   if(new Set(data.channels.map(row=>row.name)).size!==data.channels.length)ctx.addIssue({code:"custom",message:"渠道不能重复"});
+  if(data.trafficScope === "organic_search" && (data.channels.length !== 1 || data.channels[0]?.name !== "Organic Search"))ctx.addIssue({code:"custom",message:"自然搜索口径必须仅包含明确的 Organic Search 渠道，零人数也须保留渠道记录"});
   for(const period of ["current","previous"] as const) {
     if(data.channels.reduce((sum,row)=>sum+row.newUsers[period],0)!==data.totals[period].newUsers ||
       data.channels.reduce((sum,row)=>sum+row.registrations[period],0)!==data.totals[period].newRegistrations)ctx.addIssue({code:"custom",message:"渠道人数须与同期全渠道汇总一致，不能用事件次数代替注册人数"});
