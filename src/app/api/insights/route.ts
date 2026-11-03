@@ -1,4 +1,5 @@
 import { profileRead } from "@/lib/read-profile";
+import { buildWeeklySeoTrafficReport, type SeoTrafficWeek } from "@/lib/weekly-seo-report";
 import { buildWeeklyReport } from "@/lib/services/weekly-report";
 import { databaseErrorCode, settleReads, retryDatabaseRead } from "@/lib/database-read";
 import { NextResponse } from "next/server";
@@ -40,24 +41,14 @@ async function readInsights(request: Request): Promise<NextResponse> {
       prisma.$queryRaw<Array<{ keywordId: string; volume: number }>>`SELECT DISTINCT ON ("keywordId") "keywordId", "volume" FROM (SELECT "keywordId", "volume", "fetchedAt" AS date, CASE WHEN "source" = 'ahrefs' THEN 0 ELSE 1 END AS priority FROM "KeywordVolume" WHERE "region" = ${region}::"SearchRegion" AND "source" IN ('csv','ahrefs') UNION ALL SELECT "keywordId", "volume", "collectedAt" AS date, 0 AS priority FROM "KeywordObservation" WHERE "region" = ${region}::"SearchRegion" AND "volume" IS NOT NULL AND "source" = 'ahrefs') v ORDER BY "keywordId", priority, date DESC`,
       prisma.siteKeyword.findMany({ where: { siteDomain, active: true, topicId: { not: null } }, include: { keyword: { select: { text: true } } } }),
     ]);
-    const current = weekly.find((row) => row.periodStart.toISOString().slice(0, 10) === periods.current.start && row.periodEnd.toISOString().slice(0, 10) === periods.current.end);
-    const previous = weekly.find((row) => row.periodStart.toISOString().slice(0, 10) === periods.previous.start && row.periodEnd.toISOString().slice(0, 10) === periods.previous.end);
-    const pack = (row: typeof current) => row ? { newUsers: row.newUsers, newRegistrations: row.newRegistrations, registrationRate: registrationRate(row.newUsers, row.newRegistrations), collectedAt: row.collectedAt.toISOString(), ga4PropertyId: row.ga4PropertyId, timezone: row.timezone, registrationMetric: row.registrationMetric } : null;
+    const seoTraffic = buildWeeklySeoTrafficReport(weekly, periods, null, [siteDomain]).traffic;
     const latest = captures.find(row=>row.captureDate.toISOString().slice(0,10) === periods.current.end);
     const prior = captures.find(row=>row.captureDate.toISOString().slice(0,10) === periods.previous.end);
     const observations = latest ? await prisma.$queryRaw<KeywordObservation[]>`SELECT DISTINCT ON ("captureId", "keywordId") * FROM "KeywordObservation" WHERE "captureId" IN (${latest.id}, ${prior?.id ?? ""}) AND "rankReported" = true ORDER BY "captureId", "keywordId", "importedAt" DESC` : [];
     const volumes = new Map(volumeRows.map((row) => [row.keywordId, row.volume]));
     const eligible = new Set(links.filter((link) => (volumes.get(link.keywordId) ?? 0) > 0).map((link) => link.keywordId));
     const changes = latest ? compareCaptures(observations.filter((row) => row.captureId === latest.id), prior ? observations.filter((row) => row.captureId === prior.id) : null, eligible) : null;
-    const currentRate = current ? registrationRate(current.newUsers, current.newRegistrations) : null;
-    const previousRate = previous ? registrationRate(previous.newUsers, previous.newRegistrations) : null;
-    const comparable = current && previous && current.timezone === previous.timezone && current.registrationMetric === previous.registrationMetric && current.ga4PropertyId === previous.ga4PropertyId;
-    return NextResponse.json({ siteDomain, rankingSource: source, periods, traffic: { current: pack(current), previous: pack(previous), changes: {
-      newUsers: comparable ? relativeChange(current.newUsers, previous.newUsers) : null,
-      newRegistrations: comparable ? relativeChange(current.newRegistrations, previous.newRegistrations) : null,
-      registrationRate: comparable ? relativeChange(currentRate, previousRate) : null,
-      ratePoints: comparable && currentRate !== null && previousRate !== null ? (currentRate - previousRate) * 100 : null,
-    } }, daily: changes ? { ...changes, date: latest!.captureDate.toISOString().slice(0,10), previousDate: prior?.captureDate.toISOString().slice(0,10) ?? null, unknownVolume: links.filter((link) => !volumes.has(link.keywordId)).length } : null,
+    return NextResponse.json({ siteDomain, rankingSource: source, periods, traffic: { ...seoTraffic, current: seoTraffic.siteTraffic[0]?.current ?? null, previous: seoTraffic.siteTraffic[0]?.previous ?? null }, daily: changes ? { ...changes, date: latest!.captureDate.toISOString().slice(0,10), previousDate: prior?.captureDate.toISOString().slice(0,10) ?? null, unknownVolume: links.filter((link) => !volumes.has(link.keywordId)).length } : null,
     pages: pageRows.filter((row) => links.some((link) => link.keywordId === row.keywordId)).map((row) => ({ ...row, keyword: links.find((link) => link.keywordId === row.keywordId)?.keyword.text })),
     keywords: links.map((link) => ({ id: link.keywordId, text: link.keyword.text })),
     }, { headers: { "Cache-Control": "private, no-store" } });
@@ -67,7 +58,7 @@ async function readInsights(request: Request): Promise<NextResponse> {
 async function summary(request: Request, region: SearchRegionCode, source: string): Promise<NextResponse> {
   type SiteInsights = {
     rankingSource: string; periods: ReturnType<typeof weeklyPeriods>;
-    traffic: { current: { newUsers: number; newRegistrations: number; collectedAt: string; ga4PropertyId: string; timezone: string; registrationMetric: string } | null; previous: { newUsers: number; newRegistrations: number; collectedAt: string; ga4PropertyId: string; timezone: string; registrationMetric: string } | null };
+    traffic: { comparable: boolean; current: SeoTrafficWeek | null; previous: SeoTrafficWeek | null };
     daily: { count: number; baseline: boolean; entered: string[]; lost: string[]; missing: string[]; detectedReduction: number | null; net: number | null; date: string; previousDate: string | null; unknownVolume: number } | null;
     keywords: { id: string; text: string }[];
     pages: Array<Record<string, unknown> & { id: string; keyword: string }>;
@@ -94,14 +85,14 @@ async function summary(request: Request, region: SearchRegionCode, source: strin
   const current = total("current"); const previous = total("previous");
   const currentSites = domains.filter((_,index)=>parts[index].traffic.current);
   const previousSites = domains.filter((_,index)=>parts[index].traffic.previous);
-  const comparable = Boolean(current && previous && currentSites.join() === previousSites.join() && parts.every(part=>!part.traffic.current || (part.traffic.current.timezone === part.traffic.previous?.timezone && part.traffic.current.registrationMetric === part.traffic.previous?.registrationMetric && part.traffic.current.ga4PropertyId === part.traffic.previous?.ga4PropertyId)));
+  const comparable = Boolean(current && previous && currentSites.join() === previousSites.join() && parts.every(part => !part.traffic.current || part.traffic.comparable));
   const weeks = await prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: domains }, periodStart: { lte: new Date(weeklyPeriods().current.start) } }, distinct: ["periodStart"], select: { periodStart: true }, orderBy: { periodStart: "desc" } });
   const history = [...new Set([weeklyPeriods().current.start, ...weeks.map(row=>row.periodStart.toISOString().slice(0,10))])].sort().reverse();
   const days = parts.flatMap((part, index) => part.daily ? [{ ...part.daily, site: domains[index], source: part.rankingSource }] : []);
   const ids = (key: "entered" | "lost" | "missing") => parts.flatMap((part, index) => part.daily?.[key].map((id) => `${domains[index]}:${id}`) ?? []);
   const fullBaseline = days.length === domains.length && days.every((day) => !day.baseline);
   return NextResponse.json({ periods: parts[0].periods, history,
-    traffic: { current, previous, changes: {
+    traffic: { trafficScope: "organic_search", current, previous, changes: {
       newUsers: comparable ? relativeChange(current!.newUsers, previous!.newUsers) : null,
       newRegistrations: comparable ? relativeChange(current!.newRegistrations, previous!.newRegistrations) : null,
       registrationRate: comparable ? relativeChange(current!.registrationRate, previous!.registrationRate) : null,

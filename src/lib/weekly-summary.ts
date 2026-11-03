@@ -12,17 +12,18 @@ const trend=(current:number,previous:number)=>previous===0?current===0?"与上�
 // Reuse saved facts only. Unresolved investigations and action lists remain
 // in the private evidence, rather than becoming the report's conclusion.
 export function weeklySummaryText(input:SummaryInput):string {
-  const prepared=input.evidence?.codexSummary?.text?.trim();
+  const seoEvidence=input.evidence?.trafficScope === "organic_search" ? input.evidence : null;
+  const prepared=seoEvidence?.codexSummary?.text?.trim();
   if(prepared)return prepared.replace(/\s+/gu," ");
   const parts:string[]=[];
   if(input.current){
     const {current,previous}=input;
-    parts.push(input.comparable&&previous?`本期新用户 ${count(current.newUsers)} 人，${trend(current.newUsers,previous.newUsers)}；注册 ${count(current.newRegistrations)} 人，${trend(current.newRegistrations,previous.newRegistrations)}。`:`本期新用户 ${count(current.newUsers)} 人，注册 ${count(current.newRegistrations)} 人。`);
-    const funnel=weeklyFunnelMetrics(input.evidence?.newVisitorFunnel);
-    if(input.comparable&&funnel&&funnel.current.rate!==null&&funnel.previous.rate!==null)parts.push(`新访客注册转化率由 ${(funnel.previous.rate*100).toFixed(1)}% ${funnel.current.rate===funnel.previous.rate?"维持在":funnel.current.rate>funnel.previous.rate?"升至":"降至"} ${(funnel.current.rate*100).toFixed(1)}%。`);
+    parts.push(input.comparable&&previous?`本期自然搜索新用户 ${count(current.newUsers)} 人，${trend(current.newUsers,previous.newUsers)}；注册 ${count(current.newRegistrations)} 人，${trend(current.newRegistrations,previous.newRegistrations)}。`:`本期自然搜索新用户 ${count(current.newUsers)} 人，注册 ${count(current.newRegistrations)} 人。`);
+    const funnel=weeklyFunnelMetrics(seoEvidence?.newVisitorFunnel);
+    if(input.comparable&&funnel&&funnel.current.rate!==null&&funnel.previous.rate!==null)parts.push(`自然搜索新访客顺序漏斗完成率由 ${(funnel.previous.rate*100).toFixed(1)}% ${funnel.current.rate===funnel.previous.rate?"维持在":funnel.current.rate>funnel.previous.rate?"升至":"降至"} ${(funnel.current.rate*100).toFixed(1)}%。`);
   }
-  const shares=pageVisitorRows(input.evidence?.pageVisitors, input.comparable).filter(row=>row.currentShare!==null);
-  if(shares.length)parts.push(shares.map(row=>`${row.name}访客占全站 ${(row.currentShare!*100).toFixed(1)}%${row.sharePoints===null?"":`，较上期${row.sharePoints>=0?"增加":"减少"} ${Math.abs(row.sharePoints).toFixed(1)} 个百分点`}`).join("；")+"。");
+  const shares=pageVisitorRows(seoEvidence?.pageVisitors, input.comparable).filter(row=>row.currentShare!==null);
+  if(shares.length)parts.push(shares.map(row=>`${row.name}访客占自然搜索访客 ${(row.currentShare!*100).toFixed(1)}%${row.sharePoints===null?"":`，较上期${row.sharePoints>=0?"增加":"减少"} ${Math.abs(row.sharePoints).toFixed(1)} 个百分点`}`).join("；")+"。");
   const conclusions=input.diagnosis.findings.filter(row=>row.level!=="unresolved"&&!/待确认|待核|尚未|暂无|缺少.*证据|技术根因|表单|排查/u.test(row.title)).slice(0,2).map(row=>{
     const text=/变化$|集中位置$|渠道变化/u.test(row.title)?row.evidence.split("。")[0]:row.title;
     return text.replace(/[。；]$/u,"");

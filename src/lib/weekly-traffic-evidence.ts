@@ -2,7 +2,11 @@ import archive from "./data/weekly-traffic-evidence.json";
 import type { WeeklyPageVisitors } from "./weekly-page-visitors";
 import type { WeeklyReportingCutoff } from "./weekly-cutoff";
 
+export type WeeklyTrafficChannelDimension = "firstUserDefaultChannelGroup" | "firstUserPrimaryChannelGroup";
+
 export type WeeklyTrafficEvidence = {
+  trafficScope?: "all_users" | "organic_search";
+  channelDimension?: WeeklyTrafficChannelDimension;
   complete: boolean;
   pageTrends?: import("./page-traffic-history").PageTrafficHistory;
   reportingCutoff?: WeeklyReportingCutoff;

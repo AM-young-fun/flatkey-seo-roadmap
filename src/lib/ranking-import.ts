@@ -169,6 +169,7 @@ export const rankingImportSchema = z
       analysis: weeklyEvidenceSchema.optional(),
       collectedAt: z.iso.datetime({ offset: true }),
     }).strict().superRefine((row, ctx) => {
+      if (row.analysis?.trafficScope === "organic_search") ctx.addIssue({code:"custom",message:"全渠道周报导入不能使用自然搜索汇总，自然搜索日报请使用独立导入入口"});
       if (row.analysis && (row.analysis.totals.current.newUsers !== row.newUsers || row.analysis.totals.current.newRegistrations !== row.newRegistrations)) ctx.addIssue({code:"custom",message:"渠道与漏斗分析必须属于本次流量汇总"});
       if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周五至周四的连续 7 天；历史周二至周一报告保留兼容" });
       let closedEnd: string;

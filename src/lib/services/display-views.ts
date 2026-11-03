@@ -11,7 +11,7 @@ import { loadKeywordOkr } from "./keyword-okr";
 import { loadOptimizedPageMonitor } from "./optimized-page-monitor";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
-const trafficDisplayVersion = "page-history-registrations-v5";
+const trafficDisplayVersion = "organic-search-weekly-v6";
 const dashboardDisplayVersion = "keyword-market-demand-v2";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
@@ -39,8 +39,8 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   if (view === "traffic") {
     const periods = params.get("week") ? reportPeriods(params.get("week")!) : activeReportPeriods();
     if (periods.current.start > activeReportPeriods().current.start) throw new Error("周报尚未结束");
-    // This revision includes country-level decline receipts. Rebuild once on
-    // upgrade instead of serving a prior payload without the new evidence.
+    // Scope is part of the durable cache identity: never serve a saved
+    // all-channel payload in the organic-search report after deployment.
     return {key:`display-v1:traffic:${periods.current.start}:${trafficDisplayVersion}`,build:async () => ({value:await buildWeeklyReport(periods)})};
   }
   if (view === "trends") {

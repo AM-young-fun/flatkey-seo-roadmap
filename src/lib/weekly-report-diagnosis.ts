@@ -88,10 +88,10 @@ export async function diagnoseWeeklyReport(traffic: DiagnosisTraffic, ranks: Wee
   if (trafficLarge) {
     const sites = traffic.siteTraffic.filter(site => site.current && site.previous).map(site => ({ site: site.siteDomain, users: site.current!.newUsers - site.previous!.newUsers, registrations: site.current!.newRegistrations - site.previous!.newRegistrations }))
       .sort((a, b) => Math.abs(b.users) - Math.abs(a.users));
-    result.findings.push({ title: "流量变化集中位置", evidence: sites.map(site => `${site.site}：新用户 ${site.users > 0 ? "+" : ""}${site.users}，注册 ${site.registrations > 0 ? "+" : ""}${site.registrations}`).join("；"),
-      action: "按变化最大的站点检查 GA4 自然搜索、付费、推荐与直接访问渠道，并对照近期投放和埋点变更。现有全渠道汇总不足以认定流量波动由 SEO 导致。", level: "finding" });
+    result.findings.push({ title: "自然搜索流量变化集中位置", evidence: sites.map(site => `${site.site}：新用户 ${site.users > 0 ? "+" : ""}${site.users}，注册 ${site.registrations > 0 ? "+" : ""}${site.registrations}`).join("；"),
+      action: "按变化最大的站点检查自然搜索落地页、地区、设备和注册路径，并对照同期页面变更与关键词排名。自然搜索人数的变化尚不能确认具体 SEO 改动的效果。", level: "finding" });
   }
-  if (traffic.comparable && ratioLarge && currentRatio != null && previousRatio != null) result.findings.push({ title: "注册比例变化需要渠道与流程证据", evidence: `注册人数 / 新用户数由 ${(previousRatio * 100).toFixed(1)}% 变为 ${(currentRatio * 100).toFixed(1)}%。该比例不等于同一批新用户的转化率。`, action: "核对各渠道的新用户与注册人数、注册漏斗及注册事件采集状态，区分流量结构变化、注册流程异常和埋点变化；当前汇总尚不能确认具体原因。", level: "unresolved" });
+  if (traffic.comparable && ratioLarge && currentRatio != null && previousRatio != null) result.findings.push({ title: "自然搜索注册比例变化需要流程证据", evidence: `首次来源为自然搜索的用户，注册人数 / 新用户数由 ${(previousRatio * 100).toFixed(1)}% 变为 ${(currentRatio * 100).toFixed(1)}%。注册人数包含当期注册的老访客，该比例不等于同一批新用户的转化率。`, action: "核对相同自然搜索筛选下的新用户、注册人数、顺序漏斗及注册事件采集状态；当前汇总尚不能确认具体原因。", level: "unresolved" });
   if (ranksLarge && ranks) {
     if (ranks.comparedMarkets < 12) result.findings.push({ title: "历史数据覆盖不完整", evidence: `两期只有 ${ranks.comparedMarkets}/12 个网站与国家组合可比；缺失范围未按零排名计算。`, action: "补齐缺失的同期原始报告后再确认整体变化。", level: "unresolved" });
     const losses = ranks.pageLosses.slice(0, 3), gains = ranks.pageGains.slice(0, 3);

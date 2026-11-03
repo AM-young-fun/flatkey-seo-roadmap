@@ -29,13 +29,15 @@ test("large ranking drops inspect the concentrated pages and keep source coverag
   assert.match(result.findings.find(row => row.title === "排名下降集中页面").evidence, /本期报告未检出/);
 });
 
-test("large traffic changes identify the site without inventing SEO attribution", async () => {
+test("large organic traffic changes identify the site without inventing a cause", async () => {
   const result = await diagnoseWeeklyReport(traffic({ current: { newUsers: 200, newRegistrations: 12 }, siteTraffic: [
     { siteDomain: "flatkey.ai", current: { newUsers: 200, newRegistrations: 12 }, previous: { newUsers: 100, newRegistrations: 10 } },
   ] }), null, "2026-10-12", { now });
   assert.equal(result.significant, true);
   assert.match(result.findings[0].evidence, /flatkey.ai：新用户 \+100/);
-  assert.match(result.findings[0].action, /全渠道汇总不足以认定/);
+  assert.match(result.findings[0].title, /自然搜索/);
+  assert.match(result.findings[0].action, /尚不能确认具体 SEO 改动的效果/);
+  assert.doesNotMatch(JSON.stringify(result), /全渠道|付费|直接访问|推荐/);
   const incomparable = await diagnoseWeeklyReport(traffic({ comparable: false, current: { newUsers: 0, newRegistrations: 0 } }), null, "2026-10-12", { now });
   assert.equal(incomparable.significant, false);
 });
@@ -50,8 +52,9 @@ test("a material registration-ratio shift triggers an investigation without clai
     { siteDomain: "flatkey.ai", current: { newUsers: 2572, newRegistrations: 417 }, previous: { newUsers: 2087, newRegistrations: 433 } },
   ] }), null, "2026-10-12", { now });
   assert.equal(result.significant, true);
-  const finding = result.findings.find(row => row.title === "注册比例变化需要渠道与流程证据");
+  const finding = result.findings.find(row => row.title === "自然搜索注册比例变化需要流程证据");
   assert.match(finding.evidence, /20.7% 变为 16.2%/);
+  assert.match(finding.evidence, /不等于同一批新用户的转化率/);
   assert.match(finding.action, /当前汇总尚不能确认具体原因/);
   assert.equal(finding.level, "unresolved");
 });

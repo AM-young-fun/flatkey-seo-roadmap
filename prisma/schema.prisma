@@ -130,6 +130,7 @@ model SeoSite {
   imports RankingImport[]
   trafficReports WeeklyTraffic[]
   dailyRankings DailyRankingReport[]
+  dailySeoTrafficImports DailySeoTrafficImport[]
 }
 
 model SiteTopic {
@@ -244,6 +245,39 @@ model WeeklyReportDraft {
   collectedAt DateTime
   payload Json
   @@id([siteDomain, periodStart])
+}
+
+// Independent, immutable GA4 daily evidence. A correction creates a new import;
+// day-level distinct registrations are never summed into a weekly distinct count.
+model DailySeoTrafficImport {
+  requestId String @id
+  payloadHash String
+  pointCount Int
+  siteDomain String
+  site SeoSite @relation(fields: [siteDomain], references: [domain])
+  ga4PropertyId String
+  timezone String
+  trafficScope String
+  channelName String
+  channelDimension String
+  registrationMetric String
+  sources String[]
+  collectedAt DateTime
+  importedAt DateTime @default(now())
+  points DailySeoTrafficPoint[]
+  @@index([siteDomain, ga4PropertyId, timezone, channelDimension, registrationMetric, collectedAt(sort: Desc)], map: "daily_seo_import_cohort_date_idx")
+}
+
+model DailySeoTrafficPoint {
+  id String @id @default(cuid())
+  importId String
+  importBatch DailySeoTrafficImport @relation(fields: [importId], references: [requestId], onDelete: Restrict)
+  date DateTime @db.Date
+  newUsers Int?
+  newRegistrations Int?
+  missingReason String?
+  @@unique([importId, date])
+  @@index([date, importId])
 }
 
 // Receipts submitted by the authenticated Codex collector, not server jobs.
