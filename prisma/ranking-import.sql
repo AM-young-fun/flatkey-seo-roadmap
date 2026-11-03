@@ -457,4 +457,32 @@ CREATE TABLE IF NOT EXISTS "DailySeoTrafficPoint" (
 CREATE UNIQUE INDEX IF NOT EXISTS "DailySeoTrafficPoint_importId_date_key" ON "DailySeoTrafficPoint" ("importId", date);
 CREATE INDEX IF NOT EXISTS "DailySeoTrafficPoint_date_importId_idx" ON "DailySeoTrafficPoint" (date, "importId");
 
+-- Separate append-only, versioned page-group observations. Existing all-site
+-- daily and weekly evidence is never rewritten or truncated by this migration.
+CREATE TABLE IF NOT EXISTS "DailySeoPageGroupImport" (
+  "requestId" TEXT PRIMARY KEY, "payloadHash" TEXT NOT NULL, "pointCount" INTEGER NOT NULL,
+  "siteDomain" TEXT NOT NULL REFERENCES "SeoSite"(domain) ON DELETE RESTRICT ON UPDATE CASCADE,
+  "ga4PropertyId" TEXT NOT NULL, timezone TEXT NOT NULL,
+  "trafficScope" TEXT NOT NULL CHECK ("trafficScope" = 'organic_search'),
+  "channelName" TEXT NOT NULL CHECK ("channelName" = 'Organic Search'),
+  "channelDimension" TEXT NOT NULL CHECK ("channelDimension" = 'firstUserPrimaryChannelGroup'),
+  "registrationMetric" TEXT NOT NULL CHECK ("registrationMetric" = 'sign_up_success_distinct_users'),
+  "ruleVersion" INTEGER NOT NULL CHECK ("ruleVersion" = 1), sources TEXT[] NOT NULL,
+  "collectedAt" TIMESTAMP(3) NOT NULL, "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS "daily_seo_group_import_cohort_idx" ON "DailySeoPageGroupImport"
+  ("siteDomain", "ga4PropertyId", timezone, "channelDimension", "registrationMetric", "ruleVersion", "collectedAt" DESC);
+CREATE TABLE IF NOT EXISTS "DailySeoPageGroupPoint" (
+  id TEXT PRIMARY KEY, "importId" TEXT NOT NULL REFERENCES "DailySeoPageGroupImport"("requestId") ON DELETE RESTRICT ON UPDATE CASCADE,
+  "groupKey" TEXT NOT NULL CHECK ("groupKey" IN ('gpu_compute','model_list','model_detail','prompts')), date DATE NOT NULL,
+  "totalUsers" INTEGER CHECK ("totalUsers" >= 0), "pageViews" INTEGER CHECK ("pageViews" >= 0),
+  "trafficCollectedAt" TIMESTAMP(3) NOT NULL, "trafficSources" TEXT[] NOT NULL,
+  "funnelEntrants" INTEGER CHECK ("funnelEntrants" >= 0), "funnelRegistrations" INTEGER CHECK ("funnelRegistrations" >= 0),
+  "funnelCollectedAt" TIMESTAMP(3), "funnelSources" TEXT[] NOT NULL, "missingReason" TEXT,
+  CHECK (("funnelEntrants" IS NULL AND "funnelRegistrations" IS NULL AND "funnelCollectedAt" IS NULL)
+    OR ("funnelEntrants" IS NOT NULL AND "funnelRegistrations" IS NOT NULL AND "funnelCollectedAt" IS NOT NULL AND "funnelRegistrations" <= "funnelEntrants"))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "DailySeoPageGroupPoint_importId_groupKey_date_key" ON "DailySeoPageGroupPoint" ("importId", "groupKey", date);
+CREATE INDEX IF NOT EXISTS "DailySeoPageGroupPoint_groupKey_date_importId_idx" ON "DailySeoPageGroupPoint" ("groupKey", date, "importId");
+
 COMMIT;

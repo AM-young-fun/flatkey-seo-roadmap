@@ -1,0 +1,35 @@
+.section { margin: 28px 0; }
+.heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.heading h2 { margin: 0 0 8px; color: #23395c; font-size: 17px; }
+.heading p { margin: 0; }
+.range { flex-shrink: 0; padding: 7px 10px; border: 1px solid #e5eaf2; border-radius: 8px; background: #f8fafc; color: #70819a; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.card { min-width: 0; margin: 0; padding: 20px; }
+.cardHeader { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.card h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; color: #23395c; font-size: 16px; }
+.card h3 i { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; }
+.scope { margin: 0; color: #8795a9; font-size: 11px; line-height: 1.8; }
+.switch { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border: 1px solid #e5eaf2; border-radius: 8px; background: #f8fafc; }
+.switch button { padding: 5px 9px; border: 0; border-radius: 5px; background: transparent; color: #8795a9; font: inherit; font-size: 11px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: #fff; color: #23395c; box-shadow: 0 1px 4px #19283f14; }
+.switch button:focus-visible, .details summary:focus-visible { outline: 2px solid #4385ff; outline-offset: 3px; }
+.coverage { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 15px 0 0; color: #8795a9; font-size: 11px; line-height: 1.7; }
+.plot { width: 100%; height: 250px; margin-top: 4px; }
+.empty { display: flex; min-height: 120px; align-items: center; color: #8795a9; font-size: 12px; line-height: 1.8; }
+.details { margin-top: 12px; border-top: 1px solid #eef2f7; }
+.details summary { padding: 14px 0 4px; color: #526480; font-size: 11px; line-height: 1.8; cursor: pointer; }
+.details th, .details td { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.provenance { margin: 12px 0 0; color: #8795a9; font-size: 11px; line-height: 1.9; overflow-wrap: anywhere; }
+.provenance p { margin: 6px 0; }
+.provenance code { font-size: 10px; }
+.provenance a { margin-right: 10px; color: #70819a; text-decoration: underline; text-underline-offset: 2px; }
+.note { margin-top: 14px; line-height: 1.8; }
+.chartError { margin: 12px 0; color: #8795a9; font-size: 11px; line-height: 1.8; }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .heading { flex-direction: column; gap: 12px; }
+  .card { padding: 18px 15px; }
+  .plot { height: 230px; }
+}

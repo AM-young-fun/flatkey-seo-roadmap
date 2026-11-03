@@ -131,6 +131,7 @@ model SeoSite {
   trafficReports WeeklyTraffic[]
   dailyRankings DailyRankingReport[]
   dailySeoTrafficImports DailySeoTrafficImport[]
+  dailySeoPageGroupImports DailySeoPageGroupImport[]
 }
 
 model SiteTopic {
@@ -266,6 +267,45 @@ model DailySeoTrafficImport {
   importedAt DateTime @default(now())
   points DailySeoTrafficPoint[]
   @@index([siteDomain, ga4PropertyId, timezone, channelDimension, registrationMetric, collectedAt(sort: Desc)], map: "daily_seo_import_cohort_date_idx")
+}
+
+model DailySeoPageGroupImport {
+  requestId String @id
+  payloadHash String
+  pointCount Int
+  siteDomain String
+  site SeoSite @relation(fields: [siteDomain], references: [domain])
+  ga4PropertyId String
+  timezone String
+  trafficScope String
+  channelName String
+  channelDimension String
+  registrationMetric String
+  ruleVersion Int
+  sources String[]
+  collectedAt DateTime
+  importedAt DateTime @default(now())
+  points DailySeoPageGroupPoint[]
+  @@index([siteDomain, ga4PropertyId, timezone, channelDimension, registrationMetric, ruleVersion, collectedAt(sort: Desc)], map: "daily_seo_group_import_cohort_idx")
+}
+
+model DailySeoPageGroupPoint {
+  id String @id @default(cuid())
+  importId String
+  importBatch DailySeoPageGroupImport @relation(fields: [importId], references: [requestId], onDelete: Restrict)
+  groupKey String
+  date DateTime @db.Date
+  totalUsers Int?
+  pageViews Int?
+  trafficCollectedAt DateTime
+  trafficSources String[]
+  funnelEntrants Int?
+  funnelRegistrations Int?
+  funnelCollectedAt DateTime?
+  funnelSources String[]
+  missingReason String?
+  @@unique([importId, groupKey, date])
+  @@index([groupKey, date, importId])
 }
 
 model DailySeoTrafficPoint {
