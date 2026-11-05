@@ -133,7 +133,25 @@ async function credentials() {
 const basicHeader = (value: { apiLogin: string; apiPassword: string }) => `Basic ${Buffer.from(`${value.apiLogin}:${value.apiPassword}`).toString("base64")}`;
 const rawRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
-async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string): Promise<number> {
+type BalanceVerification = { connectionHash: string; expiresAt: number };
+type BatchContext = { balance?: BalanceVerification };
+
+async function readSubmissionBalance(connection: Awaited<ReturnType<typeof credentials>>, deadline?: number) {
+  async function read() {
+    const response = await fetch(SERP_USER_DATA_URL, { method: "GET", redirect: "error", cache: "no-store",
+      signal: AbortSignal.timeout(requestTimeout(deadline, 12_000)), headers: { Authorization: basicHeader(connection) } });
+    if (!response.ok) throw new Error(`BALANCE_HTTP_${response.status}`);
+    return parseSerpSampleBalance(await response.json());
+  }
+  try { return await read(); }
+  catch (error) {
+    if (!hasTime(deadline, 75_000)) throw error;
+    // This endpoint is read-only. Retrying a paid POST remains forbidden.
+    return read();
+  }
+}
+
+async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string, worker?: BatchContext): Promise<number> {
   // Leave room for balance lookup, reservation, one non-retryable POST, raw
   // persistence and its atomic receipt association before the worker exits.
   if (!hasTime(deadline, 75_000)) return 0;
@@ -143,18 +161,24 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
   if (!sampleAuthorizationHash) {
     const run = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: runId } });
     if (run.status === "UNKNOWN" || run.errorCode?.startsWith("ACCOUNT_")) return 0;
-    const planned = await prisma.serpMonitorTask.findMany({ where: { runId, state: "PLANNED" }, select: { id: true } });
-    if (!planned.length) return 0;
-    try {
-      const response = await fetch(SERP_USER_DATA_URL, { method: "GET", redirect: "error", cache: "no-store",
-        signal: AbortSignal.timeout(requestTimeout(deadline, 5000)), headers: { Authorization: basicHeader(connection) } });
-      if (!response.ok) throw new Error("BALANCE_UNAVAILABLE");
-      const available = parseSerpSampleBalance(await response.json());
-      if (available < planned.length * SERP_PRICE_PER_QUERY_MICROS + SERP_SAMPLE_SAFETY_MARGIN_MICROS) {
-        await prisma.serpMonitorRun.update({ where: { id: runId }, data: { status: "UNKNOWN", errorCode: "ACCOUNT_BALANCE_INSUFFICIENT" } }); return 0;
+    if (worker?.balance?.connectionHash !== connection.connectionHash || worker.balance.expiresAt <= Date.now()) {
+      const planned = await prisma.serpMonitorTask.count({ where: { runId, state: "PLANNED" } });
+      if (!planned) return 0;
+      let available: number | null = null;
+      try { available = await readSubmissionBalance(connection, deadline); }
+      catch (error) {
+        const reason = error instanceof Error && /^(BALANCE_HTTP_\d{3}|BALANCE_NOT_VERIFIED)$/.test(error.message)
+          ? error.message : error instanceof Error ? error.name : "UnknownError";
+        console.warn("DataForSEO balance check failed before paid SERP submission", { runId, reason });
       }
-    } catch {
-      await prisma.serpMonitorRun.update({ where: { id: runId }, data: { status: "UNKNOWN", errorCode: "ACCOUNT_BALANCE_UNVERIFIED" } }); return 0;
+      if (available === null || available < planned * SERP_PRICE_PER_QUERY_MICROS + SERP_SAMPLE_SAFETY_MARGIN_MICROS) {
+        await prisma.serpMonitorRun.updateMany({ where: { id: runId, status: { in: ["PLANNED", "RUNNING"] }, errorCode: null },
+          data: { status: "UNKNOWN", errorCode: available === null ? "ACCOUNT_BALANCE_UNVERIFIED" : "ACCOUNT_BALANCE_INSUFFICIENT" } });
+        return 0;
+      }
+      // The original reservation already covers all remaining tasks. Reuse
+      // this check briefly within one worker as that task list shrinks.
+      if (worker) worker.balance = { connectionHash: connection.connectionHash, expiresAt: Date.now() + 60_000 };
     }
   }
   if (!hasTime(deadline, 60_000)) return 0;
@@ -209,6 +233,7 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
     } else if (!isSerpScheduleAuthorized(config) || (run.scope ?? "SCHEDULED") !== "SCHEDULED") throw new ImportRequestError("全量付费SERP抓取已关闭或任务范围不符", 409);
     if (run.status === "UNKNOWN") throw new ImportRequestError("供应商接收结果不明，禁止重复提交", 409);
     if (run.connectionVersion !== connection.connectionVersion || rawRecord(run.configJson).connectionHash !== connection.connectionHash) throw new ImportRequestError("采集期间连接已变化，请先核对原账本", 409);
+    if (worker?.balance && worker.balance.expiresAt <= Date.now()) return [];
     const active = await tx.serpMonitorTask.findFirst({ where: { runId, state: { in: ["SUBMITTING", "UNKNOWN"] } } });
     if (active) return [];
     const selected = await tx.serpMonitorTask.findMany({ where: { runId, state: "PLANNED" }, orderBy: [{ keyword: "asc" }, { region: "asc" }], take: 100 });
@@ -586,6 +611,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
     run = (await reserveRun(`serp-${randomUUID()}`, cohort.hash, options.periodKey)).run;
   }
   let paidRequests = 0, freeResultsChecked = 0;
+  const worker: BatchContext = {};
   // Fix the due cutoff for this invocation. A not-ready response is tried once
   // here and cannot monopolize later unpolled tasks or cause a hot retry loop.
   const pollDueBefore = new Date(startedAt - 10 * 60_000);
@@ -601,7 +627,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
     let submitted = 0;
     const liveConfig = await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
     if (latest.status !== "UNKNOWN" && isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(liveConfig) && hasTime(deadline, 75_000)) {
-      submitted = await submitOneBatch(run.id, undefined, deadline);
+      submitted = await submitOneBatch(run.id, undefined, deadline, undefined, worker);
       if (submitted) paidRequests++;
     }
     if (!checked && !submitted && !cached.length) break;

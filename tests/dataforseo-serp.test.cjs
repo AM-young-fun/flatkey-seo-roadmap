@@ -38,6 +38,7 @@ function model(key, defaults = {}) {
     findUnique: async ({ where }) => clone(rows().find(row => matches(row, where)) ?? null),
     findUniqueOrThrow: async ({ where }) => { const row = rows().find(row => matches(row, where)); assert.ok(row); return clone(row); },
     findFirst: async ({ where }) => clone(rows().find(row => matches(row, where)) ?? null),
+    count: async ({ where }) => rows().filter(row => matches(row, where)).length,
     findMany: async ({ where, take, orderBy }) => {
       const selected = rows().filter(row => matches(row, where));
       for (const order of [...(Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : [])].reverse()) {
@@ -522,6 +523,29 @@ test("insufficient live balance halts the entire unpaid remainder before its fir
   liveBalance = 100;
   assert.equal((await runSerpMonitorCron()).status, "NEEDS_REVIEW");
   assert.equal(balanceRequests.length, 1); assert.equal(fetches.length, 0);
+});
+
+test("a worker retries the free balance lookup and reuses its verified remainder across paid batches", async t => {
+  state.config.paidEnabled = true;
+  targets = Array.from({ length: 76 }, (_, index) => target(`model ${index} price`));
+  await start();
+  const originalFetch = globalThis.fetch;
+  let rejectedBalanceReads = 0;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    if (url === SERP_USER_DATA_URL && rejectedBalanceReads === 0) {
+      assert.equal(init.method, "GET");
+      rejectedBalanceReads++;
+      return new Response(null, { status: 503 });
+    }
+    return originalFetch(url, init);
+  });
+  const result = await runSerpMonitorCron();
+  assert.equal(result.run.errorCode, null);
+  assert.equal(rejectedBalanceReads, 1);
+  assert.equal(balanceRequests.length, 2, "one successful read to start and one to verify the remaining tasks");
+  const tags = fetches.filter(row => row.method === "POST").flatMap(row => JSON.parse(row.body).map(task => task.tag));
+  assert.equal(tags.length, 304);
+  assert.equal(new Set(tags).size, 304);
 });
 
 test("pausing a paid gate during a run stops the next batch and still drains the already-paid batch", async () => {
