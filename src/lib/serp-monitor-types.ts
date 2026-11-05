@@ -40,7 +40,7 @@ export type SerpMonitorPreview = {
 };
 export type SerpOrganicResult = { url: string; domain: string; title: string | null; rankGroup: number; rankAbsolute: number | null };
 export type SerpNormalizedResult = {
-  normalizationVersion: 2; captureComplete: boolean; organicCount: number; coveredThroughRank: number;
+  normalizationVersion: 3; captureComplete: boolean; organicCount: number; coveredThroughRank: number;
   queryStatus: "EXACT" | "AUTOCORRECTED"; correctedKeyword: string | null; spellType: string | null; pagesCount: number | null;
   providerTaskId: string; keyword: string; locationCode: number; languageCode: string; device: string;
   checkedAt: string; googleUrl: string | null; organicResults: SerpOrganicResult[];

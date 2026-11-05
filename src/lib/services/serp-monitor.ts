@@ -599,6 +599,22 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
   // to retrieve. Never include the separately authorized sample in this cron.
   let run = await prisma.serpMonitorRun.findFirst({ where: { scope: "SCHEDULED", status: { in: OPEN_RUNS } }, orderBy: { createdAt: "asc" } });
   if (!run) {
+    // Upgrade previously saved captures locally, even while spending is off.
+    const legacyIncomplete: Prisma.SerpMonitorTaskWhereInput = {
+      state: "INCOMPLETE", errorCode: "ORGANIC_STRUCTURE_INVALID", rawResponse: { not: null },
+      normalizedJson: { path: ["normalizationVersion"], equals: 2 },
+    };
+    const partial = await prisma.serpMonitorRun.findFirst({
+      where: { scope: "SCHEDULED", status: "PARTIAL", tasks: { some: legacyIncomplete } }, orderBy: { createdAt: "desc" },
+    });
+    if (partial) {
+      const tasks = await prisma.serpMonitorTask.findMany({ where: { runId: partial.id, ...legacyIncomplete }, take: 40 });
+      if (tasks.length) {
+        await replayTasks(tasks, partial.configJson as unknown as SerpMonitorConfiguration);
+        return { status: "FINISHED", runId: partial.id, paidRequests: 0, freeResultsChecked: 0,
+          remainingQueries: 0, continuationRequired: false, run: await runDto(await finalizeRun(partial.id)) };
+      }
+    }
     if (!canSpend) return { status: "DISABLED", reason: "PAID_SERP_DISABLED", paidRequests: 0 };
     if (options.allowStart === false) return { status: "WAITING_FOR_DISCOVERY", paidRequests: 0 };
     if (!row?.nextDueAt) return { status: "NOT_SCHEDULED", paidRequests: 0 };
