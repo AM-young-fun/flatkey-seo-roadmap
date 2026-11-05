@@ -21,6 +21,8 @@ function matches(row, where = {}) {
     if (key === "periodKey_scope") return row.periodKey === expected.periodKey && (row.scope ?? "SCHEDULED") === expected.scope;
     const actual = row?.[key];
     if (expected && typeof expected === "object" && !(expected instanceof Date)) {
+      if (Object.hasOwn(expected, "some")) return state.tasks.some(task => task.runId === row.id && matches(task, expected.some));
+      if (Object.hasOwn(expected, "path")) return expected.path.reduce((value, part) => value?.[part], actual) === expected.equals;
       if (Object.hasOwn(expected, "in") && !expected.in.includes(actual)) return false;
       if (Object.hasOwn(expected, "not") && actual === expected.not) return false;
       if (Object.hasOwn(expected, "gte") && !(actual >= expected.gte)) return false;
@@ -366,12 +368,12 @@ test("a scope mismatch or wrong keyword never becomes a successful ranking, and 
   assert.equal(normalizeSerpAdvanced(advanced(task, 100, { spell: { type: "showing_results_for", keyword: "different" } }), expected).completeDepth, false);
 });
 
-test("normalization v2 separates completed capture, contiguous organic coverage and Google query correction", () => {
+test("normalization separates completed capture, contiguous organic coverage and Google query correction", () => {
   const task = { providerTaskId: "fictional-v2-provider", keyword: "model api price",
     requestJson: buildSerpTask(groupSerpQueries([target("model api price")])[0], "v2-tag", SERP_DEFAULT_CONFIG) };
   const expected = { providerTaskId: task.providerTaskId, keyword: task.keyword, config: SERP_DEFAULT_CONFIG };
   const short = normalizeSerpAdvanced(advanced(task, 10, { pages_count: 2 }), expected);
-  assert.equal(short.normalizationVersion, 2); assert.equal(short.captureComplete, true); assert.equal(short.organicCount, 10);
+  assert.equal(short.normalizationVersion, 3); assert.equal(short.captureComplete, true); assert.equal(short.organicCount, 10);
   assert.equal(short.coveredThroughRank, 10); assert.equal(short.completeDepth, false); assert.equal(short.rankingVerified, true);
   assert.equal(short.queryStatus, "EXACT"); assert.equal(short.correctedKeyword, null); assert.equal(short.spellType, null); assert.equal(short.pagesCount, 2);
   const sparse = advanced(task, 1); sparse.tasks[0].result[0].items[0].rank_group = 100;
@@ -391,6 +393,28 @@ test("normalization v2 separates completed capture, contiguous organic coverage 
   const invalid = advanced(task, 10); invalid.tasks[0].result[0].items[3].url = "javascript:alert(1)";
   const malformed = normalizeSerpAdvanced(invalid, expected);
   assert.equal(malformed.captureComplete, false); assert.equal(malformed.rankingVerified, false); assert.equal(malformed.completeDepth, false);
+});
+
+test("the paused scheduler repairs an old FTP result from the cached provider receipt without a network request", async () => {
+  state.config.paidEnabled = true;
+  await start();
+  const originalTask = state.tasks[0];
+  const raw = advanced(originalTask);
+  const items = raw.tasks[0].result[0].items;
+  items[0].url = "ftp://example.invalid/paper.pdf";
+  await mutateSerpMonitor({ action: "resume", runId: originalTask.runId });
+  state.config.paidEnabled = false;
+  const run = state.runs.find(row => row.id === originalTask.runId);
+  run.status = "PARTIAL";
+  Object.assign(originalTask, { state: "INCOMPLETE", errorCode: "ORGANIC_STRUCTURE_INVALID",
+    normalizedJson: { normalizationVersion: 2, captureComplete: false }, rawResponse: JSON.stringify(raw) });
+  const calls = fetches.length + balanceRequests.length;
+  const repaired = await runSerpMonitorCron();
+  assert.equal(repaired.run.status, "COMPLETED");
+  assert.equal(originalTask.normalizedJson.coveredThroughRank, 100);
+  assert.equal(originalTask.normalizedJson.organicResults.some(item => item.rankGroup === 1), false);
+  assert.equal(fetches.length + balanceRequests.length, calls);
+  assert.equal((await runSerpMonitorCron()).status, "DISABLED");
 });
 
 test("successful short captures are COMPLETE while top100 coverage stays limited, and local replay never makes a second paid request", async () => {
@@ -725,7 +749,7 @@ test("free resume repairs all 152 cached legacy sample settlements once, includi
   }
   const result = await mutateSerpMonitor({ action: "resume", runId: run.id });
   assert.equal(result.run.actualCostMicros, 182400); assert.equal(result.run.reservedCostMicros, 912000);
-  assert.ok(state.tasks.every(task => task.costMicros === 1200 && task.state === "COMPLETE" && task.normalizedJson.normalizationVersion === 2 && task.normalizedJson.captureComplete && task.errorCode === null));
+  assert.ok(state.tasks.every(task => task.costMicros === 1200 && task.state === "COMPLETE" && task.normalizedJson.normalizationVersion === 3 && task.normalizedJson.captureComplete && task.errorCode === null));
   assert.equal(result.run.status, "COMPLETED"); assert.equal(events.filter(event => event === "settle:cached").length, 1);
   assert.equal(result.run.completedAt, completedAt.toISOString()); assert.equal(fetches.length, 0); assert.equal(state.config.nextDueAt, null);
   await mutateSerpMonitor({ action: "resume", runId: run.id });

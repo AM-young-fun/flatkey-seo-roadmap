@@ -54,7 +54,7 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
   assert.equal(body.sourceSync.sources.length, 3); assert.equal(checks, 1); assert.equal(globalThis.fetch.mock.callCount(), 0);
   assert.equal(schedulerReceipts.length, 1); assert.equal(schedulerReceipts[0].status, "COMPLETED");
   assert.equal(schedulerReceipts[0].paidRequests, 0); assert.equal(schedulerReceipts[0].serpStatus, "DISABLED");
-  assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "config", "run"]);
+  assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "config", "run", "run"]);
   assert.equal(ledgerReads[2][1].where.scope, "SCHEDULED", "the coordinator must not continue the separately authorized sample");
 });
 test("Vercel has one resumable coordinator; paid starts are gated by the biweekly cycle", () => {

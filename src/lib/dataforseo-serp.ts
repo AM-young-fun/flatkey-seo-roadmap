@@ -6,7 +6,7 @@ import type { SerpMonitorConfiguration, SerpNormalizedResult, SerpOrganicResult,
 export const SERP_TASK_POST_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_post";
 export const SERP_TASK_GET_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_get/advanced";
 export const SERP_CONFIG_ID = "default";
-export const SERP_NORMALIZATION_VERSION = 2;
+export const SERP_NORMALIZATION_VERSION = 3;
 export const SERP_MARKETS: SerpRegion[] = ["US", "JP", "ES", "BR"];
 export const SERP_MARKET_CONFIG = {
   US: { region: "US", languageCode: "en", locationCode: 2840, searchDomain: "google.com" },
@@ -107,6 +107,7 @@ export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: 
     !(queryStatus === "AUTOCORRECTED" && correctedKeyword && resultKeyword === serpQueryKey(correctedKeyword)))) throw new Error("SERP_KEYWORD_MISMATCH");
   if (!Array.isArray(result.items)) throw new Error("INVALID_SERP_ITEMS");
   const organicResults: SerpOrganicResult[] = [], seen = new Set<string>();
+  const ranks = new Set<number>();
   let invalidOrganic = false;
   for (const unknownItem of result.items) {
     const item = record(unknownItem);
@@ -114,8 +115,13 @@ export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: 
     if (!Number.isInteger(item.rank_group) || Number(item.rank_group) < 1) { invalidOrganic = true; continue; }
     if (Number(item.rank_group) > 100) continue;
     let url: URL;
-    try { url = new URL(String(item.url)); if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw new Error(); }
-    catch { invalidOrganic = true; continue; }
+    try {
+      url = new URL(String(item.url));
+      if (!["https:", "http:", "ftp:"].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error();
+    } catch { invalidOrganic = true; continue; }
+    ranks.add(Number(item.rank_group));
+    // An FTP result occupies a Google position without being a web landing page.
+    if (url.protocol === "ftp:") continue;
     const identity = `${item.rank_group}:${url.href}`;
     if (seen.has(identity)) continue;
     seen.add(identity);
@@ -123,7 +129,6 @@ export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: 
       rankGroup: Number(item.rank_group), rankAbsolute: Number.isInteger(item.rank_absolute) && Number(item.rank_absolute) > 0 ? Number(item.rank_absolute) : null });
   }
   organicResults.sort((a, b) => a.rankGroup - b.rankGroup || a.url.localeCompare(b.url));
-  const ranks = new Set(organicResults.map(item => item.rankGroup));
   // items_count includes ads/widgets. Neither it, se_results_count nor merely
   // requesting depth 100 proves that 100 organic positions were retrieved.
   let coveredThroughRank = 0;
