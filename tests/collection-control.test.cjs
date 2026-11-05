@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename;
 Module._resolveFilename = function(name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
 const mock = (relative, exports) => { const filename = path.join(root, relative); require.cache[filename] = { id: filename, filename, loaded: true, exports }; };
-let config, connection, cohort, paidCalls, discoveries, run, liveBalance;
+let config, connection, cohort, paidCalls, discoveries, run, liveBalance, ambiguous, planned;
 const db = {
   $transaction: async fn => fn(db), $executeRaw: async () => 0,
   serpMonitorConfig: {
@@ -14,7 +14,9 @@ const db = {
     updateMany: async ({ data }) => { if (config) config = { ...config, ...data, revision: config.revision + (data.revision?.increment ?? 0) }; return { count: Number(Boolean(config)) }; },
   },
   dataForSeoConnection: { findUnique: async () => structuredClone(connection), update: async ({ data }) => { Object.assign(connection, data); return connection; }, updateMany: async ({ data }) => { Object.assign(connection, data); return { count: 1 }; } },
-  serpMonitorRun: { aggregate: async () => ({ _sum: { reservedCostMicros: 912000 } }), findUnique: async () => run, findUniqueOrThrow: async () => run },
+  serpMonitorRun: { aggregate: async () => ({ _sum: { reservedCostMicros: 912000 } }), findUnique: async () => run, findUniqueOrThrow: async () => run,
+    update: async ({ where, data }) => { assert.equal(where.id, run.id); Object.assign(run, data); return run; } },
+  serpMonitorTask: { count: async ({ where }) => { assert.equal(where.runId, run.id); return where.state === "PLANNED" ? planned : ambiguous; } },
 };
 mock("src/lib/prisma.ts", { prisma: db });
 mock("src/lib/services/serp-targets.ts", { loadScheduledSerpMonitoringCohort: async () => structuredClone(cohort) });
@@ -33,7 +35,7 @@ beforeEach(t => {
   config = { id: "default", revision: 1, authorizationVersion: 0, paidEnabled: false, maxRunCostMicros: 12000000, maxMonthCostMicros: 30000000, nextDueAt: new Date("2026-10-20T02:30:00Z") };
   connection = { siteDomain: "flatkey.ai", connectionVersion: 1, encryptedCredentials: encryptDataForSeoCredentials("fictional-user", "fictional-password"), scheduleEnabled: false };
   cohort = { hash: "a".repeat(64), targets: [{ keyword: "flatkey", keywordId: "id-brand", siteDomain: "flatkey.ai", targetUrls: ["https://flatkey.ai/"] }] };
-  run = null; paidCalls = 0; discoveries = 0; liveBalance = 200;
+  run = null; paidCalls = 0; discoveries = 0; liveBalance = 200; ambiguous = 0; planned = 2;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     assert.equal(url, "https://api.dataforseo.com/v3/appendix/user_data"); assert.equal(options.method, "GET");
     return new Response(JSON.stringify({ status_code: 20000, cost: 0, tasks: [{ status_code: 20000, cost: 0, result: [{ money: { balance: liveBalance } }] }] }));
@@ -82,4 +84,31 @@ test("existing completed period cannot be recollected and callers cannot pick ar
   assert.equal((await mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken })).finished, true);
   assert.equal(paidCalls, 0);
   for (const input of [{ action: "runCycle", previewToken: preview.previewToken, periodKey: "2026-11-03" }, { action: "enableSchedule", previewToken: preview.previewToken, maxBudget: 900 }, { action: "configure", paidEnabled: true }]) assert.equal(collectionControlSchema.safeParse(input).success, false);
+});
+
+test("a failed balance read can resume only the original verified ledger within its approved budget", async () => {
+  const preview = await previewCollectionSchedule();
+  const approved = verifyDataForSeoPreview(preview.previewToken);
+  await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
+  run = {
+    id: "original-ledger", scope: "SCHEDULED", periodKey: approved.periodKey,
+    status: "UNKNOWN", errorCode: "ACCOUNT_BALANCE_UNVERIFIED",
+    connectionVersion: approved.connectionVersion, configJson: { connectionHash: approved.connectionHash },
+    reservedCostMicros: 24000, actualCostMicros: 12000,
+  };
+  const retry = () => mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken });
+  ambiguous = 1;
+  await assert.rejects(retry(), /提交结果未核实/);
+  ambiguous = 0; liveBalance = 0;
+  await assert.rejects(retry(), /余额或原预算不足/);
+  liveBalance = 200; planned = 3;
+  await assert.rejects(retry(), /余额或原预算不足/);
+  planned = 2; run.errorCode = "SUBMISSION_OUTCOME_UNKNOWN";
+  await assert.rejects(retry(), /响应不明/);
+  run.errorCode = "ACCOUNT_BALANCE_UNVERIFIED";
+  const resumed = await retry();
+  assert.equal(resumed.runId, "original-ledger");
+  assert.equal(run.status, "RUNNING");
+  assert.equal(run.errorCode, null);
+  assert.equal(paidCalls, 0, "recovery must not create a second ledger or repeat discovery");
 });

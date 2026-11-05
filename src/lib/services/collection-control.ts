@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { envBool } from "@/lib/env";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { decryptDataForSeoCredentials, signDataForSeoPreview, verifyDataForSeoPreview } from "@/lib/dataforseo-credentials";
-import { quoteSerpTargets, SERP_CONFIG_ID, SERP_MARKETS } from "@/lib/dataforseo-serp";
-import { parseSerpSampleBalance, SERP_USER_DATA_URL } from "@/lib/serp-sample";
+import { quoteSerpTargets, SERP_CONFIG_ID, SERP_MARKETS, SERP_PRICE_PER_QUERY_MICROS } from "@/lib/dataforseo-serp";
+import { parseSerpSampleBalance, SERP_SAMPLE_SAFETY_MARGIN_MICROS, SERP_USER_DATA_URL } from "@/lib/serp-sample";
 import { keywordCyclePlan } from "@/lib/keyword-cycle";
 import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey, scheduledSerpDue } from "@/lib/serp-periods";
 import { loadScheduledSerpMonitoringCohort as loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
@@ -39,6 +39,48 @@ async function balance(value: Awaited<ReturnType<typeof account>>) {
     if (!response.ok) throw new Error("BALANCE_UNAVAILABLE");
     return parseSerpSampleBalance(await response.json());
   } catch { throw new ImportRequestError("无法确认认证或余额，未提交付费抓取", 409); }
+}
+
+async function recoverUnverifiedBalance(
+  runId: string,
+  approved: z.infer<typeof claimsSchema>,
+  connection: Awaited<ReturnType<typeof account>>,
+) {
+  // Only this read failure happened before submitting the next paid batch.
+  // A lost submission response still requires provider-side reconciliation.
+  const available = await balance(connection);
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
+    const config = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
+    const liveConnection = await tx.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
+    const run = await tx.serpMonitorRun.findUniqueOrThrow({ where: { id: runId } });
+    if (!config?.paidEnabled || config.authorizationVersion !== 1 || config.revision !== approved.revision + 1
+      || config.maxRunCostMicros !== approved.maxRunCostMicros
+      || !liveConnection?.scheduleEnabled || liveConnection.connectionVersion !== approved.connectionVersion
+      || fingerprint(liveConnection.encryptedCredentials) !== approved.connectionHash) {
+      throw new ImportRequestError("连接或计划已变化，请重新核对费用", 409);
+    }
+    if (run.status === "RUNNING" && !run.errorCode) return;
+    if (run.status !== "UNKNOWN" || run.errorCode !== "ACCOUNT_BALANCE_UNVERIFIED" || run.scope !== "SCHEDULED"
+      || run.periodKey !== approved.periodKey || run.connectionVersion !== approved.connectionVersion
+      || (run.configJson as { connectionHash?: string } | null)?.connectionHash !== approved.connectionHash
+      || run.reservedCostMicros > approved.maxRunCostMicros) {
+      throw new ImportRequestError("原账本状态或预算已变化，请核对原采集记录", 409);
+    }
+    const ambiguous = await tx.serpMonitorTask.count({ where: { runId, OR: [
+      { state: { in: ["SUBMITTING", "UNKNOWN"] } },
+      { state: "PLANNED", OR: [{ submittedAt: { not: null } }, { providerTaskId: { not: null } }, { submissionRaw: { not: null } }] },
+      { state: { in: ["QUEUED", "RECEIVED"] }, providerTaskId: null },
+    ] } });
+    if (ambiguous) throw new ImportRequestError("原账本有提交结果未核实的任务，不能续跑", 409);
+    const planned = await tx.serpMonitorTask.count({ where: { runId, state: "PLANNED" } });
+    const remainingCost = planned * SERP_PRICE_PER_QUERY_MICROS;
+    if ((run.actualCostMicros ?? 0) + remainingCost > run.reservedCostMicros
+      || available < remainingCost + SERP_SAMPLE_SAFETY_MARGIN_MICROS) {
+      throw new ImportRequestError("余额或原预算不足以覆盖剩余查询，未提交付费抓取", 409);
+    }
+    await tx.serpMonitorRun.update({ where: { id: run.id }, data: { status: "RUNNING", errorCode: null } });
+  });
 }
 
 export async function previewCollectionSchedule(): Promise<CollectionSchedulePreview> {
@@ -116,7 +158,12 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
     const created = await startSerpScheduledPeriod(period.key, cohort.hash, deadline);
     run = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: created.id } });
   }
-  if (run.status === "UNKNOWN") throw new ImportRequestError("本期有响应不明的请求，已停止新的付费提交，请核对原账本", 409);
+  if (run.status === "UNKNOWN") {
+    if (run.errorCode !== "ACCOUNT_BALANCE_UNVERIFIED") {
+      throw new ImportRequestError("本期有响应不明的请求，已停止新的付费提交，请核对原账本", 409);
+    }
+    await recoverUnverifiedBalance(run.id, approved, connection);
+  }
   const progress = await runSerpMonitorCron({ allowStart: false, maxDurationMs: Math.max(0, deadline - Date.now()) });
   if (progress.status === "NEEDS_REVIEW") throw new ImportRequestError("本期执行异常，请查看原采集记录", 409);
   return { action: "runCycle", phase: progress.status === "FINISHED" ? "COMPLETE" : "SERP", finished: progress.status === "FINISHED", runId: run.id,
