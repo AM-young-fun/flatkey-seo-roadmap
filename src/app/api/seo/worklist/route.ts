@@ -1,3 +1,4 @@
+import {previewRead} from "@/lib/seo-preview";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
@@ -10,7 +11,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const preview=await previewRead(request);if(preview)return preview;
   if (!isAuthEnabled() || !(await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value))) return NextResponse.json({ message: "需要登录" }, { status: 401 });
   try {
     const { sites, links, recentImports, curationApplied } = await retryDatabaseRead(async () => {

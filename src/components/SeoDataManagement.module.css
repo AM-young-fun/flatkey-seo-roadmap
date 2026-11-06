@@ -1,0 +1,27 @@
+.section { border-bottom:1px solid #e4e8ee; padding:6px 0 28px; margin-bottom:28px; }
+.section h2 { font-size:17px; font-weight:600; color:#253349; margin:0 0 12px; }
+.note { font-size:12px; line-height:1.8; color:#778397; margin:9px 0; }
+.sources { margin:20px 0 16px; display:grid; gap:14px; }
+.sources :global(.seoSourceStatus) { background:transparent; border:0; padding:0; display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; font-size:12px; }
+.sources :global(.seoSourceStatus) strong { font-weight:500; color:#37465b; min-width:190px; }
+.sources :global(.seoSourceStatus) small { display:block; width:100%; font-size:12px; color:#778397; }
+.link,.footer a { color:var(--ui-primary); text-decoration:none; font-size:13px; }
+.link:hover,.footer a:hover { color:var(--ui-primary); text-decoration:underline; }
+.heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.heading h2 { margin:0; }
+.button { background:#fff; height:var(--ui-control-height); border:1px solid var(--ui-border); border-radius:var(--ui-radius); padding:0 12px; font-size:var(--ui-font-size); color:#34445c; }
+.button:hover:not(:disabled) { background:#f4f7fb; border-color:var(--ui-primary); color:var(--ui-primary); }
+.button:disabled { background:#f3f5f8; color:#8b96a6; cursor:not-allowed; opacity:1; }
+.button:focus-visible { outline:2px solid var(--ui-primary); outline-offset:3px; }
+.count { font-size:14px; margin:20px 0 6px; color:#5d6b7d; }
+.count strong { font-weight:600; color:#253349; }
+.links { display:flex; gap:24px; margin:18px 0; flex-wrap:wrap; }
+.details { margin-top:18px; color:#778397; font-size:12px; }
+.details summary { cursor:pointer; }
+.details p { margin-top:10px; line-height:1.9; }
+.footer { padding-bottom:20px; }
+@media(max-width:640px) { .sources :global(.seoSourceStatus) strong { width:100%; } .count { line-height:1.8; } .heading { flex-wrap:wrap; } }
+
+.sources :global(.seoDataBadge[data-status]) { color:#586d85; background:#edf2f7; border-radius:4px; }
+.sources :global(.seoDataBadge[data-status="ready"]) { color:var(--ui-primary); background:#edf4fb; }
+.section a.link,.section a.link:visited,.footer a,.footer a:visited { color:var(--ui-primary); }

@@ -1,0 +1,69 @@
+import { getRankingImportSecret } from "@/lib/import-credential";
+import { importSecretMatches } from "@/lib/ranking-import";
+import { prisma } from "@/lib/prisma";
+import { analyticsObservationSchema, analyticsStorageKind, type AnalyticsObservation } from "@/lib/seo-analytics";
+import { propertyToday } from "@/lib/seo-date-range";
+import { clusterDomainForProperty, siteReportToday } from "@/lib/seo-cluster-sites";
+
+export const dynamic = "force-dynamic";
+const headers = { "Cache-Control": "private, no-store" };
+export async function POST(request: Request) {
+  const secret = getRankingImportSecret();
+  if (!secret || !importSecretMatches(request.headers.get("authorization"), secret)) {
+    return Response.json({ message: "需要采集凭据" }, { status: 401, headers });
+  }
+  if (request.headers.get("origin")) return Response.json({ message: "仅接受服务器采集请求" }, { status: 403, headers });
+  const reader = request.body?.getReader();
+  if (!reader) return Response.json({ message: "报表为空" }, { status: 400, headers });
+  let length = 0;
+  const chunks: Buffer[] = [];
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > 4_000_000) {
+        await reader.cancel();
+        return Response.json({ message: "单日报表超过大小限制" }, { status: 413, headers });
+      }
+      chunks.push(Buffer.from(value));
+    }
+    const input: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const batch = Array.isArray(input);
+    const inputs: unknown[] = batch ? input : [input];
+    if (inputs.length < 1 || inputs.length > 100) throw new Error("日期无效");
+    const latest = new Map<string, { kind: string; row: AnalyticsObservation }>();
+    for (const entry of inputs) {
+      const row = analyticsObservationSchema.parse(entry);
+      const site = clusterDomainForProperty(row.property);
+      const today = row.kind === "ga4-site" ? siteReportToday(site) : propertyToday();
+      if (row.date >= today || Date.parse(row.observedAt) > Date.now() + 300000) throw new Error("日期无效");
+      const kind = analyticsStorageKind(row.kind, row.country, site);
+      const key = `${kind}:${row.date}`;
+      const saved = latest.get(key)?.row;
+      if (!saved || row.complete && !saved.complete || row.complete === saved.complete && Date.parse(row.observedAt) > Date.parse(saved.observedAt)) {
+        latest.set(key, { kind, row });
+      }
+    }
+    const records = [...latest.values()].map(({ kind, row }) => ({
+      kind, date: row.date, observedAt: new Date(row.observedAt), complete: row.complete, payload: row,
+    }));
+    const stored = await prisma.$executeRaw`
+      INSERT INTO "SeoAnalyticsDay" ("kind", "date", "observedAt", "complete", "payload")
+      SELECT item."kind", item."date", item."observedAt" AT TIME ZONE 'UTC', item."complete", item."payload"
+      FROM jsonb_to_recordset(${JSON.stringify(records)}::jsonb)
+        AS item("kind" text, "date" text, "observedAt" timestamptz, "complete" boolean, "payload" jsonb)
+      ORDER BY item."kind", item."date"
+      ON CONFLICT ("kind", "date") DO UPDATE SET
+        "observedAt" = EXCLUDED."observedAt", "complete" = EXCLUDED."complete", "payload" = EXCLUDED."payload"
+      WHERE (EXCLUDED."complete" AND NOT "SeoAnalyticsDay"."complete")
+        OR (EXCLUDED."complete" = "SeoAnalyticsDay"."complete" AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
+    `;
+    if (batch) return Response.json({ stored, received: records.length }, { headers });
+    const row = records[0].payload;
+    return Response.json({ stored: Boolean(stored), date: row.date, kind: row.kind }, { headers });
+  } catch (error) {
+    const bad = error instanceof SyntaxError || error instanceof Error && (error.name === "ZodError" || error.message === "日期无效");
+    return Response.json({ message: bad ? "报表日期或字段无效" : "归档失败" }, { status: bad ? 400 : 503, headers });
+  }
+}

@@ -1,0 +1,104 @@
+:root {
+  --ui-control-height: 40px;
+  --ui-radius: 6px;
+  --ui-font-size: 13px;
+  --ui-border: #dce3ec;
+  --ui-primary: #2865af;
+  --ui-primary-hover: #3473bd;
+  --ui-primary-active: #20558f;
+  --ui-focus-ring: 0 0 0 3px rgba(40, 101, 175, .12);
+  --ui-hover-border: #9eb9da;
+  --ui-text: #34445c;
+  --ui-muted: #778397;
+  --ui-disabled-bg: #f3f5f8;
+  --ui-disabled-text: #98a3b2;
+}
+
+/* Ant Design owns the Select frame and keyboard interaction in every state. */
+.uiSelect.ant-select {
+  min-width: 128px;
+  max-width: 100%;
+  height: var(--ui-control-height);
+  font-size: var(--ui-font-size);
+}
+.uiSelectPopup.ant-select-dropdown {
+  padding: 5px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(37, 51, 73, .10);
+}
+.uiSelectPopup .ant-select-item {
+  border-radius: 4px;
+}
+.uiSelectPopup .ant-select-item-option-state {
+  color: var(--ui-primary);
+}
+.uiSelectPopup .ant-select-item-option-disabled {
+  color: var(--ui-disabled-text);
+  cursor: not-allowed;
+}
+
+/* Native fields use the same foundation; Ant Design's internal inputs are excluded. */
+:where(main input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="reset"], [type="button"], [role="combobox"], [class*="ant-"]), main textarea:not([class*="ant-"]), .ui-input) {
+  min-height: var(--ui-control-height);
+  padding: 9px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: #fff;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--ui-font-size);
+  line-height: 20px;
+  transition: border-color .15s, box-shadow .15s;
+}
+:where(main input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="reset"], [type="button"], [role="combobox"], [class*="ant-"]), main textarea:not([class*="ant-"]), .ui-input):hover:not(:disabled) {
+  border-color: var(--ui-hover-border);
+}
+:where(main input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="reset"], [type="button"], [role="combobox"], [class*="ant-"]), main textarea:not([class*="ant-"]), .ui-input):focus {
+  border-color: var(--ui-primary);
+  outline: none;
+  box-shadow: var(--ui-focus-ring);
+}
+:where(main input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="reset"], [type="button"], [role="combobox"], [class*="ant-"]), main textarea:not([class*="ant-"]), .ui-input):disabled {
+  color: var(--ui-disabled-text);
+  background: var(--ui-disabled-bg);
+  border-color: var(--ui-border);
+  cursor: not-allowed;
+  opacity: 1;
+}
+:where(main input, main textarea, .ui-input)::placeholder { color: #8b96a6; }
+
+/* Opt-in button variants avoid changing text links, graph tools and segmented tabs. */
+.ui-button,
+.ui-button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: var(--ui-control-height);
+  padding: 9px 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: #fff;
+  color: #435873;
+  font: inherit;
+  font-size: var(--ui-font-size);
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color .15s, background-color .15s, box-shadow .15s;
+}
+.ui-button:hover:not(:disabled) { border-color: var(--ui-hover-border); color: var(--ui-primary); }
+.ui-button:active:not(:disabled) { border-color: var(--ui-primary); background: #edf4fb; color: var(--ui-primary-active); }
+.ui-button-primary { color: #fff; background: var(--ui-primary); border-color: var(--ui-primary); }
+.ui-button-primary:hover:not(:disabled) { color: #fff; background: var(--ui-primary-hover); border-color: var(--ui-primary-hover); }
+.ui-button-primary:active:not(:disabled) { background: var(--ui-primary-active); border-color: var(--ui-primary-active); }
+.ui-button:focus-visible,
+.ui-button-primary:focus-visible { outline: none; border-color: var(--ui-primary); box-shadow: var(--ui-focus-ring); }
+.ui-button:disabled,
+.ui-button-primary:disabled { color: var(--ui-disabled-text); background: var(--ui-disabled-bg); border-color: var(--ui-border); cursor: not-allowed; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .ui-button, .ui-button-primary, .ui-input { transition: none; }
+}

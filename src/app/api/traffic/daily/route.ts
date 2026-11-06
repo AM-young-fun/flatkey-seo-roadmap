@@ -1,3 +1,4 @@
+import {previewRead} from "@/lib/seo-preview";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const preview=await previewRead(request);if(preview)return preview;
   if (!await authorized(request)) return NextResponse.json({ message: "请先登录或使用现有采集凭据" }, { status: 401, headers });
   let query;
   try { query = parseDailySeoTrafficQuery(new URL(request.url).searchParams); }

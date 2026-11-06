@@ -1,0 +1,12 @@
+.shell { width:min(1120px,calc(100% - 64px)); margin:0 auto; padding-bottom:56px; color:#253349; }
+.titleRow { display:flex; justify-content:space-between; gap:20px; align-items:center; margin:32px 0 28px; }
+.title { font-size:26px; font-weight:650; letter-spacing:-.5px; line-height:1.35; margin:0; }
+.category { width:156px; flex-shrink:0; }
+.textButton { background:none; border:0; padding:0; color:var(--ui-primary); font-size:13px; cursor:pointer; }
+.textButton:hover { color:var(--ui-primary); text-decoration:underline; }
+.textButton:focus-visible { outline:2px solid var(--ui-primary); outline-offset:4px; }
+.network { margin-top:32px; border-top:1px solid #e4e8ee; padding-top:24px; scroll-margin-top:20px; }
+.network :global(.overviewGrid) { display:block; }
+.network :global(.graphPanel) { width:100%; border:1px solid #e4e8ee; box-shadow:none; }
+.network :global(.keywordGraph) { height:560px; }
+@media(max-width:640px) { .shell { width:calc(100% - 32px); padding-bottom:32px; } .titleRow { margin:25px 0 22px; align-items:flex-start; flex-direction:column; gap:16px; } .title { font-size:23px; } .network :global(.keywordGraph) { height:420px; } }

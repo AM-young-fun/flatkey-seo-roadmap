@@ -673,3 +673,36 @@ model DisplaySnapshot {
   leaseUntil DateTime?
   lastError String?
 }
+
+model SeoReportVersion {
+  id String @id
+  siteDomain String
+  kind String
+  periodStart DateTime @db.Date
+  periodEnd DateTime @db.Date
+  createdAt DateTime @default(now())
+  payload Json
+  @@index([siteDomain, createdAt])
+}
+
+model SeoPageInventory {
+  url String @id
+  category String
+  sourceUrl String
+  firstSeen DateTime
+  lastSeen DateTime
+  sitemapLastmod String?
+  baseline Boolean @default(false)
+  @@index([category, firstSeen])
+}
+
+model SeoAnalyticsDay {
+  kind       String
+  date       String
+  observedAt DateTime
+  complete   Boolean
+  payload    Json
+
+  @@id([kind, date])
+  @@index([date])
+}

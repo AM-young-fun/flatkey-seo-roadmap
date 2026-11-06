@@ -6,7 +6,7 @@ import type { DailySeoPageGroupsHistory } from "@/lib/daily-seo-page-groups";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import styles from "./DailySeoPageGroups.module.css";
 
-const API_URL = "/api/traffic/daily/groups?site=flatkey.ai";
+const BASE_API_URL = "/api/traffic/daily/groups?site=flatkey.ai";
 const GROUPS = [
   { key: "gpu_compute", name: "GPU 页面", color: "#10b981" },
   { key: "model_list", name: "模型列表", color: "#4385ff" },
@@ -123,7 +123,8 @@ function PageGroupCard({ definition, group, history, version, loadingFailed, onR
   </article>;
 }
 
-export function DailySeoPageGroups() {
+export function DailySeoPageGroups({ start, end, category = "all" }: {start?:string;end?:string;expanded?:boolean;category?:string} = {}) {
+  const API_URL = BASE_API_URL + (start && end ? `&start=${start}&end=${end}` : "");
   const [data, setData] = useState<DailySeoPageGroupsHistory | null>(() => {
     const cached = clientReadCache.peek<DailySeoPageGroupsHistory>(API_URL);
     return cached && isHistory(cached) ? cached : null;
@@ -160,14 +161,14 @@ export function DailySeoPageGroups() {
       window.removeEventListener("focus", read);
       window.removeEventListener("seo-rankings-updated", onUpdated);
     };
-  }, [version]);
+  }, [version, API_URL]);
   const retry = () => setVersion(value => value + 1);
   return <section className={styles.section} aria-label="四类页面每日自然搜索数据">
-    <div className={styles.heading}><div><h2>页面组每日 SEO</h2><p className="chartNote">首次来自自然搜索的用户 · 最近30个已结束日 · 四类页面分别记录</p></div>
+    <div className={styles.heading}><div><h2>页面组每日 SEO</h2><p className="chartNote">首次来自自然搜索的用户 · 所选已结束日 · 四类页面分别记录</p></div>
       {data ? <span className={styles.range}>{data.start} — {data.end}</span> : null}
     </div>
     {error ? <div className="loadError"><span>{error}</span><button type="button" onClick={retry}>重新加载</button></div> : null}
-    <div className={styles.grid}>{GROUPS.map(definition => <PageGroupCard key={definition.key} definition={definition}
+    <div className={styles.grid}>{GROUPS.filter(d => category === "all" || category === "models" && d.key.startsWith("model_") || category === "prompts" && d.key === "prompts" || category === "gpu" && d.key === "gpu_compute").map(definition => <PageGroupCard key={definition.key} definition={definition}
       group={data?.groups.find(group => group.key === definition.key)} history={data} version={version} loadingFailed={Boolean(error)} onRetry={retry} />)}</div>
     <p className={`chartNote ${styles.note}`}>访客和浏览次数按天、按页面组独立统计。注册记录当天先访问该组页面、再完成注册的人；同一人可访问多个组，组间人数和每日人数均不相加为去重总数。待补采留空，真实零值显示为 0。</p>
   </section>;

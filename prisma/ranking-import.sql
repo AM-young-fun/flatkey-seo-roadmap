@@ -485,4 +485,28 @@ CREATE TABLE IF NOT EXISTS "DailySeoPageGroupPoint" (
 CREATE UNIQUE INDEX IF NOT EXISTS "DailySeoPageGroupPoint_importId_groupKey_date_key" ON "DailySeoPageGroupPoint" ("importId", "groupKey", date);
 CREATE INDEX IF NOT EXISTS "DailySeoPageGroupPoint_groupKey_date_importId_idx" ON "DailySeoPageGroupPoint" ("groupKey", date, "importId");
 
+CREATE TABLE IF NOT EXISTS "SeoReportVersion" (
+ "id" TEXT PRIMARY KEY, "siteDomain" TEXT NOT NULL, "kind" TEXT NOT NULL,
+ "periodStart" DATE NOT NULL, "periodEnd" DATE NOT NULL,
+ "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "payload" JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "SeoReportVersion_siteDomain_createdAt_idx" ON "SeoReportVersion"("siteDomain", "createdAt");
+
+CREATE TABLE IF NOT EXISTS "SeoPageInventory" (
+  "url" TEXT PRIMARY KEY, "category" TEXT NOT NULL, "sourceUrl" TEXT NOT NULL,
+  "firstSeen" TIMESTAMP(3) NOT NULL, "lastSeen" TIMESTAMP(3) NOT NULL,
+  "sitemapLastmod" TEXT, "baseline" BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS "SeoPageInventory_category_firstSeen_idx" ON "SeoPageInventory"("category", "firstSeen");
+
+CREATE TABLE IF NOT EXISTS "SeoAnalyticsDay" (
+  "kind" TEXT NOT NULL,
+  "date" TEXT NOT NULL,
+  "observedAt" TIMESTAMP(3) NOT NULL,
+  "complete" BOOLEAN NOT NULL,
+  "payload" JSONB NOT NULL,
+  CONSTRAINT "SeoAnalyticsDay_pkey" PRIMARY KEY ("kind", "date")
+);
+CREATE INDEX IF NOT EXISTS "SeoAnalyticsDay_date_idx" ON "SeoAnalyticsDay"("date");
+
 COMMIT;
