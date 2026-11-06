@@ -1,0 +1,29 @@
+.section { margin-top:30px; border-top:1px solid #e4e8ee; padding-top:24px; color:#34445c; }
+.heading { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.heading h2 { font-size:17px; font-weight:600; margin:0; }
+.heading a,.textButton { font-size:12px; color:var(--ui-primary); text-decoration:none; background:none; border:0; padding:0; }
+.heading a:hover,.textButton:hover { color:var(--ui-primary); text-decoration:underline; }
+.meta { font-size:12px; color:#7a8797; margin:10px 0 17px; }
+.tableWrap { overflow-x:auto; }
+.table { width:100%; border-collapse:collapse; font-size:13px; }
+.table th { text-align:left; color:#7b8797; font-weight:500; padding:10px 14px 10px 0; border-bottom:1px solid #e4e8ee; }
+.table td { vertical-align:top; padding:15px 14px 15px 0; border-bottom:1px solid #edf0f4; line-height:1.75; }
+.table th:first-child,.table td:first-child { width:24%; }
+.table th:nth-child(2),.table td:nth-child(2) { width:29%; }
+.table td a { color:var(--ui-primary); text-decoration:none; overflow-wrap:anywhere; }
+.table td strong { font-weight:550; }
+.table small { display:block; color:#8b95a4; font-size:11px; margin-top:2px; }
+.evidence { font-size:12px; margin-top:16px; color:#778397; }
+.evidence summary { cursor:pointer; }
+.evidence article { border-bottom:1px solid #edf0f4; padding:18px 0; }
+.evidence h3 { font-size:13px; font-weight:550; color:#435873; margin:0 0 8px; }
+.evidence p { line-height:1.9; margin:4px 0; }
+.sources { padding-top:18px; }
+.empty { padding:18px 0; color:#7a8797; font-size:13px; line-height:1.8; }
+.empty button { margin-top:8px; }
+@media(max-width:640px) { .heading { align-items:flex-start; flex-wrap:wrap; gap:10px; } .table,.table tbody,.table tr,.table td { display:block; width:100%!important; } .table thead { display:none; } .table tr { border-bottom:1px solid #e4e8ee; padding:12px 0; } .table td { border:0; padding:3px 0; } .table td[data-label="下一步动作"] { margin-top:5px; } .table td[data-label="下一步动作"]::before { content:"下一步："; color:#7a8797; } }
+
+.section a,.section a:visited { color:var(--ui-primary); }
+.workWeek { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 14px; margin:14px 0 0; font-size:13px; color:#435873; }
+.workWeek strong { font-weight:550; }
+.workWeek span { font-size:12px; color:#778397; }

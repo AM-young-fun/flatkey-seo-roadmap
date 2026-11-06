@@ -8,6 +8,9 @@ const { createHash } = require("node:crypto");
 const root = path.resolve(__dirname, "..");
 const resolve = Module._resolveFilename;
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
+// Production-route tests isolate the development-only preview adapter.
+const previewModule = path.join(root, "src/lib/seo-preview.ts");
+require.cache[previewModule] = { id: previewModule, filename: previewModule, loaded: true, exports: { previewRead: async () => null } };
 require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);

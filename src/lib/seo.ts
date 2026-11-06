@@ -36,6 +36,10 @@ export const REGIONS = {
 export type SearchRegionCode = keyof typeof REGIONS;
 
 export const REGION_CODES = Object.keys(REGIONS) as SearchRegionCode[];
+export type SeoCountry = "all" | SearchRegionCode;
+export function seoCountry(value: string | null): SeoCountry {
+  return REGION_CODES.find(region => region === value) ?? "all";
+}
 
 export type RankBucket = "TOP_5" | "TOP_10" | "TOP_30" | "TOP_50" | "TOP_100" | "NOT_FOUND";
 

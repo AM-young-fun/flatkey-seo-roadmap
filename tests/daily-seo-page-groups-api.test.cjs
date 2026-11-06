@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict"), { test, beforeEach } = require("node:test"), fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
 const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename;
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
+// Production-route tests isolate the development-only preview adapter.
+const previewModule = path.join(root, "src/lib/seo-preview.ts");
+require.cache[previewModule] = { id: previewModule, filename: previewModule, loaded: true, exports: { previewRead: async () => null } };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const mock = (relative, exports) => { const file = path.join(root, relative); require.cache[file] = { id: file, filename: file, loaded: true, exports }; };
 let session, login, imports, points, site, failure;

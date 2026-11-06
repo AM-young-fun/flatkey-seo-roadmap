@@ -13,7 +13,8 @@ import { useKeywordPage } from "./useKeywordPage";
 import { SerpQuerySnapshot } from "./SerpQuerySnapshot";
 import { KEYWORD_BUSINESSES, type KeywordBusiness } from "@/lib/keyword-business";
 import type { DashboardKeyword, RankingEvidence, RankingPageEvidence, RankSummary } from "@/lib/types";
-import { REGIONS, REGION_CODES, type SearchRegionCode } from "@/lib/seo";
+import { REGIONS, type SearchRegionCode } from "@/lib/seo";
+import { useSeoCountry } from "./useSeoCountry";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import type { DashboardResponse } from "@/lib/types";
@@ -102,7 +103,7 @@ export function KeywordDetails({ initiallyOptimized = false, initialCountry = "a
   const [view, setView] = useState("FORMAL"), [pool, setPool] = useState<KeywordPool>("FORMAL"), [mapping, setMapping] = useState(initiallyOptimized ? "PAGE_OPTIMIZED" : "ALL");
   const capture = useOptimizedPageCapture();
   const optimizedPages = capture.data?.pages ?? [];
-  const [country, setCountry] = useState<KeywordCountryScope>(initialCountry);
+  const [country, setCountry] = useSeoCountry(initialCountry);
   const [includeCrossLanguage, setIncludeCrossLanguage] = useState(initialCrossLanguage);
   const [search, setSearch] = useState(initialSearch), [business, setBusiness] = useState<KeywordBusiness>(initialBusiness);
   const businessLabel = KEYWORD_BUSINESSES.find(item => item.value === business)!.label;
@@ -110,6 +111,7 @@ export function KeywordDetails({ initiallyOptimized = false, initialCountry = "a
   const okr = {data:data?.okr,error:null,loading,refresh};
   useEffect(() => { const query = new URLSearchParams(window.location.search).get("q"); if (query) setSearch(query); }, []);
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState(""), [selected, setSelected] = useState<Key[]>([]);
+  useEffect(() => { setSelected([]); }, [country]);
   const okrItems = useMemo(() => new Map((okr.data?.keywords ?? []).map(item => [item.id, item])), [okr.data]);
   const isFlatkey = (member: DashboardKeyword) => (member.siteDomain ?? "flatkey.ai") === "flatkey.ai";
   const originalId = (id: string) => id.startsWith("flatkey.ai:") ? id.slice("flatkey.ai:".length) : id;
@@ -226,7 +228,6 @@ export function KeywordDetails({ initiallyOptimized = false, initialCountry = "a
     <section className="keywordFilterPanel" aria-label="关键词筛选">
       <div className="keywordSearchRow"><label className="searchField"><Search size={18} /><input aria-label="搜索关键词或话题" placeholder="搜索关键词或话题" value={search} onChange={event => setSearch(event.target.value)} /></label><button className="keywordFilterReset" onClick={() => { setCountry("all"); setIncludeCrossLanguage(false); setBusiness("FLATKEY_API"); setView("FORMAL"); setPool("FORMAL"); setMapping("ALL"); setSearch(""); setSelected([]); }}><RotateCcw size={14} />重置筛选</button></div>
     <div className="keywordFilterGrid">
-      <label className="originSelectField"><span>目标市场</span><Select aria-label="国家筛选" className="originSelect" value={country} onChange={value => { setCountry(value); setSelected([]); }} options={[{ value: "all", label: "全部国家" }, ...REGION_CODES.map(region => ({ value: region, label: REGIONS[region].label }))]} /></label>
       <label className="originSelectField"><span>业务分类</span><Select aria-label="业务分类" className="originSelect" value={business} onChange={value => { setBusiness(value); setPool("FORMAL"); setView("FORMAL"); setMapping("ALL"); setNotice(""); setSelected([]); }} options={[...KEYWORD_BUSINESSES]} /></label>
       <label className="originSelectField"><span>排名状态</span><Select aria-label="DataForSEO 排名区间筛选" className="originSelect" value={view} onChange={setView} options={[{ value: "FORMAL", label: "全部排名" }, { value: "EVIDENCE", label: "有排名（1–100）" }, { value: "TOP_10", label: "前10名" }, { value: "TOP_30", label: "11–30名" }, { value: "TOP_50", label: "31–50名" }, { value: "TOP_100", label: "51–100名" }, { value: "UNRANKED", label: "100之外" }]} /></label>
       <label className="originSelectField"><span>页面状态</span><Select aria-label="页面关联状态" disabled={pool === "RESEARCH"} className="originSelect" value={mapping} onChange={setMapping} options={[{ value: "ALL", label: "全部页面状态" }, { value: "MONITORABLE", label: "已匹配页面" }, ...PAGE_FILTERS]} /></label>

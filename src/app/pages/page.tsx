@@ -1,2 +1,2 @@
-import { redirect } from "next/navigation";
-export default function Page() { redirect("/keywords"); }
+import {SeoWorkspace} from "@/components/SeoWorkspace";
+export default function Page(){return <SeoWorkspace view="pages"/>}

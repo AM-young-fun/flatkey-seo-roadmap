@@ -6,7 +6,7 @@ import type { DailySeoTrafficHistory } from "@/lib/daily-seo-traffic";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import styles from "./DailySeoTrafficTrend.module.css";
 
-const URL = "/api/traffic/daily?site=flatkey.ai";
+const BASE_URL = "/api/traffic/daily?site=flatkey.ai";
 const count = (value: number | null | undefined) => value == null ? "待补采" : value.toLocaleString("zh-CN");
 const stamp = (value: string | null | undefined) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待补采";
 
@@ -17,7 +17,8 @@ function isHistory(data: DailySeoTrafficHistory): boolean {
       /^\d{4}-\d{2}-\d{2}$/.test(point.date) && validCount(point.newUsers) && validCount(point.newRegistrations));
 }
 
-export function DailySeoTrafficTrend() {
+export function DailySeoTrafficTrend({ start, end, expanded = false }: {start?:string;end?:string;expanded?:boolean;category?:string} = {}) {
+  const URL = BASE_URL + (start && end ? `&start=${start}&end=${end}` : "");
   const [data, setData] = useState<DailySeoTrafficHistory | null>(() => {
     const cached = clientReadCache.peek<DailySeoTrafficHistory>(URL);
     return cached && isHistory(cached) ? cached : null;
@@ -58,7 +59,7 @@ export function DailySeoTrafficTrend() {
       window.removeEventListener("focus", read);
       window.removeEventListener("seo-rankings-updated", onUpdated);
     };
-  }, [version]);
+  }, [version, URL]);
 
   useEffect(() => {
     if (!element.current || !data || !hasPoints) return;
@@ -102,7 +103,7 @@ export function DailySeoTrafficTrend() {
   const days = data?.points.length ?? 0;
   const retry = () => setVersion(value => value + 1);
   return <section className={`dailyPanel ${styles.panel}`} aria-label="自然搜索每日趋势">
-    <div className={styles.heading}><div><h2>自然搜索每日趋势</h2><p className="chartNote">Flatkey · 最近30个已结束日 · Organic Search</p></div>
+    <div className={styles.heading}><div><h2>自然搜索每日趋势</h2><p className="chartNote">Flatkey · 所选已结束日 · Organic Search</p></div>
       {data ? <span className={styles.range}>{data.start} — {data.end}</span> : null}
     </div>
     {error || chartError ? <div className="loadError"><span>{error ?? "趋势图暂时无法显示，可查看下方每日数据"}</span><button type="button" onClick={retry}>重新加载</button></div> : null}
@@ -114,9 +115,9 @@ export function DailySeoTrafficTrend() {
       {hasPoints ? <div ref={element} className={styles.plot} role="img" aria-label={`${data.start}至${data.end}自然搜索每日新用户与当日注册用户趋势，缺失数据断线，真实零值显示为零`} />
         : <p className={styles.empty}>该区间自然搜索日数据待补采，采集后显示趋势。</p>}
       <p className={`chartNote ${styles.basis}`}>新用户首次来自自然搜索；注册按这类用户当天去重，包含以前来过的人。转化率需另看同一批新访客的注册漏斗。</p>
-      <details className={styles.details}><summary>查看每日数据与采集记录</summary>
-        <div className="siteTrafficTable"><table><thead><tr><th>日期</th><th>自然搜索新用户</th><th>当日注册用户（去重）</th><th>新用户采集时间</th><th>注册采集时间</th></tr></thead>
-          <tbody>{data.points.map(point => <tr key={point.date}><th>{point.date}</th><td>{count(point.newUsers)}</td><td>{count(point.newRegistrations)}</td><td>{stamp(point.newUsersCollectedAt)}</td><td>{stamp(point.newRegistrationsCollectedAt)}</td></tr>)}</tbody>
+      <details className={styles.details} open={expanded}><summary>查看每日数据与采集记录</summary>
+        <div className="siteTrafficTable"><table><thead><tr><th>日期</th><th>自然搜索新用户</th><th>当日注册用户（去重）</th><th>完整性与修订</th><th>新用户采集时间</th><th>注册采集时间</th></tr></thead>
+          <tbody>{data.points.map(point => <tr key={point.date}><th>{point.date}</th><td>{count(point.newUsers)}</td><td>{count(point.newRegistrations)}</td><td>{point.newUsers!==null&&point.newRegistrations!==null?"已齐全":"待补齐"} · {point.revisions}版{point.missingReason?<small>{point.missingReason}</small>:null}</td><td>{stamp(point.newUsersCollectedAt)}</td><td>{stamp(point.newRegistrationsCollectedAt)}</td></tr>)}</tbody>
         </table></div>
         <p className={styles.provenance}>GA4 属性：{data.ga4PropertyId} · 渠道维度：{data.channelDimension} · 注册事件：sign_up_success</p>
       </details>

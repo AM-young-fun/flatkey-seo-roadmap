@@ -15,6 +15,7 @@ export function KeywordGraph({
   keywords: DashboardKeyword[]; region?: "all" | SearchRegionCode;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const viewport=useRef<{zoom?:number;center?:unknown}>({});
   const option = useMemo<echarts.EChartsOption>(() => {
     const ids = new Set(keywords.map((keyword) => keyword.id));
     const groups = new Map<string, DashboardKeyword[]>();
@@ -118,13 +119,16 @@ export function KeywordGraph({
     void import("@/lib/charts").then(({ init }) => {
       if (disposed) return;
       chart = init(target);
-      chart.setOption(option, true);
+      const next={...option,series:(option.series as echarts.GraphSeriesOption[]).map(series=>({...series,...viewport.current}))};
+      chart.setOption(next, true);
       observer = new ResizeObserver(() => chart?.resize());
       observer.observe(target);
     });
     return () => {
       disposed = true;
       observer?.disconnect();
+      const series=(chart?.getOption().series as {zoom?:number;center?:unknown}[]|undefined)?.[0];
+      if(series)viewport.current={zoom:series.zoom,center:series.center};
       chart?.dispose();
     };
   }, [keywords.length, option]);

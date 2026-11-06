@@ -1,3 +1,4 @@
+import {previewRead} from "@/lib/seo-preview";
 import { after, NextResponse } from "next/server";
 import { displayViewSpec } from "@/lib/services/display-views";
 import { readDisplaySnapshot, rebuildDisplaySnapshot } from "@/lib/services/display-snapshots";
@@ -6,6 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 export async function GET(request: Request) {
+  const preview=await previewRead(request);if(preview)return preview;
   const params = new URL(request.url).searchParams;
   let spec: ReturnType<typeof displayViewSpec>;
   try { spec = displayViewSpec(params); } catch { return NextResponse.json({message:"页面参数无效"},{status:400}); }

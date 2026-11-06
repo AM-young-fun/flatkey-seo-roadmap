@@ -1,21 +1,27 @@
 "use client";
+import { UiSelect } from "./UiSelect";
+import { WeeklyDailySummary } from "./WeeklyDailySummary";
+import { ClusterSiteTable } from "./SeoClusterReport";
+import { CLUSTER_SITES, siteReportToday, type ClusterDomain } from "@/lib/seo-cluster-sites";
 import { PageTrafficCharts } from "./PageTrafficCharts";
-import { DailySeoTrafficTrend } from "./DailySeoTrafficTrend";
-import { DailySeoPageGroups } from "./DailySeoPageGroups";
+
 import type { PageTrafficSeries } from "@/lib/page-traffic-history";
 import { useEffect, useState } from "react";
-import { Select } from "antd";
+import { propertyToday, shiftDay, validRange } from "@/lib/seo-date-range";
+import { SessionSeoReport } from "./SessionSeoReport";
 import { PageHeader } from "@/components/PageHeader";
+import { useSeoCountry } from "./useSeoCountry";
+import { REGIONS } from "@/lib/seo";
 import { reportPeriods, activeReportPeriods, relativeChange } from "@/lib/weekly-traffic";
 import type { WeeklyKeywordComparison } from "@/lib/weekly-keyword-comparison";
 import type { WeeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
 import type { WeeklyReportDiagnosis } from "@/lib/weekly-report-diagnosis";
 import type { WeeklyReportDraftPayload } from "@/lib/weekly-report-draft";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
-import { weeklyFunnelMetrics } from "@/lib/weekly-funnel-metrics";
-import { weeklySummaryText } from "@/lib/weekly-summary";
 import { pageVisitorRows, type WeeklyPageVisitors } from "@/lib/weekly-page-visitors";
 import type { WeeklyReportingCutoff } from "@/lib/weekly-cutoff";
+import styles from "./WeeklyReport.module.css";
+import workspace from "./SeoWorkspace.module.css";
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
@@ -33,7 +39,7 @@ type InsightData = {
   draft?: WeeklyReportDraftPayload | null;
 };
 
-function useInsights(week: string) {
+function useInsights(week: string, enabled: boolean) {
   const key = week;
   const url = `/api/views?view=traffic${week ? `&week=${encodeURIComponent(week)}` : ""}`;
   const [result, setResult] = useState<{ key: string; data: InsightData } | null>(() => {
@@ -43,6 +49,7 @@ function useInsights(week: string) {
   const [error, setError] = useState<string | null>(null);
   const [version, retry] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     let pendingTimer: ReturnType<typeof setTimeout>;
     let busy = false, forceNext = version > 0;
@@ -65,7 +72,7 @@ function useInsights(week: string) {
         if (data.displaySnapshot?.pending) pendingTimer=setTimeout(()=>{forceNext=true;void update();},5000);
         if (!controller.signal.aborted) { setResult({ key, data }); setError(null); }
       } catch (error) {
-        if (error instanceof ClientReadError && error.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
+        if (!controller.signal.aborted && error instanceof ClientReadError && error.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
         if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "加载失败");
       } finally { busy = false; }
     };
@@ -76,7 +83,7 @@ function useInsights(week: string) {
     window.addEventListener("focus", update);
     window.addEventListener("seo-rankings-updated", onUpdated);
     return () => { controller.abort(); clearTimeout(pendingTimer); clearInterval(timer); document.removeEventListener("visibilitychange", update); window.removeEventListener("focus", update); window.removeEventListener("seo-rankings-updated", onUpdated); };
-  }, [key, url, version]);
+  }, [enabled, key, url, version]);
   return { data: result?.key === key ? result.data : clientReadCache.peek<InsightData>(url), error, retry: () => retry((n) => n + 1) };
 }
 
@@ -166,48 +173,123 @@ function WeeklyPillarVisitors({ data }: { data: InsightData | null }) {
   </section>;
 }
 
+type ReportMode = "day" | "current" | "previous" | "legacy";
+
 export function TrafficReport() {
+  const [country] = useSeoCountry();
+  const [site, setSite] = useState<ClusterDomain | undefined>();
   const [week, setWeek] = useState("");
-  const { data: loadedData, error, retry } = useInsights(week);
+  const [mode, setMode] = useState<ReportMode>("current");
+  const [day, setDay] = useState(() => shiftDay(propertyToday(), -1));
+  const { data: loadedData, error, retry } = useInsights(week, !site);
   const data = loadedData?.traffic.trafficScope === "organic_search" ? loadedData : null;
   const periods = data?.periods ?? (week ? reportPeriods(week) : activeReportPeriods());
   const traffic = data?.traffic;
   const draft = data?.draft;
   const trafficPeriods = draft?.comparisonPeriods ?? periods;
   const sameDays = draft?.evidence.totals;
-  const displayTraffic = sameDays ? {...sameDays,changes:{newUsers:relativeChange(sameDays.current.newUsers,sameDays.previous.newUsers),newRegistrations:relativeChange(sameDays.current.newRegistrations,sameDays.previous.newRegistrations)}} : traffic;
-  const history = data?.history ?? [activeReportPeriods().current.start, ...(week ? [week] : [])];
-  const funnel = weeklyFunnelMetrics(data?.evidence?.trafficScope === "organic_search" ? data.evidence.newVisitorFunnel : undefined);
-  const conversionComparable = Boolean(data?.evidence?.complete && funnel && (data.reportingCutoff?.comparable ?? true));
-  const summary=data?weeklySummaryText({current:displayTraffic?.current??null,previous:displayTraffic?.previous??null,comparable:Boolean(draft||traffic?.comparable),evidence:data.evidence,diagnosis:data.diagnosis,comparison:data.comparison,ranking:data.ranking}):"";
+  const displayTraffic = sameDays ?? traffic;
+  const history = data?.history ?? [activeReportPeriods().current.start];
+  const comparable = Boolean((draft || traffic?.comparable) && (data?.reportingCutoff?.comparable ?? true));
   const metrics = [
-    { label: "自然搜索新用户", key: "newUsers", format: number, current: displayTraffic?.current?.newUsers, previous: displayTraffic?.previous?.newUsers, change: displayTraffic?.changes.newUsers },
-    { label: "自然搜索获客注册（去重）", key: "newRegistrations", format: number, current: displayTraffic?.current?.newRegistrations, previous: displayTraffic?.previous?.newRegistrations, change: displayTraffic?.changes.newRegistrations },
-    { label: "自然搜索新访客转化率", key: "conversion", format: pct, current: funnel?.current.rate, previous: funnel?.previous.rate, change: conversionComparable ? funnel?.change : null },
+    { label: "自然搜索新用户", current: displayTraffic?.current?.newUsers, previous: displayTraffic?.previous?.newUsers },
+    { label: "自然搜索获客注册（去重）", current: displayTraffic?.current?.newRegistrations, previous: displayTraffic?.previous?.newRegistrations },
   ];
-  return <main className="appShell"><PageHeader active="traffic" />
-    <div className="reportIntro"><div className="pageIntro"><h1>SEO 数据</h1><p>自然搜索获客与注册趋势 · 周报每周五10:10更新</p></div><label className="originSelectField"><span>历史周报</span><Select aria-label="历史周报" className="reportWeekSelect" value={week || activeReportPeriods().current.start} onChange={(start) => setWeek(start === activeReportPeriods().current.start ? "" : start)} options={[...new Set(history)].map(start=>({value:start,label:`${start} — ${reportPeriods(start).current.end}${start === activeReportPeriods().current.start ? " · 最新" : ""}`}))} /></label></div>
-    <DailySeoTrafficTrend />
-    <DailySeoPageGroups />
-    <div className="periodComparison"><span><i className="currentDot" />本期 {trafficPeriods.current.start} — {trafficPeriods.current.end}</span><span><i />上期 {trafficPeriods.previous.start} — {trafficPeriods.previous.end}</span></div>
-    {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
-    {!draft && traffic?.complete === false ? <p className="weeklyRankingState">本期自然搜索周报数据待补采。</p> : loadedData && !data ? <p className="weeklyRankingState">自然搜索周报正在更新。</p> : null}
-    <p className="chartNote reportScope">GA4 · 自然搜索（Organic Search）· 上周五至本周四 · {draft ? "Flatkey · 更新中" : `三站汇总${data ? ` · 已取得自然搜索数据 ${traffic?.currentSites.length ?? 0}/3 个网站` : " · 正在加载…"}`}</p>
-    {data?.reportingCutoff ? <p className="chartNote">{data.reportingCutoff.kind === "FRIDAY_1010_SNAPSHOT" ? "每周五" : "每周二"}10:10截数 · 实际采集 {new Date(data.reportingCutoff.collectedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}（北京时间）{!data.reportingCutoff.comparable ? " · 首期截数基线，与历史完整周暂不计算环比" : ""}</p> : null}
-    <section className="trafficGrid" aria-label="自然搜索周报概览">{metrics.map((metric) => {
-      const current = metric.current; const previous = metric.previous;
-      const maximum = Math.max(current ?? 0, previous ?? 0, 1);
-      return <article className="trafficCard" key={metric.key}><h2>{metric.label}</h2><strong>{data ? metric.key === "conversion" && !funnel ? "自然搜索漏斗待补采" : metric.format(current) : "加载中…"}</strong><p className="trafficChange">{draft?"同窗变化":"环比"} {data ? change(metric.change) : "加载中…"}</p>
-        <div className="compareBar"><span>本期</span><div><i style={{ width: `${(current ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(current) : "加载中…"}</b></div>
-        <div className="compareBar previous"><span>上期</span><div><i style={{ width: `${(previous ?? 0) / maximum * 100}%` }} /></div><b>{data ? metric.format(previous) : "加载中…"}</b></div>
-        {metric.key === "conversion" && funnel ? <div className="conversionBasis"><p>Flatkey · 新访客注册人数 / 漏斗新访客</p><p>本期 {funnel.current.registrations.toLocaleString()} / {funnel.current.visitors.toLocaleString()} · 上期 {funnel.previous.registrations.toLocaleString()} / {funnel.previous.visitors.toLocaleString()}</p>{conversionComparable && funnel.ratePoints != null ? <p className={`reportDelta ${funnel.ratePoints > 0 ? "increase" : funnel.ratePoints < 0 ? "decrease" : ""}`}>{funnel.ratePoints > 0 ? "+" : ""}{funnel.ratePoints.toFixed(2)} 个百分点</p> : null}</div> : null}
-      </article>;
-    })}</section>
-    {data?.pageTrafficHistory?.some(series => series.points.length || series.weeks?.length) ? <PageTrafficCharts series={data.pageTrafficHistory} /> : null}
-    <WeeklyPillarVisitors data={data} />
-    <WeeklyEvidenceTables data={data} />
-    <WeeklyKeywordChanges data={data} />
-    {summary?<section className="dailyPanel weeklySummary" aria-label="本周总结"><h2>本周总结</h2><p>{summary}</p></section>:null}
-
+  useEffect(() => {
+    const read = () => {
+      const params = new URLSearchParams(location.search), report = params.get("report");
+      const requestedSite = CLUSTER_SITES.find(entry => entry.domain === params.get("site"))?.domain;
+      setSite(requestedSite);
+      const requestedDay = params.get("day");
+      const today = siteReportToday(requestedSite);
+      setDay(requestedDay && requestedDay < today && validRange({ start: requestedDay, end: requestedDay })
+        ? requestedDay
+        : shiftDay(today, -1));
+      if (!requestedSite && report?.startsWith("legacy:")) {
+        const start = report.slice(7);
+        try { reportPeriods(start); setWeek(start); setMode("legacy"); return; } catch { /* Ignore invalid saved links. */ }
+      }
+      setMode(report === "day" ? "day" : report === "previous" ? "previous" : "current");
+    };
+    read(); addEventListener("popstate", read);
+    return () => removeEventListener("popstate", read);
+  }, []);
+  function selectReport(value: string) {
+    const params = new URLSearchParams(location.search);
+    params.set("report", value);
+    historyPush(params);
+  }
+  function selectSite(value: string) {
+    const params = new URLSearchParams(location.search);
+    if (value === "flatkey.ai") params.delete("site");
+    else {
+      params.set("site", value);
+      if (mode === "legacy") params.set("report", "current");
+    }
+    historyPush(params);
+  }
+  const selected = mode === "legacy" ? `legacy:${week || periods.current.start}` : mode;
+  const priorDay = shiftDay(day, -1);
+  const today = siteReportToday(site);
+  function selectDay(value: string) {
+    if (value === day || value >= today || !validRange({ start: value, end: value })) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get("day") === value) return;
+    params.set("day", value);
+    historyPush(params);
+  }
+  return <main className={workspace.shell}>
+    <PageHeader active="traffic" />
+    <div className={workspace.titleRow}>
+      <h1 className={workspace.title}>日/周总结</h1>
+      <div className={styles.reportControls}>
+        <UiSelect className={styles.reportSelect} aria-label="选择站点" value={site ?? "flatkey.ai"} onChange={selectSite}
+          options={[{ value: "flatkey.ai", label: "Flatkey" }, ...CLUSTER_SITES.map(entry => ({ value: entry.domain, label: entry.name }))]} />
+        <UiSelect className={styles.reportSelect} aria-label="选择报告" value={selected} onChange={selectReport} options={[
+        { value: "day", label: "日总结" }, { value: "current", label: "本周总结" }, { value: "previous", label: "上周总结" },
+        ...(site ? [] : [...new Set([...history, ...(week ? [week] : [])])].map(start => ({ value: `legacy:${start}`, label: `历史获客 · ${start} — ${reportPeriods(start).current.end}` }))),
+        ]} />
+      </div>
+    </div>
+    {mode === "day" ? <>
+      <label className={styles.dayPicker}>日期
+        <input aria-label="日总结日期" type="date" value={day} max={shiftDay(today, -1)}
+          onInput={event => selectDay(event.currentTarget.value)} onChange={event => selectDay(event.target.value)} />
+      </label>
+      {site ? <ClusterSiteTable range={{ start: day, end: day }} domain={site} label="站点日总结" />
+        : <SessionSeoReport range={{ start: day, end: day }} comparison={{ start: priorDay, end: priorDay }}
+          summary showTrend={false} showDetails={false} />}
+    </> : mode === "current" || mode === "previous" ? <WeeklyDailySummary previous={mode === "previous"} site={site} /> : country !== "all" ? (
+      <p className={styles.empty}>{REGIONS[country].label}的历史获客报告未按国家归档。可查看日总结或周总结中的国家数据。</p>
+    ) : <>
+      <p className={styles.period}>首次自然搜索获客口径 · {trafficPeriods.current.start} — {trafficPeriods.current.end}</p>
+      {error ? <div className="loadError"><span>{error}</span><button onClick={retry}>重新加载</button></div> : null}
+      {!data && !error ? <p className={styles.empty}>正在读取历史周报…</p> : null}
+      {data ? <>
+        <p className={styles.conclusion}>{displayTraffic?.current
+          ? `本期归档记录了 ${number(displayTraffic.current.newUsers)} 位自然搜索新用户、${number(displayTraffic.current.newRegistrations)} 位获客注册用户。${comparable ? "" : "对比数据尚不完整，暂不计算涨跌。"}`
+          : "本期尚无完整获客记录。"}</p>
+        <section className={styles.metrics} aria-label="历史获客指标">{metrics.map(metric => <article key={metric.label}>
+          <h2>{metric.label}</h2><strong>{number(metric.current)}</strong>
+          <p>{comparable && metric.current != null && metric.previous != null
+            ? metric.previous === 0 ? `上期为 0，本期增加 ${number(metric.current)}` : `比上期 ${change(relativeChange(metric.current, metric.previous))}`
+            : "对比数据待补齐"}</p>
+        </article>)}</section>
+        <details className={styles.evidence}>
+          <summary>查看报告证据</summary>
+          <p className={styles.period}>本期 {trafficPeriods.current.start} — {trafficPeriods.current.end}，上期 {trafficPeriods.previous.start} — {trafficPeriods.previous.end}。本报告按历史首次获客口径归档，与当次自然搜索访问次数分开查看。</p>
+          {data.reportingCutoff ? <p className={styles.period}>采集于 {new Date(data.reportingCutoff.collectedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}（北京时间）</p> : null}
+          {data.pageTrafficHistory?.some(series => series.points.length || series.weeks?.length) ? <PageTrafficCharts series={data.pageTrafficHistory} /> : null}
+          <WeeklyPillarVisitors data={data} />
+          <WeeklyEvidenceTables data={data} />
+          <WeeklyKeywordChanges data={data} />
+        </details>
+      </> : null}
+    </>}
   </main>;
+}
+
+function historyPush(params: URLSearchParams) {
+  window.history.pushState(null, "", location.pathname + "?" + params);
+  dispatchEvent(new PopStateEvent("popstate"));
 }

@@ -1,3 +1,4 @@
+import {previewRead} from "@/lib/seo-preview";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
@@ -27,6 +28,7 @@ function failure(error: unknown) {
   return NextResponse.json({ message: "SERP状态暂时无法确认，请保留原采集标识并查看账本，不要重复提交", code }, { status: 503, headers });
 }
 export async function GET(request: Request) {
+ const preview=await previewRead(request);if(preview)return preview;
   const denied = await authorize(); if (denied) return denied;
   try {
     const params = request && new URL(request.url).searchParams;
