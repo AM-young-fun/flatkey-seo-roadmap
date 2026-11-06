@@ -55,7 +55,6 @@ export function PageHeader({ active }: {
         <Link href={"/" + query} className={styles.navLink} aria-current={active === "overview" || active === "records" ? "page" : undefined}>总览</Link>
         <Link href={"/pages" + query} className={styles.navLink} aria-current={active === "pages" ? "page" : undefined}>页面效果</Link>
         <Link href={"/opportunities" + query} className={styles.navLink} aria-current={active === "keywords" ? "page" : undefined}>关键词机会</Link>
-        <Link href={"/traffic" + countryQuery} className={styles.navLink} aria-current={active === "traffic" ? "page" : undefined}>日/周总结</Link>
         <Link href={"/clusters" + query} className={styles.navLink} aria-current={active === "clusters" ? "page" : undefined}>集群网站</Link>
       </nav>
       <div className={styles.utilities}>
