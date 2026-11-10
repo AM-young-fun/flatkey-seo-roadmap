@@ -31,6 +31,7 @@ const sites = [{ domain: "flatkey.ai", ga4: "541304395", gsc: "sc-domain:flatkey
 const start = shiftDay(propertyToday(), -90);
 let failures = 0;
 let imported = 0;
+let unavailable = 0;
 
 async function api(suffix = "", record) {
   const response = await fetch(endpoint + suffix, {
@@ -133,13 +134,21 @@ async function run() {
         }
         console.log(JSON.stringify({ site: site.domain, country: country ?? "all", source, registrationVerified: flatkey, status: sourceDates ? "checked" : "no_new_observations", dates: sourceDates }));
       } catch (error) {
-        failures++;
         const reason = error?.code ?? (/^(production_|missing_|invalid_|source_)/.test(error?.message) ? error.message : "collection_failed");
-        console.error(JSON.stringify({ site: site.domain, country: country ?? "all", source, status: "failed", reason }));
+        // A successful Google response with no rows is a source coverage gap,
+        // not a transport/auth/import failure. Never invent a zero observation.
+        const noSourceData = reason === "source_has_no_data" || reason === "source_has_no_final_dates";
+        if (noSourceData) unavailable++;
+        else failures++;
+        console.error(JSON.stringify({ site: site.domain, country: country ?? "all", source, status: noSourceData ? "no_source_data" : "failed", reason }));
       }
     }
   }
-  console.log(JSON.stringify({ imported, failures }));
+  console.log(JSON.stringify({ imported, failures, unavailable }));
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+      `## SEO collection result\n\n- Imported and read back: ${imported} observations\n- Failed scopes: ${failures}\n- Scopes without source data: ${unavailable} (left missing; not zero)\n`);
+  }
   if (failures) process.exitCode = 1;
 }
 run().catch(() => { console.error("Server SEO collection failed. Check configured read-only Google credentials and production access."); process.exitCode = 1; });
