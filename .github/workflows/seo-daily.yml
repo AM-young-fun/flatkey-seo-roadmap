@@ -1,7 +1,7 @@
 name: Server SEO daily collection
 on:
   schedule:
-    - cron: '30 2,8 * * *'
+    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       verify_dingtalk:
