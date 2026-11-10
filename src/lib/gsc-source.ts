@@ -23,7 +23,7 @@ export type GscDailyReport = {
 };
 
 const countryCodes: Record<SearchRegionCode, string> = { US: "USA", JP: "JPN", ES: "ESP", BR: "BRA" };
-type GscOptions = { property?: string; accessToken?: string; country?: SearchRegionCode };
+type GscOptions = { property?: string; accessToken?: string; country?: SearchRegionCode; aggregation?: "byPage" | "byProperty" };
 type ReportBody = {
   startDate: string;
   endDate: string;
@@ -56,12 +56,12 @@ function getProperty(options: GscOptions): string {
   return property;
 }
 
-function parseReport(payload: unknown, limit: number, dimensions: number): GscRow[] {
+function parseReport(payload: unknown, limit: number, dimensions: number, aggregation = "byPage"): GscRow[] {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new GoogleReadError("invalid_response", "Search Console 报表格式无效");
   }
   const data = payload as { rows?: unknown; responseAggregationType?: unknown };
-  if (data.responseAggregationType !== undefined && data.responseAggregationType !== "byPage") {
+  if (data.responseAggregationType !== undefined && data.responseAggregationType !== aggregation) {
     throw new GoogleReadError("invalid_response", "Search Console 未返回逐页聚合报表");
   }
   const rows = data.rows === undefined ? [] : data.rows;
@@ -90,7 +90,7 @@ async function query(property: string, options: GscOptions, body: ReportBody): P
     response = await fetch(`${SEARCH_CONSOLE_API}/${encodeURIComponent(property)}/searchAnalytics/query`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, type: "web", aggregationType: "byPage", dataState: "final", dimensionFilterGroups }),
+      body: JSON.stringify({ ...body, type: "web", aggregationType: options.aggregation ?? "byPage", dataState: "final", dimensionFilterGroups }),
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(20_000),
@@ -104,7 +104,7 @@ async function query(property: string, options: GscOptions, body: ReportBody): P
     if (response.status === 429) throw new GoogleReadError("rate_limited", "Search Console API 已限流", response.status);
     throw new GoogleReadError("unavailable", "Search Console API 请求失败", response.status);
   }
-  return parseReport(await response.json().catch(() => null), body.rowLimit, body.dimensions.length);
+  return parseReport(await response.json().catch(() => null), body.rowLimit, body.dimensions.length, options.aggregation);
 }
 
 /** Dates with no finalized report are omitted. The same byPage basis is used to reconcile each daily detail report. */

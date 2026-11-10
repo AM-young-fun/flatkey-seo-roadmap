@@ -75,3 +75,12 @@ test("rows beyond the first page are fetched and duplicate URLs mark the report 
   assert.equal(report.pages.length, 25_001);
   assert.equal(report.state, "partial");
 });
+
+test("cluster site totals request and validate property aggregation", async t => {
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    assert.equal(JSON.parse(options.body).aggregationType, "byProperty");
+    return Response.json({ responseAggregationType: "byProperty", rows: [{ keys: [date], ...siteTotal }] });
+  });
+  const result = await fetchGscDateCoverage(date, date, { ...auth, property: "sc-domain:mochichatbot.com", aggregation: "byProperty" });
+  assert.deepEqual(result[date], siteTotal);
+});
