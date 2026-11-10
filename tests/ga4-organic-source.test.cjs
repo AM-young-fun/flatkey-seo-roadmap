@@ -89,3 +89,16 @@ test("realtime counts remain all-channel and use an independently deduplicated f
   assert.equal(report.pageViews, 38);
   assert.equal(report.registrationEvents, 2);
 });
+
+test("cluster sessions respect the property timezone and leave absent dates unknown", async t => {
+  const { fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+  useMockGoogle(t, (query, path) => {
+    assert.match(path, /558899190:runReport$/);
+    assert.deepEqual(query.metrics, [{ name: "sessions" }]);
+    assert.equal(query.dimensionFilter.filter.stringFilter.value, "Organic Search");
+    return { rows: [[["20251020"], [3]]], metadata: { timeZone: "Asia/Shanghai" } };
+  });
+  const result = await fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "558899190", "Asia/Shanghai");
+  assert.deepEqual(result.daily, [{ date: "2025-10-20", sessions: 3 }]);
+  await assert.rejects(() => fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "558899190", "America/Los_Angeles"));
+});

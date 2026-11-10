@@ -158,6 +158,7 @@ async function coreReport(
   byPage: boolean,
   registration: boolean,
   country?: SearchRegionCode,
+  timezone = GA4_TIMEZONE,
 ) {
   const dimensions = ["date", ...(byPage ? ["landingPage"] : [])];
   const channel = exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL);
@@ -178,8 +179,8 @@ async function coreReport(
   let totalRows: number | undefined;
   do {
     const report = await requestReport(id, token, "runReport", { ...query, offset: String(readRows) });
-    if (report.metadata?.timeZone && report.metadata.timeZone !== GA4_TIMEZONE) {
-      throw new GoogleReadError("invalid_response", `GA4 属性时区与配置的 ${GA4_TIMEZONE} 不一致。`);
+    if (report.metadata?.timeZone && report.metadata.timeZone !== timezone) {
+      throw new GoogleReadError("invalid_response", `GA4 属性时区与配置的 ${timezone} 不一致。`);
     }
     for (const reason of qualityReasons(report)) reasons.add(reason);
     const rows = report.rows ?? [];
@@ -285,4 +286,14 @@ export async function fetchGa4Realtime(): Promise<Ga4RealtimeResult> {
     registrationEvents: count(registration),
     organicSearchAvailable: false,
   };
+}
+
+/** Cluster registration events are not verified; collect only independently reported sessions. */
+export async function fetchGa4SiteSessions(range: DateRange, property: string, timezone: string, country?: SearchRegionCode) {
+  if (!/^\d+$/.test(property) || !validRange(range) || range.end >= propertyToday(timezone)) {
+    throw new RangeError("GA4 属性或日期无效");
+  }
+  const report = await coreReport(property, await accessToken(), range, false, false, country, timezone);
+  return { fetchedAt: new Date().toISOString(), quality: report.quality,
+    daily: [...report.values].map(([date, values]) => ({ date, sessions: report.quality.complete ? values[0] : null })) };
 }

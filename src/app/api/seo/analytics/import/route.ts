@@ -67,3 +67,24 @@ export async function POST(request: Request) {
     return Response.json({ message: bad ? "报表日期或字段无效" : "归档失败" }, { status: bad ? 400 : 503, headers });
   }
 }
+
+export async function GET(request: Request) {
+  const secret = getRankingImportSecret();
+  if (!secret || !importSecretMatches(request.headers.get("authorization"), secret) || request.headers.get("origin")) {
+    return Response.json({ message: "需要采集凭据" }, { status: 401, headers });
+  }
+  const params = new URL(request.url).searchParams;
+  const start = params.get("start") ?? "";
+  const end = params.get("end") ?? "";
+  const days = (Date.parse(end) - Date.parse(start)) / 86400000;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || !Number.isInteger(days) || days < 0 || days > 90) {
+    return Response.json({ message: "日期范围无效" }, { status: 400, headers });
+  }
+  const kind = params.get("kind");
+  const rows = await prisma.seoAnalyticsDay.findMany({
+    where: { date: { gte: start, lte: end }, ...(kind ? { kind } : {}) },
+    select: { kind: true, date: true, observedAt: true, complete: true, ...(kind && start === end ? { payload: true } : {}) },
+    orderBy: [{ date: "desc" }, { kind: "asc" }],
+  });
+  return Response.json({ rows }, { headers });
+}
