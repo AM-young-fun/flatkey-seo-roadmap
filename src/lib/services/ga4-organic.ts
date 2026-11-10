@@ -20,7 +20,7 @@ export type Ga4OrganicDay = {
   registrations: number | null;
   registrationEvents: number | null;
 };
-export type Ga4OrganicPage = Ga4OrganicDay & { path: string };
+export type Ga4OrganicPage = Ga4OrganicDay & { path: string; hostname: string };
 export type Ga4ReportQuality = { complete: boolean; reasons: string[] };
 export type Ga4OrganicResult = DateRange & {
   propertyId: string;
@@ -160,11 +160,12 @@ async function coreReport(
   country?: SearchRegionCode,
   timezone = GA4_TIMEZONE,
 ) {
-  const dimensions = ["date", ...(byPage ? ["landingPage"] : [])];
+  const dimensions = ["date", ...(byPage ? ["landingPage", "hostName"] : [])];
   const channel = exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL);
   const filters = [channel];
   if (country) filters.push(exact("countryId", country));
   if (registration) filters.push(exact("eventName", GA4_REGISTRATION_EVENT));
+  else if (byPage) filters.push(exact("eventName", "session_start"));
   const query: ReportQuery = {
     dateRanges: [{ startDate: range.start, endDate: range.end }],
     dimensions: dimensions.map(name => ({ name })),
@@ -198,7 +199,9 @@ async function coreReport(
       const path = row.dimensionValues?.[1]?.value;
       // GA4 also has traffic without a known landing path. Site totals are queried independently.
       if (byPage && (!path?.startsWith("/") || path.startsWith("//"))) continue;
-      const key = byPage ? `${date}\t${path}` : date;
+      const hostname = row.dimensionValues?.[2]?.value?.trim().toLowerCase();
+      if (byPage && (!hostname || !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(hostname))) { reasons.add("unknown_hostname"); continue; }
+      const key = byPage ? `${date}\t${hostname}\t${path}` : date;
       if (values.has(key)) throw new GoogleReadError("invalid_response", "GA4 返回了重复的日期与页面行。");
       values.set(key, query.metrics.map((_, index) => metric(row, index)));
     }
@@ -221,19 +224,24 @@ export async function fetchGa4Organic(range: DateRange, country?: SearchRegionCo
   }
   const id = propertyId();
   const token = await accessToken();
-  const [siteSessions, siteRegistrations, pageSessions, pageRegistrations] = await Promise.all([
+  const [siteSessions, siteRegistrations, pageSessions] = await Promise.all([
     coreReport(id, token, range, false, false, country),
     coreReport(id, token, range, false, true, country),
     coreReport(id, token, range, true, false, country),
-    coreReport(id, token, range, true, true, country),
   ]);
+  // hostName is event-scoped. At signup it can be console.flatkey.ai while
+  // landingPage still describes a website entry. Until a session landing-host
+  // dimension/funnel is verified, that pair must never create a conversion URL.
+  const pageRegistrations = { values: new Map<string, number[]>(), count: (_key: string, _index = 0): number | null => null,
+    quality: { complete: false, reasons: ["landing_host_attribution_unverified"] } };
   const daily: Ga4OrganicDay[] = [];
   for (let date = range.start; date <= range.end; date = shiftDay(date, 1)) {
     daily.push({ date, sessions: siteSessions.count(date), registrations: siteRegistrations.count(date), registrationEvents: siteRegistrations.count(date, 1) });
   }
   const pages = [...new Set([...pageSessions.values.keys(), ...pageRegistrations.values.keys()])].sort().map(key => ({
     date: key.slice(0, 10),
-    path: key.slice(11),
+    hostname: key.split("\t")[1],
+    path: key.split("\t")[2],
     sessions: pageSessions.count(key),
     registrations: pageRegistrations.count(key),
     registrationEvents: pageRegistrations.count(key, 1),
@@ -296,4 +304,38 @@ export async function fetchGa4SiteSessions(range: DateRange, property: string, t
   const report = await coreReport(property, await accessToken(), range, false, false, country, timezone);
   return { fetchedAt: new Date().toISOString(), quality: report.quality,
     daily: [...report.values].map(([date, values]) => ({ date, sessions: report.quality.complete ? values[0] : null })) };
+}
+
+/** Cluster page sessions retain host identity; unverified conversion events stay null. */
+export async function fetchGa4SitePages(range: DateRange, property: string, timezone: string, country?: SearchRegionCode) {
+  if (!/^\d+$/.test(property) || !validRange(range) || range.end >= propertyToday(timezone)) throw new RangeError("GA4 属性或日期无效");
+  const report = await coreReport(property, await accessToken(), range, true, false, country, timezone);
+  return { fetchedAt: new Date().toISOString(), quality: report.quality,
+    pages: [...report.values].map(([key, values]) => ({ date: key.split("\t")[0], hostname: key.split("\t")[1], path: key.split("\t")[2],
+      sessions: report.quality.complete ? values[0] : null, registrations: null })) };
+}
+
+/** Period-unique users are queried without date/page dimensions, never summed from daily rows. */
+export async function fetchGa4OrganicPeriod(range: DateRange, country?: SearchRegionCode) {
+  if (!validRange(range) || range.end >= propertyToday() || Date.parse(range.end) - Date.parse(range.start) > 365 * 86_400_000) throw new RangeError("请选择 GA4 属性时区内 1 至 366 个已结束日。");
+  const id = propertyId(), token = await accessToken();
+  const report = async (registration: boolean) => {
+    const filters = [exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL)];
+    if (country) filters.push(exact("countryId", country));
+    if (registration) filters.push(exact("eventName", GA4_REGISTRATION_EVENT));
+    const result = await requestReport(id, token, "runReport", {
+      dateRanges: [{ startDate: range.start, endDate: range.end }], metrics: [{ name: "totalUsers" }],
+      dimensionFilter: filters.length === 1 ? filters[0] : { andGroup: { expressions: filters } }, limit: "1",
+    });
+    if (result.metadata?.timeZone && result.metadata.timeZone !== GA4_TIMEZONE) throw new GoogleReadError("invalid_response", "GA4 属性时区与配置不一致");
+    const rows = result.rows ?? [];
+    if (rows.length > 1 || (result.rowCount ?? rows.length) !== rows.length) throw new GoogleReadError("invalid_response", "GA4 区间汇总返回意外行数");
+    return { value: rows[0] ? metric(rows[0], 0) : 0, reasons: qualityReasons(result) };
+  };
+  const [users, registrations] = await Promise.all([report(false), report(true)]);
+  const reasons = [...new Set([...users.reasons.map(reason => `users:${reason}`), ...registrations.reasons.map(reason => `registrations:${reason}`)])];
+  return { ...range, range, propertyId: id, timezone: GA4_TIMEZONE, fetchedAt: new Date().toISOString(),
+    scope: "session-organic-search" as const, users: users.reasons.length ? null : users.value,
+    registrations: registrations.reasons.length ? null : registrations.value,
+    quality: { complete: reasons.length === 0, reasons } };
 }

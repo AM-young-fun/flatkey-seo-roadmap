@@ -53,7 +53,8 @@ function buildRankedKeywordsTask(limit, runId, scope) {
   quoteForLimit(limit); validateRunId(runId);
   return { target: approved.targetDomain, location_code: approved.locationCode, language_code: approved.languageCode, limit, offset: 0,
     item_types: ["organic"], historical_serp_mode: "live", include_clickstream_data: false,
-    filters: [["ranked_serp_element.serp_item.type", "=", "organic"], "and", ["ranked_serp_element.serp_item.rank_group", "<=", 100]],
+    filters: [["ranked_serp_element.serp_item.type", "=", "organic"], "and", ["ranked_serp_element.serp_item.rank_group", "<=", 100], "and",
+      ["keyword_data.keyword", "not_regex", "(?i)(^|[^a-z0-9])(flat[\\s._-]*key|rack[\\s._-]*rate|model[\\s._-]*fit|mochi[\\s._-]*chat[\\s._-]*bot|jev[\\s._-]*llm)($|[^a-z0-9])"]],
     order_by: ["ranked_serp_element.serp_item.rank_group,asc"], tag: runId };
   // include_serp_info is not a documented option on this endpoint. SERP dates
   // and check URLs are already part of the ranked keyword response.

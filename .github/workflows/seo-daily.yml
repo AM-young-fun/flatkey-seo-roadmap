@@ -24,6 +24,7 @@ jobs:
       added: ${{ steps.inventory.outputs.added }}
       imported: ${{ steps.analytics.outputs.imported }}
       unavailable: ${{ steps.analytics.outputs.unavailable }}
+      periods: ${{ steps.periods.outcome }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,16 +46,26 @@ jobs:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: node scripts/server-seo-daily.cjs
+      - name: Collect independent period users and registrations
+        id: periods
+        if: always() && vars.SEO_WORKFLOW_ENABLED == 'true'
+        continue-on-error: true
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/server-seo-periods.cjs
       - name: Enforce collection health
         if: always()
         env:
           INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
           ANALYTICS_OUTCOME: ${{ steps.analytics.outcome }}
+          PERIODS_OUTCOME: ${{ steps.periods.outcome }}
         run: |
           test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success
+          test "$PERIODS_OUTCOME" != failure
   notify:
     needs: collect
-    if: always() && needs.collect.result != 'skipped'
+    if: always() && needs.collect.result != 'skipped' && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

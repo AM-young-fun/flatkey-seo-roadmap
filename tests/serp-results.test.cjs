@@ -321,7 +321,7 @@ const db = {
   $queryRaw: async query => {
     queried.push(query);
     if (query.sql.includes("serp-monitor:cohort")) return cohortRows;
-    if (query.sql.includes("serp-monitor:page-readiness-evidence")) return readinessRows;
+    if (query.sql.includes("serp-monitor:page-readiness-evidence")) return [...readinessRows, ...cohortRows.map(row => ({ siteDomain: row.siteDomain, sourceId: "SEO_MARKET_ASSIGNMENT", rowKey: `keyword:${row.keywordId}`, snapshot: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" } }))];
     if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
     if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.sql.includes("t.region IN ('US','JP','ES','BR')") || query.values.includes(row.region ?? "US")).map(row => ({ region: "US", ...row }));
     if (query.sql.includes("dashboard:keywords")) return cohortRows.filter(row => !query.sql.includes("AND k.id =") || query.values.includes(row.keywordId)).map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));

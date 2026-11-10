@@ -1,8 +1,6 @@
-import { ManagementDashboard } from "@/components/ManagementDashboard";
-import { SeoDataManagement } from "@/components/SeoDataManagement";
+import { redirect } from "next/navigation";
 
+// Data collection/configuration stays in the backend; the user-facing page is retired.
 export default function Page() {
-  return process.env.NODE_ENV === "development" && process.env.SEO_PREVIEW_UPSTREAM_TOKEN
-    ? <SeoDataManagement />
-    : <ManagementDashboard />;
+  redirect("/runs");
 }

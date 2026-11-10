@@ -15,7 +15,7 @@ const eslintConfig = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["tests/**/*.cjs", "scripts/server-seo-*.cjs", "scripts/seo-alert.cjs"],
+    files: ["tests/**/*.cjs", "scripts/**/*.cjs"],
     languageOptions: { globals: globals.node },
     rules: { "@typescript-eslint/no-require-imports": "off" }
   },

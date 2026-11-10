@@ -12,6 +12,8 @@ import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegio
 import { parseSerpSampleBalance, SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_MAX_QUERIES, SERP_SAMPLE_MAX_BUDGET_MICROS, SERP_SAMPLE_SAFETY_MARGIN_MICROS } from "@/lib/serp-sample";
 import type { SerpMonitorConfiguration, SerpMonitorPreview, SerpMonitorRunDto, SerpMonitorStatus, SerpRunState, SerpTaskState } from "@/lib/serp-monitor-types";
 import { OPTIMIZED_PAGE_SCOPE, OPTIMIZED_PAGE_MAX_QUERIES, optimizedPageUrl, optimizedPageId, monitorDay, optimizedPagePeriod } from "@/lib/optimized-page-monitor";
+import { PAID_QUERY_POLICY_VERSION } from "@/lib/keyword-market-policy";
+import type { SerpTarget } from "@/lib/serp-targets";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const OPEN_RUNS = ["PLANNED", "RUNNING", "UNKNOWN"];
@@ -114,7 +116,8 @@ async function reserveRun(id: string, expectedCohortHash: string, earlyPeriodKey
       keyword: group.keyword, targetsJson: json(group.targets), state: "PLANNED", requestJson: json(buildSerpTask(group, taskId, configForSerpRegion(group.region, config))) }; });
     const run = await tx.serpMonitorRun.create({ data: { id, scope: "SCHEDULED", periodKey: period.key, periodLabel: period.label,
       periodStart: new Date(`${period.start}T00:00:00+08:00`), periodEnd: new Date(`${period.end}T23:59:59.999+08:00`),
-      status: "PLANNED", cohortHash: cohort.hash, cohortJson: json(cohort.allTargets), configJson: json({ ...config,
+      status: "PLANNED", cohortHash: cohort.hash, cohortJson: json(cohort.allTargets.map(target => cohort.targets.find(selected => selected.siteDomain === target.siteDomain && selected.keywordId === target.keywordId) ?? target)), configJson: json({ ...config,
+        paidQueryPolicyVersion: PAID_QUERY_POLICY_VERSION,
         allTargetCount: cohort.allTargetCount, allTargetHash: cohort.allTargetHash,
         selectedTargetIds: cohort.targets.map(target => `${target.siteDomain}:${target.keywordId}`),
         connectionHash: connectionFingerprint(connection.encryptedCredentials) }),
@@ -196,14 +199,13 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
         run.reservedCostMicros !== run.estimatedCostMicros || run.reservedCostMicros > Number(cap) || run.reservedCostMicros + SERP_SAMPLE_SAFETY_MARGIN_MICROS > Number(balance)) throw new ImportRequestError("小批授权已过期或超出余额预算，未提交任务", 409);
       const allTasks = await tx.serpMonitorTask.findMany({ where: { runId } });
       if (allTasks.length !== run.queryCount) throw new ImportRequestError("小批任务清单与授权不一致", 409);
-      const targetIds = new Set<string>(), marketCoverage = new Map<string, Set<string>>(), marketTargets = new Map<string, string>();
+      const targetIds = new Set<string>();
       const frozen = new Map<string, Record<string, unknown>>((Array.isArray(run.cohortJson) ? run.cohortJson : []).map(raw => {
         const item = rawRecord(raw); return [`${item.siteDomain}:${item.keywordId}`, item] as const;
       }));
       for (const task of allTasks) {
         if (!isSerpRegion(task.region) || task.queryKey !== `${task.region}:${task.keyword.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()}`) throw new ImportRequestError("小批国家或查询标识不一致", 409);
-        const keywordKey = task.queryKey.slice(3), coverage = marketCoverage.get(keywordKey) ?? new Set<string>();
-        coverage.add(task.region); marketCoverage.set(keywordKey, coverage);
+        const keywordKey = task.queryKey.slice(3);
         if (!Array.isArray(task.targetsJson)) throw new ImportRequestError("小批目标清单无效", 409);
         const taskTargetIds: string[] = [];
         for (const raw of task.targetsJson) {
@@ -214,16 +216,19 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
             JSON.stringify([...target.targetUrls].sort()) !== JSON.stringify([...original.targetUrls].sort())) throw new ImportRequestError("小批目标与冻结的正式词库不一致", 409);
           targetIds.add(id); taskTargetIds.push(id);
         }
-        const targetSnapshot = JSON.stringify(taskTargetIds.sort());
-        if (!taskTargetIds.length || new Set(taskTargetIds).size !== taskTargetIds.length || (marketTargets.has(keywordKey) && marketTargets.get(keywordKey) !== targetSnapshot)) throw new ImportRequestError("同一关键词在四国的目标集合不一致", 409);
-        marketTargets.set(keywordKey, targetSnapshot);
+        if (!taskTargetIds.length || new Set(taskTargetIds).size !== taskTargetIds.length) throw new ImportRequestError("关键词国家目标集合无效", 409);
         const expected = buildSerpTask({ keyword: task.keyword, queryKey: task.queryKey, targets: [] }, task.id, configForSerpRegion(task.region));
         const saved = rawRecord(task.requestJson);
         if (Object.keys(saved).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value]) => saved[key] !== value)) throw new ImportRequestError("小批查询参数已变化，未提交任务", 409);
       }
-      if ([...marketCoverage.values()].some(coverage => coverage.size !== SERP_MARKETS.length || SERP_MARKETS.some(region => !coverage.has(region)))) throw new ImportRequestError("小批必须完整覆盖四个国家，未提交任务", 409);
       const allowed = Array.isArray(approved.selectedTargetIds) ? approved.selectedTargetIds : [];
       if (allowed.length !== targetIds.size || new Set(allowed).size !== targetIds.size || run.targetCount !== targetIds.size || allowed.some(id => typeof id !== "string" || !targetIds.has(id))) throw new ImportRequestError("小批目标超出授权范围", 409);
+      const expectedQueries = groupSerpMarketQueries([...frozen.entries()].filter(([id]) => targetIds.has(id)).map(([, value]) => value as unknown as SerpTarget));
+      if (expectedQueries.length !== allTasks.length || allTasks.some(task => {
+        const query = expectedQueries.find(item => item.queryKey === task.queryKey);
+        const keys = (rows: unknown) => Array.isArray(rows) ? rows.map(raw => { const row = rawRecord(raw); return `${row.siteDomain}:${row.keywordId}`; }).sort().join("\n") : "";
+        return !query || keys(query.targets) !== keys(task.targetsJson);
+      })) throw new ImportRequestError("小批国家范围与已审核主国家/额外国家不一致，未提交任务", 409);
     } else if (manualPageId) {
       const approved = rawRecord(run.configJson), pageUrl = typeof approved.optimizedPageUrl === "string" ? optimizedPageUrl(approved.optimizedPageUrl) : null;
       if (run.scope !== OPTIMIZED_PAGE_SCOPE || !pageUrl || optimizedPageId(pageUrl) !== manualPageId || approved.optimizedPageId !== manualPageId ||
@@ -238,6 +243,16 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
     if (active) return [];
     const selected = await tx.serpMonitorTask.findMany({ where: { runId, state: "PLANNED" }, orderBy: [{ keyword: "asc" }, { region: "asc" }], take: 100 });
     if (!selected.length) return [];
+    if (run.scope !== OPTIMIZED_PAGE_SCOPE && rawRecord(run.configJson).paidQueryPolicyVersion !== PAID_QUERY_POLICY_VERSION) throw new ImportRequestError("旧四国广播批次已停止新增付费提交；保留已提交结果，重新核对国家范围与费用", 409);
+    for (const task of selected) {
+      const expected = buildSerpTask({ keyword: task.keyword, queryKey: task.queryKey, targets: [] }, task.id, configForSerpRegion(task.region as SerpMonitorConfiguration["region"]));
+      const saved = rawRecord(task.requestJson);
+      if (Object.keys(saved).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value]) => saved[key] !== value)) throw new ImportRequestError("国家、语言或查询参数与冻结账本不一致", 409);
+      if (run.scope !== OPTIMIZED_PAGE_SCOPE) {
+        const assigned = groupSerpMarketQueries((Array.isArray(task.targetsJson) ? task.targetsJson : []) as unknown as SerpTarget[]);
+        if (!assigned.some(query => query.queryKey === task.queryKey && query.region === task.region)) throw new ImportRequestError("缺少此关键词国家的明确研究证据，未提交付费任务", 409);
+      }
+    }
     await tx.serpMonitorTask.updateMany({ where: { id: { in: selected.map(task => task.id) }, state: "PLANNED" }, data: { state: "SUBMITTING", submittedAt: new Date() } });
     await tx.serpMonitorRun.update({ where: { id: runId }, data: { status: "RUNNING" } });
     return selected;

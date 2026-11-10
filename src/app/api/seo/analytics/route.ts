@@ -25,15 +25,18 @@ export async function GET(request: Request) {
   try {
     rangeDays(range);
     // The cluster comparison uses one Beijing date range. Import still checks each source's timezone.
-    if (range.end >= propertyToday(site ? "Asia/Shanghai" : undefined) || urls.length > 25 || !urls.every(safeAnalyticsUrl)
+    if (range.end >= propertyToday(site ? "Asia/Shanghai" : undefined) || urls.length > 25 || !urls.every(value => {
+      if (!safeAnalyticsUrl(value)) return false;
+      const domain = site?.domain ?? "flatkey.ai", host = new URL(value).hostname;
+      return host === domain || host.endsWith(`.${domain}`);
+    })
       || pageDaily && (urls.length !== 1 || allPages) || pageQueries && urls.length > 1
-      || requestedSite !== null && (!site || urls.length || allPages || pageDaily || pageQueries)) throw new Error("无效筛选");
+      || requestedSite !== null && requestedSite !== "flatkey.ai" && !site) throw new Error("无效筛选");
   } catch {
-    return Response.json({ message: "请选择已结束日期；一次最多366天和25个 Flatkey 页面。" }, { status: 400, headers });
+    return Response.json({ message: "请选择已结束日期；一次最多366天和25个所选站点页面。" }, { status: 400, headers });
   }
   try {
-    const kinds = site ? (["ga4-site", "gsc-site"] as const)
-      : analyticsKinds.filter(kind => pageQueries === (kind === "gsc-page-queries"));
+    const kinds = analyticsKinds.filter(kind => pageQueries === (kind === "gsc-page-queries"));
     const rows = analyticsLocalPreview(request)
       ? await readAnalyticsEvidence(range, country, site?.domain)
       : (await prisma.seoAnalyticsDay.findMany({
@@ -41,7 +44,7 @@ export async function GET(request: Request) {
         select: { payload: true },
       })).map(row => analyticsObservationSchema.parse(row.payload))
         .filter(row => clusterDomainForProperty(row.property) === site?.domain && (row.country ?? "all") === country);
-    if (site) {
+    if (site && !pageQueries && !urls.length && !allPages) {
       const view = analyticsView(range, [], rows);
       const searchByDay = new Map(rows.flatMap(row => row.kind === "gsc-site" ? [[row.date, row] as const] : []));
       const daily = view.daily.map(day => {
@@ -50,8 +53,8 @@ export async function GET(request: Request) {
       });
       return Response.json({ site: site.domain, country, daily }, { headers });
     }
-    if (pageQueries) return Response.json({ ...pageQueryView(range, rows, urls[0]), country }, { headers });
-    const view = { ...analyticsView(range, allPages ? observedPageUrls(rows) : urls, rows), country };
+    if (pageQueries) return Response.json({ ...pageQueryView(range, rows, urls[0]), country, site: site?.domain ?? "flatkey.ai" }, { headers });
+    const view = { ...analyticsView(range, allPages ? observedPageUrls(rows) : urls, rows), country, site: site?.domain ?? "flatkey.ai" };
     if (pageDaily) return Response.json({ ...view, pageDaily: pageDailyView(range, urls[0], rows) }, { headers });
     if (allPages && search.get("landingDaily") === "1") {
       return Response.json({ ...view, landingDaily: landingTrafficDays(range, rows) }, { headers });

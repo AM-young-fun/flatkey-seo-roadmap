@@ -9,7 +9,8 @@ import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, quoteSerpTa
 import { serpPeriod } from "@/lib/serp-periods";
 import { serpTargetKey } from "@/lib/serp-targets";
 import { selectSerpSampleTargets } from "@/lib/serp-sample-selection";
-import { loadSerpTargetCohort } from "@/lib/services/serp-targets";
+import { loadScheduledSerpMonitoringCohort as loadSerpTargetCohort } from "@/lib/services/serp-targets";
+import { PAID_QUERY_POLICY_VERSION } from "@/lib/keyword-market-policy";
 import { resumeSerpMonitorRun, submitSerpSampleBatch } from "@/lib/services/serp-monitor";
 import { affordableSerpSample, parseSerpSampleBalance, serpSampleSubsetHash, SERP_SAMPLE_AUTHORIZATION_HASH,
   SERP_SAMPLE_AUTHORIZATION_ID, SERP_SAMPLE_MAX_COST_MICROS, SERP_SAMPLE_MAX_QUERIES, SERP_SAMPLE_PREVIEW_TTL_MS,
@@ -59,7 +60,7 @@ export async function previewSerpSample(): Promise<SerpSamplePreview> {
   const liveBalanceMicros = await fetchBalance(value), selection = affordableSerpSample(selectSerpSampleTargets(cohort.targets), liveBalanceMicros);
   const quote = quoteSerpTargets(selection.targets, SERP_MARKETS);
   if (!quote.queryCount) throw new ImportRequestError("账户可用余额不足以在预留安全余量后进行本次验证，未提交付费任务", 409);
-  if (!["BRAND", "MODEL_PRICE"].every(category => selection.targets.some(target => selection.categories[serpTargetKey(target)] === category))) throw new ImportRequestError("当前余额或正式词库不足以同时验证品牌词和模型价格词，未提交付费任务", 409);
+  if (!selection.targets.some(target => selection.categories[serpTargetKey(target)] === "MODEL_PRICE")) throw new ImportRequestError("没有已核实页面及目标国家的非自有品牌模型价格词，未提交付费任务", 409);
   const issuedAt = Date.now(), expiresAt = issuedAt + SERP_SAMPLE_PREVIEW_TTL_MS, subsetHash = serpSampleSubsetHash(selection);
   const authorizationToken = signDataForSeoPreview({ purpose: "SERP_SAMPLE_V1", authorizationId: SERP_SAMPLE_AUTHORIZATION_ID,
     authorizationHash: SERP_SAMPLE_AUTHORIZATION_HASH, cohortHash: cohort.hash, subsetHash,
@@ -106,7 +107,7 @@ export async function startSerpSample(input: Extract<SerpSampleMutation, { actio
     const latestConnection = await tx.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
     if (!latestConnection || latestConnection.connectionVersion !== value.connectionVersion || fingerprint(latestConnection.encryptedCredentials) !== value.connectionHash) throw new ImportRequestError("API连接已变化，请重新预览", 409);
     if (claims.expiresAt < Date.now()) throw new ImportRequestError("费用预览已过期，请重新预览", 409);
-    const snapshot = { ...SERP_DEFAULT_CONFIG, connectionHash: value.connectionHash,
+    const snapshot = { ...SERP_DEFAULT_CONFIG, paidQueryPolicyVersion: PAID_QUERY_POLICY_VERSION, connectionHash: value.connectionHash,
       selectedTargetIds: selection.targets.map(serpTargetKey), selectedSubsetHash: claims.subsetHash,
       sampleAuthorizationId: SERP_SAMPLE_AUTHORIZATION_ID, sampleAuthorizationHash: SERP_SAMPLE_AUTHORIZATION_HASH,
       sampleMaxBudgetMicros: quote.maxCostMicros, sampleBalanceBeforeMicros: balanceBeforeMicros,
@@ -117,7 +118,7 @@ export async function startSerpSample(input: Extract<SerpSampleMutation, { actio
     // Full frozen inventory remains the overview denominator. The task rows
     // and selectedTargetIds state precisely which subset was actually queried.
     await tx.serpMonitorRun.create({ data: { id: runId, scope: "SAMPLE", sampleAuthorizationHash: SERP_SAMPLE_AUTHORIZATION_HASH,
-      periodKey: period.key, periodLabel: `${period.label} · 品牌与模型价格验证`,
+      periodKey: period.key, periodLabel: `${period.label} · 非品牌模型价格验证`,
       periodStart: new Date(`${period.start}T00:00:00+08:00`), periodEnd: new Date(`${period.end}T23:59:59.999+08:00`),
       status: "PLANNED", cohortHash: cohort.hash, cohortJson: json(cohort.targets), configJson: json(snapshot),
       queryCount: groups.length, targetCount: selection.targets.length, estimatedCostMicros: quote.maxCostMicros,

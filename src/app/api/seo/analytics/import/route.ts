@@ -1,6 +1,7 @@
 import { getRankingImportSecret } from "@/lib/import-credential";
 import { importSecretMatches } from "@/lib/ranking-import";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { analyticsObservationSchema, analyticsStorageKind, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { propertyToday } from "@/lib/seo-date-range";
 import { clusterDomainForProperty, siteReportToday } from "@/lib/seo-cluster-sites";
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     for (const entry of inputs) {
       const row = analyticsObservationSchema.parse(entry);
       const site = clusterDomainForProperty(row.property);
-      const today = row.kind === "ga4-site" ? siteReportToday(site) : propertyToday();
+      const today = row.kind === "ga4-site" || row.kind === "ga4-pages" ? siteReportToday(site) : propertyToday();
       if (row.date >= today || Date.parse(row.observedAt) > Date.now() + 300000) throw new Error("日期无效");
       const kind = analyticsStorageKind(row.kind, row.country, site);
       const key = `${kind}:${row.date}`;
@@ -58,6 +59,9 @@ export async function POST(request: Request) {
         "observedAt" = EXCLUDED."observedAt", "complete" = EXCLUDED."complete", "payload" = EXCLUDED."payload"
       WHERE (EXCLUDED."complete" AND NOT "SeoAnalyticsDay"."complete")
         OR (EXCLUDED."complete" = "SeoAnalyticsDay"."complete" AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
+        OR (EXCLUDED."kind" LIKE 'ga4-pages%' AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt"
+          AND EXCLUDED."payload"->>'hostnameDimension' = 'hostName'
+          AND "SeoAnalyticsDay"."payload"->>'hostnameDimension' IS DISTINCT FROM 'hostName')
     `;
     if (batch) return Response.json({ stored, received: records.length }, { headers });
     const row = records[0].payload;
@@ -86,5 +90,12 @@ export async function GET(request: Request) {
     select: { kind: true, date: true, observedAt: true, complete: true, ...(kind && start === end ? { payload: true } : {}) },
     orderBy: [{ date: "desc" }, { kind: "asc" }],
   });
-  return Response.json({ rows }, { headers });
+  // Small metadata projection avoids transferring full 90-day query payloads.
+  const hosts = await prisma.$queryRaw<Array<{ kind: string; date: string; hostnameDimension: string | null }>>(Prisma.sql`
+    SELECT kind, date, payload->>'hostnameDimension' AS "hostnameDimension"
+    FROM "SeoAnalyticsDay" WHERE date >= ${start} AND date <= ${end} AND kind LIKE 'ga4-pages%'
+      ${kind ? Prisma.sql`AND kind = ${kind}` : Prisma.empty}
+  `);
+  const byKey = new Map(hosts.map(row => [`${row.kind}:${row.date}`, row.hostnameDimension]));
+  return Response.json({ rows: rows.map(row => ({ ...row, ...(byKey.has(`${row.kind}:${row.date}`) ? { hostnameDimension: byKey.get(`${row.kind}:${row.date}`) } : {}) })) }, { headers });
 }

@@ -143,7 +143,7 @@ const { periodDue, nextSerpPeriodKey, serpPeriod } = require("../src/lib/serp-pe
 const { SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_AUTHORIZATION_ID } = require("../src/lib/serp-sample.ts");
 const { loadSerpMonitorStatus, mutateSerpMonitor, runSerpMonitorCron, submitSerpSampleBatch, startSerpScheduledPeriod } = require("../src/lib/services/serp-monitor.ts");
 
-function target(keyword, siteDomain = "flatkey.ai") { return { keyword, keywordId: `id-${keyword}`, siteDomain, targetUrls: [`https://${siteDomain}/models/example`] }; }
+function target(keyword, siteDomain = "flatkey.ai") { return { keyword, keywordId: `id-${keyword}`, siteDomain, marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: [`https://${siteDomain}/models/example`] }; }
 function advanced(task, count = 100, overrides = {}) {
   return { status_code: 20000, tasks: [{ id: task.providerTaskId, status_code: 20000, cost: 0.006, data: task.requestJson,
     result: [{ keyword: task.keyword, type: "organic", se_domain: task.requestJson.se_domain, location_code: task.requestJson.location_code, language_code: task.requestJson.language_code,
@@ -266,7 +266,7 @@ test("a configured future first run is not invented, and kill switch overrides b
 
 test("query quote deduplicates shared normalized terms across sites without losing either target", () => {
   const pool = [target("MODEL API"), target("ｍｏｄｅｌ  api", "rackrate.org"), target("model price")];
-  const groups = groupSerpQueries(pool), quote = quoteSerpTargets(pool);
+  const groups = groupSerpQueries(pool), quote = quoteSerpTargets(pool, ["US"]);
   assert.equal(groups.length, 2); assert.equal(groups.find(row => row.queryKey === "model api").targets.length, 2);
   assert.equal(quote.targetCount, 3); assert.equal(quote.queryCount, 2); assert.equal(quote.sharedQueriesSaved, 1);
   assert.equal(quote.maxCostMicros, 12000); assert.equal(quote.annualCostMicros, 312000);
@@ -653,10 +653,10 @@ test("worker deadline covers setup and stops before another paid POST, leaving a
 });
 
 async function seedAuthorizedSample(count = 2) {
-  const id = "fictional-brand-model-sample", period = serpPeriod(new Date()), selected = [target("flatkey"), target("deepseek pricing"),
+  const id = "fictional-brand-model-sample", period = serpPeriod(new Date()), selected = [target("claude pricing"), target("deepseek pricing"),
     ...Array.from({ length: Math.max(0, count - 2) }, (_, index) => target(`model ${index} pricing`))];
   const groups = groupSerpMarketQueries(selected), maximum = groups.length * 6000;
-  const configJson = { ...SERP_DEFAULT_CONFIG, connectionHash: createHash("sha256").update("fictional-ciphertext").digest("hex"),
+  const configJson = { paidQueryPolicyVersion: "primary-country-nonbrand-v1", ...SERP_DEFAULT_CONFIG, connectionHash: createHash("sha256").update("fictional-ciphertext").digest("hex"),
     selectedTargetIds: selected.map(target => `${target.siteDomain}:${target.keywordId}`),
     sampleAuthorizationHash: SERP_SAMPLE_AUTHORIZATION_HASH, sampleAuthorizationId: SERP_SAMPLE_AUTHORIZATION_ID,
     sampleMaxBudgetMicros: maximum, sampleBalanceBeforeMicros: 978280, sampleSafetyMarginMicros: 20000,

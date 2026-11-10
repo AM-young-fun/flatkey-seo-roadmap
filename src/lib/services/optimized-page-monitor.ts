@@ -141,6 +141,7 @@ export async function mutateOptimizedPageMonitor(input: OptimizedPageMutation) {
   if (!page || !page.targets.length) throw new ImportRequestError("该页面尚无已核实的正式关键词，请先同步优化表并核对页面", 409);
   if (page.hash !== input.expectedHash) throw new ImportRequestError("页面关键词已变化，请刷新后抓取", 409);
   const groups = groupSerpMarketQueries(page.targets), quote = quoteSerpTargets(page.targets, SERP_MARKETS);
+  if (!groups.length) throw new ImportRequestError("该页面没有已明确目标国家的非自有品牌词，请先核实研究证据", 409);
   if (groups.length > OPTIMIZED_PAGE_MAX_QUERIES) throw new ImportRequestError("该页关键词超过单次请求上限，请先精简关联词", 409);
   const day = input.day, periodKey = optimizedPagePeriod(page.id, day), runId = `optimized-${day}-${page.id}`;
   const reserved = await prisma.$transaction(async tx => {

@@ -21,7 +21,7 @@ mock("src/lib/prisma.ts", { prisma: {
   dataForSeoRun: { findMany: async () => [] }, weeklyTraffic: { findMany: async () => [] },
   collectorRun:{findMany:async()=>[]},
 } });
-const { schedulerState, plannedRankingTime, operationStateLabels } = require("../src/lib/operations.ts");
+const { schedulerState, plannedRankingTime, operationStateLabels, configuredAutomationPlans, nextAutomationTime } = require("../src/lib/operations.ts");
 const { loadOperationsStatus } = require("../src/lib/services/operations.ts");
 const { GET } = require("../src/app/api/operations/route.ts");
 test("configured schedule and unfinished heartbeat cannot masquerade as successful execution", () => {
@@ -48,13 +48,22 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.scheduler.state, "UNCONFIRMED");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
-  assert.equal(status.plans[1].state, "Codex 采集");
-  assert.equal(status.plans[2].name, "Ahrefs 数据");
-  assert.equal(status.plans[3].state, "Codex 整理");
-  assert.equal(status.plans[3].nextAt,"2026-10-23T02:10:00.000Z");
+  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 10:30");
+  assert.equal(status.plans.find(row => row.id === "10-30-seo").cadence, "每日 09:00");
+  assert.equal(status.plans.find(row => row.id === "automation").state, "配置已暂停");
+  assert.equal(status.plans.find(row => row.id === "automation").nextAt, null);
+  assert.equal(status.automationConfigurationVerifiedAt, "2026-11-10");
   assert.match(status.records[0].name, /第1期/);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
   for (const secret of ["encryptedCredentials", "LOGIN_PWD", "CRON_SECRET", "rawResponse", "configJson"]) assert.ok(!JSON.stringify(status).includes(secret));
+});
+test("actual Codex configuration keeps paused tasks unscheduled and first-weekday rules respect weekends", () => {
+  const rules = configuredAutomationPlans(new Date("2026-11-10T00:30:00Z"));
+  assert.equal(rules.find(row => row.id === "10-30-seo").nextAt, "2026-11-10T01:00:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-18-00").nextAt, null);
+  assert.equal(nextAutomationTime("FREQ=WEEKLY;BYDAY=FR;BYHOUR=16;BYMINUTE=30", new Date("2026-11-10T08:00:00Z"), "ACTIVE"), "2026-11-13T08:30:00.000Z");
+  assert.equal(nextAutomationTime("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0", new Date("2026-10-31T08:00:00Z"), "ACTIVE"), "2026-11-02T07:00:00.000Z");
+  assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=18;BYMINUTE=0", new Date(), "PAUSED"), null);
 });
 test("operations API needs a real session; denied reads never touch the database", async () => {
   calls = 0; session = false;

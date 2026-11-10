@@ -94,6 +94,11 @@ test("task is one fixed US English organic top-100 live request without unsuppor
   assert.deepEqual(task.item_types, ["organic"]);
   assert.ok(task.filters.some(filter => Array.isArray(filter) && filter[0] === "ranked_serp_element.serp_item.type" && filter[1] === "=" && filter[2] === "organic"));
   assert.ok(task.filters.some(filter => Array.isArray(filter) && filter[0] === "ranked_serp_element.serp_item.rank_group" && filter[1] === "<=" && filter[2] === 100));
+  const brandFilter = task.filters.find(filter => Array.isArray(filter) && filter[0] === "keyword_data.keyword");
+  assert.equal(brandFilter[1], "not_regex");
+  const pattern = new RegExp(brandFilter[2].replace("(?i)", ""), "i");
+  for (const word of ["Flatkey API", "JEV-LLM", "MochiChatbot", "ModelFit", "RackRate"]) assert.equal(pattern.test(word), true);
+  for (const word of ["OpenAI API", "Claude pricing", "Gemini API"]) assert.equal(pattern.test(word), false);
   assert.equal(Object.hasOwn(task, "include_serp_info"), false);
   assert.equal(task.tag, runId);
 });

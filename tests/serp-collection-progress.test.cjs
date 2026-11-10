@@ -13,14 +13,14 @@ mock("src/lib/prisma.ts",{prisma:{$queryRaw:async query=>{queries.push(query);re
 const {loadSerpCollectionProgress} = require("../src/lib/services/serp-collection-progress.ts");
 const {collectionIsActive,collectionPercent} = require("../src/lib/serp-collection-progress.ts");
 
-test("query progress is a free metadata read and four-country completed words are separate from submitted queries", async t => {
+test("query progress is a free metadata read and all-planned-country completed words are separate from submitted queries", async t => {
   t.mock.method(globalThis,"fetch",async()=>assert.fail("progress must not contact any provider"));
   queries=[];rows=[{runId:"existing-run",periodLabel:"2026年10月第2期",status:"RUNNING",totalQueries:5580,totalKeywords:1395,completedKeywords:12,
     completedQueries:49,plannedQueries:5180,waitingQueries:351,processingQueries:0,failedQueries:0,startedAt:new Date("2026-10-19T07:43:00Z"),completedAt:null}];
   const progress=await loadSerpCollectionProgress("flatkey.ai");
   assert.equal(progress.submittedQueries,400);assert.equal(progress.completedQueries,49);assert.equal(progress.completedKeywords,12);
   assert.equal(queries.length,1);assert.deepEqual(queries[0].values,["flatkey.ai","flatkey.ai"]);
-  assert.match(queries[0].sql,/scope = 'SCHEDULED'/);assert.match(queries[0].sql,/countries = 4/);
+  assert.match(queries[0].sql,/scope = 'SCHEDULED'/);assert.match(queries[0].sql,/w.total > 0 AND w.completed = w.total/);assert.doesNotMatch(queries[0].sql,/countries = 4/);
   assert.equal(collectionIsActive(progress.status),true);assert.equal(collectionIsActive("COMPLETED"),false);
   for(const value of ["rawResponse","encryptedCredentials","apiPassword"]) assert.ok(!JSON.stringify(progress).includes(value));
   rows=[];assert.equal(await loadSerpCollectionProgress(),null);

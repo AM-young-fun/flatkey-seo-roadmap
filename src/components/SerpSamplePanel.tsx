@@ -109,8 +109,8 @@ export function SerpSamplePanel({ latestRun, onChanged }: { latestRun: SerpMonit
     const url = URL.createObjectURL(new Blob(["\uFEFF", lines.map(line => line.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = "flatkey-four-market-sample-verified.csv"; link.click(); URL.revokeObjectURL(url);
   }
-  return <section className="serpSamplePanel" aria-label="品牌与模型价格小批验证">
-    <h3>本次小批验证</h3><p className="chartNote">品牌词和模型价格词 · 美国、日本、西班牙、巴西 · 仅执行这一批，全量定时保持关闭。</p>
+  return <section className="serpSamplePanel" aria-label="非自有品牌词小批验证">
+    <h3>本次小批验证</h3><p className="chartNote">排除自有品牌词，按每个词已审核的目标国家查询 · 仅执行这一批，全量定时保持关闭。历史多国结果保留；未查询不算掉榜。</p>
     {error ? <p role="alert" className="loadError">{error}</p> : null}
     {!run ? <button className="okrRefresh" disabled={Boolean(busy) || attempted} onClick={() => void prepare()}>{busy === "preview" ? "正在核实余额…" : "核实余额与测试名单"}</button> : null}
     {preview ? <div className="dataforseoPreview"><p>{run ? "提交前余额" : "账户实时余额"} <strong>{money(preview.liveBalanceMicros)}</strong> · 本次 {preview.targets.length} 词 / {preview.quote.queryCount} 次查询 · 最高 <strong>{money(preview.maxBudgetMicros)}</strong></p><p className="chartNote">提交前再次核对余额，并预留 {money(preview.safetyMarginMicros)}。只在已保存的这一批任务中取回结果，不重复付费。</p><details><summary>查看测试词</summary><p>{preview.targets.map(target => target.keyword).join("、")}</p></details>{!run ? <button className="managePrimary" disabled={Boolean(busy) || attempted || Date.parse(preview.expiresAt) <= Date.now()} onClick={() => void start()}>{busy === "start" ? "正在提交这一批…" : attempted ? "已提交，请核对原记录" : `抓取这一批（最高 ${money(preview.maxBudgetMicros)}）`}</button> : null}</div> : null}

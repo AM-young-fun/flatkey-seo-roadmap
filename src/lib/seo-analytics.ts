@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { shiftDay, validRange, type DateRange } from "./seo-date-range";
 import { REGION_CODES, type SeoCountry } from "./seo";
-import { clusterDomainForProperty, type ClusterDomain } from "./seo-cluster-sites";
+import { CLUSTER_SITES, clusterDomainForProperty, type ClusterDomain } from "./seo-cluster-sites";
 
 const count = z.number().int().nonnegative().safe();
 const base = {
@@ -16,21 +16,28 @@ const sessions = { sessions: count.nullable(), registrations: count.nullable() }
 const gscMetrics = { clicks: count, impressions: count, position: z.number().finite().nonnegative().nullable() };
 const gscProperty = z.enum(["sc-domain:flatkey.ai", "https://flatkey.ai/", "https://www.flatkey.ai/"]);
 const clusterGa4Property = z.string().regex(/^\d+$/).refine(value => Boolean(clusterDomainForProperty(value)));
-const clusterGscProperty = z.string().url().refine(value => Boolean(clusterDomainForProperty(value)));
+const clusterGscProperty = z.string().refine(value => Boolean(clusterDomainForProperty(value)) && !/^\d+$/.test(value));
+const anyGscProperty = z.union([gscProperty, clusterGscProperty]);
+const ga4Property = z.union([ga4.property, clusterGa4Property]);
+const hostname = z.string().trim().toLowerCase().regex(/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i);
+const ownedDomains = ["flatkey.ai", ...CLUSTER_SITES.map(site => site.domain)];
+export function analyticsSiteForProperty(property: string) { return clusterDomainForProperty(property) ?? (property === "541304395" || gscProperty.safeParse(property).success ? "flatkey.ai" : null); }
+const belongsToSite = (hostname: string, site: string) => hostname === site || hostname.endsWith(`.${site}`);
 const gscPage = z.string().url().max(2048).refine(value => {
   try {
     const url = new URL(value);
     return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.port
-      && (url.hostname === "flatkey.ai" || url.hostname.endsWith(".flatkey.ai"));
+      && ownedDomains.some(site => belongsToSite(url.hostname, site));
   } catch { return false; }
-}, "页面必须属于 Flatkey 属性");
+}, "页面必须属于五站已登记属性");
 export const analyticsObservationSchema = z.discriminatedUnion("kind", [
   z.object({ ...ga4, ...sessions, property: z.union([ga4.property, clusterGa4Property]), kind: z.literal("ga4-site") }).strict(),
-  z.object({ ...base, ...gscMetrics, kind: z.literal("gsc-site"), property: clusterGscProperty }).strict(),
-  z.object({ ...ga4, kind: z.literal("ga4-pages"), sessionsComplete: z.boolean().optional(),
-    rows: z.array(z.object({ ...sessions, path: z.string().startsWith("/").max(2048) }).strict()).max(50000) }).strict(),
-  z.object({ ...base, kind: z.literal("gsc-pages"), property: gscProperty, rows: z.array(z.object({ ...gscMetrics, url: gscPage }).strict()).max(50000) }).strict(),
-  z.object({ ...base, kind: z.literal("gsc-page-queries"), property: gscProperty,
+  z.object({ ...base, ...gscMetrics, kind: z.literal("gsc-site"), property: anyGscProperty }).strict(),
+  z.object({ ...ga4, property: ga4Property, kind: z.literal("ga4-pages"), sessionsComplete: z.boolean().optional(), hostnameDimension: z.literal("hostName").optional(),
+    registrationMissingReason: z.string().max(300).optional(),
+    rows: z.array(z.object({ ...sessions, hostname: hostname.nullable().optional(), path: z.string().startsWith("/").max(2048) }).strict()).max(50000) }).strict(),
+  z.object({ ...base, kind: z.literal("gsc-pages"), property: anyGscProperty, rows: z.array(z.object({ ...gscMetrics, url: gscPage }).strict()).max(50000) }).strict(),
+  z.object({ ...base, kind: z.literal("gsc-page-queries"), property: anyGscProperty,
     // Search Console can return queries longer than a URL. The import endpoint
     // bounds the entire request; preserve the source text without truncating it.
     rows: z.array(z.object({ ...gscMetrics, url: gscPage, query: z.string().min(1) }).strict()).max(50000) }).strict(),
@@ -39,10 +46,15 @@ export const analyticsObservationSchema = z.discriminatedUnion("kind", [
     ctx.addIssue({ code: "custom", message: "站点日数据的完成标记与指标不一致" });
   }
   if (record.kind !== "ga4-site" && record.kind !== "gsc-site") {
-    const keys = record.kind === "ga4-pages" ? record.rows.map(row => row.path)
+    const keys = record.kind === "ga4-pages" ? record.rows.map(row => JSON.stringify([row.hostname ?? null, row.path]))
       : record.kind === "gsc-page-queries" ? record.rows.map(row => JSON.stringify([row.url, row.query]))
       : record.rows.map(row => row.url);
     if (new Set(keys).size !== keys.length) ctx.addIssue({ code: "custom", message: "报表含有重复记录" });
+    const site = analyticsSiteForProperty(record.property);
+    if (record.rows.some(row => {
+      const host = "url" in row ? new URL(row.url).hostname : row.hostname;
+      return host && (!site || !belongsToSite(host, site)) || "url" in row && record.property.startsWith("https://") && !row.url.startsWith(record.property);
+    })) ctx.addIssue({ code: "custom", message: "页面主机与采集属性不一致" });
   }
   if (record.kind === "ga4-pages" && record.sessionsComplete && record.rows.some(row => row.sessions === null)) {
     ctx.addIssue({ code: "custom", message: "已核对的着陆页会话报表含缺失值" });
@@ -50,7 +62,7 @@ export const analyticsObservationSchema = z.discriminatedUnion("kind", [
 });
 export type AnalyticsObservation = z.infer<typeof analyticsObservationSchema>;
 export type AnalyticsKind = AnalyticsObservation["kind"];
-export const analyticsKinds: AnalyticsKind[] = ["ga4-site", "ga4-pages", "gsc-pages", "gsc-page-queries"];
+export const analyticsKinds: AnalyticsKind[] = ["ga4-site", "gsc-site", "ga4-pages", "gsc-pages", "gsc-page-queries"];
 export const analyticsStorageKind = (kind: AnalyticsKind, country: SeoCountry = "all", site?: ClusterDomain) =>
   [kind, country === "all" ? null : country, site].filter(Boolean).join(":");
 
@@ -64,12 +76,12 @@ export function rangeDays(range: DateRange) {
 function pageKey(input: string) {
   try {
     const url = new URL(input);
-    if (url.protocol !== "https:" || url.username || url.password || url.port || !["flatkey.ai", "www.flatkey.ai"].includes(url.hostname)) return null;
+    if (url.protocol !== "https:" || url.username || url.password || url.port || !ownedDomains.some(site => belongsToSite(url.hostname, site))) return null;
     for (const key of [...url.searchParams.keys()]) {
       if (/^utm_/i.test(key) || /^(gclid|dclid|fbclid|msclkid|gbraid|wbraid)$/i.test(key)) url.searchParams.delete(key);
     }
     url.searchParams.sort();
-    return url.pathname + url.search;
+    return url.origin + url.pathname + url.search;
   } catch { return null; }
 }
 
@@ -77,17 +89,17 @@ export function safeAnalyticsUrl(value: string): boolean {
   return value.length <= 2048 && pageKey(value) !== null;
 }
 
-function landingKey(path: string) {
+function landingKey(path: string, hostname?: string | null) {
   // Landing page in GA4 is a path, not an event URL or a referrer.
-  if (!path.startsWith("/") || path.startsWith("//")) return null;
-  try { return pageKey(new URL(path, "https://flatkey.ai").href)?.split("?")[0] ?? null; }
+  if (!hostname || !path.startsWith("/") || path.startsWith("//")) return null;
+  try { return pageKey(new URL(path, `https://${hostname}`).href)?.split("?")[0] ?? null; }
   catch { return null; }
 }
 
-function indexLandingRows(rows: { path: string; sessions: number | null; registrations: number | null }[]) {
+function indexLandingRows(rows: { path: string; hostname?: string | null; sessions: number | null; registrations: number | null }[]) {
   const index = new Map<string, { sessions: number | null; registrations: number | null }>();
   for (const row of rows) {
-    const key = landingKey(row.path);
+    const key = landingKey(row.path, row.hostname);
     if (!key) continue;
     const prior = index.get(key);
     if (!prior) index.set(key, row);
@@ -116,10 +128,15 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
   };
   const indexedGa4 = gaPages.map(day => indexLandingRows(day.rows));
   const indexedGsc = gsPages.map(day => new Map(day.rows.map(row => [row.url, row])));
+  const ga4Reports = urls.length ? gaPages.map(row => ({ ...row, complete: row.complete && row.rows.every(page => Boolean(page.hostname)) })) : site;
+  const ga4SessionReports = urls.length ? gaPages.map(row => ({ ...row, complete: Boolean(row.sessionsComplete || row.complete) && row.rows.every(page => Boolean(page.hostname)) }))
+    : site.map(row => ({ ...row, complete: row.sessions !== null }));
   return {
     ...range,
     scope: "session-organic-search" as const,
-    ga4: status(urls.length ? gaPages : site, dates.length, "部分日期尚未取得可核验的 GA4 报表；缺失不计为零。"),
+    ga4: { ...status(ga4Reports, dates.length, "缺失不计为零；旧数据无 hostname 不分配。逐页注册的跨域入口归因尚未核实，独立保留站点注册。"),
+      sessionsStatus: status(ga4SessionReports, dates.length, "部分入口会话尚未取得可核实报表").status,
+      registrationsStatus: status(ga4Reports, dates.length, "注册归因待核实").status },
     gsc: status(gsPages, dates.length, "仅显示已取得的 GSC 网页搜索数据；延迟、导出上限及未返回页面保留缺失。"),
     daily: dates.map(date => ({ date, sessions: byDate.get(date)?.sessions ?? null, registrations: byDate.get(date)?.registrations ?? null })),
     pages: urls.map(url => {
@@ -134,7 +151,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
       const hasPosition = impressions > 0 && gsc.every(row => row.impressions === 0 || row.position !== null);
       return {
         url,
-        ga4: ga4.length ? { sessions: add("sessions"), registrations: add("registrations"), days: ga4.length } : null,
+        ga4: ga4.length ? { sessions: add("sessions"), registrations: ga4.length === 1 ? ga4[0].registrations : null, days: ga4.length } : null,
         gsc: gsc.length ? { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : null,
           position: hasPosition ? gsc.reduce((sum, row) => sum + (row.position ?? 0) * row.impressions, 0) / impressions : null, days: gsc.length } : null,
       };
@@ -147,8 +164,8 @@ export function observedPageUrls(observations: AnalyticsObservation[]) {
   const urls = new Set<string>();
   for (const day of observations) {
     if (day.kind === "ga4-pages") for (const row of day.rows) {
-      const path = landingKey(row.path);
-      if (path) urls.add(`https://flatkey.ai${path}`);
+      const path = landingKey(row.path, row.hostname);
+      if (path) urls.add(path);
     }
     if (day.kind === "gsc-pages") for (const row of day.rows) {
       if (safeAnalyticsUrl(row.url)) urls.add(row.url);
@@ -160,7 +177,7 @@ export function observedPageUrls(observations: AnalyticsObservation[]) {
 /** Daily traffic for the catalog, using the same GA4 landing-path keys as its rows. */
 export function landingTrafficDays(range: DateRange, observations: AnalyticsObservation[]) {
   const complete = new Map(observations
-    .filter(row => row.kind === "ga4-pages" && (row.complete || row.sessionsComplete))
+    .filter(row => row.kind === "ga4-pages" && (row.complete || row.sessionsComplete) && row.rows.every(page => Boolean(page.hostname)))
     .map(row => [row.date, row]));
 
   return rangeDays(range).map(date => {

@@ -27,7 +27,7 @@ const { clusterDomainForProperty, siteReportToday } = require("../src/lib/seo-cl
 
 function validEvidence(input) {
   const row = analyticsObservationSchema.parse(input);
-  const today = row.kind === "ga4-site" ? siteReportToday(clusterDomainForProperty(row.property)) : propertyToday();
+  const today = row.kind === "ga4-site" || row.kind === "ga4-pages" ? siteReportToday(clusterDomainForProperty(row.property)) : propertyToday();
   if (row.date >= today || Date.parse(row.observedAt) > Date.now() + 300_000) {
     throw new Error("报表包含尚未结束的日期或无效采集时间");
   }
@@ -57,8 +57,9 @@ async function run() {
   if (range.end >= propertyToday()) throw new Error("仅采集已结束的属性日");
   const saved = await readAnalyticsEvidence(range, country);
   const already = new Set(saved.filter(row => row.complete).map(row => `${row.kind}:${row.date}`));
-  const ga4Days = dates.filter(date => !already.has(`ga4-site:${date}`) || !already.has(`ga4-pages:${date}`) || date >= shiftDay(range.end, -2));
-  const gscDays = dates.filter(date => !already.has(`gsc-pages:${date}`) || !already.has(`gsc-page-queries:${date}`));
+  const ga4Days = dates.filter(date => !already.has(`ga4-site:${date}`) || !already.has(`ga4-pages:${date}`)
+    || saved.some(row => row.date === date && row.kind === "ga4-pages" && row.hostnameDimension !== "hostName") || date >= shiftDay(range.end, -13));
+  const gscDays = dates.filter(date => !already.has(`gsc-site:${date}`) || !already.has(`gsc-pages:${date}`) || !already.has(`gsc-page-queries:${date}`) || date >= shiftDay(range.end, -13));
   const { fetchGa4Organic } = require("../src/lib/services/ga4-organic.ts");
   const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = require("../src/lib/gsc-source.ts");
 
@@ -75,25 +76,32 @@ async function run() {
       if (sessions !== null || registrations !== null) await writeAnalyticsEvidence(validEvidence({
         ...base, kind: "ga4-site", sessions, registrations, complete: sessions !== null && registrations !== null,
       }));
-      const rows = (pagesByDate[date] ?? []).map(({ path, sessions, registrations }) => ({ path, sessions, registrations }));
+      const rows = (pagesByDate[date] ?? []).map(({ hostname, path, sessions, registrations }) => ({ hostname, path, sessions, registrations }));
       if (rows.length || pageComplete) await writeAnalyticsEvidence(validEvidence({
-        ...base, kind: "ga4-pages", rows, complete: pageComplete,
+        ...base, kind: "ga4-pages", rows, complete: pageComplete, sessionsComplete: report.quality.pageSessions.complete, hostnameDimension: "hostName",
+        registrationMissingReason: "landing_host_attribution_unverified",
       }));
     }
   }
   async function gsc() {
     if (!gscDays.length) return;
     const coverage = await fetchGscDateCoverage(gscDays[0], gscDays.at(-1), { country });
+    const siteCoverage = await fetchGscDateCoverage(gscDays[0], gscDays.at(-1), { country, aggregation: "byProperty" });
     for (const date of gscDays) {
+      if (siteCoverage[date]) {
+        const { clicks, impressions, position } = siteCoverage[date];
+        await writeAnalyticsEvidence(validEvidence({ kind: "gsc-site", date, country, property: process.env.SEO_GSC_PROPERTY || "sc-domain:flatkey.ai",
+          observedAt: new Date().toISOString(), source: "google-api", complete: true, clicks, impressions, position }));
+      }
       if (!coverage[date]) continue;
-      if (!already.has(`gsc-pages:${date}`)) {
+      if (!already.has(`gsc-pages:${date}`) || date >= shiftDay(range.end, -13)) {
         const day = await fetchGscDailyPages(date, { totals: coverage[date], country });
         if (day.state !== "unavailable") await writeAnalyticsEvidence(validEvidence({
           kind: "gsc-pages", date, country, property: day.property, observedAt: day.fetchedAt, source: "google-api",
           complete: day.state === "final", rows: day.pages.map(({ url, clicks, impressions, position }) => ({ url, clicks, impressions, position })),
         }));
       }
-      if (!already.has(`gsc-page-queries:${date}`)) {
+      if (!already.has(`gsc-page-queries:${date}`) || date >= shiftDay(range.end, -13)) {
         const report = await fetchGscDailyPageQueries(date, { country });
         await writeAnalyticsEvidence(validEvidence({ kind: "gsc-page-queries", date, country, source: "google-api", ...report }));
       }

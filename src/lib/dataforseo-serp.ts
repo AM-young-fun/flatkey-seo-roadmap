@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { SerpTarget } from "@/lib/serp-targets";
 import type { SerpMonitorConfiguration, SerpNormalizedResult, SerpOrganicResult, SerpQuote, SerpRegion } from "@/lib/serp-monitor-types";
+import { explicitKeywordMarkets, isOwnedBrandKeyword, keywordLanguageIssue, readKeywordMarketAssignment } from "@/lib/keyword-market-policy";
 
 export const SERP_TASK_POST_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_post";
 export const SERP_TASK_GET_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_get/advanced";
@@ -44,13 +45,20 @@ export function groupSerpQueries(targets: SerpTarget[]): SerpQuery[] {
 }
 export function groupSerpMarketQueries(targets: SerpTarget[], regions: SerpRegion[] = SERP_MARKETS): Array<SerpQuery & { region: SerpRegion }> {
   if (!regions.length || new Set(regions).size !== regions.length || regions.some(region => !isSerpRegion(region))) throw new Error("UNAPPROVED_SERP_REGIONS");
-  return groupSerpQueries(targets).flatMap(query => regions.map(region => ({ ...query, region, queryKey: `${region}:${query.queryKey}` })));
+  // The list of monitored countries is an allowed scope, not permission to
+  // multiply every keyword across it. Missing research evidence means no spend.
+  return regions.flatMap(region => groupSerpQueries(targets.filter(target => {
+    const assignment = readKeywordMarketAssignment(target.marketAssignment);
+    return assignment && !isOwnedBrandKeyword(target.keyword) && !keywordLanguageIssue(target.keyword, assignment) && explicitKeywordMarkets(assignment).includes(region);
+  })).map(query => ({ ...query, region, queryKey: `${region}:${query.queryKey}` })));
 }
-export function quoteSerpTargets(targets: SerpTarget[], regions: SerpRegion[] = ["US"]): SerpQuote {
-  const groups = groupSerpQueries(targets), queries = groupSerpMarketQueries(targets, regions);
+export function quoteSerpTargets(targets: SerpTarget[], regions: SerpRegion[] = SERP_MARKETS): SerpQuote {
+  const queries = groupSerpMarketQueries(targets, regions);
+  const selected = [...new Map(queries.flatMap(query => query.targets).map(target => [`${target.siteDomain}:${target.keywordId}`, target])).values()];
+  const groups = groupSerpQueries(selected), markets = regions.filter(region => queries.some(query => query.region === region));
   const maxCostMicros = queries.reduce((sum, group) => sum + SERP_PRICE_PER_QUERY_MICROS * (hasPaidSearchOperator(group.keyword) ? 5 : 1), 0);
-  return { targetCount: targets.length, queryCount: queries.length, sharedQueriesSaved: (targets.length - groups.length) * regions.length,
-    keywordQueryCount: groups.length, markets: [...regions], marketCount: regions.length,
+  return { targetCount: selected.length, queryCount: queries.length, sharedQueriesSaved: queries.reduce((sum, query) => sum + query.targets.length - 1, 0),
+    keywordQueryCount: groups.length, markets, marketCount: markets.length,
     perQueryMaxCostMicros: SERP_PRICE_PER_QUERY_MICROS, maxCostMicros,
     annualRuns: 26, annualCostMicros: maxCostMicros * 26, monthlyAverageMicros: Math.ceil(maxCostMicros * 26 / 12),
     batchCount: Math.ceil(queries.length / 100), provider: "dataforseo_serp", mode: "standard",
@@ -59,6 +67,7 @@ export function quoteSerpTargets(targets: SerpTarget[], regions: SerpRegion[] = 
 export function buildSerpTask(query: SerpQuery, tag: string, config: SerpMonitorConfiguration) {
   if (!query.keyword || query.keyword.length > 700 || [...query.keyword].some(character => character.charCodeAt(0) < 32)) throw new Error("INVALID_QUERY");
   if (hasPaidSearchOperator(query.keyword)) throw new Error("PAID_OPERATOR_REQUIRES_REVIEW");
+  if (isOwnedBrandKeyword(query.keyword)) throw new Error("OWN_BRAND_PAID_QUERY_EXCLUDED");
   if (!isSerpRegion(config.region) || config.locationCode !== SERP_MARKET_CONFIG[config.region].locationCode || config.languageCode !== SERP_MARKET_CONFIG[config.region].languageCode || config.device !== "desktop" || config.depth !== 100 || !["BIWEEKLY_TUESDAY", "SEMI_MONTHLY"].includes(config.schedule)) throw new Error("UNAPPROVED_CONFIGURATION");
   return {
     // DataForSEO decodes literal '+' and '%xx' in keyword input. Escape exactly

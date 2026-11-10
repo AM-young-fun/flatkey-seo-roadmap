@@ -8,11 +8,10 @@ import { SeoDateControl, useSeoRange } from "./SeoDateControl";
 import { SeoPeriodSummary } from "./SeoPeriodSummary";
 import { DailySeoTrafficTrend } from "./DailySeoTrafficTrend";
 import { DailySeoPageGroups } from "./DailySeoPageGroups";
-import { KeywordNetwork } from "./KeywordNetwork";
-import { RankingTrend } from "./RankingTrend";
 import { PageCatalog } from "./SeoPageCatalog";
 import { SeoHistoryDisclosure } from "./SeoHistoryDisclosure";
 import { SessionSeoReport } from "./SessionSeoReport";
+import { BusinessMeasurementStatus } from "./BusinessMeasurementStatus";
 import { useSeoCountry } from "./useSeoCountry";
 import { PAGE_CATEGORIES } from "@/lib/seo-page-inventory";
 import styles from "./SeoWorkspace.module.css";
@@ -22,7 +21,7 @@ const linkedCategories = [
 ] as const;
 const categories = [...PAGE_CATEGORIES, ...linkedCategories];
 
-export function SeoWorkspace({ view = "overview" }: { view?: "overview" | "pages" | "records" }) {
+export function SeoWorkspace({ view = "overview" }: { view?: "overview" | "pages" | "traffic" }) {
   const context = useSeoRange();
   const { range, comparison } = context;
   const [category, setCategory] = useState("all");
@@ -42,7 +41,7 @@ export function SeoWorkspace({ view = "overview" }: { view?: "overview" | "pages
     history.pushState(null, "", location.pathname + "?" + params);
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const title = { overview: "自然搜索总览", pages: "页面效果", records: "每日记录" }[view];
+  const title = { overview: "自然搜索总览", pages: "页面效果", traffic: "流量分析" }[view];
   const rangeKey = range.start + range.end;
   const href = (path: string) => path + "?" + new URLSearchParams({
     ...range,
@@ -58,16 +57,20 @@ export function SeoWorkspace({ view = "overview" }: { view?: "overview" | "pages
     {view === "pages" ? <PageCatalog category={category} categoryLabel={categories.find(([id]) => id === category)?.[1] ?? "全部页面"} range={range} comparison={comparison} categoryControl={
       <UiSelect className={styles.category} aria-label="页面分类" value={category} onChange={value => filter("category", value)}
         options={[...PAGE_CATEGORIES, ...linkedCategories.filter(([id]) => id === category)].map(([value, label]) => ({ value, label }))} />
-    } /> : <SessionSeoReport range={range} comparison={comparison} expanded={view === "records"} showDetails={view !== "overview"} footer={view === "records" ? <Link href={href("/")}>返回总览</Link> : null}>
-      {view === "records" && region === "all" ? <SeoHistoryDisclosure>
+    } /> : <SessionSeoReport range={range} comparison={comparison} expanded={view === "traffic"} showTrend={view === "traffic"} showSourceSummary summary={view === "overview"} showDetails={view === "traffic"} footer={view === "traffic" ? <Link href={href("/")}>返回总览</Link> : null}>
+      {view === "traffic" && region === "all" ? <SeoHistoryDisclosure>
         <SeoPeriodSummary range={range} comparison={comparison} />
-        <DailySeoTrafficTrend key={rangeKey} {...range} expanded={view === "records"} />
+        <DailySeoTrafficTrend key={rangeKey} {...range} expanded />
         <DailySeoPageGroups key={rangeKey} {...range} category="all" />
       </SeoHistoryDisclosure> : null}
     </SessionSeoReport>}
-    {view === "overview" ? <section id="business-network" className={styles.network} aria-label="业务词库关系图">
-      <RankingTrend region={region} />
-      <KeywordNetwork region={region} />
-    </section> : null}
+    {view === "overview" ? <>
+      <nav className={styles.analysisLinks} aria-label="深入分析">
+        <Link href={href("/traffic")}><strong>流量分析 <span aria-hidden="true">→</span></strong><span>访问、注册趋势与日期明细</span></Link>
+        <Link href={region === "all" ? "/rankings" : `/rankings?country=${region}`}><strong>排名分析 <span aria-hidden="true">→</span></strong><span>实测排名趋势与关键词关系</span></Link>
+        <Link href={href("/pages")}><strong>页面效果 <span aria-hidden="true">→</span></strong><span>逐页流量、搜索表现与变化</span></Link>
+      </nav>
+      <BusinessMeasurementStatus compact />
+    </> : null}
   </main>;
 }

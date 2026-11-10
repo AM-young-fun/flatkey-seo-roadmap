@@ -53,7 +53,7 @@ test("permission failures still fail the run and are not treated as empty data",
 test("source-backed dates missing from production fail the final coverage check", async () => {
  const result = await exercise(async () => ({ daily: [] }), { dates: { "2026-11-07": { clicks: 1, impressions: 4, position: 5 } } });
  assert.equal(result.exitCode, 1);
- assert.equal(result.logs.at(-1).missing, 10);
- assert.equal(result.logs.at(-1).expected, 10);
+ assert.equal(result.logs.at(-1).missing, 15);
+ assert.equal(result.logs.at(-1).expected, 15);
  assert.equal(result.logs.at(-1).failures, 6);
 });

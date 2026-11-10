@@ -13,6 +13,7 @@ import { SERP_CONFIG_ID } from "@/lib/dataforseo-serp";
 import { serpPeriod, scheduledSerpDue } from "@/lib/serp-periods";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { SERP_COLLECTION_SITE } from "@/lib/serp-targets";
+import { isOwnedBrandKeyword } from "@/lib/keyword-market-policy";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const enabled = () => !envBool("DISABLE_EXTERNAL_FETCH");
@@ -61,7 +62,7 @@ async function applyDiscovery(snapshot: DataForSeoNormalized, requestId: string,
   const run = await prisma.dataForSeoRun.findUniqueOrThrow({where:{requestId}});
   const saved = run.candidates && !Array.isArray(run.candidates) ? run.candidates as Record<string, unknown> : {};
   const best = new Map<string, typeof snapshot.rows[number]>();
-  for (const row of plan.candidates) if (!known.has(row.keyword) && keywordRelevance(site,row.keyword).status !== "unrelated" && !best.has(row.keyword)) best.set(row.keyword,row);
+  for (const row of plan.candidates) if (!known.has(row.keyword) && !isOwnedBrandKeyword(row.keyword) && keywordRelevance(site,row.keyword).status !== "unrelated" && !best.has(row.keyword)) best.set(row.keyword,row);
   // New words are imported once as research. Existing manual classifications
   // and exclusions never get reactivated by a discovery response.
   const newRows = Array.isArray(saved.newWords) ? saved.newWords as typeof snapshot.rows : [...best.values()];

@@ -119,6 +119,7 @@ export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}
     <div className="dailyHeading"><div><h2>上榜关键词数趋势</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · 按排名采集期统计进入前 100 的词</p></div></div>
     {latest ? <>
       <p className="inventoryTrendTotal">{latest.periodLabel ?? latest.date} · 进入前 100 <strong>{latest.ranked.toLocaleString()}</strong> 词</p>
+      <p className="chartNote">实际采集：{captureTime(latest)} · 本期已查 {captured(latest).toLocaleString()} / {latest.total.toLocaleString()} 词</p>
       <dl className="trendRankCounts" aria-label="最新一期各排名区间词数">
         {rankBuckets.map((bucket, index) => <div key={bucket.key}>
           <dt>第 {bucket.range} 名</dt><dd>{latest.counts[index]?.toLocaleString() ?? "—"}</dd>

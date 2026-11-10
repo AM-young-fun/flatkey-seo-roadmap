@@ -44,7 +44,7 @@ test("production optimization storage requires an explicit absolute durable dire
  try {
   delete process.env.SEO_OPTIMIZATION_PLANS_STORE_DIR;
   assert.equal(optimizationPlansDirectory(false), null);
-  assert.match(optimizationPlansDirectory(true), /\.local[\/]seo-analytics[\/]optimization-plans$/);
+  assert.match(optimizationPlansDirectory(true), /\.local[/]seo-analytics[/]optimization-plans$/);
   process.env.SEO_OPTIMIZATION_PLANS_STORE_DIR = "relative"; assert.throws(() => optimizationPlansDirectory(false));
  } finally { if (previous === undefined) delete process.env.SEO_OPTIMIZATION_PLANS_STORE_DIR; else process.env.SEO_OPTIMIZATION_PLANS_STORE_DIR = previous; }
 });

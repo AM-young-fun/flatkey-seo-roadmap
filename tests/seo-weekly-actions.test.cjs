@@ -50,7 +50,7 @@ test("production never defaults weekly plan storage to a temporary local directo
   try {
     delete process.env.SEO_WEEKLY_ACTIONS_STORE_DIR;
     assert.equal(weeklyActionsDirectory(false), null);
-    assert.match(weeklyActionsDirectory(true), /\.local[\/]seo-analytics[\/]weekly-actions$/);
+    assert.match(weeklyActionsDirectory(true), /\.local[/]seo-analytics[/]weekly-actions$/);
     process.env.SEO_WEEKLY_ACTIONS_STORE_DIR = "relative";
     assert.throws(() => weeklyActionsDirectory(false));
   } finally { if (previous === undefined) delete process.env.SEO_WEEKLY_ACTIONS_STORE_DIR; else process.env.SEO_WEEKLY_ACTIONS_STORE_DIR = previous; }

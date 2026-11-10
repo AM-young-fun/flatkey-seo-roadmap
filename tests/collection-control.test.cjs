@@ -34,7 +34,7 @@ beforeEach(t => {
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED; delete process.env.DATAFORSEO_DISCOVERY_PAID_ENABLED;
   config = { id: "default", revision: 1, authorizationVersion: 0, paidEnabled: false, maxRunCostMicros: 12000000, maxMonthCostMicros: 30000000, nextDueAt: new Date("2026-10-20T02:30:00Z") };
   connection = { siteDomain: "flatkey.ai", connectionVersion: 1, encryptedCredentials: encryptDataForSeoCredentials("fictional-user", "fictional-password"), scheduleEnabled: false };
-  cohort = { hash: "a".repeat(64), targets: [{ keyword: "flatkey", keywordId: "id-brand", siteDomain: "flatkey.ai", targetUrls: ["https://flatkey.ai/"] }] };
+  cohort = { hash: "a".repeat(64), targets: [{ keyword: "model API", keywordId: "id-model", siteDomain: "flatkey.ai", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: ["https://flatkey.ai/"] }] };
   run = null; paidCalls = 0; discoveries = 0; liveBalance = 200; ambiguous = 0; planned = 2;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     assert.equal(url, "https://api.dataforseo.com/v3/appendix/user_data"); assert.equal(options.method, "GET");
@@ -74,7 +74,7 @@ test("insufficient balance, emergency stop, and paused schedule all block collec
 test("new discoveries exceeding approved cap pause SERP instead of silently raising it", async () => {
   const preview = await previewCollectionSchedule();
   await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
-  cohort.targets.push({ keyword: "new model pricing", keywordId: "id-new", siteDomain: "flatkey.ai", targetUrls: ["https://flatkey.ai/models/new"] });
+  cohort.targets.push({ keyword: "new model pricing", keywordId: "id-new", siteDomain: "flatkey.ai", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: ["https://flatkey.ai/models/new"] });
   await assert.rejects(mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken }), /超过已确认上限/);
   assert.equal(discoveries, 1); assert.equal(paidCalls, 1, "only discovery, never SERP after price increases"); assert.equal(config.paidEnabled, false);
 });

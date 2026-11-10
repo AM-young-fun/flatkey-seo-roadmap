@@ -3,7 +3,8 @@ import { UiSelect } from "./UiSelect";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type * as echarts from "echarts";
-import { classifyPage, normalizePageUrl, type InventoryPage } from "@/lib/seo-page-inventory";
+import { classifyPage, type InventoryPage } from "@/lib/seo-page-inventory";
+import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
 import { matchesDailySeoPageGroupUrl } from "@/lib/daily-seo-page-groups";
 import type { landingTrafficDays } from "@/lib/seo-analytics";
 import type { DateRange } from "@/lib/seo-date-range";
@@ -13,6 +14,7 @@ import { analyticsUrl, numberText, useSeoRead, type PagePerformance, type SeoAna
 import styles from "./SeoPageCatalog.module.css";
 import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS } from "@/lib/seo";
+import { WorkflowPageHistory } from "./WorkflowPageHistory";
 export { classifyPage } from "@/lib/seo-page-inventory";
 type Row = { url: string; keywords: string[]; inventory?: InventoryPage };
 type Inventory = { pages: InventoryPage[]; capturedAt: string | null; storage: string };
@@ -29,6 +31,12 @@ const pageName = (url: string) => { const parsed = new URL(url), path = parsed.p
 const stamp = (value: string) => new Date(value).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
 const valueOf = (page: PagePerformance | undefined, metric: Metric) => metric === "clicks" ? page?.gsc?.clicks : page?.ga4?.[metric];
 const sumKnown = (values: number[]) => values.length ? values.reduce((sum, count) => sum + count, 0) : null;
+const siteOptions = [{ value: "flatkey.ai", label: "Flatkey" }, ...CLUSTER_SITES.map(site => ({ value: site.domain, label: site.name }))];
+function catalogUrl(value: string, site: string) {
+  try { const url = new URL(value); if (url.protocol !== "https:" || url.username || url.password || url.port || !(url.hostname === site || url.hostname.endsWith("." + site))) return null;
+    url.hash = ""; for (const key of [...url.searchParams.keys()]) if (key.startsWith("utm_") || ["gclid", "fbclid", "msclkid"].includes(key)) url.searchParams.delete(key); return url.toString();
+  } catch { return null; }
+}
 
 function readState(result: ReturnType<typeof useSeoRead<SeoAnalytics>>) {
   const data = result.data?.scope === "session-organic-search" ? result.data : null;
@@ -60,6 +68,7 @@ function PageChart({ points, metric, label }: { points: PageDay[]; metric: Metri
 
 export function PageCatalog({ category, categoryLabel, range, comparison, categoryControl }: { category: string; categoryLabel: string; range: DateRange; comparison: DateRange | null; categoryControl?: ReactNode }) {
   const [country] = useSeoCountry();
+  const [site, setSite] = useState("flatkey.ai");
   const [targets, setTargets] = useState<Row[]>([]), [inventory, setInventory] = useState<Inventory | null>(null);
   const [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(""), [page, setPage] = useState(1);
@@ -68,14 +77,23 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
   const detailHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { setPage(1); }, [category]);
   useEffect(() => {
-    const read = () => { const url = new URLSearchParams(location.search).get("pageUrl"); setSelected(url && normalizePageUrl(url) ? url : null); };
+    const read = () => { const params = new URLSearchParams(location.search), url = params.get("pageUrl");
+      const inferred = url ? siteOptions.find(entry => catalogUrl(url, entry.value))?.value : undefined;
+      const domain = siteOptions.find(entry => entry.value === params.get("site"))?.value ?? inferred ?? "flatkey.ai";
+      setSite(domain); setSelected(url ? catalogUrl(url, domain) : null);
+    };
     read(); addEventListener("popstate", read); return () => removeEventListener("popstate", read);
   }, []);
   const select = (url: string | null) => {
     const params = new URLSearchParams(location.search);
+    params.set("site", site);
     if (url) params.set("pageUrl", url); else params.delete("pageUrl");
     history.pushState(null, "", location.pathname + "?" + params);
     setSelected(url); setMetric("sessions");
+  };
+  const changeSite = (value: string) => {
+    const params = new URLSearchParams(location.search); params.set("site", value); params.delete("pageUrl");
+    history.pushState(null, "", location.pathname + "?" + params); dispatchEvent(new PopStateEvent("popstate")); setPage(1);
   };
   useEffect(() => { if (selected) detailHeading.current?.focus(); }, [selected]);
   useEffect(() => {
@@ -85,9 +103,9 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
       if (controller.signal.aborted) return;
       const [worklist, catalog] = results; const urls = new Map<string, Set<string>>();
       if (worklist.status === "fulfilled") {
-        for (const keyword of worklist.value.sites?.find((site: { domain: string }) => site.domain === "flatkey.ai")?.keywords ?? []) {
+        for (const keyword of worklist.value.sites?.find((entry: { domain: string }) => entry.domain === site)?.keywords ?? []) {
           for (const target of keyword.targetUrls ?? []) {
-            const url = normalizePageUrl(target); if (!url) continue;
+          const url = catalogUrl(target, site); if (!url) continue;
             if (!urls.has(url)) urls.set(url, new Set()); urls.get(url)!.add(keyword.keyword);
           }
         }
@@ -97,21 +115,21 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
       setError(results.flatMap(result => result.status === "rejected" ? [result.reason.message] : []).join("；")); setLoading(false);
     });
     return () => controller.abort();
-  }, []);
-  const performance = useSeoRead<CatalogPerformance>(analyticsUrl(range, [], country) + "&pages=all&landingDaily=1");
+  }, [site]);
+  const performance = useSeoRead<CatalogPerformance>(analyticsUrl(range, [], country, site) + "&pages=all&landingDaily=1");
   const current = readState(performance);
-  const details = useSeoRead<Detail>(selected ? analyticsUrl(range, [selected], country) + "&pageDaily=1" : null);
-  const comparePerformance = useSeoRead<SeoAnalytics>(selected && comparison ? analyticsUrl(comparison, [selected], country) : null);
+  const details = useSeoRead<Detail>(selected ? analyticsUrl(range, [selected], country, site) + "&pageDaily=1" : null);
+  const comparePerformance = useSeoRead<SeoAnalytics>(selected && comparison ? analyticsUrl(comparison, [selected], country, site) : null);
   const prior = readState(comparePerformance);
   const detail = details.data?.scope === "session-organic-search" ? details.data : null;
   const rows = useMemo(() => {
     const merged = new Map(targets.map(row => [row.url, row]));
-    for (const entry of inventory?.pages ?? []) merged.set(entry.url, { url: entry.url, keywords: merged.get(entry.url)?.keywords ?? [], inventory: entry });
+    for (const entry of inventory?.pages ?? []) if (catalogUrl(entry.url, site)) merged.set(entry.url, { url: entry.url, keywords: merged.get(entry.url)?.keywords ?? [], inventory: entry });
     for (const entry of performance.data?.pages ?? []) {
-      if (normalizePageUrl(entry.url) && !merged.has(entry.url)) merged.set(entry.url, { url: entry.url, keywords: [] });
+      if (catalogUrl(entry.url, site) && !merged.has(entry.url)) merged.set(entry.url, { url: entry.url, keywords: [] });
     }
     return [...merged.values()];
-  }, [targets, inventory, performance.data]);
+  }, [targets, inventory, performance.data, site]);
   const categoryRows = useMemo(() => rows.filter(row => {
     if (category === "all") return true;
     if (category === "new") return row.inventory?.baseline === false;
@@ -119,7 +137,7 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
     return classifyPage(row.url) === category;
   }), [category, rows]);
   const categoryTrend = useMemo(() => {
-    const paths = new Set(categoryRows.map(row => new URL(row.url)).filter(url => !url.search).map(url => url.pathname));
+    const paths = new Set(categoryRows.map(row => new URL(row.url)).filter(url => !url.search).map(url => url.origin + url.pathname));
     return (performance.data?.landingDaily ?? []).map(({ date, paths: daily, registrationsComplete }) => {
       const matching = daily?.filter(([path]) => paths.has(path));
       const total = (index: 1 | 2) => !paths.size || !matching || matching.some(row => row[index] == null)
@@ -149,27 +167,29 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
   const partial = (metrics: PagePerformance | undefined, key: Metric) => {
     const entry = key === "clicks" ? metrics?.gsc : metrics?.ga4;
     const status = key === "clicks" ? current.data?.gsc : current.data?.ga4;
-    return entry && (entry.days < daysIn(range) || status?.status !== "ready");
+    const metricStatus = key === "sessions" ? status?.sessionsStatus ?? status?.status : key === "registrations" ? status?.registrationsStatus ?? status?.status : status?.status;
+    return entry && (entry.days < daysIn(range) || metricStatus !== "ready");
   };
   return <section className={styles.catalog} aria-label="页面效果数据">
     {selected ? <>
       <button className={styles.back} onClick={() => select(null)}>← 返回页面列表</button>
       <h2 className={styles.detailTitle} tabIndex={-1} ref={detailHeading}>{pageName(selected)}</h2>
       <a className={styles.url} href={selected} target="_blank" rel="noreferrer">{selected} ↗</a>
-      <p className={styles.note}>GA4 为入口路径数据；同一路径的不同主机无法区分。</p>
+      <p className={styles.note}>GA4 入口会话按主机与路径归属；未记录主机的历史数据不分配给具体页面。逐页注册待跨域归因核实。</p>
       <div className={styles.metrics}>{(Object.keys(metricLabels) as Metric[]).map(key => <div key={key}><span>{metricLabels[key]}</span><strong>{numberText(valueOf(selectedMetrics, key))}</strong>{partial(selectedMetrics, key) ? <small>部分数据</small> : null}</div>)}</div>
       <div className={styles.chartHeading}><h3>每日趋势</h3><div className={styles.tabs}>{(Object.keys(metricLabels) as Metric[]).map(key => <button key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}>{key === "sessions" ? "访问" : key === "registrations" ? "注册" : "搜索点击"}</button>)}</div></div>
       {details.error ? <p role="alert">{details.error} <button onClick={details.retry}>重试</button></p> : !detail ? <p className={styles.empty}>读取页面趋势…</p> : <><PageChart points={detail.pageDaily} metric={metric} />
       {!detail.pageDaily.some(point => point[metric] !== null) ? <p className={styles.note}>所选区间暂无该页面的{metricLabels[metric]}记录。</p> : null}</>}
-      <SeoPageQueries key={`${country}:${selected}:${range.start}:${range.end}`} range={range} url={selected} country={country} />
+      <SeoPageQueries key={`${site}:${country}:${selected}:${range.start}:${range.end}`} range={range} url={selected} country={country} site={site} />
       <details className={styles.disclosure}><summary>搜索表现与关联词</summary><dl className={styles.metadata}><div><dt>搜索曝光</dt><dd>{numberText(selectedMetrics?.gsc?.impressions)}</dd></div><div><dt>点击率</dt><dd>{selectedMetrics?.gsc?.ctr == null ? "—" : (selectedMetrics.gsc.ctr * 100).toFixed(2) + "%"}</dd></div><div><dt>平均排名</dt><dd>{selectedMetrics?.gsc?.position?.toFixed(1) ?? "—"}</dd></div></dl><p>关联目标词：{selectedRow?.keywords.length ? selectedRow.keywords.join(" · ") : "尚未关联"}</p><a href={"/opportunities?" + new URLSearchParams({ targetUrl: selected, country, ...range })}>查看关键词声量与优化预估 →</a></details>
       <details className={styles.disclosure}><summary>每日明细{comparison ? "与对比区间" : ""}</summary>
         {detail ? <div className={styles.scroll}><table className={styles.daily}><thead><tr><th>日期</th><th>访问</th><th>注册</th><th>搜索点击</th></tr></thead><tbody>{detail.pageDaily.map(day => <tr key={day.date}><td>{day.date}</td><td>{numberText(day.sessions)}</td><td>{numberText(day.registrations)}</td><td>{numberText(day.clicks)}</td></tr>)}</tbody></table></div> : null}
         {comparison ? <><p>对比区间：{comparison.start} — {comparison.end}</p>{prior.error ? <p role="alert">{prior.error} <button onClick={comparePerformance.retry}>重试</button></p> : <p>访问 {numberText(prior.data?.pages[0]?.ga4?.sessions)} · 注册 {numberText(prior.data?.pages[0]?.ga4?.registrations)} · 搜索点击 {numberText(prior.data?.pages[0]?.gsc?.clicks)}</p>}{prior.data ? <><SeoAnalyticsStatus name="GA4 对比期" source={prior.data.ga4} /><SeoAnalyticsStatus name="GSC 对比期" source={prior.data.gsc} /></> : null}</> : null}
       </details>
       <details className={styles.disclosure}><summary>页面发现记录</summary>{selectedRow?.inventory ? <><p>{selectedRow.inventory.baseline ? "存量页面" : "新发现页面"} · 首次发现 {stamp(selectedRow.inventory.firstSeen)} · 最近发现 {stamp(selectedRow.inventory.lastSeen)}</p><p>首次发现日期可能晚于上线日期。</p><a href={selectedRow.inventory.sourceUrl} target="_blank" rel="noreferrer">查看 Sitemap 来源 ↗</a></> : <p>尚未在 Sitemap 清单中发现。</p>}</details>
+      <WorkflowPageHistory pageUrl={selected} country={country} />
     </> : <>
-      <div className={styles.filters}>{categoryControl}<input aria-label="搜索页面或关键词" placeholder="搜索页面 URL 或关键词" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
+      <div className={styles.filters}><UiSelect aria-label="页面所属站点" value={site} onChange={changeSite} options={siteOptions} />{categoryControl}<input aria-label="搜索页面或关键词" placeholder="搜索页面 URL 或关键词" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
       {error ? <p role="alert">{error}</p> : null}
       {current.error ? <p role="alert">{current.error} <button onClick={performance.retry}>重试指标</button></p> : null}
       {loading || !current.data && !current.error ? <p className={styles.empty}>正在读取页面效果…</p> : <>

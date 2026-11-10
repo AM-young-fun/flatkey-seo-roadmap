@@ -38,8 +38,8 @@ test("GA4 evidence cannot accept first-user scope or claim a partial site day is
 
 test("GA4 joins the entry path, GSC keeps canonical URLs and weights its aggregates by impressions", () => {
   const data = [
-    { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ path: "/zh/models", sessions: 2, registrations: 1 }] },
-    { ...ga4, kind: "ga4-pages", date: range.end, complete: false, rows: [{ path: "/zh/models", sessions: 6, registrations: null }] },
+    { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ hostname: "flatkey.ai", path: "/zh/models", sessions: 2, registrations: 1 }] },
+    { ...ga4, kind: "ga4-pages", date: range.end, complete: false, rows: [{ hostname: "flatkey.ai", path: "/zh/models", sessions: 6, registrations: null }] },
     { ...gsc, kind: "gsc-pages", date: range.start, complete: true, rows: [{ url, clicks: 2, impressions: 10, position: 12 }] },
     { ...gsc, kind: "gsc-pages", date: range.end, complete: false, rows: [{ url, clicks: 4, impressions: 30, position: 4 }] },
   ].map(row => analyticsObservationSchema.parse(row));
@@ -84,7 +84,7 @@ test("a later incomplete archive cannot displace verified complete evidence", as
 
 
 test("all-page enumeration includes later-ranked pages without a pagination window", () => {
-  const rows = Array.from({ length: 40 }, (_, index) => ({ path: `/page-${index}`, sessions: index, registrations: 0 }));
+  const rows = Array.from({ length: 40 }, (_, index) => ({ hostname: "flatkey.ai", path: `/page-${index}`, sessions: index, registrations: 0 }));
   const observations = [{ ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows }];
   const urls = observedPageUrls(observations);
   assert.equal(urls.length, 40);
@@ -96,7 +96,7 @@ test("all-page enumeration includes later-ranked pages without a pagination wind
 
 test("single-page daily trends use landing-page evidence, preserving zeros and gaps", () => {
   const observations = [day(range.start, 999, 99),
-    { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ path: "/zh/models", sessions: 3, registrations: 0 }] },
+    { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ hostname: "flatkey.ai", path: "/zh/models", sessions: 3, registrations: 0 }] },
     { ...gsc, kind: "gsc-pages", date: range.end, complete: true, rows: [{ url, clicks: 0, impressions: 10, position: 8 }] },
   ];
   assert.deepEqual(pageDailyView(range, url, observations), [
@@ -108,9 +108,9 @@ test("single-page daily trends use landing-page evidence, preserving zeros and g
 test("landing URL variants add sessions without double-counting distinct registrants", () => {
   const observations = [
     { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [
-      { path: "/zh/models", sessions: 3, registrations: 1 },
-      { path: "/zh/models?campaign=x", sessions: 4, registrations: 1 },
-      { path: "//evil.test/", sessions: 99, registrations: 99 },
+      { hostname: "flatkey.ai", path: "/zh/models", sessions: 3, registrations: 1 },
+      { hostname: "flatkey.ai", path: "/zh/models?campaign=x", sessions: 4, registrations: 1 },
+      { hostname: "flatkey.ai", path: "//evil.test/", sessions: 99, registrations: 99 },
     ] },
     { ...gsc, kind: "gsc-pages", date: range.start, complete: true, rows: [
       { url: "https://evil.test/", clicks: 90, impressions: 100, position: 1 },
@@ -121,17 +121,17 @@ test("landing URL variants add sessions without double-counting distinct registr
   const daily = pageDailyView(range, url, observations)[0];
   assert.equal(daily.sessions, 7);
   assert.equal(daily.registrations, null);
-  assert.deepEqual(landingTrafficDays(range, observations)[0].paths, [["/zh/models", 7, null]]);
+  assert.deepEqual(landingTrafficDays(range, observations)[0].paths, [["https://flatkey.ai/zh/models", 7, null]]);
 });
 
 test("catalog session totals can use verified sessions without counting missing registrations as zero", () => {
   const reports = [
-    { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ path: "/zh/models", sessions: 5, registrations: 0 }] },
-    { ...ga4, kind: "ga4-pages", date: range.end, complete: false, sessionsComplete: true, rows: [{ path: "/zh/models", sessions: 6, registrations: null }] },
+    { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ hostname: "flatkey.ai", path: "/zh/models", sessions: 5, registrations: 0 }] },
+    { ...ga4, kind: "ga4-pages", date: range.end, complete: false, sessionsComplete: true, rows: [{ hostname: "flatkey.ai", path: "/zh/models", sessions: 6, registrations: null }] },
   ].map(row => analyticsObservationSchema.parse(row));
   assert.deepEqual(landingTrafficDays(range, reports), [
-    { date: range.start, paths: [["/zh/models", 5, 0]], registrationsComplete: true },
-    { date: range.end, paths: [["/zh/models", 6, null]], registrationsComplete: false },
+    { date: range.start, paths: [["https://flatkey.ai/zh/models", 5, 0]], registrationsComplete: true },
+    { date: range.end, paths: [["https://flatkey.ai/zh/models", 6, null]], registrationsComplete: false },
   ]);
 });
 
@@ -148,4 +148,37 @@ test("keyword metrics join exact page and query, use the selected dates and weig
   });
   assert.equal(pageQueryView(range, reports).rows.length, 2);
   assert.equal(analyticsObservationSchema.safeParse({ ...reports[0], rows: [samePage, samePage] }).success, false);
+});
+
+test("the same landing path on website, www and console is never copied across hostnames; legacy unknown-host rows remain unassigned", () => {
+  const legacy = { ...ga4, kind: "ga4-pages", date: range.start, complete: true, rows: [{ path: "/models", sessions: 99, registrations: 9 }] };
+  const hosts = ["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai"];
+  const urls = hosts.map(host => `https://${host}/models`);
+  assert.deepEqual(analyticsView(range, urls, [legacy]).pages.map(row => row.ga4), [null, null, null]);
+  assert.equal(analyticsView(range, urls, [legacy]).ga4.status, "partial");
+  assert.deepEqual(observedPageUrls([legacy]), []);
+  const current = analyticsObservationSchema.parse({ ...legacy, hostnameDimension: "hostName", rows: hosts.map((hostname, index) => ({ hostname, path: "/models", sessions: index + 1, registrations: 0 })) });
+  assert.deepEqual(analyticsView(range, urls, [current]).pages.map(row => row.ga4.sessions), [1, 2, 3]);
+  assert.deepEqual(landingTrafficDays(range, [current])[0].paths.map(row => row[0]), urls);
+});
+
+test("cluster and main GSC totals/queries validate their own registered property, including sc-domain properties", () => {
+  const properties = ["sc-domain:flatkey.ai", "sc-domain:mochichatbot.com", "sc-domain:jev-llm.com", "https://rackrate.org/", "https://modelfit.cc/"];
+  for (const property of properties) assert.equal(analyticsObservationSchema.safeParse({ ...gsc, kind: "gsc-site", property, date: range.start, complete: true, clicks: 1, impressions: 8, position: 4 }).success, true);
+  const cluster = { ...gsc, kind: "gsc-page-queries", property: "sc-domain:jev-llm.com", date: range.start, complete: true,
+    rows: [{ url: "https://jev-llm.com/models", query: "AI model", clicks: 1, impressions: 8, position: 4 }] };
+  assert.equal(analyticsObservationSchema.safeParse(cluster).success, true);
+  assert.equal(analyticsObservationSchema.safeParse({ ...cluster, property: "sc-domain:flatkey.ai" }).success, false);
+  const ga = { ...ga4, property: "558899190", kind: "ga4-pages", date: range.start, complete: false, sessionsComplete: true,
+    rows: [{ hostname: "rackrate.org", path: "/", sessions: 4, registrations: null }] };
+  assert.equal(analyticsObservationSchema.safeParse(ga).success, true);
+  assert.equal(analyticsObservationSchema.safeParse({ ...ga, property: "541304395" }).success, false);
+  assert.equal(analyticsView(range, ["https://rackrate.org/"], [analyticsObservationSchema.parse(ga)]).pages[0].ga4.sessions, 4);
+});
+
+test("a period never adds per-day distinct registrants into a fake unique-user total", () => {
+  const rows = [range.start, range.end].map(date => ({ ...ga4, kind: "ga4-pages", date, complete: true,
+    rows: [{ hostname: "flatkey.ai", path: "/", sessions: 4, registrations: 1 }] }));
+  const result = analyticsView(range, ["https://flatkey.ai/"], rows).pages[0].ga4;
+  assert.equal(result.sessions, 8); assert.equal(result.registrations, null);
 });

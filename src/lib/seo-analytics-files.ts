@@ -16,7 +16,8 @@ export async function writeAnalyticsEvidence(input: unknown) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const site = clusterDomainForProperty(row.property);
   const scope = [row.kind, row.country, site].filter(Boolean).join("~");
-  const key = `${row.date}~${scope}~${row.complete ? 1 : 0}~${Date.parse(row.observedAt)}.json`;
+  const host = row.kind === "ga4-pages" && row.hostnameDimension === "hostName" ? "~host" : "";
+  const key = `${row.date}~${scope}${host}~${row.complete ? 1 : 0}~${Date.parse(row.observedAt)}.json`;
   const path = join(directory, key);
   const temporary = join(directory, "." + randomUUID());
   const contents = JSON.stringify(row);
@@ -38,10 +39,10 @@ export async function readAnalyticsEvidence(range: DateRange, country: SeoCountr
   });
   const best = new Map<string, { file: string; quality: number; timestamp: number }>();
   for (const file of names) {
-    const match = /^(\d{4}-\d{2}-\d{2})~(ga4-site|ga4-pages|gsc-site|gsc-pages|gsc-page-queries)(?:~([A-Z]{2}))?(?:~([a-z0-9.-]+))?~([01])~(\d+)\.json$/.exec(file);
+    const match = /^(\d{4}-\d{2}-\d{2})~(ga4-site|ga4-pages|gsc-site|gsc-pages|gsc-page-queries)(?:~([A-Z]{2}))?(?:~((?!host~)[a-z0-9.-]+))?(?:~(host))?~([01])~(\d+)\.json$/.exec(file);
     if (!match || (match[3] ?? "all") !== country || match[4] !== site || match[1] < range.start || match[1] > range.end) continue;
     const key = match[1] + "~" + match[2];
-    const entry = { file, quality: Number(match[5]), timestamp: Number(match[6]) };
+    const entry = { file, quality: Number(match[6]) + (match[5] === "host" ? 2 : 0), timestamp: Number(match[7]) };
     const previous = best.get(key);
     if (!previous || entry.quality > previous.quality || entry.quality === previous.quality && entry.timestamp > previous.timestamp) best.set(key, entry);
   }

@@ -51,16 +51,16 @@ const db = {
   },
 };
 const key = target => `${target.siteDomain}:${target.keywordId}`;
-const target = (keyword, id = keyword.replaceAll(" ", "-")) => ({ keywordId: id, keyword, siteDomain: "flatkey.ai", targetUrls: ["https://flatkey.ai/models/example"] });
+const target = (keyword, id = keyword.replaceAll(" ", "-")) => ({ keywordId: id, keyword, siteDomain: "flatkey.ai", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: ["https://flatkey.ai/models/example"] });
 function dto(run) { return { id: run.id, scope: run.scope, targetCount: run.targetCount, queryCount: run.queryCount, status: run.status,
   actualCostMicros: run.actualCostMicros, estimatedCostMicros: run.estimatedCostMicros, reservedCostMicros: run.reservedCostMicros,
   periodKey: run.periodKey, periodLabel: run.periodLabel, taskCounts: {} }; }
 function mockFile(relative, exports) { const name = path.join(root, relative); require.cache[name] = { id: name, filename: name, loaded: true, exports }; }
 mockFile("src/lib/prisma.ts", { prisma: db });
-mockFile("src/lib/services/serp-targets.ts", { loadSerpTargetCohort: async () => clone(cohort) });
+mockFile("src/lib/services/serp-targets.ts", { loadScheduledSerpMonitoringCohort: async () => clone(cohort) });
 mockFile("src/lib/serp-sample-selection.ts", { selectSerpSampleTargets: targets => ({
-  targets: targets.filter(target => ["flatkey", "model price"].includes(target.keyword)),
-  categories: Object.fromEntries(targets.map(target => [key(target), target.keyword === "flatkey" ? "BRAND" : "MODEL_PRICE"])),
+  targets: targets.filter(target => ["claude price", "model price"].includes(target.keyword)),
+  categories: Object.fromEntries(targets.map(target => [key(target), "MODEL_PRICE"])),
 }) });
 mockFile("src/lib/services/serp-monitor.ts", {
   submitSerpSampleBatch: async (id, authorizationHash) => {
@@ -81,7 +81,7 @@ beforeEach(t => {
   process.env.LOGIN_PWD = "fictional-sample-only-login-password";
   state = { config: { id: "default", ...SERP_DEFAULT_CONFIG }, runs: [], tasks: [],
     connection: { siteDomain: "flatkey.ai", connectionVersion: 1, encryptedCredentials: credentials.encryptDataForSeoCredentials("fictional@example.invalid", "fictional-password") } };
-  cohort = { hash: "a".repeat(64), targets: [target("flatkey"), target("model price"), target("unselected formal word")] };
+  cohort = { hash: "a".repeat(64), targets: [target("claude price"), target("model price"), target("unselected formal word")] };
   balance = 0.97828; balanceResponse = null; calls = []; commits = 0; committedIds = new Set(); submits = 0; resumes = 0; queue = Promise.resolve(); inTransaction = false;
   t.mock.method(globalThis, "fetch", async (url, init) => {
     assert.equal(inTransaction, false); assert.equal(url, sample.SERP_USER_DATA_URL); assert.equal(init.method, "GET");
@@ -107,8 +107,8 @@ test("free account verification remains usable during an authorized schedule wit
 });
 
 test("sample budget always leaves a safety reserve and deduplicates shared query targets", () => {
-  const targets = [target("flatkey"), target("model price"), { ...target("ｍｏｄｅｌ  price", "shared"), siteDomain: "rackrate.org" }];
-  const selection = { targets, categories: Object.fromEntries(targets.map(target => [key(target), target.keyword === "flatkey" ? "BRAND" : "MODEL_PRICE"])) };
+  const targets = [target("claude price"), target("model price"), { ...target("ｍｏｄｅｌ  price", "shared"), siteDomain: "rackrate.org" }];
+  const selection = { targets, categories: Object.fromEntries(targets.map(target => [key(target), "MODEL_PRICE"])) };
   assert.equal(sample.affordableSerpSample(selection, 20000).targets.length, 0);
   assert.equal(sample.affordableSerpSample(selection, 44000).targets.length, 1);
   assert.equal(sample.affordableSerpSample(selection, 68000).targets.length, 3);
@@ -124,7 +124,7 @@ test("sample schema cannot raise the fixed one-time budget or accept arbitrary t
 test("sample preview uses only free balance GET, includes exact subset, and never leaks account data or enables scheduling", async () => {
   const preview = await previewSerpSample();
   assert.equal(preview.quote.queryCount, 8); assert.equal(preview.maxBudgetMicros, 48000); assert.equal(preview.liveBalanceMicros, 978280);
-  assert.deepEqual(preview.targets.map(target => target.keyword), ["flatkey", "model price"]);
+  assert.deepEqual(preview.targets.map(target => target.keyword), ["claude price", "model price"]);
   assert.equal(calls.length, 1); assert.equal(submits, 0); assert.equal(state.runs.length, 0);
   assert.equal(state.config.paidEnabled, false); assert.equal(state.config.nextDueAt, null);
   const serialized = JSON.stringify(preview);
@@ -137,7 +137,7 @@ test("single sample freezes full denominator and subset tasks before submit whil
   assert.equal(result.duplicate, false); assert.equal(result.run.scope, "SAMPLE"); assert.equal(result.run.queryCount, 8);
   const run = state.runs[0]; assert.equal(run.cohortJson.length, 3); assert.equal(run.targetCount, 2); assert.equal(run.reservedCostMicros, 48000);
   assert.equal(run.sampleAuthorizationHash, sample.SERP_SAMPLE_AUTHORIZATION_HASH);
-  assert.deepEqual(run.configJson.selectedTargetIds, ["flatkey.ai:flatkey", "flatkey.ai:model-price"]);
+  assert.deepEqual(run.configJson.selectedTargetIds, ["flatkey.ai:claude-price", "flatkey.ai:model-price"]);
   assert.equal(state.tasks.length, 8); assert.equal(submits, 1); assert.equal(calls.length, 2);
   assert.equal(process.env.DATAFORSEO_SERP_PAID_ENABLED, undefined); assert.equal(state.config.paidEnabled, false); assert.equal(state.config.nextDueAt, null);
 });
@@ -182,8 +182,8 @@ test("an expired signed preview, insufficient balance or missing category cannot
   claims.expiresAt = Date.now() - 1000;
   await assert.rejects(start({ ...preview, authorizationToken: credentials.signDataForSeoPreview(claims) }), /变化或过期/);
   balance = 0.02; await assert.rejects(previewSerpSample(), /余额不足/);
-  balance = 1; cohort.targets = cohort.targets.filter(target => target.keyword !== "flatkey");
-  await assert.rejects(previewSerpSample(), /同时验证/);
+  balance = 1; cohort.targets = [];
+  await assert.rejects(previewSerpSample(), /余额不足|没有已核实/);
   assert.equal(state.runs.length, 0); assert.equal(submits, 0);
 });
 

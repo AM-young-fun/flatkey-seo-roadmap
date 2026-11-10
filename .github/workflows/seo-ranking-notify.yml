@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   report:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

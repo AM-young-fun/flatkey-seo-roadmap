@@ -2,6 +2,14 @@
 .titleRow { display:flex; justify-content:space-between; gap:20px; align-items:center; margin:32px 0 28px; }
 .title { font-size:26px; font-weight:650; letter-spacing:-.5px; line-height:1.35; margin:0; }
 .category { width:156px; flex-shrink:0; }
+.analysisLinks { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:28px 0; }
+.analysisLinks a { display:flex; flex-direction:column; gap:9px; min-width:0; border:1px solid #e2e7ee; border-radius:8px; padding:18px; text-decoration:none; color:#56677d; font-size:13px; line-height:1.6; }
+.analysisLinks a:hover { border-color:#9db9db; background:#f8fafc; }
+.analysisLinks a:focus-visible { outline:2px solid var(--ui-primary); outline-offset:3px; }
+.analysisLinks strong { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#294c76; font-size:15px; font-weight:600; }
+.description { margin:-10px 0 24px; font-size:13px; line-height:1.8; color:#6a788b; }
+.relatedLinks { display:flex; flex-wrap:wrap; gap:12px 24px; margin:24px 0; font-size:13px; }
+.relatedLinks a { color:#496783; }
 .textButton { background:none; border:0; padding:0; color:var(--ui-primary); font-size:13px; cursor:pointer; }
 .textButton:hover { color:var(--ui-primary); text-decoration:underline; }
 .textButton:focus-visible { outline:2px solid var(--ui-primary); outline-offset:4px; }
@@ -9,4 +17,4 @@
 .network :global(.overviewGrid) { display:block; }
 .network :global(.graphPanel) { width:100%; border:1px solid #e4e8ee; box-shadow:none; }
 .network :global(.keywordGraph) { height:560px; }
-@media(max-width:640px) { .shell { width:calc(100% - 32px); padding-bottom:32px; } .titleRow { margin:25px 0 22px; align-items:flex-start; flex-direction:column; gap:16px; } .title { font-size:23px; } .network :global(.keywordGraph) { height:420px; } }
+@media(max-width:640px) { .shell { width:calc(100% - 32px); padding-bottom:32px; } .titleRow { margin:25px 0 22px; align-items:flex-start; flex-direction:column; gap:16px; } .title { font-size:23px; } .analysisLinks { grid-template-columns:1fr; gap:10px; margin:24px 0; } .analysisLinks a { padding:14px 16px; gap:4px; } .network :global(.keywordGraph) { height:420px; } }

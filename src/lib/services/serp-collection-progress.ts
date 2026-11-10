@@ -18,7 +18,6 @@ export async function loadSerpCollectionProgress(site = "all"): Promise<SerpColl
     ), words AS (
       SELECT t.keyword, COUNT(*)::integer AS total,
         COUNT(*) FILTER (WHERE t.state = 'COMPLETE')::integer AS completed,
-        COUNT(DISTINCT t.region) FILTER (WHERE t.state = 'COMPLETE')::integer AS countries,
         COUNT(*) FILTER (WHERE t.state = 'PLANNED')::integer AS planned,
         COUNT(*) FILTER (WHERE t.state IN ('QUEUED','SUBMITTING'))::integer AS waiting,
         COUNT(*) FILTER (WHERE t.state = 'RECEIVED')::integer AS processing,
@@ -28,7 +27,7 @@ export async function loadSerpCollectionProgress(site = "all"): Promise<SerpColl
       COALESCE(SUM(w.completed),0)::integer AS "completedQueries", COALESCE(SUM(w.planned),0)::integer AS "plannedQueries",
       COALESCE(SUM(w.waiting),0)::integer AS "waitingQueries", COALESCE(SUM(w.processing),0)::integer AS "processingQueries",
       COALESCE(SUM(w.failed),0)::integer AS "failedQueries", COUNT(w.keyword)::integer AS "totalKeywords",
-      COUNT(w.keyword) FILTER (WHERE w.countries = 4 AND w.completed = w.total)::integer AS "completedKeywords",
+      COUNT(w.keyword) FILTER (WHERE w.total > 0 AND w.completed = w.total)::integer AS "completedKeywords",
       COALESCE((SELECT jsonb_agg(pending) FROM (SELECT t.id,t.keyword,t.region,t.state,t."errorCode",
         GREATEST(0,FLOOR(EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-COALESCE(t."submittedAt",t."createdAt")))/60))::integer AS "waitMinutes",
         CASE WHEN t."lastPolledAt" IS NULL THEN NULL ELSE GREATEST(0,FLOOR(EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-t."lastPolledAt"))/60))::integer END AS "lastPolledMinutesAgo"

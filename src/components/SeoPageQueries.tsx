@@ -11,9 +11,9 @@ const columns = { position: "GSC 平均排名", impressions: "曝光", clicks: "
 type Sort = keyof typeof columns;
 const pageSize = 25;
 
-export function SeoPageQueries({ range, url, country }: { range: DateRange; url: string; country: SeoCountry }) {
+export function SeoPageQueries({ range, url, country, site }: { range: DateRange; url: string; country: SeoCountry; site?: string }) {
   const { data, error, retry } = useSeoRead<ReturnType<typeof pageQueryView>>(
-    analyticsUrl(range, [url], country) + "&pageQueries=1",
+    analyticsUrl(range, [url], country, site) + "&pageQueries=1",
   );
   const [sort, setSort] = useState<Sort>("impressions");
   const [ascending, setAscending] = useState(false);

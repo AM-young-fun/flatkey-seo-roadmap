@@ -1,0 +1,91 @@
+{
+  "verifiedAt": "2026-11-10",
+  "timezone": "Asia/Shanghai",
+  "source": "Codex automation readback",
+  "tasks": [
+    {
+      "id": "10-30-seo",
+      "name": "SEO 09:00 三表校验与平台同步",
+      "status": "ACTIVE",
+      "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0"
+    },
+    {
+      "id": "flatkey-5",
+      "name": "Flatkey SEO 10:30 API3 GPU2 制稿与逐页审批",
+      "status": "ACTIVE",
+      "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "automation",
+      "name": "SEO 周五16:30 下周事项与关键词定稿",
+      "status": "PAUSED",
+      "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=16;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "seo-09-30",
+      "name": "SEO 09:30 关键词研究与候选维护",
+      "status": "PAUSED",
+      "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "seo-10-00",
+      "name": "SEO 10:00 五站技术巡检",
+      "status": "PAUSED",
+      "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=0;BYSECOND=0"
+    },
+    {
+      "id": "seo-13-30",
+      "name": "SEO 13:30 旧页优化与审核稿",
+      "status": "PAUSED",
+      "rrule": "FREQ=DAILY;BYHOUR=13;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "seo-14-30",
+      "name": "SEO 工作日14:30 落地页制作",
+      "status": "PAUSED",
+      "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=14;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "seo-15-00",
+      "name": "SEO 工作日15:00 集群站任务",
+      "status": "PAUSED",
+      "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=15;BYMINUTE=0;BYSECOND=0"
+    },
+    {
+      "id": "seo-16-00",
+      "name": "SEO 16:00 交付验收与失败续跑",
+      "status": "PAUSED",
+      "rrule": "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0"
+    },
+    {
+      "id": "seo-14-00",
+      "name": "SEO 周四14:00 下周候选与证据",
+      "status": "PAUSED",
+      "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=14;BYMINUTE=0;BYSECOND=0"
+    },
+    {
+      "id": "seo",
+      "name": "SEO 周二推广与周四旧文轮查",
+      "status": "PAUSED",
+      "rrule": "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=15;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "seo-2",
+      "name": "SEO 月初业务与投入复盘",
+      "status": "PAUSED",
+      "rrule": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0;BYSECOND=0"
+    },
+    {
+      "id": "seo-17-30",
+      "name": "SEO 17:30 日报周报汇总预览",
+      "status": "PAUSED",
+      "rrule": "FREQ=DAILY;BYHOUR=17;BYMINUTE=30;BYSECOND=0"
+    },
+    {
+      "id": "seo-18-00",
+      "name": "SEO 18:00 钉钉唯一日报周报",
+      "status": "PAUSED",
+      "rrule": "FREQ=DAILY;BYHOUR=18;BYMINUTE=0;BYSECOND=0"
+    }
+  ]
+}

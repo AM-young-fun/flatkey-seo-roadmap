@@ -167,5 +167,5 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
   const progress = await runSerpMonitorCron({ allowStart: false, maxDurationMs: Math.max(0, deadline - Date.now()) });
   if (progress.status === "NEEDS_REVIEW") throw new ImportRequestError("本期执行异常，请查看原采集记录", 409);
   return { action: "runCycle", phase: progress.status === "FINISHED" ? "COMPLETE" : "SERP", finished: progress.status === "FINISHED", runId: run.id,
-    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? "本期已完成，下一期隔两周周一晚24:00（周二00:00）自动执行。" : "正在查询四国实际排名，已提交的查询不会重复扣费。" };
+    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? "本期已完成，下一期隔周周四08:00（北京时间）按付费开关执行。" : "正在按关键词已审核的目标国家查询实际排名，已提交的查询不会重复扣费。" };
 }

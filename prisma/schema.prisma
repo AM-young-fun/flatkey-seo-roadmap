@@ -706,3 +706,70 @@ model SeoAnalyticsDay {
   @@id([kind, date])
   @@index([date])
 }
+
+// Typed workflow payloads are validated at the API boundary. A transaction writes
+// both current state and immutable event; expectedVersion protects human review.
+model SeoWorkflowRecord {
+  key String @id
+  kind String
+  recordId String
+  weekStart String
+  siteDomain String?
+  status String
+  version Int
+  payload Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([kind, recordId])
+  @@index([weekStart, kind])
+  @@index([siteDomain, kind, updatedAt])
+}
+
+model SeoWorkflowEvent {
+  requestId String @id
+  requestHash String
+  recordKey String
+  kind String
+  version Int
+  payload Json
+  createdAt DateTime @default(now())
+  @@unique([recordKey, version])
+  @@index([recordKey, createdAt])
+}
+
+// Every lease has a monotonically increasing fencing token. Reclaimed workers
+// cannot renew or complete an old lease even when they restart on another node.
+model SeoWorkflowLease {
+  runId String @id
+  stage String
+  scheduledFor DateTime
+  owner String
+  fencingToken Int @default(1)
+  leaseUntil DateTime
+  status String @default("running")
+  result Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([stage, scheduledFor])
+  @@index([status, leaseUntil])
+}
+
+// A network timeout after attempt is UNKNOWN, never an automatic resend.
+model SeoDigestDelivery {
+  id String @id
+  reportId String
+  reportHash String
+  status String @default("PREPARED")
+  destination String
+  robotCode String
+  claimedBy String?
+  fencingToken Int @default(0)
+  leaseUntil DateTime?
+  attemptedAt DateTime?
+  deliveredAt DateTime?
+  receipt Json?
+  errorCode String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+}

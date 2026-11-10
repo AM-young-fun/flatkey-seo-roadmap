@@ -1,5 +1,6 @@
 import { keywordRelevance, normalizeKeywordText } from "./keyword-relevance";
 import type { SerpTarget } from "./serp-targets";
+import { explicitKeywordMarkets, isOwnedBrandKeyword } from "./keyword-market-policy";
 
 export type SerpSampleCategory = "BRAND" | "MODEL_PRICE";
 
@@ -63,7 +64,7 @@ export function selectSerpSampleTargets(cohortTargets: SerpTarget[]): {
 } {
   const candidates = new Map<string, SerpTarget[]>();
   for (const target of cohortTargets) {
-    if (target.siteDomain !== "flatkey.ai" || keywordRelevance(target.siteDomain, target.keyword).status !== "relevant") continue;
+    if (target.siteDomain !== "flatkey.ai" || isOwnedBrandKeyword(target.keyword) || !explicitKeywordMarkets(target.marketAssignment).length || keywordRelevance(target.siteDomain, target.keyword).status !== "relevant") continue;
     const text = normalizeKeywordText(target.keyword);
     candidates.set(text, [...(candidates.get(text) ?? []), target]);
   }

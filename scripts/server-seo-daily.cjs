@@ -22,7 +22,7 @@ require.extensions[".ts"] = (module, file) => {
 const { analyticsObservationSchema, analyticsStorageKind } = require("../src/lib/seo-analytics.ts");
 const { propertyToday, shiftDay } = require("../src/lib/seo-date-range.ts");
 const { CLUSTER_SITES, clusterDomainForProperty } = require("../src/lib/seo-cluster-sites.ts");
-const { fetchGa4Organic, fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages } = require("../src/lib/services/ga4-organic.ts");
 const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = require("../src/lib/gsc-source.ts");
 
 const endpoint = "https://flatkey-seo-roadmap.vercel.app/api/seo/analytics/import";
@@ -93,45 +93,50 @@ async function run() {
             const registrations = flatkey && report.quality.siteRegistrations.complete ? day.registrations : null;
             if (sessions === null && registrations === null) continue;
             const old = saved.get(recordKey({ ...base, kind: "ga4-site" }) + ":" + day.date);
-            if (old?.complete && day.date < shiftDay(end, -6)) continue;
+            if (old?.complete && day.date < shiftDay(end, -13)) continue;
             await save({ ...base, kind: "ga4-site", date: day.date, sessions, registrations, complete: sessions !== null && registrations !== null });
             sourceDates++;
           }
-          if (flatkey) {
-            const pages = Object.groupBy(report.pages, row => row.date);
-            const complete = report.quality.pageSessions.complete && report.quality.pageRegistrations.complete;
+          {
+            const pageReport = flatkey ? report : await fetchGa4SitePages(range, site.ga4, site.ga4TimeZone, country);
+            const pages = Object.groupBy(pageReport.pages, row => row.date);
+            const sessionsComplete = flatkey ? report.quality.pageSessions.complete : pageReport.quality.complete;
+            const complete = flatkey && sessionsComplete && report.quality.pageRegistrations.complete;
             for (const day of report.daily) {
               expectDay(base, "ga4-pages", day.date);
               const old = saved.get(recordKey({ ...base, kind: "ga4-pages" }) + ":" + day.date);
-              if (old?.complete && day.date < shiftDay(end, -6)) continue;
-              const rows = (pages[day.date] ?? []).map(({ path, sessions, registrations }) => ({ path, sessions, registrations }));
-              if (rows.length || complete) await save({ ...base, kind: "ga4-pages", date: day.date, complete, rows });
+              if (old?.complete && old.hostnameDimension === "hostName" && day.date < shiftDay(end, -13)) continue;
+              const rows = (pages[day.date] ?? []).filter(row => row.hostname === site.domain || row.hostname.endsWith(`.${site.domain}`))
+                .map(({ hostname, path, sessions, registrations }) => ({ hostname, path, sessions, registrations }));
+              if (rows.length || sessionsComplete) await save({ ...base, observedAt: pageReport.fetchedAt, kind: "ga4-pages", date: day.date,
+                hostnameDimension: "hostName", registrationMissingReason: flatkey ? "landing_host_attribution_unverified" : "cluster_registration_event_unverified", sessionsComplete, complete, rows });
             }
           }
         } else {
           const gscEnd = shiftDay(propertyToday(), -1);
-          const options = { country, property: site.gsc, ...(flatkey ? {} : { aggregation: "byProperty" }) };
-          const dates = await fetchGscDateCoverage(start, gscEnd, options);
+          const options = { country, property: site.gsc, aggregation: "byPage" };
+          // Site totals and page totals use different GSC aggregation semantics.
+          const dates = await fetchGscDateCoverage(start, gscEnd, { ...options, aggregation: "byProperty" });
+          const pageDates = await fetchGscDateCoverage(start, gscEnd, options);
           for (const date of Object.keys(dates).sort().reverse()) {
             const base = { ...common, property: site.gsc, date };
-            const kind = flatkey ? "gsc-pages" : "gsc-site";
-            expectDay(base, kind, date);
-            if (flatkey) expectDay(base, "gsc-page-queries", date);
-            const old = saved.get(recordKey({ ...base, kind }) + ":" + date);
-            if (!old?.complete || date >= shiftDay(gscEnd, -6)) {
-              if (flatkey) {
-                const report = await fetchGscDailyPages(date, { ...options, totals: dates[date] });
-                if (report.state !== "unavailable") await save({ ...base, kind, observedAt: report.fetchedAt,
-                  complete: report.state === "final", rows: report.pages.map(({ url, clicks, impressions, position }) => ({ url, clicks, impressions, position })) });
-              } else {
-                const { clicks, impressions, position } = dates[date];
-                await save({ ...base, kind, observedAt: new Date().toISOString(), complete: true, clicks, impressions, position });
-              }
+            expectDay(base, "gsc-site", date);
+            if (pageDates[date]) { expectDay(base, "gsc-pages", date); expectDay(base, "gsc-page-queries", date); }
+            const old = saved.get(recordKey({ ...base, kind: "gsc-site" }) + ":" + date);
+            if (!old?.complete || date >= shiftDay(gscEnd, -13)) {
+              const { clicks, impressions, position } = dates[date];
+              await save({ ...base, kind: "gsc-site", observedAt: new Date().toISOString(), complete: true, clicks, impressions, position });
               sourceDates++;
             }
-            if (flatkey) {
+            if (pageDates[date]) {
+              const oldPages = saved.get(recordKey({ ...base, kind: "gsc-pages" }) + ":" + date);
+              if (!oldPages?.complete || date >= shiftDay(gscEnd, -13)) {
+                const report = await fetchGscDailyPages(date, { ...options, totals: pageDates[date] });
+                if (report.state !== "unavailable") await save({ ...base, kind: "gsc-pages", observedAt: report.fetchedAt,
+                  complete: report.state === "final", rows: report.pages.map(({ url, clicks, impressions, position }) => ({ url, clicks, impressions, position })) });
+              }
               const oldQueries = saved.get(recordKey({ ...base, kind: "gsc-page-queries" }) + ":" + date);
-              if (!oldQueries?.complete || date >= shiftDay(gscEnd, -6)) {
+              if (!oldQueries?.complete || date >= shiftDay(gscEnd, -13)) {
                 const report = await fetchGscDailyPageQueries(date, options);
                 await save({ ...base, kind: "gsc-page-queries", ...report });
               }

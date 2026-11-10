@@ -14,7 +14,7 @@ const mock = (relative, exports) => { const filename = path.join(root, relative)
 const lib = require("../src/lib/optimized-page-monitor.ts");
 const { pageRankingChange } = require("../src/lib/page-ranking-change.ts");
 const url = "https://flatkey.ai/blog/example";
-const target = { keywordId: "word-1", keyword: "example api", siteDomain: "flatkey.ai", targetUrls: [url] };
+const target = { keywordId: "word-1", keyword: "example api", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, siteDomain: "flatkey.ai", targetUrls: [url] };
 const source = (rowKey = "example", pageUrl = url) => ({ rowKey, snapshot: { title: "Example API", pageUrl, completion: "COMPLETED",
   publication: { pageVerified: true, verificationReason: "Published page and keyword intent verified against the public page." },
   keywords: [{ keyword: target.keyword, relevance: "RELEVANT", pageIntentMatched: true }] } });

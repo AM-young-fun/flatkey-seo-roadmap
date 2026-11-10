@@ -1,5 +1,6 @@
 import { keywordRelevance } from "./keyword-relevance";
 import type { PageAuditVerdict } from "./page-audit";
+import { isOwnedBrandKeyword, keywordLanguageIssue, readKeywordMarketAssignment, type KeywordMarketAssignment } from "./keyword-market-policy";
 
 export const SERP_TARGET_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"] as const;
 // Paid recurring collection is scoped independently from the saved inventory.
@@ -21,6 +22,7 @@ export type SerpTarget = {
   keyword: string;
   siteDomain: string;
   targetUrls: string[];
+  marketAssignment?: KeywordMarketAssignment | null;
 };
 
 // This is the full business target inventory used by the overview and history.
@@ -40,11 +42,12 @@ export function eligibleSerpTargets<T extends SerpTargetCandidate>(rows: T[]): T
 
 export const serpTargetKey = (target: Pick<SerpTarget, "siteDomain" | "keywordId">) => `${target.siteDomain}:${target.keywordId}`;
 
-export type SerpMonitoringHoldReason = "PAGE_NOT_BUILT" | "PAGE_INTENT_MISMATCH" | "PAGE_REVIEW_REQUIRED" | "NO_VERIFIED_PAGE";
+export type SerpMonitoringHoldReason = "PAGE_NOT_BUILT" | "PAGE_INTENT_MISMATCH" | "PAGE_REVIEW_REQUIRED" | "NO_VERIFIED_PAGE" | "COUNTRY_REVIEW_REQUIRED" | "OWN_BRAND" | "LANGUAGE_MISMATCH";
 export type SerpMonitoringReadiness = "VERIFIED_PAGE" | "PAGE_OPTIMIZATION" | "SOURCE_VERIFIED";
 export type SerpMonitoringEvidence = {
   pageAudit?: { verdict: PageAuditVerdict; pageUrls: string[]; workPlan?: { action: "LINK" | "EXPAND" | "BUILD"; pageUrls: string[] } | null };
   verifiedSourcePages?: string[];
+  marketAssignment?: KeywordMarketAssignment | null;
 };
 export type HeldSerpTarget = SerpTarget & { reason: SerpMonitoringHoldReason; reasonLabel: string };
 export type SerpMonitoringClassification = {
@@ -54,7 +57,7 @@ export type SerpMonitoringClassification = {
   heldTargetCount: number;
   readinessByTarget: Record<string, SerpMonitoringReadiness>;
   breakdown: { verifiedPages: number; existingPagesToOptimize: number; sourceVerifiedPages: number;
-    pageNotBuilt: number; intentMismatch: number; pageReviewRequired: number; noVerifiedPage: number };
+    pageNotBuilt: number; intentMismatch: number; pageReviewRequired: number; noVerifiedPage: number; countryReviewRequired: number; ownBrand: number; languageMismatch: number };
 };
 
 function monitoringPage(value: string, siteDomain: string): string | null {
@@ -73,15 +76,18 @@ const monitoringHoldLabels: Record<SerpMonitoringHoldReason, string> = {
   PAGE_INTENT_MISMATCH: "页面意图不匹配，暂不抓取",
   PAGE_REVIEW_REQUIRED: "页面尚待核实，暂不抓取",
   NO_VERIFIED_PAGE: "缺少页面核实证据，暂不抓取",
+  COUNTRY_REVIEW_REQUIRED: "待明确主目标国家与本地关键词证据，不按语言猜国家",
+  OWN_BRAND: "自有品牌词保留历史与 GSC 数据，不发起付费查询",
+  LANGUAGE_MISMATCH: "关键词与目标页面语言不一致，待核实",
 };
 
 /** Classify the existing formal inventory; this never promotes a research term. */
 export function classifySerpMonitoringCohort(allTargets: SerpTarget[], evidence: ReadonlyMap<string, SerpMonitoringEvidence>): SerpMonitoringClassification {
   const result: SerpMonitoringClassification = { targets: [], heldTargets: [], allTargetCount: allTargets.length, heldTargetCount: 0,
     readinessByTarget: {}, breakdown: { verifiedPages: 0, existingPagesToOptimize: 0, sourceVerifiedPages: 0,
-      pageNotBuilt: 0, intentMismatch: 0, pageReviewRequired: 0, noVerifiedPage: 0 } };
+      pageNotBuilt: 0, intentMismatch: 0, pageReviewRequired: 0, noVerifiedPage: 0, countryReviewRequired: 0, ownBrand: 0, languageMismatch: 0 } };
   const holdCount = { PAGE_NOT_BUILT: "pageNotBuilt", PAGE_INTENT_MISMATCH: "intentMismatch",
-    PAGE_REVIEW_REQUIRED: "pageReviewRequired", NO_VERIFIED_PAGE: "noVerifiedPage" } as const;
+    PAGE_REVIEW_REQUIRED: "pageReviewRequired", NO_VERIFIED_PAGE: "noVerifiedPage", COUNTRY_REVIEW_REQUIRED: "countryReviewRequired", OWN_BRAND: "ownBrand", LANGUAGE_MISMATCH: "languageMismatch" } as const;
   for (const target of allTargets) {
     const key = serpTargetKey(target), proof = evidence.get(key), audit = proof?.pageAudit;
     const pages = (urls: string[]) => [...new Set(urls.map(url => monitoringPage(url, target.siteDomain)).filter((url): url is string => Boolean(url)))].sort();
@@ -89,6 +95,7 @@ export function classifySerpMonitoringCohort(allTargets: SerpTarget[], evidence:
       result.heldTargets.push({ ...target, targetUrls: [...target.targetUrls], reason, reasonLabel: monitoringHoldLabels[reason] });
       result.breakdown[holdCount[reason]]++;
     };
+    if (isOwnedBrandKeyword(target.keyword)) { hold("OWN_BRAND"); continue; }
     let verifiedPages: string[] = [], readiness: SerpMonitoringReadiness;
     if (audit) {
       // A saved negative audit takes precedence over later source assertions.
@@ -113,7 +120,10 @@ export function classifySerpMonitoringCohort(allTargets: SerpTarget[], evidence:
       readiness = "SOURCE_VERIFIED";
     }
     if (!verifiedPages.length) { hold("NO_VERIFIED_PAGE"); continue; }
-    result.targets.push({ ...target, targetUrls: verifiedPages });
+    const marketAssignment = readKeywordMarketAssignment(proof?.marketAssignment ?? target.marketAssignment);
+    if (!marketAssignment) { hold("COUNTRY_REVIEW_REQUIRED"); continue; }
+    if (keywordLanguageIssue(target.keyword, marketAssignment)) { hold("LANGUAGE_MISMATCH"); continue; }
+    result.targets.push({ ...target, targetUrls: verifiedPages, marketAssignment });
     result.readinessByTarget[key] = readiness;
     if (readiness === "VERIFIED_PAGE") result.breakdown.verifiedPages++;
     else if (readiness === "PAGE_OPTIMIZATION") result.breakdown.existingPagesToOptimize++;

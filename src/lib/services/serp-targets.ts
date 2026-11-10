@@ -7,6 +7,7 @@ import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { readPageAuditVerdict } from "@/lib/keyword-monitoring";
 import { PAGE_AUDIT_SOURCE_ID } from "@/lib/page-audit";
 import { SOURCE_SYNC_SOURCES } from "@/lib/source-sync";
+import { MARKET_ASSIGNMENT_SOURCE_ID, PAID_QUERY_POLICY_VERSION, readKeywordMarketAssignment } from "@/lib/keyword-market-policy";
 
 export async function loadSerpTargetCohort(site = "all"): Promise<{ targets: SerpTarget[]; hash: string }> {
   const domains = Prisma.join(site === "all" ? [...SERP_TARGET_SITES] : [site]);
@@ -45,7 +46,8 @@ export async function loadSerpMonitoringCohort(site = "all", existingCohort?: { 
     const rows = await prisma.$queryRaw<Array<{ siteDomain: string; sourceId: string; rowKey: string; snapshot: unknown }>>(Prisma.sql`
       /* serp-monitor:page-readiness-evidence */
       SELECT source."siteDomain", source."sourceId", source."rowKey",
-        CASE WHEN source."sourceId" = ${PAGE_AUDIT_SOURCE_ID} THEN jsonb_build_object(
+        CASE WHEN source."sourceId" = ${MARKET_ASSIGNMENT_SOURCE_ID} THEN source.snapshot
+        WHEN source."sourceId" = ${PAGE_AUDIT_SOURCE_ID} THEN jsonb_build_object(
           'keywordId', source.snapshot->'keywordId', 'verdict', source.snapshot->'verdict', 'pageUrl', source.snapshot->'pageUrl',
           'additionalPages', COALESCE((SELECT jsonb_agg(jsonb_build_object('pageUrl', page->'pageUrl'))
             FROM jsonb_array_elements(CASE WHEN jsonb_typeof(source.snapshot->'additionalPages') = 'array' THEN source.snapshot->'additionalPages' ELSE '[]'::jsonb END) page), '[]'::jsonb),
@@ -55,7 +57,7 @@ export async function loadSerpMonitoringCohort(site = "all", existingCohort?: { 
           'publication', source.snapshot->'publication', 'keywords', source.snapshot->'keywords') END AS snapshot
       FROM "KeywordSourceRow" source
       WHERE source."siteDomain" IN (${Prisma.join(domains)}) AND (
-        (source."sourceId" = ${PAGE_AUDIT_SOURCE_ID} AND source."rowKey" IN (${Prisma.join(rowKeys)})) OR
+        (source."sourceId" IN (${Prisma.join([PAGE_AUDIT_SOURCE_ID, MARKET_ASSIGNMENT_SOURCE_ID])}) AND source."rowKey" IN (${Prisma.join(rowKeys)})) OR
         source."sourceId" IN (${Prisma.join(Object.keys(SOURCE_SYNC_SOURCES))})
       )
     `);
@@ -67,6 +69,11 @@ export async function loadSerpMonitoringCohort(site = "all", existingCohort?: { 
     }
     for (const row of rows) {
       const snapshot = record(row.snapshot);
+      if (row.sourceId === MARKET_ASSIGNMENT_SOURCE_ID) {
+        const key = `${row.siteDomain}:${row.rowKey.startsWith("keyword:") ? row.rowKey.slice(8) : ""}`;
+        if (targetMap.has(key)) evidence.set(key, { ...evidence.get(key), marketAssignment: readKeywordMarketAssignment(snapshot) });
+        continue;
+      }
       if (row.sourceId === PAGE_AUDIT_SOURCE_ID) {
         const keywordId = row.rowKey.startsWith("keyword:") ? row.rowKey.slice(8) : "", key = `${row.siteDomain}:${keywordId}`;
         if (!targetMap.has(key)) continue;
@@ -98,6 +105,6 @@ export async function loadSerpMonitoringCohort(site = "all", existingCohort?: { 
   }
   const classified = classifySerpMonitoringCohort(cohort.targets, evidence);
   const targets = classified.targets.sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId));
-  return { ...classified, targets, hash: createHash("sha256").update(JSON.stringify(targets)).digest("hex"),
+  return { ...classified, targets, hash: createHash("sha256").update(JSON.stringify({ policy: PAID_QUERY_POLICY_VERSION, targets })).digest("hex"),
     allTargets: cohort.targets, allTargetHash: cohort.hash };
 }

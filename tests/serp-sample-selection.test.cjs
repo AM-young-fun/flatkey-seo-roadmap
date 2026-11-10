@@ -7,7 +7,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 const { selectSerpSampleTargets, SERP_SAMPLE_MAX_QUERIES } = require("../src/lib/serp-sample-selection.ts");
 
-const target = (keyword, targetUrls, overrides = {}) => ({ keyword, keywordId: keyword, siteDomain: "flatkey.ai", targetUrls, ...overrides });
+const target = (keyword, targetUrls, overrides = {}) => ({ keyword, keywordId: keyword, siteDomain: "flatkey.ai", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls, ...overrides });
 
 test("the paid sample is an existing formal subset; missing terms are never invented or replaced", () => {
   assert.equal(SERP_SAMPLE_MAX_QUERIES, 38);
@@ -15,20 +15,20 @@ test("the paid sample is an existing formal subset; missing terms are never inve
     target("claude api pricing", ["https://flatkey.ai/blog/claude-api-pricing"]), target("yes", ["https://flatkey.ai/"]),
     target("flatkey model api price", ["https://flatkey.ai/models/gpt-image-2"]), target("unreviewed new model pricing", ["https://flatkey.ai/models/new-model"])];
   const result = selectSerpSampleTargets(input);
-  assert.deepEqual(result.targets.map(row => row.keyword), ["flatkey", "gpt image 2 pricing", "claude api pricing"]);
-  assert.deepEqual(Object.values(result.categories), ["BRAND", "MODEL_PRICE", "MODEL_PRICE"]);
+  assert.deepEqual(result.targets.map(row => row.keyword), ["gpt image 2 pricing", "claude api pricing"]);
+  assert.deepEqual(Object.values(result.categories), ["MODEL_PRICE", "MODEL_PRICE"]);
   assert.equal(result.reasons["flatkey.ai:gpt image 2 pricing"], "模型价格词，已有对应模型详情页");
   assert.deepEqual(selectSerpSampleTargets([]).targets, []);
 });
 
-test("sample selection prioritizes brands, then model details, then pricing articles independently of input order", () => {
+test("sample selection excludes own brands, then selects model details and pricing articles independently of input order", () => {
   const input = [target("claude api pricing", ["https://flatkey.ai/blog/claude-api-pricing"]),
     target("seedance 2.5 api pricing", ["https://flatkey.ai/models/seedance-2.5"]),
     target("flatkey sdk setup", ["https://flatkey.ai/blog/flatkey-integration-starter"]), target("flat key", ["https://flatkey.ai/"]),
     target("flatkey", ["https://flatkey.ai/"]), target("gpt 6 astra price", ["https://flatkey.ai/models/gpt-6-astra"])];
   const snapshot = structuredClone(input);
   const selected = selectSerpSampleTargets(input);
-  assert.deepEqual(selected.targets.map(row => row.keyword), ["flatkey", "flat key", "flatkey sdk setup", "gpt 6 astra price", "seedance 2.5 api pricing", "claude api pricing"]);
+  assert.deepEqual(selected.targets.map(row => row.keyword), ["gpt 6 astra price", "seedance 2.5 api pricing", "claude api pricing"]);
   assert.deepEqual(selected, selectSerpSampleTargets([...input].reverse()));
   selected.targets[0].targetUrls.push("https://flatkey.ai/other");
   assert.deepEqual(input, snapshot, "preview output must not mutate its formal cohort input");
@@ -51,8 +51,8 @@ test("normalization keeps exact intended terms and duplicate rows never enlarge 
   const duplicate = target("flatkey ai", ["https://flatkey.ai/"], { keywordId: "b" });
   const pages = ["https://flatkey.ai/models/gpt-image-2", "https://flatkey.ai/blog/gpt-image-2-pricing"];
   const result = selectSerpSampleTargets([duplicate, first, first, target("gpt image 2 pricing", pages)]);
-  assert.equal(result.targets.length, 2);
-  assert.equal(result.targets[0].keywordId, "a");
-  assert.deepEqual(result.targets[1].targetUrls, pages, "all formal target pages are retained for multi-page evidence");
-  assert.deepEqual(Object.keys(result.categories), ["flatkey.ai:a", "flatkey.ai:gpt image 2 pricing"]);
+  assert.equal(result.targets.length, 1);
+  assert.equal(result.targets[0].keywordId, "gpt image 2 pricing");
+  assert.deepEqual(result.targets[0].targetUrls, pages, "all formal target pages are retained for multi-page evidence");
+  assert.deepEqual(Object.keys(result.categories), ["flatkey.ai:gpt image 2 pricing"]);
 });

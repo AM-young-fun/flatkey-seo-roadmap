@@ -59,19 +59,19 @@ export function serpSampleSubsetHash(selection: SerpSampleSelection): string {
   return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
 }
 
-/** Keep the existing selection order (brand first) when the balance is small. */
+/** Keep reviewed selection order; charge only its explicitly assigned markets. */
 export function affordableSerpSample(selection: SerpSampleSelection, liveBalanceMicros: number): SerpSampleSelection {
   if (!Number.isSafeInteger(liveBalanceMicros) || liveBalanceMicros < 0) throw new Error("BALANCE_NOT_VERIFIED");
   const budget = Math.max(0, Math.min(SERP_SAMPLE_MAX_COST_MICROS, liveBalanceMicros - SERP_SAMPLE_SAFETY_MARGIN_MICROS));
   const groups = groupSerpQueries(selection.targets), selected: SerpTarget[] = [], categories: Record<string, SerpSampleCategory> = {};
   const order = new Map(selection.targets.map((target, index) => [serpTargetKey(target), index]));
   groups.sort((a, b) => Math.min(...a.targets.map(target => order.get(serpTargetKey(target)) ?? Infinity)) - Math.min(...b.targets.map(target => order.get(serpTargetKey(target)) ?? Infinity)));
-  let count = 0;
   for (const group of groups) {
-    if ((count + 1) * SERP_MARKETS.length > SERP_SAMPLE_MAX_QUERIES) break;
-    if (quoteSerpTargets([...selected, ...group.targets], SERP_MARKETS).maxCostMicros > budget) break;
+    const quote = quoteSerpTargets([...selected, ...group.targets], SERP_MARKETS);
+    if (quote.queryCount > SERP_SAMPLE_MAX_QUERIES || quote.maxCostMicros > budget) break;
+    if (quote.queryCount === quoteSerpTargets(selected).queryCount) continue;
     if (group.targets.some(target => !["BRAND", "MODEL_PRICE"].includes(selection.categories[serpTargetKey(target)]))) throw new Error("SAMPLE_CATEGORY_REQUIRED");
-    selected.push(...group.targets); count++;
+    selected.push(...group.targets);
     for (const target of group.targets) categories[serpTargetKey(target)] = selection.categories[serpTargetKey(target)];
   }
   return { targets: selected, categories };

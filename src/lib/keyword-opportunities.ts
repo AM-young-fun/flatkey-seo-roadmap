@@ -61,7 +61,7 @@ export function opportunityReason(row: KeywordOpportunity): string {
 export function planKey(country: OpportunityMarket, keyword: string, page: string) { return JSON.stringify([country, normalized(keyword), page]); }
 export function rankText(row: KeywordOpportunity): string { return row.rank != null ? `第 ${row.rank} 名` : row.rankState === "outside_top100" ? "100 名外" : row.rankState === "not_found_capture" ? "本次未命中" : row.rankState === "query_changed" ? "查询被改写" : "待采集"; }
 
-export function optimizationWindow(optimizedAt: string, days: 7 | 14 | 28, today: string) {
+export function optimizationWindow(optimizedAt: string, days: 7 | 14 | 28 | 56, today: string) {
   if (!validRange({ start: optimizedAt, end: optimizedAt }) || !validRange({ start: today, end: today })) return null;
   const start = shiftDay(optimizedAt, 1), end = [shiftDay(start, days - 1), shiftDay(today, -1)].sort()[0];
   if (start > end) return null;

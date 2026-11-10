@@ -12,11 +12,11 @@ const {collectorRunSchema}=require("../src/lib/collector-runs.ts"),{weeklyEviden
 beforeEach(()=>{session=false;stored=null;report=null;writes=0;});
 const sourceChecks=["api_main","cloud_main","optimization"].map(sourceId=>({sourceId,status:"COMPLETED",rows:5}));
 const request=body=>new Request("https://example.com/api/collectors/runs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-test("Codex keeps daily sheets at 10:30 and the existing weekly report at Friday 10:10",()=>{
+test("sheets precede research and server analytics uses its own daily collection slot",()=>{
   const now=new Date("2026-10-20T03:00Z");
-  assert.equal(nextCollectorTime(now,"sheets"),"2026-10-21T02:30:00.000Z");
-  assert.equal(nextCollectorTime(now,"ahrefs"),"2026-10-23T02:10:00.000Z");
-  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-23T02:10:00.000Z");
+  assert.equal(nextCollectorTime(now,"sheets"),"2026-10-21T01:00:00.000Z");
+  assert.equal(nextCollectorTime(now,"ahrefs"),"2026-10-21T01:30:00.000Z");
+  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-21T02:30:00.000Z");
 });
 test("three-table completion needs all three actual success receipts; zero changes need not mean no read",()=>{
   const base={kind:"SHEETS",periodStart:"2026-10-20",status:"COMPLETED",checkedItems:15};

@@ -137,7 +137,7 @@ export function KeywordOpportunities() {
   }
   const error = dashboard.error || worklist.error || plans.error;
   return <main className={workspace.shell}>
-    <PageHeader active="keywords" />
+    <PageHeader active="opportunities" />
     <div className={workspace.titleRow}>
       <h1 className={workspace.title}>关键词机会</h1>
     </div>
@@ -184,13 +184,13 @@ export function KeywordOpportunities() {
           <label className={styles.wide}>已完成的具体改动<textarea rows={2} value={plan.changes ?? ""} onChange={event => setPlan({ ...plan, changes: event.target.value })} placeholder="例如修改标题、补充价格对比、增加 3 条相关内链" /></label>
         </div>
         {plan.baseline ? <p className={styles.note}>目标首次保存时：本站排名 {plan.baseline.siteRank == null ? "—" : `第 ${plan.baseline.siteRank} 名`}，月搜索量 {numberText(plan.baseline.volume)}；快照生成于 {plan.baseline.snapshotGeneratedAt ? new Date(plan.baseline.snapshotGeneratedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) + " 北京时间" : "未知时间"}。目标页面的独立排名待核查，暂不计算页面排名变化。</p> : <p className={styles.note}>保存后保留当前站点排名和搜索量快照；目标页面的独立排名仍需核查。</p>}
-        {plan.optimizedAt && flatkeyPage(targetPage) ? <div className={styles.trackingLinks}>{([7, 14, 28] as const).map(days => {
+        {plan.optimizedAt && flatkeyPage(targetPage) ? <div className={styles.trackingLinks}>{([7, 28, 56] as const).map(days => {
           const range = optimizationWindow(plan.optimizedAt!, days, propertyToday());
           return range ? <Link key={days} href={"/pages?" + new URLSearchParams({ pageUrl: targetPage, category: "all", country, start: range.start, end: range.end, compareStart: range.compareStart, compareEnd: range.compareEnd })}>查看优化后 {days} 天效果{range.days < days ? `（已结束 ${range.days} 天）` : ""}</Link> : <span key={days}>优化后 {days} 天：尚无完整日</span>;
         })}</div> : null}
         <p className={styles.note}>效果窗口从优化次日开始，只查看已结束日，并与优化前等长区间对比。页面效果可查看实际访问、注册和 GSC 点击；排名沿用既有采集记录，未开启额外付费抓取。</p>
       </details>
-      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><span>项目归档 · 用于后续周报复盘</span><span role="status">{message}</span></div>
+      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><Link href={"/work?" + new URLSearchParams({ new: "1", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span>项目归档 · 用于后续效果复盘</span><span role="status">{message}</span></div>
     </section> : null}
     </Modal>
     {!dashboard.data && !error ? <p className={styles.note}>读取关键词数据…</p> : <div className={styles.tableWrap}><table className={styles.table}>

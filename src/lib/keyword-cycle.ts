@@ -3,6 +3,7 @@ import { REGION_CODES } from "./seo";
 import { SERP_COLLECTION_SITE } from "./serp-targets";
 import { quoteForLimit, buildRankedKeywordsTask } from "./dataforseo-labs.cjs";
 import { keywordRelevance, normalizeKeywordText } from "./keyword-relevance";
+import { isOwnedBrandKeyword } from "./keyword-market-policy";
 
 export function keywordCyclePlan(now = new Date(), periodKey?: string) {
   const period = periodKey ? serpPeriodFromKey(periodKey) : serpPeriod(now), limit = 1000;
@@ -18,9 +19,9 @@ export function keywordCyclePlan(now = new Date(), periodKey?: string) {
 // A historical matching URL alone cannot establish current intent. Only a
 // high-confidence phrase in today's title/H1 can promote a new discovery.
 export function discoveryPageMatches(site: string, keyword: string, title: string, h1: string) {
-  if (keywordRelevance(site, keyword).status !== "relevant") return false;
+  if (isOwnedBrandKeyword(keyword) || keywordRelevance(site, keyword).status !== "relevant") return false;
   const word = normalizeKeywordText(keyword), content = normalizeKeywordText(`${title} ${h1}`);
   const tokens = word.match(/[\p{L}\p{N}]+/gu) ?? [];
-  if (tokens.length < 2 && !/^(flatkey|rackrate|modelfit)$/u.test(word)) return false;
+  if (tokens.length < 2) return false;
   return content.includes(word);
 }

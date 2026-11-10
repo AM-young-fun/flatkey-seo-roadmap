@@ -509,4 +509,39 @@ CREATE TABLE IF NOT EXISTS "SeoAnalyticsDay" (
 );
 CREATE INDEX IF NOT EXISTS "SeoAnalyticsDay_date_idx" ON "SeoAnalyticsDay"("date");
 
+-- Execution state, immutable receipts and cross-node leases. Existing SEO
+-- observations and collaboration source rows remain untouched.
+CREATE TABLE IF NOT EXISTS "SeoWorkflowRecord" (
+  "key" TEXT PRIMARY KEY, "kind" TEXT NOT NULL, "recordId" TEXT NOT NULL,
+  "weekStart" TEXT NOT NULL, "siteDomain" TEXT, "status" TEXT NOT NULL,
+  "version" INTEGER NOT NULL, "payload" JSONB NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "SeoWorkflowRecord_kind_recordId_key" ON "SeoWorkflowRecord"("kind", "recordId");
+CREATE INDEX IF NOT EXISTS "SeoWorkflowRecord_weekStart_kind_idx" ON "SeoWorkflowRecord"("weekStart", "kind");
+CREATE INDEX IF NOT EXISTS "SeoWorkflowRecord_siteDomain_kind_updatedAt_idx" ON "SeoWorkflowRecord"("siteDomain", "kind", "updatedAt");
+CREATE TABLE IF NOT EXISTS "SeoWorkflowEvent" (
+  "requestId" TEXT PRIMARY KEY, "requestHash" TEXT NOT NULL, "recordKey" TEXT NOT NULL,
+  "kind" TEXT NOT NULL, "version" INTEGER NOT NULL, "payload" JSONB NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "SeoWorkflowEvent_recordKey_version_key" ON "SeoWorkflowEvent"("recordKey", "version");
+CREATE INDEX IF NOT EXISTS "SeoWorkflowEvent_recordKey_createdAt_idx" ON "SeoWorkflowEvent"("recordKey", "createdAt");
+CREATE TABLE IF NOT EXISTS "SeoWorkflowLease" (
+  "runId" TEXT PRIMARY KEY, "stage" TEXT NOT NULL, "scheduledFor" TIMESTAMP(3) NOT NULL,
+  "owner" TEXT NOT NULL, "fencingToken" INTEGER NOT NULL DEFAULT 1, "leaseUntil" TIMESTAMP(3) NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'running', "result" JSONB,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "SeoWorkflowLease_stage_scheduledFor_key" ON "SeoWorkflowLease"("stage", "scheduledFor");
+CREATE INDEX IF NOT EXISTS "SeoWorkflowLease_status_leaseUntil_idx" ON "SeoWorkflowLease"("status", "leaseUntil");
+CREATE TABLE IF NOT EXISTS "SeoDigestDelivery" (
+  "id" TEXT PRIMARY KEY, "reportId" TEXT NOT NULL, "reportHash" TEXT NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'PREPARED', "destination" TEXT NOT NULL, "robotCode" TEXT NOT NULL,
+  "claimedBy" TEXT, "fencingToken" INTEGER NOT NULL DEFAULT 0, "leaseUntil" TIMESTAMP(3),
+  "attemptedAt" TIMESTAMP(3), "deliveredAt" TIMESTAMP(3), "receipt" JSONB, "errorCode" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "SeoDigestDelivery_status_createdAt_idx" ON "SeoDigestDelivery"("status", "createdAt");
+
 COMMIT;

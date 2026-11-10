@@ -7,6 +7,8 @@ import type { SeoCountry } from "@/lib/seo";
 
 export type AnalyticsSource = {
   status: "ready" | "partial" | "missing" | "error";
+  sessionsStatus?: "ready" | "partial" | "missing";
+  registrationsStatus?: "ready" | "partial" | "missing";
   through: string | null;
   observedAt: string | null;
   reason: string | null;
@@ -56,9 +58,10 @@ export function useSeoRead<T>(url: string | null) {
   return { data: current?.data ?? null, error: current?.error ?? null, retry: () => setRefresh(value => value + 1) };
 }
 
-export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all"): string {
+export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all", site?: string): string {
   const query = new URLSearchParams(range);
   if (country !== "all") query.set("country", country);
+  if (site) query.set("site", site);
   urls.forEach(url => query.append("url", url));
   return `/api/seo/analytics?${query}`;
 }

@@ -48,11 +48,11 @@ export function CollectionProgress({site = "all"}: {site?: string}) {
   return <div ref={container} className={`collectionFloat ${active ? "isActive" : ""}`}>
     {open ? <section className="collectionFloatDetails" id="collection-progress-details" aria-label="排名采集详情">
       <div className="collectionFloatTitle"><strong>{progress.periodLabel}</strong><button type="button" aria-label="收起采集详情" onClick={() => setOpen(false)}><X size={15} /></button></div>
-      <dl><div><dt>四国查询</dt><dd>{progress.completedQueries.toLocaleString()} / {progress.totalQueries.toLocaleString()}</dd></div>
-        <div><dt>四国均已完成</dt><dd>{progress.completedKeywords.toLocaleString()} / {progress.totalKeywords.toLocaleString()} 词</dd></div>
+      <dl><div><dt>计划国家查询</dt><dd>{progress.completedQueries.toLocaleString()} / {progress.totalQueries.toLocaleString()}</dd></div>
+        <div><dt>已完成计划国家</dt><dd>{progress.completedKeywords.toLocaleString()} / {progress.totalKeywords.toLocaleString()} 词</dd></div>
         {active ? <><div><dt>等待返回</dt><dd>{progress.waitingQueries.toLocaleString()}</dd></div>{progress.plannedQueries ? <div><dt>待提交</dt><dd>{progress.plannedQueries.toLocaleString()}</dd></div> : null}{progress.processingQueries ? <div><dt>正在整理</dt><dd>{progress.processingQueries.toLocaleString()}</dd></div> : null}</> : null}
         {progress.failedQueries ? <div><dt>异常查询</dt><dd>{progress.failedQueries.toLocaleString()}</dd></div> : null}</dl>
-      <div className="collectionProgressTrack" role="progressbar" aria-label="四国查询完成进度" aria-valuemin={0} aria-valuemax={progress.totalQueries} aria-valuenow={progress.completedQueries}><i style={{width:`${percent}%`}} /></div>
+      <div className="collectionProgressTrack" role="progressbar" aria-label="计划国家查询完成进度" aria-valuemin={0} aria-valuemax={progress.totalQueries} aria-valuenow={progress.completedQueries}><i style={{width:`${percent}%`}} /></div>
       {active && progress.pendingTasks?.length && progress.waitingQueries <= 8 ? <div className="collectionPendingWords">{progress.pendingTasks.map(task=><div key={task.id}><strong>{REGIONS[task.region as keyof typeof REGIONS]?.label ?? task.region} · {task.keyword}</strong><span>{collectionWaitingReason(task.errorCode)} · 已等待 {task.waitMinutes} 分钟</span></div>)}</div> : null}
       {failed ? <p>进度暂未刷新</p> : null}
     </section> : null}

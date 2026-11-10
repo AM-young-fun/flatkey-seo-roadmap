@@ -13,7 +13,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
 const { classifySerpMonitoringCohort, eligibleSerpTargets, serpTargetKey } = require("../src/lib/serp-targets.ts");
-const target = (id, changes = {}) => ({ keywordId: id, keyword: `${id} api`, siteDomain: "flatkey.ai", targetUrls: [`https://flatkey.ai/models/${id}`], ...changes });
+const target = (id, changes = {}) => ({ keywordId: id, keyword: `${id} api`, siteDomain: "flatkey.ai", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: [`https://flatkey.ai/models/${id}`], ...changes });
 const proof = (verdict, pageUrls, workPlan) => ({ pageAudit: { verdict, pageUrls, workPlan } });
 
 test("paid readiness preserves the full inventory while existing pages needing optimization remain eligible with empty targetUrls", () => {
