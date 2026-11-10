@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '30 2,8 * * *'
   workflow_dispatch:
+    inputs:
+      verify_dingtalk:
+        description: Send one DingTalk test message without collecting data
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -10,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   collect:
-    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main' && !inputs.verify_dingtalk
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -58,3 +63,16 @@ jobs:
           ANALYTICS_OUTCOME: ${{ steps.analytics.outcome }}
         run: |
           test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success
+  verify-dingtalk:
+    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Send a DingTalk test message
+        env:
+          SEO_DINGTALK_CONFIG: ${{ secrets.SEO_DINGTALK_CONFIG }}
+        run: node scripts/server-seo-alert.cjs --verify
