@@ -13,6 +13,14 @@ const gsc = { observedAt, source: "browser-export", property: "sc-domain:flatkey
 const url = "https://flatkey.ai/zh/models";
 const day = (date, sessions, registrations) => ({ ...ga4, kind: "ga4-site", date, sessions, registrations, complete: sessions !== null && registrations !== null });
 
+test("long GSC queries survive import and aggregation without dropping the day's report", () => {
+  const query = "long search query ".repeat(160);
+  const report = analyticsObservationSchema.parse({ ...gsc, kind: "gsc-page-queries", date: range.start,
+    complete: true, rows: [{ url, query, clicks: 1, impressions: 4, position: 3 }] });
+  assert.equal(pageQueryView(range, [report], url).rows[0].query, query);
+  assert.equal(pageQueryView(range, [report], url).rows[0].clicks, 1);
+});
+
 test("session reports preserve a measured zero and never fill a missing date", () => {
   const response = analyticsView(range, [], [day(range.start, 0, 0)]);
   assert.equal(response.ga4.status, "partial");
