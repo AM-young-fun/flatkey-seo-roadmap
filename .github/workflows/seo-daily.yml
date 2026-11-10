@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   collect:
-    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true'
+    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -20,8 +20,41 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Collect, backfill and verify production
+      - uses: actions/cache/restore@v4
+        with:
+          path: /tmp/seo-alert-state.json
+          key: seo-alert-main-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: seo-alert-main-
+      - name: Sync and verify page inventory
+        id: inventory
+        continue-on-error: true
         env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+        run: node scripts/server-seo-inventory.cjs
+      - name: Collect, backfill and verify production
+        id: analytics
+        continue-on-error: true
+        env:
+          SEO_COLLECTION_RESULT: /tmp/seo-collection-result.json
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: node scripts/server-seo-daily.cjs
+      - name: Notify DingTalk on failure or recovery
+        if: always()
+        env:
+          SEO_DINGTALK_CONFIG: ${{ secrets.SEO_DINGTALK_CONFIG }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+          ANALYTICS_OUTCOME: ${{ steps.analytics.outcome }}
+        run: node scripts/server-seo-alert.cjs
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: /tmp/seo-alert-state.json
+          key: seo-alert-main-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Enforce collection health
+        if: always()
+        env:
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+          ANALYTICS_OUTCOME: ${{ steps.analytics.outcome }}
+        run: |
+          test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success

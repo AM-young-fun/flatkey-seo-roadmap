@@ -32,6 +32,9 @@ const start = shiftDay(propertyToday(), -90);
 let failures = 0;
 let imported = 0;
 let unavailable = 0;
+const expected = new Set();
+const scopes = [];
+function expectDay(base, kind, date) { expected.add(recordKey({ ...base, kind }) + ":" + date); }
 
 async function api(suffix = "", record) {
   const response = await fetch(endpoint + suffix, {
@@ -85,6 +88,7 @@ async function run() {
           if (!report.daily.length) throw new Error("source_has_no_data");
           const base = { ...common, property: site.ga4, scope: "session-organic-search", observedAt: report.fetchedAt };
           for (const day of report.daily) {
+            expectDay(base, "ga4-site", day.date);
             const sessions = flatkey ? (report.quality.siteSessions.complete ? day.sessions : null) : day.sessions;
             const registrations = flatkey && report.quality.siteRegistrations.complete ? day.registrations : null;
             if (sessions === null && registrations === null) continue;
@@ -97,6 +101,7 @@ async function run() {
             const pages = Object.groupBy(report.pages, row => row.date);
             const complete = report.quality.pageSessions.complete && report.quality.pageRegistrations.complete;
             for (const day of report.daily) {
+              expectDay(base, "ga4-pages", day.date);
               const old = saved.get(recordKey({ ...base, kind: "ga4-pages" }) + ":" + day.date);
               if (old?.complete && day.date < shiftDay(end, -6)) continue;
               const rows = (pages[day.date] ?? []).map(({ path, sessions, registrations }) => ({ path, sessions, registrations }));
@@ -110,6 +115,8 @@ async function run() {
           for (const date of Object.keys(dates).sort().reverse()) {
             const base = { ...common, property: site.gsc, date };
             const kind = flatkey ? "gsc-pages" : "gsc-site";
+            expectDay(base, kind, date);
+            if (flatkey) expectDay(base, "gsc-page-queries", date);
             const old = saved.get(recordKey({ ...base, kind }) + ":" + date);
             if (!old?.complete || date >= shiftDay(gscEnd, -6)) {
               if (flatkey) {
@@ -132,6 +139,7 @@ async function run() {
           }
           if (!Object.keys(dates).length) throw new Error("source_has_no_final_dates");
         }
+        scopes.push({ site: site.domain, country: country ?? "all", source, status: "checked" });
         console.log(JSON.stringify({ site: site.domain, country: country ?? "all", source, registrationVerified: flatkey, status: sourceDates ? "checked" : "no_new_observations", dates: sourceDates }));
       } catch (error) {
         const reason = error?.code ?? (/^(production_|missing_|invalid_|source_)/.test(error?.message) ? error.message : "collection_failed");
@@ -140,14 +148,22 @@ async function run() {
         const noSourceData = reason === "source_has_no_data" || reason === "source_has_no_final_dates";
         if (noSourceData) unavailable++;
         else failures++;
+        scopes.push({ site: site.domain, country: country ?? "all", source, status: noSourceData ? "no_source_data" : "failed", reason });
         console.error(JSON.stringify({ site: site.domain, country: country ?? "all", source, status: noSourceData ? "no_source_data" : "failed", reason }));
       }
     }
   }
-  console.log(JSON.stringify({ imported, failures, unavailable }));
+  const finalRows = (await api("?" + new URLSearchParams({ start, end: propertyToday() }))).rows;
+  if (!Array.isArray(finalRows)) throw new Error("invalid_final_coverage");
+  const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
+  const missing = [...expected].filter(key => !actual.has(key));
+  if (missing.length) failures++;
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, scopes };
+  if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));
+  console.log(JSON.stringify({ imported, failures, unavailable, expected: expected.size, missing: missing.length }));
   if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-      `## SEO collection result\n\n- Imported and read back: ${imported} observations\n- Failed scopes: ${failures}\n- Scopes without source data: ${unavailable} (left missing; not zero)\n`);
+      `## SEO collection result\n\n- Imported and read back: ${imported} observations\n- Failed scopes: ${failures}\n- Source-backed observations expected: ${expected.size}; missing in production: ${missing.length}\n- Scopes without source data: ${unavailable} (left missing; not zero)\n`);
   }
   if (failures) process.exitCode = 1;
 }

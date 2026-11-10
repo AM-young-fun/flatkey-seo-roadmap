@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 
-async function exercise(ga4) {
+async function exercise(ga4, options = {}) {
   const file = fs.readFileSync(path.join(__dirname, "../scripts/server-seo-daily.cjs"), "utf8");
   const requests = [];
   const logs = [];
@@ -14,7 +14,11 @@ async function exercise(ga4) {
     propertyToday: () => "2026-11-10",
     shiftDay: () => "2026-11-09",
     fetchGa4Organic: ga4,
-    fetchGscDateCoverage: async () => ({}),
+    fetchGscDateCoverage: async () => options.dates ?? ({}),
+    fetchGscDailyPages: async () => ({ state: "unavailable" }),
+    fetchGscDailyPageQueries: async () => { throw Object.assign(new Error("missing report"), { code: "unavailable" }); },
+    analyticsStorageKind: (kind, country) => kind + (country ? ":" + country : ""),
+    clusterDomainForProperty: () => undefined,
     fetch: async (url, options) => {
       requests.push({ url, method: options.method });
       return { ok: true, json: async () => ({ rows: [] }) };
@@ -32,16 +36,24 @@ async function exercise(ga4) {
 test("empty Google results remain missing without marking the collector broken", async () => {
   const result = await exercise(async () => ({ daily: [] }));
   assert.equal(result.exitCode, undefined);
-  assert.equal(result.requests.length, 1);
+  assert.equal(result.requests.length, 2);
   assert.equal(result.requests[0].method, "GET");
-  assert.deepEqual(result.logs.at(-1), { imported: 0, failures: 0, unavailable: 10 });
+  assert.deepEqual(result.logs.at(-1), { imported: 0, failures: 0, unavailable: 10, expected: 0, missing: 0 });
   assert.equal(result.logs.filter(row => row.status === "no_source_data").length, 10);
 });
 
 test("permission failures still fail the run and are not treated as empty data", async () => {
   const result = await exercise(async () => { throw Object.assign(new Error("access denied"), { code: "forbidden" }); });
   assert.equal(result.exitCode, 1);
-  assert.equal(result.requests.length, 1);
-  assert.deepEqual(result.logs.at(-1), { imported: 0, failures: 5, unavailable: 5 });
+  assert.equal(result.requests.length, 2);
+  assert.deepEqual(result.logs.at(-1), { imported: 0, failures: 5, unavailable: 5, expected: 0, missing: 0 });
   assert.equal(result.logs.filter(row => row.status === "failed" && row.reason === "forbidden").length, 5);
+});
+
+test("source-backed dates missing from production fail the final coverage check", async () => {
+ const result = await exercise(async () => ({ daily: [] }), { dates: { "2026-11-07": { clicks: 1, impressions: 4, position: 5 } } });
+ assert.equal(result.exitCode, 1);
+ assert.equal(result.logs.at(-1).missing, 10);
+ assert.equal(result.logs.at(-1).expected, 10);
+ assert.equal(result.logs.at(-1).failures, 6);
 });
