@@ -31,7 +31,9 @@ export const analyticsObservationSchema = z.discriminatedUnion("kind", [
     rows: z.array(z.object({ ...sessions, path: z.string().startsWith("/").max(2048) }).strict()).max(50000) }).strict(),
   z.object({ ...base, kind: z.literal("gsc-pages"), property: gscProperty, rows: z.array(z.object({ ...gscMetrics, url: gscPage }).strict()).max(50000) }).strict(),
   z.object({ ...base, kind: z.literal("gsc-page-queries"), property: gscProperty,
-    rows: z.array(z.object({ ...gscMetrics, url: gscPage, query: z.string().min(1).max(2048) }).strict()).max(50000) }).strict(),
+    // Search Console can return queries longer than a URL. The import endpoint
+    // bounds the entire request; preserve the source text without truncating it.
+    rows: z.array(z.object({ ...gscMetrics, url: gscPage, query: z.string().min(1) }).strict()).max(50000) }).strict(),
 ]).superRefine((record, ctx) => {
   if (record.kind === "ga4-site" && (record.complete !== (record.sessions !== null && record.registrations !== null) || record.sessions === null && record.registrations === null)) {
     ctx.addIssue({ code: "custom", message: "站点日数据的完成标记与指标不一致" });
