@@ -1,0 +1,41 @@
+name: DataForSEO result notifications
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: seo-production-ranking-notify
+  cancel-in-progress: false
+jobs:
+  report:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read an eligible ranking result
+        id: receipt
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+        run: node scripts/server-seo-alert.cjs --lookup-ranking
+      - uses: actions/cache/restore@v4
+        if: steps.receipt.outputs.period != ''
+        id: delivered
+        with:
+          path: /tmp/seo-ranking-notice-delivered
+          key: seo-ranking-notified-${{ steps.receipt.outputs.period }}
+      - name: Report the scheduled result in DingTalk
+        if: steps.receipt.outputs.period != '' && steps.delivered.outputs.cache-hit != 'true'
+        id: notify
+        env:
+          SEO_DINGTALK_CONFIG: ${{ secrets.SEO_DINGTALK_CONFIG }}
+        run: |
+          node scripts/server-seo-alert.cjs --ranking
+          touch /tmp/seo-ranking-notice-delivered
+      - uses: actions/cache/save@v4
+        if: steps.notify.outcome == 'success'
+        with:
+          path: /tmp/seo-ranking-notice-delivered
+          key: seo-ranking-notified-${{ steps.receipt.outputs.period }}

@@ -161,6 +161,7 @@ async function run() {
   const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, scopes };
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));
   console.log(JSON.stringify({ imported, failures, unavailable, expected: expected.size, missing: missing.length }));
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `imported=${imported}\nunavailable=${unavailable}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `## SEO collection result\n\n- Imported and read back: ${imported} observations\n- Failed scopes: ${failures}\n- Source-backed observations expected: ${expected.size}; missing in production: ${missing.length}\n- Scopes without source data: ${unavailable} (left missing; not zero)\n`);

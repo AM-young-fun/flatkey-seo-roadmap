@@ -168,7 +168,8 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
       const rawResponse = await response.text();
       run = await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{rawResponse,collectedAt:new Date(),status:"RECEIVED"}});
     } catch {
-      await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{status:"UNKNOWN",errorCode:"DISCOVERY_RESPONSE_UNCONFIRMED"}});
+      const errorCode = paidRequests ? "DISCOVERY_RESPONSE_UNCONFIRMED" : "DISCOVERY_PRECHECK_FAILED";
+      await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{status:"UNKNOWN",errorCode}});
       return {status:"NEEDS_REVIEW",ready:false,paidRequests,requestId:job.requestId};
     }
   }

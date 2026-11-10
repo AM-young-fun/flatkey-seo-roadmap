@@ -23,6 +23,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 
 export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/api/seo/optimization-plans") return NextResponse.next();
+  if (request.nextUrl.pathname === "/api/seo/ranking-notice") return NextResponse.next();
   // These endpoints check their own dedicated credentials, even when page
   // login is disabled. Those credentials cannot access management routes.
   if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH || request.nextUrl.pathname === KEYWORD_EXPORT_API_PATH || request.nextUrl.pathname === "/api/collectors/runs" || request.nextUrl.pathname === "/api/seo/analytics/import" || request.nextUrl.pathname === "/api/seo/pages" || request.nextUrl.pathname === "/api/seo/weekly-actions" || request.nextUrl.pathname === DAILY_SEO_TRAFFIC_API_PATH || request.nextUrl.pathname === DAILY_SEO_PAGE_GROUPS_API_PATH) return NextResponse.next();
