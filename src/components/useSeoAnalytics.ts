@@ -18,6 +18,7 @@ export type SessionDay = { date: string; sessions: number | null; registrations:
 
 export type PagePerformance = {
   url: string;
+  sourceUrls?: string[];
   ga4: { sessions: number | null; registrations: number | null; days: number } | null;
   gsc: { clicks: number | null; impressions: number | null; ctr: number | null; position: number | null; days: number } | null;
 };

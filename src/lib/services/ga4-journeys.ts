@@ -10,7 +10,7 @@ const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stri
 const parameter = (eventParameterName: string, value: string) => ({ funnelParameterFilter: { eventParameterName, stringFilter: { matchType: "EXACT", value, caseSensitive: true } } });
 const event = (eventName: string, parameters?: Record<string, string>) => ({ funnelEventFilter: { eventName, ...(parameters ? { funnelParameterFilterExpression: { andGroup: { expressions: Object.entries(parameters).map(([name, value]) => parameter(name, value)) } } } : {}) } });
 const finite = (value: unknown) => { if (typeof value !== "string" || !/^\d+(\.\d+)?$/.test(value) || !Number.isFinite(Number(value))) throw new GoogleReadError("invalid_response", "GA4 数值无效"); return Number(value); };
-const reason = (error: unknown) => error instanceof GoogleReadError ? `${error.code}${error.status ? " HTTP " + error.status : ""}` : "query_failed";
+const reason = (error: unknown) => error instanceof GoogleReadError ? `${error.code}${error.status ? " HTTP " + error.status : error.message.startsWith("funnel_") ? ":" + error.message : ""}` : "query_failed";
 const partial = (metadata: Record<string, unknown> = {}) => Boolean(metadata.subjectToThresholding || metadata.dataLossFromOtherRow || metadata.samplingMetadatas || metadata.schemaRestrictionResponse || metadata.dataTruncationReasons || metadata.emptyReason);
 async function request(endpoint: string, token: string, body?: unknown) {
   const response = await fetch(origin + endpoint, { method: body ? "POST" : "GET", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000), headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -30,15 +30,18 @@ export async function fetchGa4Journey(query: Query, business: "gpu" | "api"): Pr
     const token = process.env.SEO_GA4_ACCESS_TOKEN?.trim() || await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
     const response = await request(`/v1alpha/${property}:runFunnelReport`, token, funnelRequest(query, business));
     const report = response.funnelTable;
-    if (!report || report.dimensionHeaders?.length !== 1 || report.dimensionHeaders[0].name !== "funnelStepName" || !Array.isArray(report.metricHeaders) || !Array.isArray(report.rows)) throw new GoogleReadError("invalid_response", "GA4 漏斗字段不匹配");
+    if (!report || report.dimensionHeaders?.length !== 1 || report.dimensionHeaders[0].name !== "funnelStepName" || !Array.isArray(report.metricHeaders)) throw new GoogleReadError("invalid_response", "funnel_headers_unrecognized");
+    if (report.rows === undefined || Array.isArray(report.rows) && report.rows.length === 0) return { ...base, status: "unavailable", reason: "no_matching_steps_in_selected_period", steps: [] };
+    if (!Array.isArray(report.rows)) throw new GoogleReadError("invalid_response", "funnel_rows_invalid");
     const index = (name: string) => report.metricHeaders.findIndex((row: { name: string }) => row.name === name);
-    if (index("activeUsers") < 0 || report.rows.length !== 3 || report.rowCount !== undefined && report.rowCount !== 3) throw new GoogleReadError("invalid_response", "GA4 漏斗步骤不完整");
+    if (index("activeUsers") < 0 || report.rows.length !== 3 || report.rowCount !== undefined && report.rowCount !== 3) throw new GoogleReadError("invalid_response", "funnel_steps_incomplete");
     const steps = journeyLabels[business].map((name, i) => {
       const row = report.rows.find((row: { dimensionValues: { value: string }[] }) => row.dimensionValues?.[0]?.value === `${i + 1}. ${name}` || row.dimensionValues?.[0]?.value === name);
-      if (!row) throw new GoogleReadError("invalid_response", "GA4 漏斗步骤不匹配");
+      if (!row) throw new GoogleReadError("invalid_response", "funnel_step_names_unrecognized");
       const metric = (key: string) => index(key) < 0 ? null : finite(row.metricValues?.[index(key)]?.value);
       return { name, users: metric("activeUsers"), abandonments: i === 2 ? null : metric("funnelStepAbandonments"), completionRate: i === 2 ? null : metric("funnelStepCompletionRate") };
     });
+    if (!steps.some(step => step.users !== null && step.users > 0)) return { ...base, status: "unavailable", reason: "no_matching_steps_in_selected_period", steps: [] };
     return journeySchema.parse({ ...base, status: partial(report.metadata) ? "partial" : "ready", steps, ...(partial(report.metadata) ? { reason: "thresholding_sampling_or_restriction" } : {}) });
   } catch (error) { return { ...base, status: "unavailable", reason: reason(error), steps: [] }; }
 }

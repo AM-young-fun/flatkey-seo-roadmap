@@ -6,6 +6,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type * as echarts from "echarts";
 import { classifyPage, type InventoryPage } from "@/lib/seo-page-inventory";
+import { catalogUrl, mergeCatalogRows, type CatalogRow } from "@/lib/seo-page-catalog";
 import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
 import { matchesDailySeoPageGroupUrl } from "@/lib/daily-seo-page-groups";
 import type { landingTrafficDays } from "@/lib/seo-analytics";
@@ -19,7 +20,7 @@ import { REGIONS } from "@/lib/seo";
 import { WorkflowPageHistory } from "./WorkflowPageHistory";
 import { PageOptimizationActions } from "./PageOptimizationActions";
 export { classifyPage } from "@/lib/seo-page-inventory";
-type Row = { url: string; keywords: string[]; inventory?: InventoryPage };
+type Row = CatalogRow;
 type Inventory = { pages: InventoryPage[]; capturedAt: string | null; storage: string };
 type Metric = "sessions" | "registrations" | "clicks";
 type PageDay = { date: string; sessions: number | null; registrations: number | null; clicks: number | null };
@@ -35,11 +36,6 @@ const stamp = (value: string) => new Date(value).toLocaleDateString("zh-CN", { t
 const valueOf = (page: PagePerformance | undefined, metric: Metric) => metric === "clicks" ? page?.gsc?.clicks : page?.ga4?.[metric];
 const sumKnown = (values: number[]) => values.length ? values.reduce((sum, count) => sum + count, 0) : null;
 const siteOptions = [{ value: "flatkey.ai", label: "Flatkey" }, ...CLUSTER_SITES.map(site => ({ value: site.domain, label: site.name }))];
-function catalogUrl(value: string, site: string) {
-  try { const url = new URL(value); if (url.protocol !== "https:" || url.username || url.password || url.port || !(url.hostname === site || url.hostname.endsWith("." + site))) return null;
-    url.hash = ""; for (const key of [...url.searchParams.keys()]) if (key.startsWith("utm_") || ["gclid", "fbclid", "msclkid"].includes(key)) url.searchParams.delete(key); return url.toString();
-  } catch { return null; }
-}
 
 function readState(result: ReturnType<typeof useSeoRead<SeoAnalytics>>) {
   const data = result.data?.scope === "session-organic-search" ? result.data : null;
@@ -127,14 +123,7 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
   const comparePerformance = useSeoRead<SeoAnalytics>(selected && comparison ? analyticsUrl(comparison, [selected], country, site) : null);
   const prior = readState(comparePerformance);
   const detail = details.data?.scope === "session-organic-search" ? details.data : null;
-  const rows = useMemo(() => {
-    const merged = new Map(targets.filter(row => catalogUrl(row.url, site)).map(row => [row.url, row]));
-    for (const entry of inventory?.pages ?? []) if (catalogUrl(entry.url, site)) merged.set(entry.url, { url: entry.url, keywords: merged.get(entry.url)?.keywords ?? [], inventory: entry });
-    for (const entry of performance.data?.pages ?? []) {
-      if (catalogUrl(entry.url, site) && !merged.has(entry.url)) merged.set(entry.url, { url: entry.url, keywords: [] });
-    }
-    return [...merged.values()];
-  }, [targets, inventory, performance.data, site]);
+  const rows = useMemo(() => mergeCatalogRows(targets, inventory?.pages ?? [], performance.data?.pages ?? [], site), [targets, inventory, performance.data, site]);
   const categoryRows = useMemo(() => rows.filter(row => {
     if (category === "all") return true;
     if (category === "new") return row.inventory?.baseline === false;
@@ -169,6 +158,8 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
   const pageRows = visible.slice((currentPage - 1) * 25, currentPage * 25);
   const selectedRow = rows.find(row => row.url === selected);
   const selectedMetrics = detail?.pages[0];
+  const sourceUrls = [...new Set([...(selectedRow?.sourceUrls ?? []), ...(selectedMetrics?.sourceUrls ?? [])])].sort();
+  const hasVariants = sourceUrls.some(url => url !== selected);
   const partial = (metrics: PagePerformance | undefined, key: Metric) => {
     const entry = key === "clicks" ? metrics?.gsc : metrics?.ga4;
     const status = key === "clicks" ? current.data?.gsc : current.data?.ga4;
@@ -194,6 +185,7 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
         {detail ? <div className={styles.scroll}><table className={styles.daily}><thead><tr><th>日期</th><th>访问</th><th>注册</th><th>搜索点击</th></tr></thead><tbody>{detail.pageDaily.map(day => <tr key={day.date}><td>{day.date}</td><td>{numberText(day.sessions)}</td><td>{numberText(day.registrations)}</td><td>{numberText(day.clicks)}</td></tr>)}</tbody></table></div> : null}
         {comparison ? <><p>对比区间：{comparison.start} — {comparison.end}</p>{prior.error ? <p role="alert">{prior.error} <button onClick={comparePerformance.retry}>重试</button></p> : <p>访问 {numberText(prior.data?.pages[0]?.ga4?.sessions)} · 注册 {numberText(prior.data?.pages[0]?.ga4?.registrations)} · 搜索点击 {numberText(prior.data?.pages[0]?.gsc?.clicks)}</p>}{prior.data ? <><SeoAnalyticsStatus name="GA4 对比期" source={prior.data.ga4} /><SeoAnalyticsStatus name="GSC 对比期" source={prior.data.gsc} /></> : null}</> : null}
       </details>
+      {hasVariants ? <details className={styles.disclosure}><summary>原始 URL 来源（{sourceUrls.length}）</summary><p>章节锚点和跟踪参数合并为一页；访问量只计一次。Google 指标采用页面原始记录，不叠加章节曝光。</p><ul>{sourceUrls.map(url => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}</ul></details> : null}
       <details className={styles.disclosure}><summary>页面发现记录</summary>{selectedRow?.inventory ? <><p>{selectedRow.inventory.baseline ? "存量页面" : "新发现页面"} · 首次发现 {stamp(selectedRow.inventory.firstSeen)} · 最近发现 {stamp(selectedRow.inventory.lastSeen)}</p><p>首次发现日期可能晚于上线日期。</p><a href={selectedRow.inventory.sourceUrl} target="_blank" rel="noreferrer">查看 Sitemap 来源 ↗</a></> : <p>尚未在 Sitemap 清单中发现。</p>}</details>
       <details className={styles.disclosure}><summary>任务、修改与复盘记录</summary><WorkflowPageHistory pageUrl={selected} country={country} /></details>
     </> : <>

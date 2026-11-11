@@ -63,7 +63,8 @@ test("funnel response counts and abandonments come from provider, permissions fa
  let next=Response.json(report);t.mock.method(globalThis,"fetch",async url=>{assert.match(url,/:runFunnelReport$/);return next;});
  const value=await fetchGa4Journey(journeyQuery,"gpu");assert.equal(value.status,"ready");assert.equal(value.steps[0].abandonments,6);assert.equal(value.steps[0].completionRate,0.4);
  next=new Response("Forbidden",{status:403});const denied=await fetchGa4Journey(journeyQuery,"gpu");assert.equal(denied.status,"unavailable");assert.deepEqual(denied.steps,[]);assert.match(denied.reason,/403/);
- next=Response.json({...report,funnelTable:{...report.funnelTable,rows:[]}});assert.equal((await fetchGa4Journey(journeyQuery,"gpu")).status,"unavailable");
+ next=Response.json({...report,funnelTable:{...report.funnelTable,rows:[]}});assert.equal((await fetchGa4Journey(journeyQuery,"gpu")).reason,"no_matching_steps_in_selected_period");
+ next=Response.json({...report,funnelTable:{...report.funnelTable,rows:report.funnelTable.rows.map(row=>({...row,metricValues:row.metricValues.map(()=>({value:"0"}))}))}});assert.equal((await fetchGa4Journey(journeyQuery,"gpu")).reason,"no_matching_steps_in_selected_period");
 });
 test("engagement verifies standard duration independently of missing custom active-time metric",async t=>{
  process.env.SEO_GA4_ACCESS_TOKEN="fixture-only";

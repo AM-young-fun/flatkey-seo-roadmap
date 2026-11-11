@@ -128,6 +128,13 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
   };
   const indexedGa4 = gaPages.map(day => indexLandingRows(day.rows));
   const indexedGsc = gsPages.map(day => new Map(day.rows.map(row => [row.url, row])));
+  const gscSourceUrls = new Map<string, Set<string>>();
+  for (const day of gsPages) for (const row of day.rows) {
+    const key = pageKey(row.url);
+    if (!key) continue;
+    const variants = gscSourceUrls.get(key) ?? new Set<string>();
+    variants.add(row.url); gscSourceUrls.set(key, variants);
+  }
   const ga4Reports = urls.length ? gaPages.map(row => ({ ...row, complete: row.complete && row.rows.every(page => Boolean(page.hostname)) })) : site;
   const ga4SessionReports = urls.length ? gaPages.map(row => ({ ...row, complete: Boolean(row.sessionsComplete || row.complete) && row.rows.every(page => Boolean(page.hostname)) }))
     : site.map(row => ({ ...row, complete: row.sessions !== null }));
@@ -144,6 +151,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
       // A business query variant is not an independently observed GA4 landing path.
       const ga4 = path && !path.includes("?") ? indexedGa4.flatMap(index => index.get(path) ?? []) : [];
       const gsc = indexedGsc.flatMap(index => index.get(url) ?? []);
+      const sourceUrls = path ? [...(gscSourceUrls.get(path) ?? [])].sort() : [];
       const add = (name: "sessions" | "registrations") =>
         ga4.every(row => row[name] !== null) ? ga4.reduce((sum, row) => sum + row[name]!, 0) : null;
       const clicks = gsc.reduce((sum, row) => sum + row.clicks, 0);
@@ -151,6 +159,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
       const hasPosition = impressions > 0 && gsc.every(row => row.impressions === 0 || row.position !== null);
       return {
         url,
+        ...(sourceUrls.some(source => source !== url) ? { sourceUrls } : {}),
         ga4: ga4.length ? { sessions: add("sessions"), registrations: ga4.length === 1 ? ga4[0].registrations : null, days: ga4.length } : null,
         gsc: gsc.length ? { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : null,
           position: hasPosition ? gsc.reduce((sum, row) => sum + (row.position ?? 0) * row.impressions, 0) / impressions : null, days: gsc.length } : null,
@@ -168,7 +177,8 @@ export function observedPageUrls(observations: AnalyticsObservation[]) {
       if (path) urls.add(path);
     }
     if (day.kind === "gsc-pages") for (const row of day.rows) {
-      if (safeAnalyticsUrl(row.url)) urls.add(row.url);
+      const page = pageKey(row.url);
+      if (page) urls.add(page);
     }
   }
   return [...urls].sort();

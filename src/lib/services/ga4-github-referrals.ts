@@ -1,6 +1,23 @@
 import "server-only";
 import { getGoogleReadAccessToken } from "../google-read-auth";
-import { PROMPT_REPOSITORIES, githubReferralSchema } from "../seo-github-channel";
+import { PROMPT_REPOSITORIES, githubReferralSchema, githubChannelSchema, type GithubChannel } from "../seo-github-channel";
+
+/** Preserve the GitHub snapshot date; each Google observation has its own timestamp. */
+export async function enrichGithubReferrals(records: GithubChannel[], windows: { start: string; end: string }[], fetcher = fetchGithubReferrals): Promise<GithubChannel[]> {
+  const enriched: GithubChannel[] = [];
+  for (const repository of PROMPT_REPOSITORIES) {
+    const record = records.filter(row => row.repository === repository).sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+    if (!record) continue;
+    const referrals = [...record.referrals];
+    for (const range of windows) {
+      const referral = githubReferralSchema.parse(await fetcher(repository, range.start, range.end));
+      const index = referrals.findIndex(row => row.start === referral.start && row.end === referral.end);
+      if (index < 0) referrals.push(referral); else referrals[index] = referral;
+    }
+    enriched.push(githubChannelSchema.parse({ ...record, referrals: referrals.sort((a, b) => b.observedAt.localeCompare(a.observedAt)).slice(0, 8) }));
+  }
+  return enriched;
+}
 
 export async function fetchGithubReferrals(repository: typeof PROMPT_REPOSITORIES[number], start: string, requestedEnd: string, now = new Date()) {
   const timezone = "America/Los_Angeles" as const;
