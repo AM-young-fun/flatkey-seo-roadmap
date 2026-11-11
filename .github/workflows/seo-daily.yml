@@ -50,9 +50,35 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.report_only && format('seo-report-{0}-{1}', inputs.report_kind, inputs.report_date) || 'seo-production-daily' }}
+  group: ${{ github.ref == 'refs/heads/codex/ga4-registration-cohorts-20261111' && 'seo-cohort-contract-probe' || inputs.report_only && format('seo-report-{0}-{1}', inputs.report_kind, inputs.report_date) || 'seo-production-daily' }}
   cancel-in-progress: false
 jobs:
+  cohort-probe:
+    # This exact branch is a diagnostic-only exception, never a collector/import
+    # or notification path. Existing inputs keep workflow_dispatch below 10.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/ga4-registration-cohorts-20261111' && inputs.business_only == true && inputs.send_notifications == false && !inputs.report_only && !inputs.periods_only && !inputs.verify_dingtalk && !inputs.send_report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verify the GA4 cohort query contract without importing
+        env:
+          SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GA4_COHORT_PROBE_OUTPUT_DIR: ${{ runner.temp }}/ga4-cohort-probe
+        run: node scripts/ga4-cohort-probe.cjs
+      - name: Archive diagnostic aggregate evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga4-cohort-contract-probe
+          path: ${{ runner.temp }}/ga4-cohort-probe
+          if-no-files-found: error
+          retention-days: 14
   collect:
     if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main' && !inputs.verify_dingtalk && !inputs.report_only
     runs-on: ubuntu-latest
@@ -103,6 +129,8 @@ jobs:
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # Set only after the full production event/identity rollout is verified.
+          GA4_COHORT_COVERAGE_START: ${{ vars.GA4_COHORT_COVERAGE_START }}
         run: node scripts/server-seo-business.cjs --import
       - name: Enforce collection health
         if: always()

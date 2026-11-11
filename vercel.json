@@ -1,4 +1,10 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "main": false,
+      "codex/ga4-registration-cohorts-20261111": false
+    }
+  },
   "regions": ["sin1"],
   "crons": [
     { "path": "/api/cron/daily-rankings", "schedule": "*/5 * * * *" }
