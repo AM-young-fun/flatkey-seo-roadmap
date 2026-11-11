@@ -49,4 +49,13 @@ Router deploy: not required。本分支只涉及 SEO 平台 UI / 数据查询 / 
 
 四份响应都没有 rows，且 metricHeaders 中 activeUsers 等四指标重复两组，原始响应 hash 相同 `e8e1aae79c649f4c96eec885b737af5a13c954ad55eab1a5a4ba2ac7de19b152`。这不能证明有数时的列布局，也不能当成 0 人或 0%。实际空形状已纳入契约 fixture；parser 继续返回 unavailable/null，不猜测取第一组重复列。
 
-下一步由独立诊断任务仅执行正式域名 page_view → page_view 的非业务形状探测；该探测不导入、不开启 coverage、不代表 API 注册转化率。必须取得真实非空回执并核对列布局后，才能称有数解析路径已验收。
+后续独立诊断仅执行正式域名 page_view → page_view 的非业务形状探测；该探测不导入、不开启 coverage、不代表 API 注册转化率。结果见下。
+
+
+[非业务形状探测 run 43012602560](https://github.com/AM-young-fun/flatkey-seo-roadmap/actions/runs/43012602560) 已取得真实非空响应（原始响应 hash `219af2a3fe66105047737bfd13aa8d0b04bb22948a925fded39e8807e3221691`）：table 的 4 指标头完整重复两遍，但每行只有 4 个值；visualization 的 activeUsers 头重复两遍，但每行仅 1 个值。两部分相同步骤的人数均为 **7627 / 1442**。这些是 page_view 诊断人数，不是注册、首次使用或付费人数，不能用于业务转化率。
+
+解析器现在仅兼容这个实证布局：完整规范重复头、单组行宽、两部分均有准确的两个步骤、相同人数且无抽样/质量缺口时，才消除重复头。8 个行值、列头不完全重复、两部分人数或步骤不符、缺 visualization 均拒绝。规范的单组头仍按明确列名处理，缺数仍为空值。
+
+真实 fixture 保留原 page-view 步骤名称，以纯 `extractClosedFunnelUsers` 重放验证 7627/1442；直接交给固定 Registration/Outcome 的业务 wrapper 必须拒绝。另一个明确标为 synthetic 的测试才验证 canonical 步骤接入与成熟门控。**当前已验收请求契约与真实非空结构解析；API 成熟业务 cohort 本身仍待生产全节点覆盖确认、用户发布和完整观察时间，不能宣称已有真实成熟率。**
+
+为补齐两个响应部分，先前形状任务 43012471705 在 npm ci 阶段取消，GA4 step 确认 skipped；随后只执行上述一次形状查询，没有导入或群发。

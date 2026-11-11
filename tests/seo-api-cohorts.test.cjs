@@ -5,7 +5,7 @@ Module._load = function(name, ...rest) { return name === "server-only" ? {} : lo
 require.extensions[".ts"] = require.extensions[".tsx"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, jsx: ts.JsxEmit.ReactJSX } }).outputText, file);
 require.extensions[".css"] = module => { module.exports = new Proxy({}, { get: (_, key) => String(key) }); };
 const { planApiCohort, cohortMidnight, cohortObservationEnd, cohortCoverageStart, matureCohortWindows, cohortKinds, apiCohortSchema } = require("../src/lib/seo-api-cohorts.ts");
-const { apiCohortRequest, parseApiCohortResponse, fetchGa4ApiCohorts } = require("../src/lib/services/ga4-api-cohorts.ts");
+const { apiCohortRequest, parseApiCohortResponse, fetchGa4ApiCohorts, extractClosedFunnelUsers } = require("../src/lib/services/ga4-api-cohorts.ts");
 const { businessAnalyticsSchema, latestBusinessPeriod, recentMatureCohortPeriods } = require("../src/lib/seo-business-analytics.ts");
 const query = { start:"2026-10-01", end:"2026-10-07", country:"JP", scope:"session-organic-search" };
 const now = new Date("2026-11-10T20:00:00Z"), coverage = "2026-10-01T07:00:00Z";
@@ -176,4 +176,43 @@ test("actual 2026-11-11 business probe shape: HTTP200 and repeated metric header
     const result=parseApiCohortResponse(plan,provider);assert.equal(result.status,"unavailable");
     assert.equal(result.registeredUsers,null);assert.equal(result.convertedUsers,null);assert.equal(result.rate,null);
   }
+});
+
+
+const liveShape=require("./fixtures/ga4-page-view-shape-20261111.json");
+function replayLiveShape() {
+  const table=shape=>({dimensionHeaders:shape.dimensionHeaders.map(name=>({name})),metricHeaders:shape.metricHeaders.map((name,i)=>({name,type:shape.metricTypes[i]})),rows:shape.rows.map(row=>({dimensionValues:[{value:row.step}],metricValues:row.values.map(value=>({value}))}))});
+  return {funnelTable:table(liveShape.table),funnelVisualization:table(liveShape.visualization)};
+}
+test("actual nonempty provider replay validates 7627/1442 page-view users without relabeling them as a registration cohort",()=>{
+  assert.equal(liveShape.provenance.workflowRunId,"43012602560");assert.equal(liveShape.provenance.responseSha256,"219af2a3fe66105047737bfd13aa8d0b04bb22948a925fded39e8807e3221691");
+  const result=extractClosedFunnelUsers(replayLiveShape(),liveShape.provenance.stepNames);
+  assert.deepEqual(result,{status:"ready",users:[7627,1442]});assert.equal("rate" in result,false);
+  const business=parseApiCohortResponse(plans()[0],replayLiveShape());assert.equal(business.status,"unavailable");assert.equal(business.rate,null);
+});
+test("duplicate headers are accepted only for the exact observed single-group width with matching independent visualization",()=>{
+  const mutations=[
+    raw=>{raw.funnelTable.rows.forEach(row=>row.metricValues.push(...row.metricValues));},
+    raw=>{raw.funnelTable.metricHeaders[7].name="differentMetric";},
+    raw=>{raw.funnelTable.metricHeaders[4].type="TYPE_FLOAT";},
+    raw=>{delete raw.funnelVisualization;},
+    raw=>{raw.funnelVisualization.metricHeaders.pop();},
+    raw=>{raw.funnelVisualization.rows[0].metricValues[0].value="7628";},
+    raw=>{raw.funnelVisualization.rows[1].dimensionValues[0].value="Different outcome";},
+    raw=>{raw.funnelVisualization.rows[0].metricValues.push({value:"7627"});},
+    raw=>{raw.funnelVisualization.rows.pop();},
+    raw=>{raw.funnelTable.rows[1].dimensionValues[0].value=raw.funnelTable.rows[0].dimensionValues[0].value;},
+    raw=>{raw.funnelTable.rows[0].metricValues.pop();},
+    raw=>{raw.funnelTable.dimensionHeaders.push({name:"countryId"});},
+    raw=>{raw.funnelTable.rows[0].metricValues[0].value="7627.5";},
+  ];
+  for(const mutate of mutations) { const raw=replayLiveShape();mutate(raw);const result=extractClosedFunnelUsers(raw,liveShape.provenance.stepNames);assert.equal(result.status,"unavailable");assert.equal("users" in result,false); }
+  const sampled=replayLiveShape();sampled.funnelVisualization.metadata={samplingMetadatas:[{samplesReadCount:"10",samplingSpaceSize:"100"}]};assert.equal(extractClosedFunnelUsers(sampled,liveShape.provenance.stepNames).status,"partial");
+});
+test("synthetic canonical-label contract uses the verified header normalization inside the unchanged business maturity gate",()=>{
+  // Deliberately synthetic labels: the original real page-view labels above are
+  // preserved and must be rejected by the business wrapper.
+  const raw=replayLiveShape();for(const table of [raw.funnelTable,raw.funnelVisualization]) table.rows.forEach((row,i)=>{row.dimensionValues[0].value=i?"2. Outcome":"1. Registration";});
+  const row=parseApiCohortResponse(plans()[0],raw);assert.equal(row.status,"ready");assert.equal(row.registeredUsers,7627);assert.equal(row.convertedUsers,1442);assert.equal(row.rate,1442/7627);
+  assert.throws(()=>parseApiCohortResponse(planApiCohort(query,cohortKinds[0],now,""),raw));
 });

@@ -1,0 +1,97 @@
+{
+  "provenance": {
+    "workflowRunId": "43012602560",
+    "observedAt": "2026-11-11T11:32:11.497Z",
+    "propertyId": "541304395",
+    "httpStatus": 200,
+    "responseSha256": "219af2a3fe66105047737bfd13aa8d0b04bb22948a925fded39e8807e3221691",
+    "diagnosticMode": "page-view-shape",
+    "query": {
+      "start": "2026-11-02",
+      "end": "2026-11-08",
+      "country": "all",
+      "scope": "all-channels"
+    },
+    "stepNames": [
+      "Page-view diagnostic start",
+      "Page-view diagnostic outcome"
+    ],
+    "note": "Exact sanitized aggregate shapes from live page_view -> page_view. The labels and counts are unmodified. This is not an API registration cohort or a business conversion rate."
+  },
+  "table": {
+    "dimensionHeaders": [
+      "funnelStepName"
+    ],
+    "metricHeaders": [
+      "activeUsers",
+      "funnelStepCompletionRate",
+      "funnelStepAbandonments",
+      "funnelStepAbandonmentRate",
+      "activeUsers",
+      "funnelStepCompletionRate",
+      "funnelStepAbandonments",
+      "funnelStepAbandonmentRate"
+    ],
+    "metricTypes": [
+      "TYPE_INTEGER",
+      "TYPE_INTEGER",
+      "TYPE_INTEGER",
+      "TYPE_INTEGER",
+      "TYPE_INTEGER",
+      "TYPE_INTEGER",
+      "TYPE_INTEGER",
+      "TYPE_INTEGER"
+    ],
+    "returnedRows": 2,
+    "rows": [
+      {
+        "step": "1. Page-view diagnostic start",
+        "values": [
+          "7627",
+          "0.18906516323587255",
+          "6185",
+          "0.81093483676412748"
+        ]
+      },
+      {
+        "step": "2. Page-view diagnostic outcome",
+        "values": [
+          "1442",
+          "1",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "samplingPresent": false
+  },
+  "visualization": {
+    "dimensionHeaders": [
+      "funnelStepName"
+    ],
+    "metricHeaders": [
+      "activeUsers",
+      "activeUsers"
+    ],
+    "metricTypes": [
+      "TYPE_INTEGER",
+      "TYPE_INTEGER"
+    ],
+    "returnedRows": 2,
+    "rows": [
+      {
+        "step": "1. Page-view diagnostic start",
+        "values": [
+          "7627"
+        ]
+      },
+      {
+        "step": "2. Page-view diagnostic outcome",
+        "values": [
+          "1442"
+        ]
+      }
+    ],
+    "samplingPresent": false
+  }
+}
