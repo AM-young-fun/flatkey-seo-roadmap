@@ -7,6 +7,7 @@ import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
+import { OVERVIEW_PAGE_MODULES, type OverviewPageModule } from "@/lib/seo-overview-scope";
 
 const trendResults = new Map<string, MultiRegionTrendResult>();
 const SERIES = "进入前 100 的关键词";
@@ -23,9 +24,10 @@ function isTrendResult(data: MultiRegionTrendResult) {
       (market.status === "ERROR" && market.points === null || market.status === "READY" && Array.isArray(market.points))));
 }
 
-export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}) {
+export function RankingTrend({region = "all", module = "all"}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule}) {
   const [range, setRange] = useState(() => serpTrendRange());
-  const key = `serp-markets-v5:${dashboardStore.revision()}:${range.start}:${range.end}`;
+  const key = `serp-markets-v5:current-target-modules-v1:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
+  const moduleLabel = OVERVIEW_PAGE_MODULES.find(([value]) => value === module)?.[1];
   const [result, setResult] = useState<(MultiRegionTrendResult & { key: string }) | null>(() => {
     const saved = trendResults.get(key);
     return saved ? { ...saved, key } : null;
@@ -49,7 +51,7 @@ export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}
       if (!saved || completed || controller.signal.aborted) return;
       try {
         const data = JSON.parse(saved.body) as MultiRegionTrendResult;
-        if (isTrendResult(data) && data.start === range.start && data.end === range.end)
+        if (isTrendResult(data) && data.start === range.start && data.end === range.end && data.moduleScope?.module === module)
           setResult(previous => previous?.key === key ? previous : { ...data, key });
       } catch { /* Ignore malformed cache data. */ }
     });
@@ -58,11 +60,11 @@ export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}
       busy = true;
       setRange(previous => { const next = serpTrendRange(); return next.start === previous.start && next.end === previous.end ? previous : next; });
       try {
-        const url = `/api/views?view=trends&start=${range.start}&end=${range.end}${forceNext ? "&refresh=1" : ""}`;
+        const url = `/api/views?view=trends&start=${range.start}&end=${range.end}&module=${module}${forceNext ? "&refresh=1" : ""}`;
         const data = await clientReadCache.read<MultiRegionTrendResult>(url, forceNext);
         forceNext = false;
         if ((data as MultiRegionTrendResult & {displaySnapshot?:{pending?:boolean}}).displaySnapshot?.pending) pendingTimer=setTimeout(()=>{forceNext=true;void read();},5000);
-        if (!isTrendResult(data)) throw new Error("统计口径已更新，请重新加载");
+        if (!isTrendResult(data) || data.moduleScope?.module !== module) throw new Error("统计口径已更新，请重新加载");
         if (!controller.signal.aborted) {
           trendResults.set(key, data);
           if (trendResults.size > 16) trendResults.delete(trendResults.keys().next().value!);
@@ -82,7 +84,7 @@ export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}
     window.addEventListener("focus", read);
     window.addEventListener("seo-rankings-updated", onUpdated);
     return () => { controller.abort(); clearTimeout(pendingTimer); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); window.removeEventListener("seo-rankings-updated", onUpdated); };
-  }, [key, range.start, range.end, version]);
+  }, [key, range.start, range.end, version, module]);
   useEffect(() => {
     if (!element.current || !hasPoints) return;
     const target = element.current;
@@ -116,7 +118,8 @@ export function RankingTrend({region = "all"}:{region?:"all" | SearchRegionCode}
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [validPoints, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>上榜关键词数趋势</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · 按排名采集期统计进入前 100 的词</p></div></div>
+    <div className="dailyHeading"><div><h2>上榜关键词数趋势</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · {moduleLabel} · 按排名采集期统计进入前 100 的词</p></div></div>
+    {module !== "all" ? <p className="chartNote">按当前登记目标页筛选历史实测；不代表当时的模块归属。</p> : null}
     {latest ? <>
       <p className="inventoryTrendTotal">{latest.periodLabel ?? latest.date} · 进入前 100 <strong>{latest.ranked.toLocaleString()}</strong> 词</p>
       <p className="chartNote">实际采集：{captureTime(latest)} · 本期已查 {captured(latest).toLocaleString()} / {latest.total.toLocaleString()} 词</p>

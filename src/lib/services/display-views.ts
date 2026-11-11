@@ -11,8 +11,10 @@ import { loadKeywordOkr } from "./keyword-okr";
 import { loadOptimizedPageMonitor } from "./optimized-page-monitor";
 import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
+import { overviewModule } from "@/lib/seo-overview-scope";
 const trafficDisplayVersion = "organic-search-weekly-v6";
 const dashboardDisplayVersion = "keyword-market-demand-targets-v3";
+const trendsDisplayVersion = "current-target-modules-v1";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";
@@ -45,7 +47,8 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   }
   if (view === "trends") {
     const range = serpTrendRange(params.get("start") ?? undefined,params.get("end") ?? undefined,new Date());
-    return {key:`display-v1:trends:${site}:${range.start}:${range.end}`,build:async () => ({value:await buildDisplayTrends(site,range)})};
+    const module = overviewModule(params.get("module"));
+    return {key:`display-v1:trends:${site}:${range.start}:${range.end}:${module}:${trendsDisplayVersion}`,build:async () => ({value:await buildDisplayTrends(site,range,new Date(),module)})};
   }
   throw new Error("页面类型无效");
 }
@@ -56,6 +59,7 @@ export async function refreshDisplayViews(deadline = Date.now()+50_000) {
   const rows = await prisma.$queryRaw<Array<{key:string}>>`SELECT key FROM "DisplaySnapshot" WHERE key LIKE 'display-v1:%'
     AND (key NOT LIKE 'display-v1:dashboard:%' OR key LIKE ${`display-v1:dashboard:%:${dashboardDisplayVersion}`})
     AND (key NOT LIKE 'display-v1:traffic:%' OR key LIKE ${`display-v1:traffic:%:${trafficDisplayVersion}`})
+    AND (key NOT LIKE 'display-v1:trends:%' OR key LIKE ${`display-v1:trends:%:${trendsDisplayVersion}`})
     AND (body IS NULL OR revision > "builtRevision") ORDER BY "builtAt" NULLS FIRST LIMIT 20`;
   const specs = new Map(defaults.map(spec => [spec.key,spec]));
   for (const {key} of rows) {
@@ -64,7 +68,7 @@ export async function refreshDisplayViews(deadline = Date.now()+50_000) {
       const params = new URLSearchParams({view:parts[1]});
       if (parts[1] === "dashboard") {params.set("site",parts[2]);params.set("includeResearch",parts[3]);}
       else if(parts[1] === "traffic") params.set("week",parts[2]);
-      else if(parts[1] === "trends") {params.set("site",parts[2]);params.set("start",parts[3]);params.set("end",parts[4]);}
+      else if(parts[1] === "trends") {params.set("site",parts[2]);params.set("start",parts[3]);params.set("end",parts[4]);params.set("module",parts[5] ?? "all");}
       const spec = displayViewSpec(params); if(spec.key === key) specs.set(key,spec);
     } catch { /* Obsolete keys do not block active views. */ }
   }

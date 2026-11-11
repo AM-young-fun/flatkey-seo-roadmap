@@ -3,6 +3,7 @@ import { buildRankingEvidence, latestQueryEvidence, type RankingObservationRow }
 import { REGION_CODES, type SearchRegionCode } from "./seo";
 import { aggregateSerpRegionResults, buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpKeywordResult, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "./serp-results";
 import type { SerpTarget } from "./serp-targets";
+import { overviewPageModule, type OverviewPageModule } from "./seo-overview-scope";
 
 export const EARLIEST_TREND_DATE = "2026-10-08";
 
@@ -42,9 +43,28 @@ export type TrendPoint = {
   notFoundCaptured?: number;
   queryChanged?: number;
 };
-export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string };
+export type TrendModuleScope = { module: OverviewPageModule; basis: "current-registered-target-pages" };
+export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope };
 export type MarketTrend = { region: SearchRegionCode; status: "READY" | "ERROR"; points: TrendPoint[] | null };
-export type MultiRegionTrendResult = { schemaVersion: 5; mode: "serp-markets"; points: TrendPoint[] | null; markets: MarketTrend[]; start: string; end: string; snapshot: null; asOf: string };
+export type MultiRegionTrendResult = { schemaVersion: 5; mode: "serp-markets"; points: TrendPoint[] | null; markets: MarketTrend[]; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope };
+export type TrendModuleTarget = Pick<SerpTarget, "siteDomain" | "keywordId"> & { targetUrls?: string[] };
+
+/** Current registered target pages classify saved members; captured result URLs never do. */
+export function trendModuleTargets<T extends TrendModuleTarget>(targets: T[], module: OverviewPageModule, currentTargets: TrendModuleTarget[] = targets): T[] {
+  if (module === "all") return targets;
+  const assignments = new Map(currentTargets.map(target => [`${target.siteDomain}:${target.keywordId}`, new Set((target.targetUrls ?? []).flatMap(url => {
+    const value = overviewPageModule(url);
+    return value ? [value] : [];
+  }))]));
+  return targets.filter(target => {
+    const modules = assignments.get(`${target.siteDomain}:${target.keywordId}`);
+    return module === "unknown" ? !modules?.size : modules?.has(module) === true;
+  });
+}
+
+export function scopeTrendCohorts(cohorts: SerpTrendCohort[], currentTargets: TrendModuleTarget[], module: OverviewPageModule): SerpTrendCohort[] {
+  return module === "all" ? cohorts : cohorts.map(cohort => ({ ...cohort, targets: trendModuleTargets(cohort.targets, module, currentTargets) }));
+}
 export function multiRegionTrendPeriods(markets: MarketTrend[]) {
   const periods = new Map<string, { key: string; label: string; points: Partial<Record<SearchRegionCode, TrendPoint>> }>();
   for (const market of markets) {
@@ -67,7 +87,7 @@ export function multiRegionTrendResult(markets: MarketTrend[], range: { start: s
 }
 export type TrendKeyword = {
   keywordId: string; text: string; siteDomain: string; active: boolean; keywordActive: boolean;
-  siteActive: boolean; topicId: string | null; pool: string;
+  siteActive: boolean; topicId: string | null; pool: string; targetUrls?: string[];
 };
 
 export function eligibleTrendKeywords(rows: TrendKeyword[]): TrendKeyword[] {

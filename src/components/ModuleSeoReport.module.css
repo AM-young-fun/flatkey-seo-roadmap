@@ -1,0 +1,7 @@
+.report .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.report .metrics article { padding: 12px 10px; }
+.report .metrics article + article { border-left: 1px solid #e5e9f0; }
+.report .metrics article:first-child { border-right: 0; }
+.report .heading { flex-wrap: wrap; }
+.report .switcher { max-width: 100%; height: auto; min-height: 34px; flex-wrap: wrap; }
+.report .switcher button { padding: 6px 8px; }

@@ -56,9 +56,10 @@ test("pending review deduplicates a multi-page ticket and its task and separates
   approvalTask(submitted,{kind:"blog"}), independent, independent, approvalTask(draft),
  ])});
  assert.deepEqual(result.approvalQueue,{tickets:1,pages:2});
- assert.match(result.text,/待审核 2 项（1 张审批单，2 个页面版本） · 待补材料 1 项/);
+ assert.match(result.text,/待审核 2 项（1 张审批单，2 个页面版本） · 待补材料 0 项/);
  assert.match(result.text,/1 项独立任务待审核.*独立研究任务/);
- assert.match(result.text,/newApproval=1&taskId=draft%3Atask\) · 缺少当前版本的有效审批单/);
+ assert.match(result.text,/未提交草稿 1 张，关联 1 项任务 \/ 1 个页面版本，其中 0 项任务待补材料/);
+ assert.doesNotMatch(result.text,/newApproval=1&taskId=draft%3Atask/);
 });
 test("the review headline counts tasks separately from tickets and page versions", () => {
  const batch = approval("batch");
@@ -211,4 +212,16 @@ test("late historical import is reported next window without becoming newly publ
  const after=buildSeoDigest({...base("2026-11-11"),historicalImports:[archive]});
  assert.doesNotMatch(before.text,/历史交付归档/); assert.match(after.text,/历史交付归档（不计入当期新增）/);
  assert.equal(after.counts.originals,0); assert.equal(after.counts.translations,0); assert.match(after.text,/262 项待补证据/);
+});
+
+test("draft page versions and submitted missing materials deduplicate by task across tickets",()=>{
+ const pending=approval("submitted-shared"),task=approvalTask(pending,{kind:"technical",pageUrl:null,status:"drafting"});
+ pending.items[0].previewUrl=null;
+ const items=Array.from({length:219},(_,i)=>({...pending.items[0],id:"draft-page-"+i,pageUrl:"https://flatkey.ai/page-"+i}));
+ const drafts=[approval("draft-shared-1",{status:"draft",submittedRecordedAt:null,items}),approval("draft-shared-2",{status:"draft",submittedRecordedAt:null,items:[{...items[0],id:"extra",pageUrl:"https://flatkey.ai/extra"}]})];
+ const future=approval("future-draft",{status:"draft",submittedRecordedAt:null,recordedAt:"2027-01-01T00:00:00Z"});
+ const result=buildSeoDigest({...base(),notificationCompact:true,...workflow([pending,...drafts,future],[task,approvalTask(future,{status:"drafting"})])});
+ assert.match(result.text,/待审核 1 项（1 张审批单，1 个页面版本） · 待补材料 1 项/);
+ assert.match(result.text,/未提交草稿 2 张，关联 1 项任务 \/ 220 个页面版本，其中 1 项任务待补材料/);
+ assert.doesNotMatch(result.text,/220 项任务/);
 });

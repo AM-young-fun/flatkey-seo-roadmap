@@ -157,7 +157,9 @@ function reviewScreenshot(evidence: WorkflowApproval["evidence"] | undefined) {
 
 function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>, now: Date) {
   const tasks = new Map(workflow.tasks.map(task => [task.id, task]));
-  const approvals = [...new Map(workflow.approvals.map(approval => [approval.id, approval])).values()]
+  const allApprovals = [...new Map(workflow.approvals.map(approval => [approval.id, approval])).values()]
+    .filter(approval => !approval.recordedAt || Date.parse(approval.recordedAt) <= now.getTime());
+  const approvals = allApprovals
     .filter(approval => approval.submittedRecordedAt && Date.parse(approval.submittedRecordedAt) <= now.getTime());
   const livePages = [
     ...workflow.publications.filter(page => page.status === "published" || page.status === "verified"),
@@ -174,6 +176,8 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   const tasksMissingMaterials = new Set<string>();
   const decidedTasks = new Set<string>();
   const revisions = new Map<string, string>();
+  const draftTasks = new Set<string>(), draftTickets = new Set<string>(), draftMaterials = new Set<string>();
+  let draftPages = 0;
 
   for (const approval of approvals) {
     for (const item of approval.items) {
@@ -204,6 +208,21 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
     }
   }
 
+  // Unsubmitted drafts are work in progress, separate from the submitted review queue.
+  // Count each associated task once even when a shared code change covers hundreds of URLs.
+  for (const approval of allApprovals.filter(row => row.status === "draft")) {
+    for (const item of approval.items) {
+      const task = tasks.get(item.taskId);
+      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind)) continue;
+      const translation = task.kind === "blog" && item.language !== task.language;
+      if (!translation && item.contentVersion !== task.contentVersion) continue;
+      draftTasks.add(task.id); draftTickets.add(approval.id); draftPages++;
+      if (!approvalReviewReadiness(item).ready || !item.changeSummary?.trim()) {
+        draftMaterials.add(task.id); tasksMissingMaterials.add(task.id);
+      }
+    }
+  }
+
   const standalone = [];
   const materials = [];
   for (const task of tasks.values()) {
@@ -212,7 +231,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
     if (pageApprovalKinds.has(task.kind)) {
       const revision = revisions.get(task.id);
       if (revision) materials.push({ id: task.id, title: task.title, url: approvalUrl(revision), reason: "需按审批意见修改或补充材料" });
-      else if (!pendingTasks.has(task.id) && !decidedTasks.has(task.id)) materials.push({
+      else if (!pendingTasks.has(task.id) && !decidedTasks.has(task.id) && !draftTasks.has(task.id)) materials.push({
         id: task.id, title: task.title, url: `${approvalsUrl}?newApproval=1&taskId=${encodeURIComponent(task.id)}`, reason: "缺少当前版本的有效审批单",
       });
     } else if (task.evidence.length) {
@@ -225,7 +244,8 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   pages.sort((a, b) => (a.approval.submittedRecordedAt ?? "").localeCompare(b.approval.submittedRecordedAt ?? "") || a.item.id.localeCompare(b.item.id));
   const tickets = new Set(pages.map(row => row.approval.id)).size;
   for (const task of materials) tasksMissingMaterials.add(task.id);
-  return { pages, tickets, tasks: pendingTasks.size + standalone.length, standalone, materials, materialCount: tasksMissingMaterials.size };
+  return { pages, tickets, tasks: pendingTasks.size + standalone.length, standalone, materials, materialCount: tasksMissingMaterials.size,
+    draftTickets: draftTickets.size, draftTasks: draftTasks.size, draftPages, draftMaterialCount: draftMaterials.size };
 }
 
 export function buildSeoDigest(input: DigestInput) {
@@ -241,6 +261,7 @@ export function buildSeoDigest(input: DigestInput) {
   const title = `Flatkey SEO ${window.kind === "weekly" ? "周报" : "日报"}｜${input.date}`;
   const lines = [title, "", `工作统计：${window.workStart.slice(0, 16).replace("T", " ")} — ${window.workEnd.slice(0, 16).replace("T", " ")}（北京时间，结束时刻不含）；确认截止 ${now.toISOString()}。`, "",
     `${review ? `待审核 ${review.tasks} 项（${review.tickets} 张审批单，${review.pages.length} 个页面版本） · 待补材料 ${review.materialCount} 项` : "待审核 待更新 · 待补材料 待更新"} · ${link("SEO 平台审批", approvalsUrl)}`, "",
+    ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
     `新增博客 ${input.publicationCoverage === "missing" ? "待核实" : originals.length + " 篇"}；新内容上线语言页 ${input.publicationCoverage === "missing" ? "待核实" : `${originals.length + translations.length}（其中译文 ${translations.length}）`}；旧文补译 ${input.publicationCoverage === "missing" ? "待核实" : backfills.length}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
     `落地页/工具页 ${input.publicationCoverage === "missing" ? "待核实" : landingPages.length}，集群交付 ${input.publicationCoverage === "missing" ? "待核实" : clusterPages.length}（仅统计已上线验收）。`,
     `${window.kind === "weekly" ? "本周" : "今日"}优化 ${input.optimizationCoverage === "missing" ? "待核实" : optimizations.length + " 个页面"}${input.optimizationCoverage === "partial" ? "（台账覆盖不全）" : ""}。`];

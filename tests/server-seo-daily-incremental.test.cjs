@@ -1,11 +1,12 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
 const collector=fs.readFileSync(path.join(__dirname,"../scripts/server-seo-daily.cjs"),"utf8");
+const {collectionReceipt}=require("../scripts/server-seo-receipt.cjs");
 const shift=(day,n)=>new Date(Date.parse(day+"T00:00:00Z")+n*86400000).toISOString().slice(0,10);
 const dates=range=>Array.from({length:(Date.parse(range.end)-Date.parse(range.start))/86400000+1},(_,i)=>shift(range.start,i));
 const cluster={domain:"rackrate.org",ga4:"558899190",gsc:"https://rackrate.org/",ga4TimeZone:"Asia/Shanghai"};
 const stamp="2026-11-11T02:30:00.000Z";
 async function exercise(options={}){
- const requests=[],google=[],logs=[],snapshots=[],store=new Map(),readbacks=[],posted=[];
+ const requests=[],google=[],logs=[],snapshots=[],store=new Map(),readbacks=[],posted=[],receipts=[];
  let active=0,maximum=0,failedPost=false,failedRead=false,failedQuery=false;
  const kindFor=r=>[r.kind,r.country,r.property===cluster.ga4||r.property===cluster.gsc?cluster.domain:null].filter(Boolean).join(":");
  const key=r=>kindFor(r)+":"+r.date;
@@ -19,6 +20,8 @@ async function exercise(options={}){
  const context=vm.createContext({
   process:{env:{SEO_IMPORT_TOKEN:"test",SEO_GOOGLE_SERVICE_ACCOUNT_JSON:"test",SEO_COLLECTION_RESULT:"ignored",...(options.window!==undefined?{SEO_COLLECTION_LOOKBACK_DAYS:options.window}:{})}},
   fs:{writeFileSync:(_file,value)=>snapshots.push(JSON.parse(value))},CLUSTER_SITES:[cluster],
+  collectionStartedAt:stamp,receiptAttempted:false,
+  saveCollectionReceipt:async input=>receipts.push(collectionReceipt({...input,runId:"123",attempt:"1",sha:"a".repeat(40)})),
   propertyToday:timezone=>timezone==="Asia/Shanghai"?"2026-11-11":"2026-11-10",shiftDay:shift,
   analyticsObservationSchema:{parse:x=>x},analyticsStorageKind:(kind,country,site)=>[kind,country,site].filter(Boolean).join(":"),
   clusterDomainForProperty:p=>p===cluster.ga4||p===cluster.gsc?cluster.domain:undefined,
@@ -53,10 +56,11 @@ async function exercise(options={}){
  const source=collector.slice(collector.indexOf("const endpoint ="));
  vm.runInContext(source.slice(0,source.lastIndexOf("run().catch"))+"globalThis.done=run();",context);
  try{await context.done}catch(e){error=e}
- return{requests,google,logs,snapshots,store,posted,readbacks,maximum,active,error,exitCode:context.process.exitCode,old};
+ return{requests,google,logs,snapshots,store,posted,readbacks,maximum,active,error,exitCode:context.process.exitCode,old,receipts};
 }
 test("default fourteen ended days respect each property timezone and preserve historical rows",async()=>{
  const r=await exercise();assert.equal(r.error,undefined);assert.equal(r.exitCode,undefined);assert.equal(r.snapshots[0].lookbackDays,14);
+ assert.equal(r.receipts.length,1);assert.equal(r.receipts[0].record.status,"partial");assert.match(r.receipts[0].record.failureReason,/指标覆盖限制/);
  const main=r.google.find(x=>x.source==="GA4"&&x.site==="flatkey.ai"),rack=r.google.find(x=>x.source==="GA4"&&x.site===cluster.domain);
  assert.deepEqual(main.range,{start:"2026-10-27",end:"2026-11-09"});assert.deepEqual(rack.range,{start:"2026-10-28",end:"2026-11-10"});
  assert.ok(r.posted.every(x=>x.date>=main.range.start&&x.date<"2026-11-11"));assert.equal(r.store.get("ga4-site:2025-01-01"),r.old);

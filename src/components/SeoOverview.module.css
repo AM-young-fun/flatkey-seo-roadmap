@@ -17,6 +17,9 @@
   line-height: 1.35;
 }
 
+.scopeHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.scopeHeading :global(.uiSelect) { min-width: 180px; }
+
 .trends {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

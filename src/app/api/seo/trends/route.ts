@@ -1,12 +1,13 @@
-import { buildDisplayTrends } from "@/lib/services/display-trends";
+import { buildDisplayTrends, loadModuleTrendCohorts } from "@/lib/services/display-trends";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseErrorCode, retryDatabaseRead } from "@/lib/database-read";
 import { REGION_CODES, type SearchRegionCode } from "@/lib/seo";
-import { eligibleTrendKeywords, labsSnapshotTrendPoints, recentTrendRange, serpCheckTrendPoints, serpTrendRange, trendRange, type TrendKeyword, type TrendResult, type MultiRegionTrendResult } from "@/lib/ranking-trends";
+import { eligibleTrendKeywords, labsSnapshotTrendPoints, recentTrendRange, serpCheckTrendPoints, serpTrendRange, trendModuleTargets, trendRange, type TrendKeyword, type TrendResult, type MultiRegionTrendResult } from "@/lib/ranking-trends";
 import type { RankingObservationRow } from "@/lib/ranking-evidence";
 import { loadSerpTasks, loadSerpTrendCohorts } from "@/lib/services/serp-results";
+import { overviewModule } from "@/lib/seo-overview-scope";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -22,6 +23,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "网站或来源无效" }, { status: 400 });
   if (region === "all" && source !== "dataforseo_serp") return NextResponse.json({ message: "四国趋势仅支持SERP实测" }, { status: 400 });
   const now = new Date();
+  const module = overviewModule(params.get("module"));
+  const moduleScope = { module, basis: "current-registered-target-pages" as const };
   let range: ReturnType<typeof trendRange>;
   try {
     if (source === "dataforseo_serp") range = serpTrendRange(params.get("start") ?? undefined, params.get("end") ?? undefined, now);
@@ -30,30 +33,30 @@ export async function GET(request: Request) {
       range = trendRange(params.get("start") ?? recent.start, params.get("end") ?? recent.end, now);
     }
   } catch { return NextResponse.json({ message: "日期范围无效，最早为 2026-10-08，最晚为今天" }, { status: 400 }); }
-  const key = `${source}:${region === "all" ? "markets-v5" : "checks-v4"}:${site}:${region}:${range.start}:${range.end}`;
+  const key = `${source}:${region === "all" ? "markets-v5" : "checks-v4"}:${site}:${region}:${range.start}:${range.end}:${module}`;
   try {
     const saved = cache.get(key);
     if (params.get("refresh") !== "1" && saved && saved.expires > Date.now()) return NextResponse.json(saved.value, { headers: { "Cache-Control": "private, no-store" } });
     if (!pending.has(key)) pending.set(key, retryDatabaseRead(async (): Promise<TrendResult | MultiRegionTrendResult> => {
       if (source === "dataforseo_serp" && region === "all") {
-        const value = await buildDisplayTrends(site, range, now);
+        const value = await buildDisplayTrends(site, range, now, module);
         cache.set(key, { value, expires: Date.now() + 30000 });
         return value;
       }
       if (source === "dataforseo_serp") {
         const market = region as SearchRegionCode;
         const [cohorts, tasks] = await Promise.all([
-          loadSerpTrendCohorts(market, range.start, range.end), loadSerpTasks(market, undefined, "desktop", range.start, range.end),
+          loadSerpTrendCohorts(market, range.start, range.end).then(cohorts => loadModuleTrendCohorts(cohorts, module)), loadSerpTasks(market, undefined, "desktop", range.start, range.end),
         ]);
         const value: TrendResult = { ...range, schemaVersion: 4, mode: "serp-checks", asOf: now.toISOString(),
-          points: serpCheckTrendPoints([], tasks, range.start, range.end, { cohorts, site }), snapshot: null };
+          points: serpCheckTrendPoints([], tasks, range.start, range.end, { cohorts, site }), snapshot: null, moduleScope };
         cache.set(key, { value, expires: Date.now() + 30000 });
         return value;
       }
       const candidates = await prisma.$queryRaw<TrendKeyword[]>(Prisma.sql`
         /* labs-trends:cohort */
         SELECT sk."siteDomain", sk."keywordId", k.text, sk.active, k.active AS "keywordActive",
-          site.active AS "siteActive", sk."topicId", sk.pool
+          site.active AS "siteActive", sk."topicId", sk.pool, sk."targetUrls"
         FROM "SiteKeyword" sk JOIN "Keyword" k ON k.id = sk."keywordId"
         JOIN "SeoSite" site ON site.domain = sk."siteDomain"
         WHERE sk."siteDomain" IN ('flatkey.ai','rackrate.org','modelfit.cc')
@@ -62,7 +65,7 @@ export async function GET(request: Request) {
       `);
       // Repeat the business/activation guards in a pure function. SQL cannot
       // reproduce the reviewed, site-specific relevance policy on its own.
-      const cohort = eligibleTrendKeywords(candidates);
+      const cohort = trendModuleTargets(eligibleTrendKeywords(candidates).filter(row => site === "all" || row.siteDomain === site), module);
       const observations = cohort.length ? await prisma.$queryRaw<RankingObservationRow[]>(Prisma.sql`
         /* labs-trends:bounded-observations */
         SELECT DISTINCT ON (o."siteDomain", o."keywordId", o.region,
@@ -81,7 +84,7 @@ export async function GET(request: Request) {
           o."collectedAt" DESC, o."importedAt" DESC, o.id DESC
       `) : [];
       const value: TrendResult = { ...range, schemaVersion: 3, mode: "labs-snapshots", asOf: now.toISOString(),
-        points: labsSnapshotTrendPoints(cohort, observations, region as SearchRegionCode, range.start, range.end), snapshot: null };
+        points: labsSnapshotTrendPoints(cohort, observations, region as SearchRegionCode, range.start, range.end), snapshot: null, moduleScope };
       cache.set(key, { value, expires: Date.now() + 30000 });
       return value;
     }).finally(() => pending.delete(key)));

@@ -11,7 +11,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, filename);
 const mockFile = (relative, exports) => { const filename = path.join(root, relative); require.cache[filename] = { id: filename, filename, loaded: true, exports }; };
-let calls, failMarket, failCohort, scopedHistory;
+let calls, failMarket, failCohort, scopedHistory, currentTargets;
 const target = id => ({ keywordId: id, keyword: `${id} api pricing`, siteDomain: "flatkey.ai", targetUrls: [`https://flatkey.ai/models/${id}`] });
 const frozenTargets = [target("claude"), target("deepseek")];
 const task = (region, rank) => ({ id: `task-${region}`, runId: "frozen-run", region, keyword: frozenTargets[0].keyword, targetsJson: [frozenTargets[0]],
@@ -22,7 +22,10 @@ const task = (region, rank) => ({ id: `task-${region}`, runId: "frozen-run", reg
     checkedAt: "2026-10-16T03:00:00Z", organicCount: 10, coveredThroughRank: 10,
     organicResults: rank === null ? [] : [rank, rank + 2].map((rankGroup, i) => ({ url: `https://flatkey.ai/models/claude-${i}`, domain: "flatkey.ai", rankGroup, rankAbsolute: rankGroup + 1, title: "Result" })),
   } });
-mockFile("src/lib/prisma.ts", { prisma: new Proxy({}, { get() { throw new Error("trends must use only the shared ledger readers"); } }) });
+mockFile("src/lib/prisma.ts", { prisma: new Proxy({}, { get(_target, property) {
+  if (property === "siteKeyword") return { findMany: async query => { calls.push(["module-targets", query]); return currentTargets; } };
+  throw new Error("unexpected database read");
+} }) });
 mockFile("src/lib/services/serp-results.ts", {
   loadSerpTrendCohorts: async (region, start, end) => {
     calls.push(["cohort", region, start, end]);
@@ -40,10 +43,10 @@ mockFile("src/lib/services/serp-results.ts", {
   },
 });
 const { GET } = require("../src/app/api/seo/trends/route.ts");
-const { combinedSerpTrendPoints, multiRegionTrendPeriods, marketTrendCount, serpCheckTrendFrames } = require("../src/lib/ranking-trends.ts");
+const { combinedSerpTrendPoints, multiRegionTrendPeriods, marketTrendCount, serpCheckTrendFrames, scopeTrendCohorts, trendModuleTargets } = require("../src/lib/ranking-trends.ts");
 const { REGION_CODES } = require("../src/lib/seo.ts");
 const request = extra => new Request(`https://flatkey.test/api/seo/trends?region=all&start=2026-10-08&end=2026-10-16&refresh=1${extra ?? ""}`);
-beforeEach(t => { calls = []; failMarket = null; failCohort = false; scopedHistory = false; t.mock.method(globalThis, "fetch", async () => { throw new Error("no provider requests from a trend read"); }); });
+beforeEach(t => { calls = []; failMarket = null; failCohort = false; scopedHistory = false; currentTargets = frozenTargets; t.mock.method(globalThis, "fetch", async () => { throw new Error("no provider requests from a trend read"); }); });
 
 test("one four-market read shares the immutable cohort and keeps failed, missing and measured-zero countries distinct", async () => {
   failMarket = "JP";
@@ -111,4 +114,56 @@ test("shared history failures surface as unavailable and unsupported all-country
   assert.equal(calls.filter(call => call[0] === "tasks").length, 0);
   assert.equal((await GET(request("&source=dataforseo_labs"))).status, 400);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test("module trends classify historical members by current registered pages and keep uncaptured members pending", async () => {
+  currentTargets = frozenTargets.map(row => ({ ...row, targetUrls: ["https://flatkey.ai/compute"] }));
+  const response = await GET(request("&module=gpu")), body = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.moduleScope, { module: "gpu", basis: "current-registered-target-pages" });
+  assert.equal(body.points[0].total, 2); assert.equal(body.points[0].ranked, 1); assert.equal(body.points[0].pending, 1);
+  assert.equal(calls.filter(call => call[0] === "module-targets").length, 1, "one current mapping read serves all countries");
+  assert.deepEqual(frozenTargets.map(row => row.targetUrls), [["https://flatkey.ai/models/claude"], ["https://flatkey.ai/models/deepseek"]], "current classification never edits frozen target URLs");
+  const models = await (await GET(request("&module=models"))).json();
+  assert.deepEqual(models.points, [], "the captured result URL is not a current module mapping");
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test("module filtering runs before cross-site text deduplication and cannot borrow another site's rank", async t => {
+  const rack = { ...frozenTargets[0], siteDomain: "rackrate.org", targetUrls: ["https://rackrate.org/gpus/h100"] };
+  frozenTargets.push(rack); t.after(() => frozenTargets.pop());
+  currentTargets = frozenTargets;
+  const gpu = await (await GET(request("&module=gpu"))).json();
+  assert.deepEqual(gpu.points, [], "only flatkey was measured; rack's GPU target cannot borrow its model ranking");
+  const models = await (await GET(request("&module=models"))).json();
+  assert.equal(models.points[0].ranked, 1); assert.equal(models.points[0].total, 2);
+});
+
+test("deleted and invalid current mappings stay unknown and never fall back to historical target pages", async () => {
+  currentTargets = [{ ...target("deepseek"), targetUrls: ["https://foreign.example/gpu"] }];
+  const unknown = await (await GET(request("&module=unknown"))).json();
+  assert.equal(unknown.points[0].total, 2); assert.equal(unknown.points[0].ranked, 1);
+  const all = await (await GET(request())).json();
+  assert.equal(all.points[0].total, 2); assert.equal(all.points[0].ranked, 1);
+  assert.equal(calls.filter(call => call[0] === "module-targets").length, 1, "unfiltered read remains independent of current registry");
+});
+
+test("module API cache identities cannot reuse another module's observation totals", async () => {
+  const read = module => GET(new Request(`https://flatkey.test/api/seo/trends?region=all&start=2026-10-09&end=2026-10-16&module=${module}`));
+  currentTargets = frozenTargets;
+  const models = await (await read("models")).json();
+  const gpu = await (await read("gpu")).json();
+  assert.equal(models.points[0].ranked, 1); assert.deepEqual(gpu.points, []);
+  assert.equal(models.moduleScope.module, "models"); assert.equal(gpu.moduleScope.module, "gpu");
+});
+
+test("pure module scopes preserve period membership and allow multiple registered modules without changing all", () => {
+  const saved = [{ runId: "old", periodKey: "2026-10-2", targets: [target("claude")] }];
+  const current = [{ ...target("claude"), targetUrls: ["https://flatkey.ai/es/blog/gpu", "https://flatkey.ai/compute"] }, target("new-only")];
+  assert.equal(scopeTrendCohorts(saved, current, "blog")[0].targets.length, 1);
+  assert.equal(scopeTrendCohorts(saved, current, "gpu")[0].targets.length, 1);
+  assert.equal(scopeTrendCohorts(saved, current, "all"), saved);
+  assert.equal(scopeTrendCohorts(saved, current, "models")[0].targets.length, 0);
+  assert.deepEqual(trendModuleTargets(saved[0].targets, "unknown", []), saved[0].targets);
+  assert.equal(saved[0].targets.length, 1, "new current targets never enter earlier frozen periods");
 });

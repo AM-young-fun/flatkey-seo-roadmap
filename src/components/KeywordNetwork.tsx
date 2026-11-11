@@ -7,7 +7,7 @@ import { OVERVIEW_PAGE_MODULES, overviewKeywordScope, overviewModule, type Overv
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { UiSelect } from "./UiSelect";
 
-export function KeywordNetwork({ region = "all", showModuleFilter = false }: { region?: "all" | SearchRegionCode; showModuleFilter?: boolean }) {
+export function KeywordNetwork({ region = "all", showModuleFilter = false, module: controlledModule }: { region?: "all" | SearchRegionCode; showModuleFilter?: boolean; module?: OverviewPageModule }) {
   const { data, loading, error, refresh } = useDashboard("all", "dataforseo_serp");
   const [crossLanguage, setCrossLanguage] = useState(false);
   const [module, setModule] = useState<OverviewPageModule>("all");
@@ -23,8 +23,9 @@ export function KeywordNetwork({ region = "all", showModuleFilter = false }: { r
     history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const { keywords, unknownCount } = useMemo(() => overviewKeywordScope(data?.usingDemoData ? [] : data?.keywords ?? [], region, showModuleFilter ? module : "all", crossLanguage),
-    [data?.keywords, data?.usingDemoData, region, showModuleFilter, module, crossLanguage]);
+  const activeModule = controlledModule ?? (showModuleFilter ? module : "all");
+  const { keywords, unknownCount } = useMemo(() => overviewKeywordScope(data?.usingDemoData ? [] : data?.keywords ?? [], region, activeModule, crossLanguage),
+    [data?.keywords, data?.usingDemoData, region, activeModule, crossLanguage]);
   const hasRealData = data && !data.usingDemoData;
   const rankScope = region === "all" ? "四国最佳排名" : `${REGIONS[region].label}排名`;
   const volumeScope = region === "all" ? "四国已知月搜索量合计" : `${REGIONS[region].label}月搜索量`;
@@ -39,6 +40,7 @@ export function KeywordNetwork({ region = "all", showModuleFilter = false }: { r
         {showModuleFilter ? <UiSelect aria-label="关系图页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} /> : null}
       </div>
       {showModuleFilter ? <p className="chartNote">页面模块仅筛选此图{hasRealData ? ` · ${unknownCount.toLocaleString("zh-CN")} 个词尚未归属模块` : ""}</p> : null}
+      {controlledModule !== undefined && hasRealData && unknownCount > 0 ? <p className="chartNote">{unknownCount.toLocaleString("zh-CN")} 个词尚未登记目标页，保留在「尚未归属模块」中。</p> : null}
       <div className="rankLegend" aria-label={`${rankScope}图例`}>{DISPLAY_BUCKETS.map(bucket => <span key={bucket.key}><i style={{ background: bucket.color }} />{bucket.key === "NOT_FOUND" ? "无有效前 100 名次" : bucket.range}</span>)}</div>
       {region !== "all" ? <label className="chartNote"><input type="checkbox" checked={crossLanguage} onChange={event => setCrossLanguage(event.target.checked)} /> 包含在该国有数据的跨语种词</label> : null}
       <details className="chartNote">

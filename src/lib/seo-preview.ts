@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { isLocalPreviewOrigin, isLocalPreviewRequest } from "./preview-origin";
 import { multiRegionTrendResult, serpTrendRange, trendToday, type TrendPoint } from "./ranking-trends";
 import type { DashboardResponse } from "./types";
+import { overviewModule } from "./seo-overview-scope";
 
 function previewRankingTrend(snapshot: Pick<DashboardResponse, "serpOverview">, range: ReturnType<typeof serpTrendRange>) {
     const overview = snapshot.serpOverview;
@@ -50,6 +51,7 @@ export async function previewRead(request: Request): Promise<Response | null> {
         return NextResponse.json({ progress: null, preview: true }, { headers });
     const view = url.pathname === "/api/views" ? url.searchParams.get("view") : url.pathname === "/api/seo/worklist" ? "worklist" : null;
     if (view === "trends" && (url.searchParams.get("site") ?? "all") === "all") {
+        const module = overviewModule(url.searchParams.get("module"));
         let range: ReturnType<typeof serpTrendRange>;
         try {
             range = serpTrendRange(url.searchParams.get("start") ?? undefined, url.searchParams.get("end") ?? undefined);
@@ -57,8 +59,17 @@ export async function previewRead(request: Request): Promise<Response | null> {
             return NextResponse.json({ message: "排名趋势日期无效" }, { status: 400, headers });
         }
         try {
+            const saved = JSON.parse(await readFile(process.cwd() + "/.local/preview-trends-" + module + ".json", "utf8"));
+            if (saved.schemaVersion !== 5 || saved.mode !== "serp-markets" || saved.moduleScope?.module !== module ||
+                saved.moduleScope?.basis !== "current-registered-target-pages" || saved.start !== range.start || saved.end !== range.end)
+                throw new Error("快照口径不一致");
+            return NextResponse.json(saved, { headers: { ...headers, "X-SEO-Preview-Source": "captured-online-trends" } });
+        } catch {
+            if (module !== "all") return NextResponse.json({ message: "该模块的真实排名趋势快照尚未准备", code: "MODULE_TREND_SNAPSHOT_MISSING" }, { status: 503, headers });
+        }
+        try {
             const snapshot = JSON.parse(await readFile(process.cwd() + "/.local/preview-dashboard.json", "utf8"));
-            return NextResponse.json(previewRankingTrend(snapshot, range), { headers });
+            return NextResponse.json({ ...previewRankingTrend(snapshot, range), moduleScope: { module, basis: "current-registered-target-pages" } }, { headers });
         } catch {
             return NextResponse.json({ message: "排名快照尚未准备" }, { status: 503, headers });
         }
