@@ -327,10 +327,12 @@ export async function fetchGa4OrganicPeriod(range: DateRange, country?: SearchRe
       dateRanges: [{ startDate: range.start, endDate: range.end }], metrics: [{ name: "totalUsers" }],
       dimensionFilter: filters.length === 1 ? filters[0] : { andGroup: { expressions: filters } }, limit: "1",
     });
-    if (result.metadata?.timeZone && result.metadata.timeZone !== GA4_TIMEZONE) throw new GoogleReadError("invalid_response", "GA4 属性时区与配置不一致");
+    if (result.metadata?.timeZone !== GA4_TIMEZONE) throw new GoogleReadError("invalid_response", "GA4 区间汇总未返回可验证的属性时区");
     const rows = result.rows ?? [];
     if (rows.length > 1 || (result.rowCount ?? rows.length) !== rows.length) throw new GoogleReadError("invalid_response", "GA4 区间汇总返回意外行数");
-    return { value: rows[0] ? metric(rows[0], 0) : 0, reasons: qualityReasons(result) };
+    const reasons = qualityReasons(result);
+    if (!rows.length && result.rowCount === undefined) reasons.push("empty_response_unverified");
+    return { value: rows[0] ? metric(rows[0], 0) : 0, reasons };
   };
   const [users, registrations] = await Promise.all([report(false), report(true)]);
   const reasons = [...new Set([...users.reasons.map(reason => `users:${reason}`), ...registrations.reasons.map(reason => `registrations:${reason}`)])];

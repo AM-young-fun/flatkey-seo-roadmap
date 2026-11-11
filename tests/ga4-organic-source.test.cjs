@@ -137,3 +137,18 @@ test("period-unique organic users and registrations have no date/page dimensions
   const result = await fetchGa4OrganicPeriod({ start: "2025-10-20", end: "2025-10-26" }, "BR");
   assert.equal(calls, 2); assert.equal(result.users, 9); assert.equal(result.registrations, 2); assert.equal(result.quality.complete, true);
 });
+
+test("empty interval responses need real headers, row count and property timezone before zero is trusted", async t => {
+  const { fetchGa4OrganicPeriod } = require("../src/lib/services/ga4-organic.ts");
+  useMockGoogle(t, () => ({ rows: [], rowCount: undefined, metadata: { timeZone: "America/Los_Angeles" } }));
+  const result = await fetchGa4OrganicPeriod({ start: "2025-10-20", end: "2025-10-26" });
+  assert.equal(result.users, null); assert.equal(result.registrations, null);
+  assert.equal(result.quality.complete, false);
+  assert.ok(result.quality.reasons.includes("users:empty_response_unverified"));
+});
+
+test("interval collection refuses an unverifiable property timezone", async t => {
+  const { fetchGa4OrganicPeriod } = require("../src/lib/services/ga4-organic.ts");
+  useMockGoogle(t, () => ({ rows: [], metadata: {} }));
+  await assert.rejects(fetchGa4OrganicPeriod({ start: "2025-10-20", end: "2025-10-26" }), /属性时区/);
+});
