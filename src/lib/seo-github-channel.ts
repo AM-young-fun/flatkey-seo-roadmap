@@ -62,6 +62,7 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
     const referrals = own.flatMap(r => r.referrals).filter(r => r.end <= end && (weekly ? r.start === start : r.start === r.end && r.start >= shift(end, -7))).sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));
     const referral = referrals[0];
     lines.push(referral?.status === "ok" ? `  GitHub UTM→Flatkey 到站会话 ${referral.sessions}，去重访客 ${referral.users}；${referral.start}～${referral.end} ${referral.timezone}${referral.end < end ? weekly ? "，末日尚未出齐" : "，最新完整日滞后于报表目标日" : ""}。` : "  GitHub UTM→Flatkey 到站会话/访客：待更新；没有把仓库浏览或克隆当作到站点击。");
+    if (referral?.reason === "ga4_no_matching_utm_data") lines.push(`  GA4已查询 ${referral.start}～${referral.end} ${referral.timezone}，该仓库UTM条件暂无匹配数据，未记为0。`);
     lines.push(latest.linkAudit.status === "ok" ? `  公开README的Flatkey链接UTM覆盖 ${latest.linkAudit.attributedLinks}/${latest.linkAudit.flatkeyLinks}；仅表示已核查链接。` : "  公开README链接归因核查待更新。");
     if (latest.views.status !== "ok" || latest.clones.status !== "ok") lines.push("  仓库Traffic来源缺失或无权限，缺失值未写0。");
   }

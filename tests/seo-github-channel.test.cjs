@@ -44,6 +44,23 @@ test('GA4 forbidden or thresholded referral data stays unavailable or partial, n
  response=Response.json({metricHeaders:[{name:'sessions'},{name:'totalUsers'}],metadata:{timeZone:'America/Los_Angeles',subjectToThresholding:true},rows:[]});v=await fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-01','2026-11-07',new Date('2026-11-11'));assert.equal(v.status,'partial');assert.equal(v.users,null);
 });
 
+test('GA4 empty UTM report, measured zero and malformed response remain distinct',async t=>{
+ process.env.SEO_GA4_ACCESS_TOKEN='fixture-only';
+ let payload={metadata:{timeZone:'America/Los_Angeles'}};
+ t.mock.method(globalThis,'fetch',async()=>Response.json(payload));
+ const read=()=>fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-01','2026-11-07',new Date('2026-11-11'));
+ let value=await read();assert.equal(value.status,'unavailable');assert.equal(value.reason,'ga4_no_matching_utm_data');assert.equal(value.sessions,null);
+ const text=githubDigestLines([fixture({referrals:[value]})],'2026-11-01','2026-11-07',true,new Date('2026-11-11T10:00:00Z')).join('\n');assert.match(text,/暂无匹配数据，未记为0/);
+ payload={metadata:{timeZone:'America/Los_Angeles'},metricHeaders:[{name:'sessions'},{name:'totalUsers'}],rows:[{metricValues:[{value:'0'},{value:'0'}]}],rowCount:1};
+ value=await read();assert.equal(value.status,'ok');assert.equal(value.sessions,0);assert.equal(value.users,0);
+ payload={metadata:{timeZone:'America/Los_Angeles',subjectToThresholding:true}};
+ value=await read();assert.equal(value.status,'partial');assert.equal(value.sessions,null);
+ payload={metadata:{timeZone:'Asia/Shanghai'}};
+ value=await read();assert.equal(value.reason,'ga4_timezone_missing_or_mismatch');
+ payload={metadata:{timeZone:'America/Los_Angeles'},rowCount:2};
+ value=await read();assert.equal(value.reason,'ga4_response_mismatch');assert.equal(value.sessions,null);
+});
+
 test('09:00 Beijing collection requests the last closed LA day rather than a still-open Beijing yesterday',()=>{
  const windows=referralWindows('2026-11-13',new Date('2026-11-13T01:00:00Z'));
  assert.deepEqual(windows,[{start:'2026-11-11',end:'2026-11-11'},{start:'2026-11-06',end:'2026-11-12'}]);
