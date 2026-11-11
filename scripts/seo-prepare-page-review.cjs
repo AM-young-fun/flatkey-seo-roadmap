@@ -21,7 +21,7 @@ function buildPageReview(input,content,beforeContent,now=new Date()) {
  const readiness=approvalReviewReadiness(item);
  // Staging deployment must identify exactly which source version is being reviewed.
  if(readiness.ready&&input.previewContentVersion!==contentVersion)throw Error('preview_version_not_bound');
- const approval=workflowApprovalSchema.parse({id:'approval-'+suffix,weekStart:task.weekStart,siteDomain:task.siteDomain,title:task.title+' · 页面审批',requestedBy:task.owner,
+ const approval=workflowApprovalSchema.parse({id:'approval-'+suffix,weekStart:task.weekStart,siteDomain:task.siteDomain,...(task.channel?{channel:task.channel}:{}),title:task.title+' · 页面审批',requestedBy:task.owner,
   submittedAt:readiness.ready?stamp:null,status:readiness.ready?'pending':'draft',items:[item],decisions:[],supersedesApprovalIds:input.supersedesApprovalIds??[],evidence});
  const nextTask=workflowTaskSchema.parse({...task,status:readiness.ready?'review_pending':'drafting',contentVersion,evidence:[...task.evidence,...evidence],nextAction:readiness.ready?'人工核验测试页面、截图和具体版本后决定；当前未批准。':'补齐'+readiness.missing.join('、')+'并绑定预览版本，再提交审批。'});
  return {contentVersion,readiness,commands:[{requestId:'prepare-task-'+suffix+':v'+version,action:'save_task',expectedVersion:version,record:nextTask},{requestId:'prepare-approval-'+suffix+':v'+approvalVersion,action:'save_approval',expectedVersion:approvalVersion,record:approval}]};

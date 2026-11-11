@@ -18,6 +18,7 @@ const research = z.object({ volume: z.number().int().nonnegative().nullable(), k
 
 export const workflowTaskSchema = z.object({
   id, weekStart: workflowWeekSchema, title: z.string().trim().min(1).max(500), siteDomain: site,
+  channel: z.enum(["website", "github"]).optional(),
   kind: z.enum(["blog", "landing", "optimization", "cluster", "technical", "research", "promotion", "review"]),
   country: country.nullable(), language: language.nullable(), business: z.enum(["API", "GPU", "CLUSTER"]),
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
@@ -32,7 +33,9 @@ export const workflowTaskSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (value.country && value.language && WORKFLOW_MARKETS[value.country] !== value.language) ctx.addIssue({ code: "custom", path: ["language"], message: "目标国家与页面语言不匹配" });
   if (["blog", "landing", "optimization", "cluster"].includes(value.kind) && (!value.country || !value.language || !value.keyword)) ctx.addIssue({ code: "custom", message: "内容任务必须有明确国家、本语言关键词和语言" });
-  if (value.pageUrl && !pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
+  if (value.channel === "github") {
+    if (!value.pageUrl || !githubReviewBelongsToSite(value.pageUrl, value.siteDomain) || value.kind !== "technical") ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "GitHub任务只允许Flatkey两个自有提示词库的渠道审核，不计博客或落地页产量" });
+  } else if (value.pageUrl && !pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
   if (value.dependencies.includes(value.id) || new Set(value.dependencies).size !== value.dependencies.length) ctx.addIssue({ code: "custom", path: ["dependencies"], message: "依赖不能重复或指向自身" });
   if (new Date(value.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) < value.weekStart || new Date(value.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) > shiftWorkflowDay(value.weekStart, 6)) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "交付日须在对应周一至周日内" });
   if (value.keyword && value.language !== "ja" && /[\u3400-\u9fff]/u.test(value.keyword)) ctx.addIssue({ code: "custom", path: ["keyword"], message: "英文、葡语和西语任务不能使用中文主词" });
@@ -87,6 +90,7 @@ export function workflowApprovalStatus(decisions: z.infer<typeof workflowApprova
 }
 export const workflowApprovalSchema = z.object({
   id, weekStart: workflowWeekSchema, siteDomain: site, title: z.string().trim().min(1).max(500), requestedBy: z.string().trim().min(1).max(200),
+  channel: z.enum(["website", "github"]).optional(),
   submittedAt: stamp.nullable(), status: z.enum(WORKFLOW_APPROVAL_STATUSES), items: z.array(workflowApprovalItemSchema).min(1).max(500),
   decisions: z.array(workflowApprovalDecisionSchema).max(1000), supersedesApprovalIds: z.array(id).max(100), evidence: evidence.min(1),
 }).strict().superRefine((value, ctx) => {
@@ -96,7 +100,7 @@ export const workflowApprovalSchema = z.object({
   if (new Set(value.items.map(item => item.id)).size !== value.items.length || new Set(value.items.map(item => JSON.stringify([item.pageUrl,item.language]))).size !== value.items.length) fail("同一审批单不能重复页面语言或审批项编号");
   if (new Set(value.decisions.map(decision => decision.id)).size !== value.decisions.length) fail("审批决定编号不能重复");
   if (new Set(value.supersedesApprovalIds).size !== value.supersedesApprovalIds.length || value.supersedesApprovalIds.includes(value.id)) fail("替换审批单不能重复或指向自身");
-  for (const item of value.items) if (!pageBelongsToSite(item.pageUrl, value.siteDomain)) fail("审批页面必须属于所选站点");
+  for (const item of value.items) if (!(value.channel === "github" ? githubReviewBelongsToSite(item.pageUrl, value.siteDomain) : pageBelongsToSite(item.pageUrl, value.siteDomain))) fail("审批页面必须属于所选站点或明确标记的自有GitHub渠道");
   for (const decision of value.decisions) if (new Set(decision.itemIds).size !== decision.itemIds.length || decision.itemIds.some(id => !value.items.some(item => item.id === id))) fail("决定只能引用本单唯一审批项");
 });
 
@@ -243,6 +247,14 @@ export const workflowMutationSchema = z.object({ requestId: id, action: z.enum([
 export const ACTION_KIND = { save_approval: "approval", save_plan: "plan", save_task: "task", save_issue: "issue", save_optimization: "optimization", record_publication: "publication", record_run: "run", record_historical_import: "historical_import" } as const;
 export const workflowClaimSchema = z.object({ action: z.enum(["claim", "renew", "complete"]), runId: id, stage: z.string().regex(/^[A-Z0-9_]+$/).max(100), scheduledFor: stamp, owner: z.string().min(1).max(200), fencingToken: z.number().int().positive().optional(), leaseSeconds: z.number().int().min(30).max(1800).default(600), status: z.enum(["completed", "partial", "blocked", "failed"]).optional(), evidence: evidence.default([]) }).strict();
 
+// Review-only owned channels. Never use this predicate for publication/SEO page metrics.
+export function githubReviewBelongsToSite(value: string, domain: string) {
+  try {
+    const url = new URL(value);
+    if (domain !== "flatkey.ai" || url.protocol !== "https:" || url.hostname !== "github.com" || url.username || url.password || url.port || url.hash || url.search) return false;
+    return ["/flatkey-ai/awesome-images", "/flatkey-ai/awesome-seedance-prompts"].some(repo => url.pathname === repo || url.pathname.startsWith(repo + "/"));
+  } catch { return false; }
+}
 export function pageBelongsToSite(value: string, domain: string) { const url = new URL(value); return url.protocol === "https:" && [domain, `www.${domain}`].includes(url.hostname) && !url.username && !url.password && !url.port && !url.hash; }
 export function shiftWorkflowDay(value: string, days: number) { return new Date(Date.parse(value + "T00:00:00Z") + days * 86_400_000).toISOString().slice(0, 10); }
 export function workflowWeek(now = new Date()) { const day = now.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }); return shiftWorkflowDay(day, -((new Date(day + "T00:00:00Z").getUTCDay() + 6) % 7)); }
