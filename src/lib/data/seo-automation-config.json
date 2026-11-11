@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-11T09:05:04.227724+00:00",
+  "verifiedAt": "2026-11-11T09:19:34.019715+00:00",
   "tasks": [
     {
       "id": "10-30-seo",
@@ -141,11 +141,11 @@
       "id": "seo-10-00-2",
       "name": "SEO 周五10:00 钉钉周报",
       "kind": "cron",
-      "status": "PAUSED",
+      "status": "ACTIVE",
       "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=10;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794383790333,
+      "updated_at": 1794388752287,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -260,11 +260,11 @@
       "id": "seo-18-00",
       "name": "SEO 每天18:00 钉钉日报",
       "kind": "cron",
-      "status": "PAUSED",
+      "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=18;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794383783460,
+      "updated_at": 1794388746743,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
