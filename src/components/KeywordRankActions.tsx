@@ -32,10 +32,10 @@ export function KeywordRankActions({ pages, capture }: { pages: OptimizedKeyword
     const tip = pending ? `排名处理中，现有名次为上次有效结果；返回有效结果后自动更新。${allowance}`
       : retryable ? `重试取回原任务中 ${page.retryableTaskCount} 项失败结果，不提交新的抓取，不再次计费。`
       : page.run?.status === "UNKNOWN" ? "供应商接收结果或费用暂时无法确认，请核对原记录，不能重复提交。" : page.usedToday ? `${receipt || "今日采集已结束，排名以有效结果为准。"}${allowance}`
-      : data?.activeRunId ? "请等待当前页面采集结束。" : !data?.connectionConfigured ? "请先在数据管理保存 DataForSEO 连接。"
+      : data?.activeRunId ? "请等待当前页面采集结束。" : !data?.connectionConfigured ? "DataForSEO 后台连接尚未配置，请先完成连接核验。"
       : !data.externalEnabled ? "外部请求已暂停。" : !page.queryCount ? "该页面尚无已核实的正式关键词，请先核对页面关联。"
       : page.queryCount > 100 ? "该页面关键词超过单次抓取上限，请先精简关联词。"
-      : `抓取该页面 ${page.targets.length} 个关键词的四国排名，费用上限 $${(page.maxCostMicros / 1_000_000).toFixed(3)}。同一页面的关联词共享每日一次额度。`;
+      : `仅查询该页面关键词已明确的目标国家；第二市场须有独立依据。共 ${page.queryCount} 项查询，费用上限 $${(page.maxCostMicros / 1_000_000).toFixed(3)}。同一页面的关联词共享每日一次额度。`;
     const label = pending ? "处理中" : retryable ? "重试取结果" : page.run?.status === "UNKNOWN" ? "需核对"
       : page.usedToday ? failed ? "今日抓取失败" : partial ? "今日部分完成" : page.run?.status === "COMPLETED" ? "今日已完成" : "今日已提交" : noTargets ? "待核对" : "抓取排名";
     return <div key={page.id}>

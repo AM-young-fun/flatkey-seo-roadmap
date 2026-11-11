@@ -1,5 +1,6 @@
-import { SeoClusterReport } from "@/components/SeoClusterReport";
+import { redirect } from "next/navigation";
+import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
 
-export default function ClusterPage() {
-  return <SeoClusterReport />;
+export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
+  redirect(workspaceRedirectHref("/pages?panel=clusters", await searchParams));
 }

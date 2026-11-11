@@ -72,7 +72,7 @@ export function CandidateKeywordReview({ onChanged, businessCategory, businessLa
       <div className={styles.title}>
         <span className={styles.titleIcon}><ScanSearch size={18} aria-hidden="true" /></span>
         <h2 id="candidate-review-heading">候选词清理</h2>
-        <Tooltip trigger={["hover", "focus", "click"]} title={<div className={styles.help}>筛查业务无关、竞品品牌和低质量词，默认勾选建议移除项，可手动调整。仅处理当前 {businessLabel} 分类下来自 Flatkey 的候选词，正式词和受保护模型词不受影响。移除后可在「数据管理 → 清理记录」恢复。</div>}>
+        <Tooltip trigger={["hover", "focus", "click"]} title={<div className={styles.help}>筛查业务无关、竞品品牌和低质量词，默认勾选建议移除项，可手动调整。仅处理当前 {businessLabel} 分类下来自 Flatkey 的候选词，正式词和受保护模型词不受影响。移除会保留原始证据和清理回执；如需恢复，提供回执由后台核对处理。</div>}>
           <button type="button" className={styles.infoButton} aria-label="筛选规则与恢复说明"><Info size={16} aria-hidden="true" /></button>
         </Tooltip>
       </div>

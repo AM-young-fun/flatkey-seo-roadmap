@@ -91,3 +91,11 @@
 .taskFilters input:focus-visible,.formGrid input:focus-visible,.formGrid textarea:focus-visible,.reviewForm input:focus-visible,.record summary:focus-visible,.tabs button:focus-visible,.primary:focus-visible,.secondary:focus-visible { outline:2px solid var(--ui-primary); outline-offset:3px; }
 @media(max-width:800px) { .summary { grid-template-columns:repeat(2,1fr); } .summary > div:nth-child(2) { border-right:0; } .summary > div:nth-child(-n+2) { border-bottom:1px solid #edf0f4; } }
 @media(max-width:560px) { .filters { display:grid; grid-template-columns:repeat(2,1fr); } .filters :global(.uiSelect) { min-width:0; } .summary > div { padding:16px 13px; } .summary strong { font-size:25px; } .summary small { font-size:10px; } .record > summary { gap:10px; padding:15px 12px; align-items:flex-start; } .record > summary::before { font-size:19px; } .taskMeta { max-width:90px; } .detail { padding:16px; } .plan { padding:18px; } .metadata,.formGrid { grid-template-columns:1fr; } .taskFilters { flex-wrap:wrap; } .taskFilters input { flex-basis:100%; } .taskFilters :global(.uiSelect) { width:100%; } .reviewForm { padding:14px; } .footer { flex-wrap:wrap; } }
+
+.embedded { min-width:0; }
+.support { margin:18px 0 22px; border:1px solid #e3e8ef; border-radius:8px; background:#fff; }
+.supportActions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 15px; }
+.supportActions > span { color:#7e899a; font-size:12px; margin-right:4px; }
+.supportActions button[aria-expanded=true] { color:var(--ui-primary); border-color:var(--ui-primary); }
+.supportContent { padding:18px; border-top:1px solid #edf0f4; min-width:0; }
+@media(max-width:560px) { .supportActions { padding:10px; } .supportContent { padding:12px; } }

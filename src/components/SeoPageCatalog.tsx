@@ -1,5 +1,6 @@
 "use client";
 import { UiSelect } from "./UiSelect";
+import Link from "next/link";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type * as echarts from "echarts";
@@ -15,6 +16,7 @@ import styles from "./SeoPageCatalog.module.css";
 import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS } from "@/lib/seo";
 import { WorkflowPageHistory } from "./WorkflowPageHistory";
+import { PageOptimizationActions } from "./PageOptimizationActions";
 export { classifyPage } from "@/lib/seo-page-inventory";
 type Row = { url: string; keywords: string[]; inventory?: InventoryPage };
 type Inventory = { pages: InventoryPage[]; capturedAt: string | null; storage: string };
@@ -123,7 +125,7 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
   const prior = readState(comparePerformance);
   const detail = details.data?.scope === "session-organic-search" ? details.data : null;
   const rows = useMemo(() => {
-    const merged = new Map(targets.map(row => [row.url, row]));
+    const merged = new Map(targets.filter(row => catalogUrl(row.url, site)).map(row => [row.url, row]));
     for (const entry of inventory?.pages ?? []) if (catalogUrl(entry.url, site)) merged.set(entry.url, { url: entry.url, keywords: merged.get(entry.url)?.keywords ?? [], inventory: entry });
     for (const entry of performance.data?.pages ?? []) {
       if (catalogUrl(entry.url, site) && !merged.has(entry.url)) merged.set(entry.url, { url: entry.url, keywords: [] });
@@ -170,30 +172,35 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
     const metricStatus = key === "sessions" ? status?.sessionsStatus ?? status?.status : key === "registrations" ? status?.registrationsStatus ?? status?.status : status?.status;
     return entry && (entry.days < daysIn(range) || metricStatus !== "ready");
   };
-  return <section className={styles.catalog} aria-label="页面效果数据">
+  return <section className={styles.catalog} aria-label="选择页面并安排优化">
     {selected ? <>
       <button className={styles.back} onClick={() => select(null)}>← 返回页面列表</button>
       <h2 className={styles.detailTitle} tabIndex={-1} ref={detailHeading}>{pageName(selected)}</h2>
       <a className={styles.url} href={selected} target="_blank" rel="noreferrer">{selected} ↗</a>
+      <PageOptimizationActions key={`${selected}:${country}`} pageUrl={selected} site={site} country={country} />
+      <details className={styles.disclosure}><summary>查看本页流量、搜索词与趋势</summary>
       <p className={styles.note}>GA4 入口会话按主机与路径归属；未记录主机的历史数据不分配给具体页面。逐页注册待跨域归因核实。</p>
       <div className={styles.metrics}>{(Object.keys(metricLabels) as Metric[]).map(key => <div key={key}><span>{metricLabels[key]}</span><strong>{numberText(valueOf(selectedMetrics, key))}</strong>{partial(selectedMetrics, key) ? <small>部分数据</small> : null}</div>)}</div>
       <div className={styles.chartHeading}><h3>每日趋势</h3><div className={styles.tabs}>{(Object.keys(metricLabels) as Metric[]).map(key => <button key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}>{key === "sessions" ? "访问" : key === "registrations" ? "注册" : "搜索点击"}</button>)}</div></div>
       {details.error ? <p role="alert">{details.error} <button onClick={details.retry}>重试</button></p> : !detail ? <p className={styles.empty}>读取页面趋势…</p> : <><PageChart points={detail.pageDaily} metric={metric} />
       {!detail.pageDaily.some(point => point[metric] !== null) ? <p className={styles.note}>所选区间暂无该页面的{metricLabels[metric]}记录。</p> : null}</>}
       <SeoPageQueries key={`${site}:${country}:${selected}:${range.start}:${range.end}`} range={range} url={selected} country={country} site={site} />
+      </details>
       <details className={styles.disclosure}><summary>搜索表现与关联词</summary><dl className={styles.metadata}><div><dt>搜索曝光</dt><dd>{numberText(selectedMetrics?.gsc?.impressions)}</dd></div><div><dt>点击率</dt><dd>{selectedMetrics?.gsc?.ctr == null ? "—" : (selectedMetrics.gsc.ctr * 100).toFixed(2) + "%"}</dd></div><div><dt>平均排名</dt><dd>{selectedMetrics?.gsc?.position?.toFixed(1) ?? "—"}</dd></div></dl><p>关联目标词：{selectedRow?.keywords.length ? selectedRow.keywords.join(" · ") : "尚未关联"}</p><a href={"/opportunities?" + new URLSearchParams({ targetUrl: selected, country, ...range })}>查看关键词声量与优化预估 →</a></details>
       <details className={styles.disclosure}><summary>每日明细{comparison ? "与对比区间" : ""}</summary>
         {detail ? <div className={styles.scroll}><table className={styles.daily}><thead><tr><th>日期</th><th>访问</th><th>注册</th><th>搜索点击</th></tr></thead><tbody>{detail.pageDaily.map(day => <tr key={day.date}><td>{day.date}</td><td>{numberText(day.sessions)}</td><td>{numberText(day.registrations)}</td><td>{numberText(day.clicks)}</td></tr>)}</tbody></table></div> : null}
         {comparison ? <><p>对比区间：{comparison.start} — {comparison.end}</p>{prior.error ? <p role="alert">{prior.error} <button onClick={comparePerformance.retry}>重试</button></p> : <p>访问 {numberText(prior.data?.pages[0]?.ga4?.sessions)} · 注册 {numberText(prior.data?.pages[0]?.ga4?.registrations)} · 搜索点击 {numberText(prior.data?.pages[0]?.gsc?.clicks)}</p>}{prior.data ? <><SeoAnalyticsStatus name="GA4 对比期" source={prior.data.ga4} /><SeoAnalyticsStatus name="GSC 对比期" source={prior.data.gsc} /></> : null}</> : null}
       </details>
       <details className={styles.disclosure}><summary>页面发现记录</summary>{selectedRow?.inventory ? <><p>{selectedRow.inventory.baseline ? "存量页面" : "新发现页面"} · 首次发现 {stamp(selectedRow.inventory.firstSeen)} · 最近发现 {stamp(selectedRow.inventory.lastSeen)}</p><p>首次发现日期可能晚于上线日期。</p><a href={selectedRow.inventory.sourceUrl} target="_blank" rel="noreferrer">查看 Sitemap 来源 ↗</a></> : <p>尚未在 Sitemap 清单中发现。</p>}</details>
-      <WorkflowPageHistory pageUrl={selected} country={country} />
+      <details className={styles.disclosure}><summary>查看本页任务、修改和复盘记录</summary><WorkflowPageHistory pageUrl={selected} country={country} /></details>
     </> : <>
+      <div className={styles.listActions}><div><h2>选择页面开始优化</h2><p className={styles.note}>点击下方页面可创建优化任务、准备审批并查看依据；也可直接填写一个页面地址。</p></div><Link className={styles.actionPrimary} href={"/work?" + new URLSearchParams({ new: "1", kind: "optimization", site, ...(country === "all" ? {} : { country }) })}>新建优化任务</Link></div>
       <div className={styles.filters}><UiSelect aria-label="页面所属站点" value={site} onChange={changeSite} options={siteOptions} />{categoryControl}<input aria-label="搜索页面或关键词" placeholder="搜索页面 URL 或关键词" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
       {error ? <p role="alert">{error}</p> : null}
       {current.error ? <p role="alert">{current.error} <button onClick={performance.retry}>重试指标</button></p> : null}
-      {loading || !current.data && !current.error ? <p className={styles.empty}>正在读取页面效果…</p> : <>
-        {current.data && categoryRows.length > 0 ? <section className={styles.categoryTrend} aria-label="分类流量趋势">
+      {!current.data && !current.error ? <p className={styles.note}>页面指标读取中，可先选择已有页面安排工作。</p> : null}
+      {loading && !rows.length ? <p className={styles.empty}>正在读取页面清单…</p> : <>
+        {current.data && categoryRows.length > 0 ? <details className={styles.disclosure}><summary>查看{categoryLabel}的合计与流量趋势</summary><section className={styles.categoryTrend} aria-label="分类流量趋势">
           <div className={styles.categorySummary} aria-label="所选周期合计" role="group">
             <h2>{categoryLabel} · 所选周期合计</h2>
             <div className={styles.metrics}>{metrics.map(key => <div key={key}>
@@ -205,7 +212,7 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
             {recordedDays > 0 && recordedDays < categoryTrend.length ? <span className={styles.note}>{recordedDays}/{categoryTrend.length} 天有记录</span> : null}
           </div>
           {recordedDays > 0 ? <PageChart points={categoryTrend} metric="sessions" label={`${categoryLabel}每日自然搜索访问趋势`} /> : <p className={styles.note}>{country === "all" ? "所选区间暂无访问记录。" : `${REGIONS[country].label}在所选区间的页面访问待采集。`}</p>}
-        </section> : null}
+        </section></details> : null}
         <table className={styles.table}><thead><tr><th scope="col">页面</th>{(Object.keys(metricLabels) as Metric[]).map(key => <th scope="col" key={key} aria-sort={sort === key ? ascending ? "ascending" : "descending" : "none"}><button onClick={() => { if (sort === key) setAscending(!ascending); else { setSort(key); setAscending(false); } setPage(1); }}>{metricLabels[key]}{sort === key ? ascending ? " ↑" : " ↓" : ""}</button></th>)}</tr></thead><tbody>{pageRows.map(row => {
           const metrics = current.byUrl.get(row.url);
           return <tr key={row.url}><th scope="row"><button className={styles.pageLink} onClick={() => select(row.url)}>{pageName(row.url)}</button>{new URL(row.url).hostname !== "flatkey.ai" ? <small>{new URL(row.url).hostname}</small> : null}</th>{(Object.keys(metricLabels) as Metric[]).map(key => <td key={key} data-label={metricLabels[key]}>{numberText(valueOf(metrics, key))}{partial(metrics, key) ? <small>部分数据</small> : null}</td>)}</tr>;

@@ -1,5 +1,6 @@
-import { SeoWorkspace } from "@/components/SeoWorkspace";
+import { redirect } from "next/navigation";
+import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
 
-export default function Page() {
-  return <SeoWorkspace view="traffic" />;
+export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
+  redirect(workspaceRedirectHref("/work?panel=traffic", await searchParams));
 }

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
+import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
 
-// Data collection/configuration stays in the backend; the user-facing page is retired.
-export default function Page() {
-  redirect("/runs");
+export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
+  redirect(workspaceRedirectHref("/work?panel=runs", await searchParams));
 }

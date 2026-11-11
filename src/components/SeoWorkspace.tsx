@@ -1,76 +1,59 @@
 "use client";
-import { UiSelect } from "./UiSelect";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PageHeader } from "./PageHeader";
+import { UiSelect } from "./UiSelect";
 import { SeoDateControl, useSeoRange } from "./SeoDateControl";
-import { SeoPeriodSummary } from "./SeoPeriodSummary";
-import { DailySeoTrafficTrend } from "./DailySeoTrafficTrend";
-import { DailySeoPageGroups } from "./DailySeoPageGroups";
 import { PageCatalog } from "./SeoPageCatalog";
-import { SeoHistoryDisclosure } from "./SeoHistoryDisclosure";
-import { SessionSeoReport } from "./SessionSeoReport";
-import { BusinessMeasurementStatus } from "./BusinessMeasurementStatus";
-import { useSeoCountry } from "./useSeoCountry";
+import { SeoClusterReport } from "./SeoClusterReport";
+import { SeoWorkWorkspace } from "./SeoWorkWorkspace";
 import { PAGE_CATEGORIES } from "@/lib/seo-page-inventory";
 import styles from "./SeoWorkspace.module.css";
+import catalog from "./SeoPageCatalog.module.css";
 
 const linkedCategories = [
   ["new", "新发现页面"], ["model_list", "模型列表"], ["model_detail", "模型详情"],
 ] as const;
 const categories = [...PAGE_CATEGORIES, ...linkedCategories];
 
-export function SeoWorkspace({ view = "overview" }: { view?: "overview" | "pages" | "traffic" }) {
+export function SeoWorkspace({ view = "pages" }: { view?: "pages" }) {
   const context = useSeoRange();
-  const { range, comparison } = context;
   const [category, setCategory] = useState("all");
-  const [region] = useSeoCountry();
+  const [panel, setPanel] = useState("");
   useEffect(() => {
     const read = () => {
       const params = new URLSearchParams(location.search);
       const selected = params.get("category") ?? "all";
       setCategory(categories.some(([id]) => id === selected) ? selected : "all");
+      setPanel(params.get("panel") ?? "");
     };
     read(); addEventListener("popstate", read);
     return () => removeEventListener("popstate", read);
   }, []);
   const filter = (key: string, value: string) => {
     const params = new URLSearchParams(location.search);
-    params.set(key, value);
-    history.pushState(null, "", location.pathname + "?" + params);
+    if (value) params.set(key, value); else params.delete(key);
+    history.pushState(null, "", location.pathname + (params.size ? "?" + params : ""));
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const title = { overview: "自然搜索总览", pages: "页面效果", traffic: "流量分析" }[view];
-  const rangeKey = range.start + range.end;
-  const href = (path: string) => path + "?" + new URLSearchParams({
-    ...range,
-    ...(region === "all" ? {} : { country: region }),
-    ...(comparison ? { compareStart: comparison.start, compareEnd: comparison.end } : { compare: "none" }),
-  });
   return <main className={styles.shell}>
     <PageHeader active={view} />
     <div className={styles.titleRow}>
-      <h1 className={styles.title}>{title}</h1>
+      <h1 className={styles.title}>页面优化</h1>
       <SeoDateControl value={context} />
     </div>
-    {view === "pages" ? <PageCatalog category={category} categoryLabel={categories.find(([id]) => id === category)?.[1] ?? "全部页面"} range={range} comparison={comparison} categoryControl={
+    <p className={styles.description}>选择要改进的页面，创建优化任务并准备审批；流量、搜索词与历史改动帮助判断下一步。</p>
+    <PageCatalog category={category} categoryLabel={categories.find(([id]) => id === category)?.[1] ?? "全部页面"} range={context.range} comparison={context.comparison} categoryControl={
       <UiSelect className={styles.category} aria-label="页面分类" value={category} onChange={value => filter("category", value)}
         options={[...PAGE_CATEGORIES, ...linkedCategories.filter(([id]) => id === category)].map(([value, label]) => ({ value, label }))} />
-    } /> : <SessionSeoReport range={range} comparison={comparison} expanded={view === "traffic"} showTrend={view === "traffic"} showSourceSummary summary={view === "overview"} showDetails={view === "traffic"} footer={view === "traffic" ? <Link href={href("/")}>返回总览</Link> : null}>
-      {view === "traffic" && region === "all" ? <SeoHistoryDisclosure>
-        <SeoPeriodSummary range={range} comparison={comparison} />
-        <DailySeoTrafficTrend key={rangeKey} {...range} expanded />
-        <DailySeoPageGroups key={rangeKey} {...range} category="all" />
-      </SeoHistoryDisclosure> : null}
-    </SessionSeoReport>}
-    {view === "overview" ? <>
-      <nav className={styles.analysisLinks} aria-label="深入分析">
-        <Link href={href("/traffic")}><strong>流量分析 <span aria-hidden="true">→</span></strong><span>访问、注册趋势与日期明细</span></Link>
-        <Link href={region === "all" ? "/rankings" : `/rankings?country=${region}`}><strong>排名分析 <span aria-hidden="true">→</span></strong><span>实测排名趋势与关键词关系</span></Link>
-        <Link href={href("/pages")}><strong>页面效果 <span aria-hidden="true">→</span></strong><span>逐页流量、搜索表现与变化</span></Link>
-      </nav>
-      <BusinessMeasurementStatus compact />
-    </> : null}
+    } />
+    <details className={catalog.disclosure} open={panel === "optimizations"} onToggle={event => { const open = event.currentTarget.open; if (open !== (panel === "optimizations")) filter("panel", open ? "optimizations" : ""); }}>
+      <summary>查看已有优化任务的基线与复盘</summary>
+      {panel === "optimizations" ? <SeoWorkWorkspace view="optimizations" embedded /> : null}
+    </details>
+    <details className={catalog.disclosure} open={panel === "clusters"} onToggle={event => { const open = event.currentTarget.open; if (open !== (panel === "clusters")) filter("panel", open ? "clusters" : ""); }}>
+      <summary>按集群效果选择待优化站点</summary>
+      {panel === "clusters" ? <SeoClusterReport range={context.range} /> : null}
+    </details>
   </main>;
 }

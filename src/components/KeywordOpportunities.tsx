@@ -3,8 +3,9 @@ import { UiSelect } from "./UiSelect";
 
 import Link from "next/link";
 import { Modal } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "./PageHeader";
+import { KeywordResearchEvidence } from "./KeywordResearchEvidence";
 import { useSeoCountry } from "./useSeoCountry";
 import { useSeoRead, numberText } from "./useSeoAnalytics";
 import { hydrateOverviewPayload, type OverviewPayload } from "@/lib/overview-payload";
@@ -29,8 +30,8 @@ const rankRanges = [
   { label: "第 21–50 名", min: 21, max: 50 },
   { label: "第 51–100 名", min: 51, max: 100 },
 ];
-const rankedRange = rankRanges[0];
-const inRankRange = (row: KeywordOpportunity, range: typeof rankedRange) =>
+type RankRange = typeof rankRanges[number];
+const inRankRange = (row: KeywordOpportunity, range: RankRange) =>
   row.rank !== null && row.rank >= range.min && row.rank <= range.max;
 
 export function KeywordOpportunities() {
@@ -40,16 +41,19 @@ export function KeywordOpportunities() {
   const [saving, setSaving] = useState(false);
   const [country] = useSeoCountry();
   const [query, setQuery] = useState(""), [targetUrl, setTargetUrl] = useState("");
+  const urlQuery = useRef<string | null>(null);
   const [planCountry, setPlanCountry] = useState<OpportunityMarket>("US");
   const [sort, setSort] = useState<Exclude<OpportunitySort, "opportunity">>("rank-asc");
-  const [rankSelection, setRankSelection] = useState<typeof rankedRange | null>();
-  const rankRange = rankSelection === undefined ? (targetUrl ? null : rankedRange) : rankSelection;
+  const [rankSelection, setRankSelection] = useState<RankRange | null>(null);
+  const rankRange = rankSelection;
   const [page, setPage] = useState(1), [selected, setSelected] = useState<string | null>(null), [targetPage, setTargetPage] = useState("");
   const [plan, setPlan] = useState<KeywordPlan>(blankPlan), [saved, setSaved] = useState<Record<string, KeywordPlan>>({}), [message, setMessage] = useState("");
   useEffect(() => {
     const read = () => {
       const params = new URLSearchParams(location.search);
       const target = flatkeyPage(params.get("targetUrl") ?? "") ?? ""; setTargetUrl(target);
+      const nextQuery = params.get("keyword") ?? params.get("q") ?? "";
+      if (urlQuery.current !== nextQuery) { urlQuery.current = nextQuery; setQuery(nextQuery); }
       setSelected(null);
       setPage(1);
     };
@@ -106,7 +110,7 @@ export function KeywordOpportunities() {
     setSelected(row.key);
     loadPlan(row, existing?.url ?? (targetUrl || row.urls[0] || ""), market);
   }
-  function filterRank(range: typeof rankedRange | null) {
+  function filterRank(range: RankRange | null) {
     setRankSelection(range);
     setPage(1);
     setSelected(null);
@@ -139,10 +143,12 @@ export function KeywordOpportunities() {
   return <main className={workspace.shell}>
     <PageHeader active="opportunities" />
     <div className={workspace.titleRow}>
-      <h1 className={workspace.title}>关键词机会</h1>
+      <h1 className={workspace.title}>关键词选题</h1>
     </div>
+    <p className={styles.intro}>选择有依据的关键词，设定目标页面，再加入工作任务。需要核对排名或清理候选词时，展开下方详情。</p>
+    <KeywordResearchEvidence />
     {targetUrl ? <p className={styles.context}>目标页面：<a href={targetUrl} target="_blank" rel="noreferrer">{targetUrl}</a> · <Link href={country === "all" ? "/opportunities" : "/opportunities?country=" + country}>查看全部关键词</Link></p> : null}
-    {dashboard.data && !dashboard.data.usingDemoData ? <section className={styles.rankOverview} aria-labelledby="opportunity-rank-title">
+    {dashboard.data && !dashboard.data.usingDemoData ? <details className={styles.rankOverview}><summary>按排名区间筛选选题{rankRange ? ` · ${rankRange.label}` : ""}</summary>
       <div className={styles.rankHeading}>
         <div>
           <h2 id="opportunity-rank-title">{country === "all" ? "全部国家" : REGIONS[country].label}关键词排名</h2>
@@ -155,11 +161,11 @@ export function KeywordOpportunities() {
           <span>{range.label}</span><strong>{numberText(rankCounts[index])}</strong>
         </button>)}
       </div>
-    </section> : null}
+    </details> : null}
     <div className={styles.filters}>
       <input aria-label="搜索关键词或页面" value={query} placeholder="搜索关键词或页面" onChange={event => { setQuery(event.target.value); setPage(1); setSelected(null); }} />
     </div>
-    <p className={styles.coverage}>{rankRange ? rankRange.label + " · " : ""}{filtered.length.toLocaleString()} 个关键词 · {volumeLabel} {known.length ? volume.toLocaleString() : "—"} 次（{known.length.toLocaleString()} 个词有数据）</p>
+    <p className={styles.coverage}>{dashboard.data && !dashboard.data.usingDemoData ? <>{rankRange ? rankRange.label + " · " : ""}{filtered.length.toLocaleString()} 个关键词 · {volumeLabel} {known.length ? volume.toLocaleString() : "—"} 次（{known.length.toLocaleString()} 个词有数据）</> : "关键词数量与搜索量待读取，缺失不计为零。"}</p>
     {error ? <p role="alert" className={styles.note}>{error} <button onClick={() => { dashboard.retry(); worklist.retry(); plans.retry(); }}>重试</button></p> : null}
     {dashboard.data?.usingDemoData ? <p role="alert">当前来源为演示数据，暂不展示机会判断。</p> : null}
     <Modal open={Boolean(active)} title={active ? `设定目标 · ${active.keyword}` : "设定目标"}

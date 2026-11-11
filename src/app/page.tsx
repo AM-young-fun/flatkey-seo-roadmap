@@ -1,5 +1,6 @@
-import { Dashboard } from "@/components/Dashboard";
+import { redirect } from "next/navigation";
+import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
 
-export default function Home() {
-  return <Dashboard />;
+export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
+  redirect(workspaceRedirectHref("/work", await searchParams));
 }
