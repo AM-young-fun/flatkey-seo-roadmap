@@ -1,7 +1,8 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript');
 const root=path.resolve(__dirname,'..'),load=Module._load,resolve=Module._resolveFilename;
 Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,name.startsWith('@/')?path.join(root,'src',name.slice(2)):name,parent,...rest);};
-Module._load=function(name,...rest){return name==='server-only'?{}:load.call(this,name,...rest);};
+let githubStoreQuery;
+Module._load=function(name,...rest){if(name==='@/lib/prisma')return {prisma:{seoReportVersion:{findMany:async query=>{githubStoreQuery=query;return [];}}}};return name==='server-only'?{}:load.call(this,name,...rest);};
 require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
 const {githubChannelSchema,githubComparable,githubDigestLines}=require('../src/lib/seo-github-channel.ts');
 const {parseTraffic,auditLinks,referralWindows}=require('../scripts/collect-github-channel.cjs');
@@ -52,4 +53,18 @@ test('daily attribution reports the latest closed source day with its real date,
  const text=githubDigestLines([row],'2026-11-10','2026-11-10',false,new Date('2026-11-11T08:00:00Z')).join('\n');
  assert.match(text,/到站会话 8/);assert.match(text,/2026-11-09～2026-11-09/);assert.match(text,/最新完整日滞后/);
  const weekly=githubDigestLines([row],'2026-11-06','2026-11-12',true,new Date('2026-11-13')).join('\n');assert.doesNotMatch(weekly,/到站会话 8/);
+});
+
+test('archive read includes next-day failed receipts even without historical traffic buckets',async()=>{
+ const {loadGithubChannels}=require('../src/lib/services/seo-github-channel.ts');
+ await loadGithubChannels('2026-11-01','2026-11-10');
+ assert.equal(githubStoreQuery.where.kind,'GITHUB_CHANNEL');
+ const [traffic,receipts]=githubStoreQuery.where.OR;
+ assert.equal(traffic.periodStart.lte.toISOString(),'2026-11-10T00:00:00.000Z');
+ assert.equal(receipts.createdAt.gte.toISOString(),'2026-11-01T00:00:00.000Z');
+ assert.equal(receipts.createdAt.lt.toISOString(),'2026-11-12T00:00:00.000Z');
+ const missing={status:'unavailable',count:null,uniques:null,days:[],reason:'403'};
+ const latest=fixture({observedAt:'2026-11-11T09:00:00Z',views:missing,clones:missing});
+ const text=githubDigestLines([fixture(),latest],'2026-11-10','2026-11-10',false,new Date('2026-11-11T10:00:00Z')).join('\n');
+ assert.match(text,/Traffic来源缺失或无权限/);assert.match(text,/2026-11-11T09:00:00Z/);
 });

@@ -12,6 +12,9 @@ export async function saveGithubChannel(input: unknown) {
   return { stored: true, storage: "database", id, record: readback };
 }
 export async function loadGithubChannels(start: string, end: string): Promise<GithubChannel[]> {
-  const rows = await prisma.seoReportVersion.findMany({ where: { kind: "GITHUB_CHANNEL", periodStart: { lte: new Date(end) }, periodEnd: { gte: new Date(start) } }, orderBy: { createdAt: "desc" }, take: 400, select: { payload: true } });
+  // A complete Traffic failure still needs to be visible in the next report. Such
+  // snapshots have no historical buckets and their period is the collection day.
+  const receiptBefore = new Date(Date.parse(end + "T00:00:00Z") + 2 * 86400000);
+  const rows = await prisma.seoReportVersion.findMany({ where: { kind: "GITHUB_CHANNEL", OR: [{ periodStart: { lte: new Date(end) }, periodEnd: { gte: new Date(start) } }, { createdAt: { gte: new Date(start), lt: receiptBefore } }] }, orderBy: { createdAt: "desc" }, take: 400, select: { payload: true } });
   return rows.flatMap(({ payload }) => { const parsed = githubChannelSchema.safeParse(payload); return parsed.success ? [parsed.data] : []; });
 }
