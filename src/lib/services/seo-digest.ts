@@ -1,5 +1,6 @@
 import { loadBusinessAnalytics } from "./seo-business-analytics";
 import { loadGithubChannels } from "./seo-github-channel";
+import { getSeoReportingControl } from "./seo-reporting-control";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +16,10 @@ import { loadSerpTasks } from "./serp-results";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
+async function requireReportingEnabled() {
+  const control = await getSeoReportingControl();
+  if (!control.enabled || control.protocolVersion !== 2 || control.destination !== SEO_REPORT_GROUP || control.robotCode !== SEO_REPORT_ROBOT) throw new DigestError("统一通知尚未切换", 503);
+}
 
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
   const window = digestWindow(date, kind);
@@ -65,7 +70,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     return completeDays.size >= expectedDays ? "verified" : "partial";
   };
   const input: DigestInput = {
-    date, kind, now, observations, pageObservations, publications, optimizations, periods,
+    date, kind, now, observations, pageObservations, publications, optimizations, periods, notificationCompact: true,
     businessObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
     githubObservations: reads[7].status === "fulfilled" ? reads[7].value : [],
     reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,
@@ -91,7 +96,7 @@ export async function saveSeoDigest(digest: SeoDigest) {
 }
 
 export async function claimDigest(reportId: string, owner: string, now = new Date()) {
-  if (process.env.SEO_UNIFIED_REPORTING_ENABLED !== "true") throw new DigestError("统一通知尚未切换", 503);
+  await requireReportingEnabled();
   return prisma.$transaction(async tx => {
     const saved = await tx.seoReportVersion.findUnique({ where: { id: reportId } });
     if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
@@ -113,6 +118,7 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
 }
 
 export async function beginDigestAttempt(id: string, owner: string, fencingToken: number) {
+  await requireReportingEnabled();
   return prisma.$transaction(async tx => {
     const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
     const result = await tx.seoDigestDelivery.updateMany({ where: { id, claimedBy: owner, fencingToken, status: "CLAIMED", attemptedAt: null, leaseUntil: { gt: clock.now } }, data: { status: "SENDING", attemptedAt: clock.now } });

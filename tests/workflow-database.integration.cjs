@@ -1,4 +1,4 @@
-const { test, after } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
+const { test, before, after } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
 const root = path.resolve(__dirname, "..");
 if (!process.env.SEO_TEST_DATABASE_URL || !/^postgres(?:ql)?:\/\/[^@]+@(?:localhost|127\.0\.0\.1):\d+\/seo_workflow_test(?:\?|$)/.test(process.env.SEO_TEST_DATABASE_URL)) throw Error("An isolated local seo_workflow_test database is required");
 process.env.DATABASE_URL = process.env.SEO_TEST_DATABASE_URL;
@@ -11,9 +11,24 @@ const { saveWorkflowMutation, loadWorkflowSnapshot, mutateWorkflowClaim } = requ
 const { buildSeoDigest } = require("../src/lib/seo-digest.ts");
 const { saveSeoDigest, claimDigest, beginDigestAttempt, finishDigestAttempt } = require("../src/lib/services/seo-digest.ts");
 const { workflowWeek } = require("../src/lib/seo-workflow.ts");
+const { getSeoReportingControl, setSeoReportingControl } = require("../src/lib/services/seo-reporting-control.ts");
+const { SEO_REPORT_GROUP, SEO_REPORT_ROBOT } = require("../src/lib/seo-digest.ts");
 const now = new Date(), stamp = now.toISOString(), weekStart = workflowWeek(now), nonce = Date.now().toString();
 const evidence = [{ label: "Local integration fixture only", artifact: "/private/tmp/seo-workflow-fixture", observedAt: stamp }];
 after(() => prisma.$disconnect());
+before(async () => { await prisma.seoReportVersion.deleteMany({ where: { kind: "REPORTING_CONTROL" } }); });
+const controlCommand = (version, enabled = true) => ({ enabled, expectedVersion: version, protocolVersion: 2, destination: SEO_REPORT_GROUP, robotCode: SEO_REPORT_ROBOT, reason: "Isolated database fixture only; never sends a message" });
+
+test("real PostgreSQL reporting switch defaults off, ignores environment bypass and serializes audited changes", async () => {
+ process.env.SEO_UNIFIED_REPORTING_ENABLED = "true";
+ assert.equal((await getSeoReportingControl()).enabled, false);
+ await assert.rejects(claimDigest("absent", "fixture"), /尚未切换/);
+ const commands = await Promise.allSettled(["import-token", "admin-session"].map(actor => setSeoReportingControl(controlCommand(0), actor)));
+ assert.equal(commands.filter(result => result.status === "fulfilled").length, 1);
+ assert.equal(commands.find(result => result.status === "rejected").reason.code, "version_conflict");
+ assert.equal((await getSeoReportingControl()).version, 1);
+ assert.equal(await prisma.seoReportVersion.count({ where: { kind: "REPORTING_CONTROL" } }), 1);
+});
 
 test("real PostgreSQL serializes request replay and preserves optimistic versions", async () => {
  const record = { id: "db-task-" + nonce, weekStart, title: "Local workflow fixture", siteDomain: "flatkey.ai", kind: "research", country: "US", language: "en", business: "API", pageType: "other", keyword: "model api", pageUrl: null, owner: "integration-test", dueAt: stamp, status: "planned", dependencies: [], evidence, nextAction: "Local fixture only", contentVersion: null, acceptanceCriteria: ["No production calls"], research: null, approval: null, source: "automation" };
@@ -48,6 +63,11 @@ test("actual notification ledger rejects concurrent send and any retry after unk
  assert.equal(claims.filter(result => result.status === "fulfilled").length, 1);
  const claim = claims.find(result => result.status === "fulfilled").value;
  const stored = await prisma.seoDigestDelivery.findUniqueOrThrow({ where: { id: claim.id } });
+ let control = await getSeoReportingControl();
+ await setSeoReportingControl(controlCommand(control.version, false), "admin-session");
+ await assert.rejects(beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken), /尚未切换/);
+ control = await getSeoReportingControl();
+ await setSeoReportingControl(controlCommand(control.version, true), "admin-session");
  await beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken, testNow);
  await assert.rejects(beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken, testNow), /已过期或已使用/);
  const binding = { reportId: report.id, reportHash: report.hash, destination: claim.destination, robotCode: claim.robotCode };

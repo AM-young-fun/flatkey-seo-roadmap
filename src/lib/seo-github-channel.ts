@@ -42,11 +42,20 @@ export function githubComparable(rows: GithubChannel[], kind: "views" | "clones"
   const sum = (keys: string[]) => keys.length ? keys.reduce((n, d) => n + days.get(d)!.count, 0) : null;
   return { current: sum(dates), previous: sum(previousDates), dates, previousDates, expectedDays: Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1 };
 }
-export function githubDigestLines(rows: GithubChannel[], start: string, end: string, weekly: boolean, now: Date) {
+export function githubDigestLines(rows: GithubChannel[], start: string, end: string, weekly: boolean, now: Date, compact = false) {
   const lines = ["GitHub 提示词渠道（独立于自然搜索）"];
   for (const repository of PROMPT_REPOSITORIES) {
     const own = rows.filter(r => r.repository === repository && Date.parse(r.observedAt) <= now.getTime()).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
     const latest = own[0];
+    if (compact) {
+      if (!latest) { lines.push(`• ${repository.split("/")[1]}：待更新，无采集回执。`); continue; }
+      const views = githubComparable(own, "views", start, end, weekly), clones = githubComparable(own, "clones", start, end, weekly);
+      const period = views.dates.length ? `${views.dates[0]}～${views.dates.at(-1)} UTC（可比${views.dates.length}/${views.expectedDays}日）` : "日期待更新";
+      const referral = own.flatMap(r => r.referrals).filter(r => r.end <= end && (weekly ? r.start === start : r.start === r.end && r.start >= shift(end, -7))).sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt))[0];
+      const arrival = referral?.status === "ok" ? `${referral.sessions}会话/${referral.users}去重访客` : referral?.reason === "ga4_no_matching_utm_data" ? "无匹配UTM数据（非0）" : "待更新";
+      lines.push(`• [${repository.split("/")[1]}](https://github.com/${repository})：Stars ${latest.stars ?? "待更新"} / Forks ${latest.forks ?? "待更新"}（${latest.observedAt.slice(0, 10)}快照）；浏览 ${views.previous ?? "待更新"}→${views.current ?? "待更新"}，克隆 ${clones.previous ?? "待更新"}→${clones.current ?? "待更新"}；${period}；到站 ${arrival}${referral ? `，${referral.start}～${referral.end} ${referral.timezone}` : ""}；UTM ${latest.linkAudit.attributedLinks ?? "?"}/${latest.linkAudit.flatkeyLinks ?? "?"}。`);
+      continue;
+    }
     lines.push(`• [${repository}](https://github.com/${repository})`);
     if (!latest) { lines.push("  Stars / Forks / 浏览 / 克隆 / Flatkey 到站：待更新，尚无采集回执。"); continue; }
     const before = own.find(r => r.observedAt.slice(0, 10) < start && r.metadataStatus === "ok");

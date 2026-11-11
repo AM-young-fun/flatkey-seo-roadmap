@@ -91,3 +91,12 @@ test("module leaders are selected before global top five, preserve language and 
  assert.equal(ranking.modules.find(m=>m.id==='blog').pages.length,3);
  assert.deepEqual(ranking.modules.find(m=>m.id==='other').pages,[]);
 });
+test("group notification keeps one winner per metric/module and merges the same URL without dropping dates or archive", () => {
+ const report=buildSeoDigest({date:'2026-11-11',now,notificationCompact:true,observations:[],pageObservations:[gs('2026-11-10',[[url('compute'),10],[url('prompts/example'),7]]),ga('2026-11-10',[['flatkey.ai','/compute',5],['flatkey.ai','/prompts/example',6]])],publications:[],optimizations:[],effects:[],priorities:[],issues:Array.from({length:7},(_,i)=>'issue-marker-'+i),runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing'});
+ assert.match(report.text,/每模块点击\/自然会话 Top1/);
+ assert.equal((report.text.match(/https:\/\/flatkey.ai\/compute/g)||[]).length,1);
+ assert.match(report.text,/点击 10（2026-11-10）.*自然会话 5（2026-11-10）/);
+ assert.match(report.text,/issue-marker-2/);assert.doesNotMatch(report.text,/issue-marker-3/);
+ assert.match(report.detailText,/issue-marker-6/);assert.match(report.detailText,/分模块 Top 3/);
+ assert.match(report.text,/待核实/);assert.match(report.text,/数据基础/);assert.ok(Buffer.byteLength(report.text)<10000);
+});

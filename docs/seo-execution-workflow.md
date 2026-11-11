@@ -78,7 +78,9 @@
 
 只用DWS猫猫侠→Flatkey seo/geo。数据库以kind+date原子领取，记录开始尝试与完整回执；旧日期、过期快照拒绝发送。外部超时进入UNKNOWN，禁止再次发送。已有provider_accepted回执时用`--reconcile=/absolute/receipt.json`只补记平台，不重发。
 
-最终切换须先验收日报/周报各一份、真实交付与优化台账、三表与数据基础链接、实际任务启停；再核对服务端与GitHub `SEO_UNIFIED_REPORTING_ENABLED=true`、本机control中的report_preview_accepted/notification_cutover，并停止旧日采/排名单发和逐篇博客消息。同一切换批次启用每日18日报与周五10周报，不能双重发送。`SEO_WORKFLOW_ENABLED=true`控制服务器区间去重人数采集；`SEO_GA4_BUSINESS_COLLECTION_ENABLED=true`控制GA4业务链采集，均须各自验收，不能因埋点代码已写好就启用并声称有结果。
+最终切换须先验收日报/周报各一份、真实交付与优化台账、三表与数据基础链接、实际任务启停。平台发送开关保存在数据库，通过受鉴权的 `/api/seo/reporting-control` 读取/修改，默认关闭；写入必须携带当前版本、协议2、固定群/机器人及原因，形成不可覆盖审计。服务端领取与发送前都检查该开关；环境变量不能绕过它。验收后启用数据库开关，再设GitHub `SEO_UNIFIED_REPORTING_ENABLED=true` 关闭旧日采通知，并更新本机control中的report_preview_accepted/notification_cutover、停止排名单发和逐篇博客消息。同一切换批次启用每日18日报与周五10周报，不能双重发送。`SEO_WORKFLOW_ENABLED=true`控制服务器区间去重人数采集；`SEO_GA4_BUSINESS_COLLECTION_ENABLED=true`控制GA4业务链采集，均须各自验收，不能因埋点代码已写好就启用并声称有结果。
+
+群正文只展示每模块点击/自然会话Top1（同页合并）、待审总数与最多3项、两个GitHub仓库各一行、最多3项异常与3项下一步；实际来源日期与缺失状态不能省。完整版保留在报告快照的detailText及平台相关工作页，不新建报告页。发送脚本不带 `--send` 仅prepare；真实发送须取得独立kind+date锁、begin回执后调用DWS，并以真实processQueryKey登记DELIVERED。结果UNKNOWN不得自动重发。
 
 ## 仅采集验收（不发群）
 

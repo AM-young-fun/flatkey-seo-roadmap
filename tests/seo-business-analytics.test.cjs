@@ -18,7 +18,7 @@ test("event totals never cross country, channel or period and missing events are
  assert.equal(latestBusinessPeriod([row],row.start,row.end,"all","all-channels"),null);
  assert.equal(latestBusinessPeriod([row],"2026-11-02",row.end,"all",row.scope),null);
  const text=businessDigestLines([row],row.start,row.end).join("\n");
- assert.match(text,/GPU 成功租赁：12 次 \/ 区间去重 7 人/);
+ assert.match(text,/GPU 租赁成功事件：12 次 \/ 区间去重 7 人/);
  assert.match(text,/API 首次成功使用：未观测到/);
  assert.match(text,/全渠道业务：.*待更新/);
  assert.doesNotMatch(text,/激活率|API 首次成功使用：0|58\./);

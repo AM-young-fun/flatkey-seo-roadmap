@@ -44,7 +44,7 @@ test("long approval queues keep a bounded digest and a link to all pending items
  const tickets=Array.from({length:12},(_,i)=>approval("ticket"+i,{items:[{...approval("a").items[0],id:"item"+i,taskId:"task"+i,pageUrl:"https://flatkey.ai/page-"+i}]}));
  const result=buildSeoDigest({...base(),...workflow(tickets)});
  assert.deepEqual(result.approvalQueue,{tickets:12,pages:12});
- assert.match(result.text,/其余 4 个页面版本/); assert.equal((result.text.match(/approvalId=/g)||[]).length,8);
+ assert.match(result.text,/其余 9 个页面版本/); assert.equal((result.text.match(/approvalId=/g)||[]).length,3);
 });
 test("pending review deduplicates a multi-page ticket and its task and separates unsubmitted material", () => {
  const submitted = approval("submitted");

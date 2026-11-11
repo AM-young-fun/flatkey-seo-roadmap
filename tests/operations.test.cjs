@@ -51,8 +51,9 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
   assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 08:30（仓库配置）");
   assert.equal(status.plans.find(row => row.id === "10-30-seo").cadence, "每日 09:00");
-  assert.equal(status.plans.find(row => row.id === "automation").state, "配置已暂停");
-  assert.equal(status.plans.find(row => row.id === "automation").nextAt, null);
+  const actualPlan = configuredAutomationPlans(new Date("2026-10-19T08:00:00Z")).find(row => row.id === "automation");
+  assert.equal(status.plans.find(row => row.id === "automation").state, actualPlan.state);
+  assert.equal(status.plans.find(row => row.id === "automation").nextAt, actualPlan.nextAt);
   assert.equal(status.automationConfigurationVerifiedAt, require("../src/lib/data/seo-automation-config.json").verifiedAt);
   assert.match(status.records[0].name, /第1期/);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
@@ -61,7 +62,7 @@ test("operational view reads metadata only and distinguishes online ranking from
 test("actual Codex configuration keeps paused tasks unscheduled and first-weekday rules respect weekends", () => {
   const rules = configuredAutomationPlans(new Date("2026-11-10T00:30:00Z"));
   assert.equal(rules.find(row => row.id === "10-30-seo").nextAt, "2026-11-10T01:00:00.000Z");
-  assert.equal(rules.find(row => row.id === "seo-18-00").nextAt, null);
+  for (const row of rules.filter(row => row.configuredStatus === "PAUSED")) assert.equal(row.nextAt, null);
   assert.equal(nextAutomationTime("FREQ=WEEKLY;BYDAY=FR;BYHOUR=16;BYMINUTE=30", new Date("2026-11-10T08:00:00Z"), "ACTIVE"), "2026-11-13T08:30:00.000Z");
   assert.equal(nextAutomationTime("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0", new Date("2026-10-31T08:00:00Z"), "ACTIVE"), "2026-11-02T07:00:00.000Z");
   assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=18;BYMINUTE=0", new Date(), "PAUSED"), null);

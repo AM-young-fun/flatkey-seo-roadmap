@@ -32,7 +32,7 @@ export function SeoBusinessAnalytics({ range }: { range: DateRange }) {
     <p className={styles.note}>封闭漏斗按 GA4 报告身份识别同一用户，允许中间有其他事件。GPU 每步最长24小时；API 注册到首次使用最长7天、首次使用到首次付款最长30天。所有步骤必须落在当前所选日期内，不是成熟注册 cohort 转化率。</p>
     <h3>参与与停留</h3><p className={styles.note}>GA4 有效参与时长：{record?.engagement?.engagementSeconds === null || record?.engagement?.engagementSeconds === undefined ? "待更新" : `${numberText(record.engagement.engagementSeconds)} 秒`} · 活跃人数：{numberText(record?.engagement?.activeUsers)}{record?.engagement?.status === "partial" ? " · 部分数据" : ""}</p>
     <p className={styles.note}>自定义 active_time_msec：{record?.engagement?.activeTimeCustomMetric === "registered" ? "已注册；页面明细需另查" : "指标定义待核验"}。有效参与时长来自 GA4 标准指标，不等同单页总打开时间。</p>
-    <details><summary>指标口径与路径分析</summary><p className={styles.note}>人数按整个所选区间查询，不累加每日人数；不同事件用户不能相加或直接计算漏斗率。首次付款与全部订单付款不相加。此表是事件汇总，不能还原用户路径。路径、停留及步骤流失在 GA4 探索中按已验收事件分析。</p>
+    <details><summary>指标口径与路径分析</summary><p className={styles.note}>人数按整个所选区间查询，不累加每日人数；不同事件用户不能相加或直接计算漏斗率。首次付款与全部付款事件不相加。重试可能重复上报，事件次数不等于唯一订单数；订单及金额需与业务账本核对。此表不能还原用户路径。路径、停留及步骤流失在 GA4 探索中按已验收事件分析。</p>
       <a href="https://analytics.google.com/analytics/web/#/a248149353p541304395/analysis" target="_blank" rel="noreferrer">打开 GA4 探索 ↗</a><Link href="/issues#issue-ga4-business-journey-pending">查看埋点验收待办 →</Link>
     </details>
   </section>;
