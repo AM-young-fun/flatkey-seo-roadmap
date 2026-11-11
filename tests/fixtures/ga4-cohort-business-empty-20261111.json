@@ -1,0 +1,29 @@
+{
+  "provenance": {
+    "workflowRunId": "43011867856",
+    "observedAt": "2026-11-11T11:26:35.877Z",
+    "propertyId": "541304395",
+    "httpStatus": 200,
+    "responseSha256": "e8e1aae79c649f4c96eec885b737af5a13c954ad55eab1a5a4ba2ac7de19b152",
+    "identicalBusinessQueries": 4,
+    "note": "Exact sanitized aggregate shape from the live provider. Not the full raw response and not proof of a mature business cohort."
+  },
+  "shape": {
+    "dimensionHeaders": [
+      "funnelStepName"
+    ],
+    "metricHeaders": [
+      "activeUsers",
+      "funnelStepCompletionRate",
+      "funnelStepAbandonments",
+      "funnelStepAbandonmentRate",
+      "activeUsers",
+      "funnelStepCompletionRate",
+      "funnelStepAbandonments",
+      "funnelStepAbandonmentRate"
+    ],
+    "returnedRows": null,
+    "rows": null,
+    "samplingPresent": false
+  }
+}

@@ -164,3 +164,16 @@ test("mature archive shortcuts preserve country/source/window and never substitu
   const html=renderToStaticMarkup(React.createElement(SeoApiCohorts,{cohorts:undefined,range:{start:"2026-11-01",end:"2026-11-07"},periods,onRangeSelect:()=>{}}));
   assert.match(html,/查看已归档 D30/);assert.match(html,/注册 2026-10-01—2026-10-07/);assert.doesNotMatch(html,/40.0%/);
 });
+
+
+test("actual 2026-11-11 business probe shape: HTTP200 and repeated metric headers without rows stay unavailable, never zero",()=>{
+  const evidence=require("./fixtures/ga4-cohort-business-empty-20261111.json");
+  assert.equal(evidence.provenance.workflowRunId,"43011867856");
+  assert.equal(evidence.provenance.responseSha256,"e8e1aae79c649f4c96eec885b737af5a13c954ad55eab1a5a4ba2ac7de19b152");
+  assert.equal(evidence.shape.returnedRows,null);assert.equal(evidence.shape.rows,null);
+  const provider={funnelTable:{dimensionHeaders:evidence.shape.dimensionHeaders.map(name=>({name})),metricHeaders:evidence.shape.metricHeaders.map(name=>({name}))}};
+  for(const plan of plans()) {
+    const result=parseApiCohortResponse(plan,provider);assert.equal(result.status,"unavailable");
+    assert.equal(result.registeredUsers,null);assert.equal(result.convertedUsers,null);assert.equal(result.rate,null);
+  }
+});

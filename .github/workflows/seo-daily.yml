@@ -70,6 +70,7 @@ jobs:
         env:
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
           GA4_COHORT_PROBE_OUTPUT_DIR: ${{ runner.temp }}/ga4-cohort-probe
+          GA4_COHORT_PROBE_MODE: page-view-shape
         run: node scripts/ga4-cohort-probe.cjs
       - name: Archive diagnostic aggregate evidence only
         if: always()

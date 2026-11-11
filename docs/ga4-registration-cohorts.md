@@ -1,6 +1,6 @@
 # GA4 可观测注册 cohort — 待审核实现
 
-本分支只补 API 注册后 7 天首次成功使用 / 30 天首次付费。未合并、未发布、未调用真实 GA4 查询、未设置覆盖起点；17 项定时任务与稳定 runtime 均不变。
+本分支只补 API 注册后 7 天首次成功使用 / 30 天首次付费。未合并 main、未发布、未设置覆盖起点；17 项定时任务与稳定 runtime 均不变。已执行只读接口契约探测，结果与验收限制见下文。
 
 ## 口径
 
@@ -42,3 +42,11 @@ Router deploy: not required。本分支只涉及 SEO 平台 UI / 数据查询 / 
 - [探索数据保留期](https://support.google.com/analytics/answer/7667196?hl=en)
 
 这些文档证明查询语义可实现，不能代替该 property 的真实接口验收。
+
+## 2026-11-11 真实接口契约探测
+
+[只读业务探测 run 43011867856](https://github.com/AM-young-fun/flatkey-seo-roadmap/actions/runs/43011867856) 已返回：属性时区真实为 America/Los_Angeles；四个业务漏斗查询（D7/D30 × 全渠道/JP自然搜索）均 HTTP 200，date、国家、来源与事件参数过滤的请求语法被当前属性接受。
+
+四份响应都没有 rows，且 metricHeaders 中 activeUsers 等四指标重复两组，原始响应 hash 相同 `e8e1aae79c649f4c96eec885b737af5a13c954ad55eab1a5a4ba2ac7de19b152`。这不能证明有数时的列布局，也不能当成 0 人或 0%。实际空形状已纳入契约 fixture；parser 继续返回 unavailable/null，不猜测取第一组重复列。
+
+下一步由独立诊断任务仅执行正式域名 page_view → page_view 的非业务形状探测；该探测不导入、不开启 coverage、不代表 API 注册转化率。必须取得真实非空回执并核对列布局后，才能称有数解析路径已验收。

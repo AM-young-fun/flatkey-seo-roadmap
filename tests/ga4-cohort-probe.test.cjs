@@ -15,6 +15,7 @@ test("probe CLI is exact-branch dispatch only and refuses write secrets, coverag
     assert.throws(() => assertProbeExecution({ ...env, ...change }, []));
   }
   assert.throws(() => assertProbeExecution(env, ["--import"]));
+  assert.throws(() => assertProbeExecution({ ...env, GA4_COHORT_PROBE_MODE: "other" }, []));
 });
 
 test("four fixed diagnostic cases exercise date, country, organic source and both independent horizons without coverage", () => {
@@ -92,6 +93,23 @@ test("HTTP 200 without a funnel table remains failed diagnostic evidence", async
   assert.ok(result.queries.every(row => row.receipt.status === "invalid_response"));
 });
 
+test("explicit page-view shape mode sends only one diagnostic funnel over seven processed property days", async () => {
+  const requests = [];
+  const result = await runCohortProbe({ now, mode: "page-view-shape", getToken: async () => token, fetchImpl: async (url, init) => {
+    requests.push({ url, body: JSON.parse(init.body) });
+    return Response.json(requests.length === 1 ? { metadata: { timeZone: "America/Los_Angeles" } } : table);
+  } });
+  assert.equal(requests.length, 2); assert.equal(result.queries.length, 1);
+  assert.equal(result.diagnosticMode, "page-view-shape"); assert.equal(result.conversionRates, null); assert.equal(result.coverageVerified, false); assert.equal(result.imported, false);
+  assert.deepEqual(requests[1].body.dateRanges, [{ startDate: "2026-11-02", endDate: "2026-11-08" }]);
+  assert.equal(requests[1].body.funnel.isOpenFunnel, false);
+  assert.ok(requests[1].body.funnel.steps.every(row => row.filterExpression.funnelEventFilter.eventName === "page_view" && row.name.startsWith("Page-view diagnostic")));
+  assert.equal(requests[1].body.funnel.steps[1].withinDurationFromPriorStep, "604800s");
+  assert.doesNotMatch(JSON.stringify(requests[1].body), /sign_up|first_model_success|first_payment_completed|countryId|Organic Search/);
+  assert.deepEqual(requests[1].body.dimensionFilter.filter.inListFilter.values, ["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai", "router.flatkey.ai"]);
+  assert.throws(() => createProbeCases(now, "unknown"));
+});
+
 test("workflow probe receives only existing Google read credentials; main production and all notification gates remain closed for branch", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "../.github/workflows/seo-daily.yml"), "utf8");
   const probe = workflow.split("  cohort-probe:\n")[1].split("  collect:\n")[0];
@@ -100,6 +118,7 @@ test("workflow probe receives only existing Google read credentials; main produc
   assert.match(probe, /inputs\.business_only == true/); assert.match(probe, /inputs\.send_notifications == false/);
   assert.match(probe, /!inputs\.report_only && !inputs\.periods_only && !inputs\.verify_dingtalk && !inputs\.send_report/);
   assert.match(probe, /secrets\.SEO_GOOGLE_SERVICE_ACCOUNT_JSON/);
+  assert.match(probe, /GA4_COHORT_PROBE_MODE: page-view-shape/);
   assert.doesNotMatch(probe, /SEO_IMPORT_TOKEN|SEO_DINGTALK_CONFIG|COVERAGE_START|--import/);
   assert.match(workflow.split("  collect:\n")[1].split("    runs-on:")[0], /github\.ref == 'refs\/heads\/main'/);
   const script = fs.readFileSync(path.join(__dirname, "../scripts/ga4-cohort-probe.cjs"), "utf8");
