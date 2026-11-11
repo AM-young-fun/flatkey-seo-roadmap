@@ -4,11 +4,11 @@ function collectionReceipt({ runId, attempt = "1", sha, startedAt, completedAt, 
   const day = new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Shanghai"}).format(new Date(startedAt));
   const week = new Date(day+"T00:00:00Z"); week.setUTCDate(week.getUTCDate()-((week.getUTCDay()+6)%7));
   const failed = Boolean(error || !result || result.failures || result.missing);
-  const partial = !failed && Boolean(result.unavailable);
+  const partial = !failed && Boolean(result.unavailable || result.qualityIssues?.length);
   const id = `server-collection-${runId}-${attempt}`;
   const dates = {};
   for (const scope of result?.windows ?? []) { dates[scope.site+":GA4_requested_end"]=scope.ga4.end; dates[scope.site+":GSC_requested_end"]=scope.gsc.end; }
-  const summary = result ? `已导入并读回 ${result.imported} 条；${result.failures} 个失败；${result.unavailable} 个范围无源数据；应有 ${result.expected} 条，缺失 ${result.missing} 条。` : "未取得完整采集结果。";
+  const summary = result ? `已导入并读回 ${result.imported} 条；${result.failures} 个失败；${result.unavailable} 个范围无源数据；${result.qualityIssues?.length ?? 0} 项指标覆盖限制；应有 ${result.expected} 条，缺失 ${result.missing} 条。` : "未取得完整采集结果。";
   return {action:"record_run",requestId:id,expectedVersion:0,record:{
     id,weekStart:week.toISOString().slice(0,10),stage:"SERVER_COLLECTION",scheduledFor:startedAt,startedAt,completedAt,
     status:failed?"failed":partial?"partial":"completed",owner:"GitHub Actions",taskIds:[],inputVersion:sha,

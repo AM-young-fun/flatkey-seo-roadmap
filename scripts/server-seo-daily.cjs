@@ -38,6 +38,7 @@ let imported = 0;
 let unavailable = 0;
 const expected = new Set();
 const scopes = [];
+const qualityIssues = [];
 function expectDay(base, kind, date) { expected.add(recordKey({ ...base, kind }) + ":" + date); }
 
 function collectionWindow(days, timezone) {
@@ -47,6 +48,7 @@ function collectionWindow(days, timezone) {
 function logQuality(site, country, range, metric, quality) {
   if (quality?.complete !== false) return;
   const reasons = [...new Set((quality.reasons ?? []).map(reason => QUALITY_REASONS.has(reason) ? reason : "unrecognized_quality_reason"))];
+  qualityIssues.push({ site: site.domain, country: country ?? "all", metric, reasons });
   console.log(JSON.stringify({ site: site.domain, country: country ?? "all", source: "GA4", status: "quality_incomplete", metric, dateRange: range, reasons }));
 }
 /** Bound each scope; drain started writes/readbacks before propagating any error. */
@@ -214,7 +216,7 @@ async function run() {
   const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
-  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes };
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues };
   receiptAttempted = true;
   await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), result });
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));
