@@ -72,15 +72,17 @@
 
 ## 通知切换
 
-`scripts/seo-digest-dws.cjs --kind=daily|weekly --date=YYYY-MM-DD`默认只生成并保存Markdown预览；离线核对可用 `seo-digest-preview.cjs`读取真实归档并明确归档日期。18:00只发送daily，周五10:00只发送weekly，两个独立项目cron不依赖当前主会话。发送时重新prepare最终快照补齐预览之后的工作，再`--send`；不得发送preliminary。
+每日17:30、周五09:30通过digest API prepare生成日报/周报不可变快照；离线核对可用seo-digest-preview.cjs读取真实归档并标日期。两个发送cron在每日18:00（含周五）、周五10:00派发同一既有seo-daily.yml的report_only工作，不依赖主会话，也不再本地调用seo-digest-dws.cjs。
 
-每份报告按首页及其他功能页、Prompt、博客、模型、GPU分块，列真实点击/自然会话优质页、五站四国变化、优化效果、GitHub提示词渠道、下一步和缺口。顶部注明跨日跨周待审核任务数、审批单数、页面版本数、待补材料任务数。末尾“数据基础”链接到含三表及平台入口的钉钉文档；密码由用户补充，报告不展示密码。未核实的注册/租赁等保持缺失，不填0。
+Actions执行scripts/server-seo-digest-send.cjs --kind=daily|weekly --date=YYYY-MM-DD，默认只预检，send_report=true才追加--send；普通发送prepare最新最终快照，禁止preliminary。审核恢复须传--report-id使用同一已冻结正文，不能改变本次报告hash；不会把18点后新工作塞进已领取的旧快照。
 
-只用DWS猫猫侠→Flatkey seo/geo。数据库以kind+date原子领取，记录开始尝试与完整回执；旧日期、过期快照拒绝发送。外部超时进入UNKNOWN，禁止再次发送。已有provider_accepted回执时用`--reconcile=/absolute/receipt.json`只补记平台，不重发。
+每份报告按首页及其他功能页、Prompt、博客、模型、GPU分块；显示真实点击/自然会话优质页、五站四国变化、优化效果、GitHub渠道、下一步及缺口。顶部有待审核任务/单/页面版本及待补材料数量；正文每模块Top1、最多3项待审/异常/下一步，完整版保留detailText。末尾“数据基础”链接三表和平台入口钉钉文档，密码不进报告。未核实数据保持缺失，不补0。
 
-最终切换须先验收日报/周报各一份、真实交付与优化台账、三表与数据基础链接、实际任务启停。平台发送开关保存在数据库，通过受鉴权的 `/api/seo/reporting-control` 读取/修改，默认关闭；写入必须携带当前版本、协议2、固定群/机器人及原因，形成不可覆盖审计。服务端领取与发送前都检查该开关；环境变量不能绕过它。验收后启用数据库开关，再设GitHub `SEO_UNIFIED_REPORTING_ENABLED=true` 关闭旧日采通知，并更新本机control中的report_preview_accepted/notification_cutover、停止排名单发和逐篇博客消息。同一切换批次启用每日18日报与周五10周报，不能双重发送。`SEO_WORKFLOW_ENABLED=true`控制服务器区间去重人数采集；`SEO_GA4_BUSINESS_COLLECTION_ENABLED=true`控制GA4业务链采集，均须各自验收，不能因埋点代码已写好就启用并声称有结果。
+固定群Flatkey seo/geo保留原猫猫侠Webhook；GitHub Actions原SEO_DINGTALK_CONFIG负责签名，秘密不导出。数据库通知开关默认关闭，写入需要expectedVersion、协议2、transport=signed-webhook、固定群/原bot、真实配置指纹及审计原因；领取及begin都核验，环境变量不能绕过。报告独立kind+date原子claim→begin→签名Webhook→持久化真实HTTP200/errcode0/responseHash/acceptedAt/workflowRunId回执→finish。Webhook回执不伪造应用机器人processQueryKey。
 
-群正文只展示每模块点击/自然会话Top1（同页合并）、待审总数与最多3项、两个GitHub仓库各一行、最多3项异常与3项下一步；实际来源日期与缺失状态不能省。完整版保留在报告快照的detailText及平台相关工作页，不新建报告页。发送脚本不带 `--send` 仅prepare；真实发送须取得独立kind+date锁、begin回执后调用DWS，并以真实processQueryKey登记DELIVERED。结果UNKNOWN不得自动重发。
+结果UNKNOWN不得自动重发；已有提供方接受回执只reconcile补记。明确提供方拒绝必须凭严格绑定的错误与报告hash通过审计恢复同一报告；不能手动改数据库解锁。原本地DWS发送脚本仅保留历史兼容，不能作为定时任务备用发送者。
+
+切换先验收日报/周报预览、真实交付和优化台账、三表/数据基础、实际任务启停，再预检取得旧Webhook配置指纹并更新数据库控制。SEO_UNIFIED_REPORTING_ENABLED=true关闭旧日采及排名单发；逐篇博客通知停止。一次只有一条相应kind的群消息。SEO_WORKFLOW_ENABLED控制区间去重采集，SEO_GA4_BUSINESS_COLLECTION_ENABLED控制GA4业务链采集；代码已写不等于业务事实已入库。
 
 ## 仅采集验收（不发群）
 

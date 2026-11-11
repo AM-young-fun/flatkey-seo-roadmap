@@ -1,3 +1,4 @@
+import { actionCardPayload, messageHash } from "../seo-digest-message.cjs";
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
 import { loadGithubChannels } from "./seo-github-channel";
@@ -62,7 +63,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     return publication ? [{ id: change.id, url: row.pageUrl, keyword: row.keyword, changes: change.description, verifiedAt: publication.verifiedAt!, recordedAt: publication.verificationRecordedAt!, baselineId: row.id + ":baseline" }] : [];
   }));
   const relevantPlan = window.kind === "weekly" ? nextWeek : workflow;
-  const priorities = relevantPlan.tasks.filter(task => relevantPlan.plan?.status === "reviewed" && relevantPlan.plan.taskIds.includes(task.id) && !["verified", "observing"].includes(task.status))
+  const priorities = relevantPlan.tasks.filter(task => (relevantPlan.plan?.status === "reviewed" || window.kind === "weekly" && relevantPlan.plan?.status === "draft") && relevantPlan.plan.taskIds.includes(task.id) && !["verified", "observing"].includes(task.status))
     .sort((a, b) => a.dueAt.localeCompare(b.dueAt)).map(task => ({ title: task.title, keyword: task.keyword ?? undefined, country: task.country ?? undefined, url: task.pageUrl ?? undefined, reason: task.research?.intent ?? task.acceptanceCriteria.join("；"), action: task.nextAction || task.acceptanceCriteria.join("；") }));
   const startStamp = Date.parse(window.workStart);
   const runs = workflow.runs.filter(run => Date.parse(run.scheduledFor) >= startStamp && Date.parse(run.scheduledFor) < Date.parse(window.workEnd));
@@ -87,6 +88,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     priorities, issues: [...new Set([...issues, ...workflow.issues.filter(issue => issue.status !== "resolved" && Date.parse(issue.firstSeenAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(issue => `${issue.siteDomain} · ${issue.title} · ${issue.nextAction}`)])],
     runNotes: [...runs.map(run => `${run.stage} · ${run.status} · ${run.completedItems}/${run.checkedItems} · ${run.failureReason ?? run.nextAction} · 来源日期 ${Object.entries(run.sourceDates).map(([source, day]) => `${source}:${day ?? "未知"}`).join("，")}`), ...collectors.map(run => `${run.kind} · ${run.status} · ${run.detail ?? "采集回执已归档"}`)],
     publicationCoverage: stageCoverage(["BLOG_PUBLISH", "DELIVERY_VERIFY"]), optimizationCoverage: stageCoverage(["OPTIMIZATION", "DELIVERY_VERIFY"]),
+    nextPlanStatus: window.kind === "weekly" ? nextWeek.plan?.status : undefined,
     nextPlanUrl: window.kind === "weekly" && nextWeek.plan ? `https://flatkey-seo-roadmap.vercel.app/work?week=${nextWeek.weekStart}` : undefined,
   };
   return buildSeoDigest(input);
@@ -99,8 +101,9 @@ export async function saveSeoDigest(digest: SeoDigest) {
   return digest;
 }
 
-export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot") {
+export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot", messageFormat?: "actionCard") {
   const control = await requireReportingEnabled(transport);
+  if (transport === "signed-webhook" && messageFormat !== "actionCard") throw new DigestError("Webhook 发送必须使用已绑定的详情卡片", 400);
   return prisma.$transaction(async tx => {
     const saved = await tx.seoReportVersion.findUnique({ where: { id: reportId } });
     if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
@@ -117,10 +120,11 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     if (previous?.status === "REJECTED_CONFIRMED" && !recovered) throw new DigestError("已核验拒绝仅允许恢复原报告快照");
     if (!recovered && (now.getTime() - Date.parse(report.generatedAt) > 15 * 60000 || Date.parse(report.generatedAt) > now.getTime())) throw new DigestError("请在发送前刷新报告");
     if (previous && !digestClaimable(previous, clock.now)) throw new DigestError(previous.status === "DELIVERED" ? "当天该类报告已发送" : "发送已被领取或结果未核实，禁止重复发送");
+    const payloadSha256 = transport === "signed-webhook" ? messageHash(actionCardPayload(report)) : undefined;
     const data = { reportId, reportHash: report.hash, destination: control.destination, robotCode: control.robotCode, status: "CLAIMED", claimedBy: owner, fencingToken: (previous?.fencingToken ?? 0) + 1, leaseUntil: new Date(clock.now.getTime() + 5 * 60000), errorCode: null,
-      receipt: json({ transport, controlVersion: control.version, ...(control.webhookConfigSha256 ? { webhookConfigSha256: control.webhookConfigSha256 } : {}) }) };
+      receipt: json({ transport, ...(payloadSha256 ? { messageFormat, payloadSha256 } : {}), controlVersion: control.version, ...(control.webhookConfigSha256 ? { webhookConfigSha256: control.webhookConfigSha256 } : {}) }) };
     const receipt = previous ? await tx.seoDigestDelivery.update({ where: { id }, data }) : await tx.seoDigestDelivery.create({ data: { id, ...data } });
-    return { id, fencingToken: receipt.fencingToken, destination: receipt.destination, robotCode: receipt.robotCode, transport, webhookConfigSha256: control.webhookConfigSha256, report };
+    return { id, fencingToken: receipt.fencingToken, destination: receipt.destination, robotCode: receipt.robotCode, transport, messageFormat, payloadSha256, webhookConfigSha256: control.webhookConfigSha256, report };
   });
 }
 
@@ -139,15 +143,16 @@ export async function beginDigestAttempt(id: string, owner: string, fencingToken
 
 export async function finishDigestAttempt(input: { id: string; owner: string; fencingToken: number; reportId: string; reportHash: string; destination: string; robotCode: string; status: "DELIVERED" | "UNKNOWN"; processQueryKey?: string; webhookReceipt?: WebhookReceipt; errorCode?: string }, now = new Date()) {
   const current = await prisma.seoDigestDelivery.findUnique({ where: { id: input.id } });
-  const currentReceipt = current?.receipt as { transport?: string; webhookConfigSha256?: string; webhookReceipt?: WebhookReceipt } | null;
+  const currentReceipt = current?.receipt as { messageFormat?: string; payloadSha256?: string; transport?: string; webhookConfigSha256?: string; webhookReceipt?: WebhookReceipt } | null;
   const transport = currentReceipt?.transport ?? (currentReceipt?.webhookReceipt ? "signed-webhook" : "application-bot");
   if (input.status === "DELIVERED" && transport === "signed-webhook") {
     const receipt = webhookReceiptSchema.safeParse(input.webhookReceipt);
+    if (currentReceipt?.messageFormat === "actionCard" && (!receipt.success || receipt.data.messageFormat !== "actionCard" || receipt.data.payloadSha256 !== currentReceipt.payloadSha256)) throw new DigestError("卡片回执与已领取正文及按钮不匹配", 400);
     if (!receipt.success || input.processQueryKey || receipt.data.webhookConfigSha256 !== (currentReceipt?.webhookConfigSha256 ?? currentReceipt?.webhookReceipt?.webhookConfigSha256) || !current?.attemptedAt || Date.parse(receipt.data.acceptedAt) < current.attemptedAt.getTime() || Date.parse(receipt.data.acceptedAt) > now.getTime() + 300000) throw new DigestError("Webhook 需要实际成功回执及同一配置绑定", 400);
   } else if (input.status === "DELIVERED" && (!input.processQueryKey?.trim() || input.webhookReceipt)) throw new DigestError("应用机器人送达必须有钉钉 processQueryKey 回执", 400);
   const result = await prisma.seoDigestDelivery.updateMany({ where: { id: input.id, reportId: input.reportId, reportHash: input.reportHash, destination: input.destination, robotCode: input.robotCode, claimedBy: input.owner, fencingToken: input.fencingToken, status: { in: input.status === "DELIVERED" ? ["SENDING", "UNKNOWN"] : ["SENDING"] } }, data: {
     status: input.status, deliveredAt: input.status === "DELIVERED" ? now : null, leaseUntil: null,
-    receipt: json({ transport, webhookConfigSha256: currentReceipt?.webhookConfigSha256 ?? currentReceipt?.webhookReceipt?.webhookConfigSha256, ...(input.webhookReceipt ? { webhookReceipt: input.webhookReceipt } : {}), processQueryKey: input.processQueryKey ?? null, recordedAt: now.toISOString(), receiptId: randomUUID() }), errorCode: input.errorCode ?? null,
+    receipt: json({ transport, ...(currentReceipt?.messageFormat ? { messageFormat: currentReceipt.messageFormat, payloadSha256: currentReceipt.payloadSha256 } : {}), webhookConfigSha256: currentReceipt?.webhookConfigSha256 ?? currentReceipt?.webhookReceipt?.webhookConfigSha256, ...(input.webhookReceipt ? { webhookReceipt: input.webhookReceipt } : {}), processQueryKey: input.processQueryKey ?? null, recordedAt: now.toISOString(), receiptId: randomUUID() }), errorCode: input.errorCode ?? null,
   } });
   if (result.count !== 1) {
     const existing = await prisma.seoDigestDelivery.findUnique({ where: { id: input.id } });

@@ -21,3 +21,16 @@ test('send script records attempt and durable acceptance before acknowledgement 
  assert.ok(source.indexOf("write('.accepted.json'")<source.indexOf("status: 'DELIVERED', webhookReceipt"));
  assert.match(source,/if \(!process\.argv\.includes\('--send'\)\)/);assert.match(source,/action: 'read_saved'/);assert.match(source,/webhook_control_binding_unverified/);assert.doesNotMatch(source,/processQueryKey|setInterval|while\s*\(/);
 });
+
+test('one shared ActionCard payload binds the real details button and every visible byte',()=>{
+ const {actionCardPayload,messageHash,DETAIL_URL}=require('../src/lib/seo-digest-message.cjs');
+ const report={title:'Flatkey SEO 日报',text:'已完成 1 项\n[数据基础](https://alidocs.dingtalk.com/i/nodes/example)'};
+ const payload=actionCardPayload(report);
+ assert.deepEqual(payload,{msgtype:'actionCard',actionCard:{title:report.title,text:report.text,btnOrientation:'0',singleTitle:'查看详情',singleURL:DETAIL_URL}});
+ assert.equal(DETAIL_URL,'https://flatkey-seo-roadmap.vercel.app');
+ assert.notEqual(messageHash(payload),messageHash({...payload,actionCard:{...payload.actionCard,singleURL:DETAIL_URL+'/other'}}));
+ assert.notEqual(messageHash(payload),messageHash(actionCardPayload({...report,text:report.text+' changed'})));
+ const sender=fs.readFileSync(path.join(__dirname,'../scripts/server-seo-digest-send.cjs'),'utf8');
+ assert.match(sender,/claim\.payloadSha256 !== payloadSha256/);assert.match(sender,/body: JSON\.stringify\(payload\)/);
+ assert.match(sender,/messageFormat: 'actionCard', payloadSha256/);
+});

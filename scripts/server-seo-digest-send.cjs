@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Signed webhook secret stays in the existing GitHub Actions secret store.
 const fs = require('node:fs/promises'), path = require('node:path'), crypto = require('node:crypto');
+const { actionCardPayload, messageHash } = require('../src/lib/seo-digest-message.cjs');
 const { signedWebhook } = require('./seo-alert.cjs');
 const ORIGIN = 'https://flatkey-seo-roadmap.vercel.app', REPO = 'AM-young-fun/flatkey-seo-roadmap';
 const GROUP = 'cid7d5au0J8RAKDDxMR+VNh1w==', BOT = 'tFmSJLB0+A1WmEX9zMnH2w==';
@@ -35,25 +36,27 @@ async function run() {
   const reportId = flag('report-id');
   const { report } = await api('/api/seo/digest', reportId ? { action: 'read_saved', reportId } : { action: 'prepare', date, kind });
   if (report?.date !== date || report.kind !== kind || report.hash !== hash(report.text || '') || report.id !== `seo-digest:${date}:${report.hash.slice(0,16)}` || report.deliveryProtocol !== 2) throw Error('report_binding_mismatch');
+  const payload = actionCardPayload(report), payloadSha256 = messageHash(payload);
   const directory = process.env.SEO_DIGEST_OUTPUT_DIR || path.join(process.env.RUNNER_TEMP || '/tmp', 'seo-digest');
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const prefix = path.join(directory, date + '.' + kind);
   const write = (suffix, data) => fs.writeFile(prefix + suffix, typeof data === 'string' ? data : JSON.stringify(data, null, 2), { mode: 0o600 });
   await write('.md', report.text);
-  await write('.preflight.json', { version: 1, transport: 'signed-webhook', destination: GROUP, robotCode: BOT, webhookConfigSha256: config.fingerprint, reportId: report.id, reportHash: report.hash, preliminary: report.preliminary, repository: REPO, workflowRunId: process.env.GITHUB_RUN_ID });
+  await write('.action-card.json', payload);
+  await write('.preflight.json', { version: 1, transport: 'signed-webhook', messageFormat: 'actionCard', payloadSha256, destination: GROUP, robotCode: BOT, webhookConfigSha256: config.fingerprint, reportId: report.id, reportHash: report.hash, preliminary: report.preliminary, repository: REPO, workflowRunId: process.env.GITHUB_RUN_ID });
   if (!process.argv.includes('--send')) { console.log(JSON.stringify({ status: 'preflight_only', reportId: report.id, webhookConfigSha256: config.fingerprint, transport: 'signed-webhook' })); return; }
   const { control } = await api('/api/seo/reporting-control');
   if (!control.enabled || control.transport !== 'signed-webhook' || control.destination !== GROUP || control.robotCode !== BOT || control.webhookConfigSha256 !== config.fingerprint) throw Error('webhook_control_binding_unverified');
   const owner = `github-webhook-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
-  const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook' });
-  if (claim.transport !== 'signed-webhook' || claim.destination !== GROUP || claim.robotCode !== BOT || claim.webhookConfigSha256 !== config.fingerprint || claim.report?.hash !== report.hash) throw Error('webhook_claim_binding_mismatch');
+  const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook', messageFormat: 'actionCard' });
+  if (claim.messageFormat !== 'actionCard' || claim.payloadSha256 !== payloadSha256 || claim.transport !== 'signed-webhook' || claim.destination !== GROUP || claim.robotCode !== BOT || claim.webhookConfigSha256 !== config.fingerprint || claim.report?.hash !== report.hash) throw Error('webhook_claim_binding_mismatch');
   const context = { id: claim.id, owner, fencingToken: claim.fencingToken, reportId: report.id, reportHash: report.hash, destination: GROUP, robotCode: BOT };
   await write('.claim.json', { version: 1, origin: ORIGIN, ...context, webhookConfigSha256: config.fingerprint });
   await api('/api/seo/digest', { action: 'begin', id: context.id, owner, fencingToken: context.fencingToken, transport: 'signed-webhook' });
   try {
     // No retry after this request: uncertain delivery stays UNKNOWN until evidence-based reconciliation.
-    const response = await fetch(signedWebhook(config.webhook, config.secret), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ msgtype: 'markdown', markdown: { title: report.title, text: report.text } }), signal: AbortSignal.timeout(20000) });
-    const receipt = acceptedReceipt(response, await response.text(), config, process.env.GITHUB_RUN_ID);
+    const response = await fetch(signedWebhook(config.webhook, config.secret), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) });
+    const receipt = { ...acceptedReceipt(response, await response.text(), config, process.env.GITHUB_RUN_ID), messageFormat: 'actionCard', payloadSha256 };
     await write('.accepted.json', { version: 1, origin: ORIGIN, ...context, webhookReceipt: receipt });
     await api('/api/seo/digest', { action: 'finish', ...context, status: 'DELIVERED', webhookReceipt: receipt });
     console.log(JSON.stringify({ status: 'DELIVERED', reportId: report.id, workflowRunId: process.env.GITHUB_RUN_ID, transport: 'signed-webhook' }));

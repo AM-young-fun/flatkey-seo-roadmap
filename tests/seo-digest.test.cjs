@@ -221,7 +221,38 @@ test("draft page versions and submitted missing materials deduplicate by task ac
  const drafts=[approval("draft-shared-1",{status:"draft",submittedRecordedAt:null,items}),approval("draft-shared-2",{status:"draft",submittedRecordedAt:null,items:[{...items[0],id:"extra",pageUrl:"https://flatkey.ai/extra"}]})];
  const future=approval("future-draft",{status:"draft",submittedRecordedAt:null,recordedAt:"2027-01-01T00:00:00Z"});
  const result=buildSeoDigest({...base(),notificationCompact:true,...workflow([pending,...drafts,future],[task,approvalTask(future,{status:"drafting"})])});
- assert.match(result.text,/待审核 1 项（1 张审批单，1 个页面版本） · 待补材料 1 项/);
- assert.match(result.text,/未提交草稿 2 张，关联 1 项任务 \/ 220 个页面版本，其中 1 项任务待补材料/);
+ assert.match(result.text,/待审批 1 项 · 材料未齐 1 项/);
+ assert.match(result.detailText,/未提交草稿 2 张，关联 1 项任务 \/ 220 个页面版本，其中 1 项任务待补材料/);
  assert.doesNotMatch(result.text,/220 项任务/);
+});
+
+
+test("compact notification is a bounded summary with two next actions, genuine live counts and detail-only diagnostics",()=>{
+ const priorities=Array.from({length:8},(_,i)=>({title:"priority-"+i,keyword:"gpu server "+i,country:"US",reason:"checked",action:"prepare draft"}));
+ const input={...base(),notificationCompact:true,priorities,issues:["private-diagnostic-marker"],...workflow([])};
+ const result=buildSeoDigest(input);
+ assert.match(result.text,/今日上线/);assert.match(result.text,/博客.*0 篇/);assert.match(result.text,/待审批 0 项 · 材料未齐 0 项/);
+ assert.match(result.text,/priority-1/);assert.doesNotMatch(result.text,/priority-2|private-diagnostic-marker|五站自然搜索|四国（|GA4 业务链/);
+ assert.match(result.detailText,/private-diagnostic-marker/);assert.match(result.text,/GitHub 两库/);assert.equal((result.text.match(/数据：/g)||[]).length,1);
+ assert.ok(result.text.trim().endsWith(`[数据基础](${SEO_DATA_HUB})`));assert.ok(Buffer.byteLength(result.text)<4500);
+ const weekly=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00+08:00")});
+ assert.match(weekly.text,/2026-11-06—2026-11-12/);assert.match(weekly.text,/下周计划 · 待确认/);assert.doesNotMatch(weekly.text,/已定事项/);
+ const confirmed=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",nextPlanStatus:"reviewed",now:new Date("2026-11-13T10:00:00+08:00")});
+ assert.match(confirmed.text,/下周计划 · 已确认/);assert.match(confirmed.detailText,/下周事项与关键词（已确认）/);
+});
+
+
+test("short GitHub summary adds repository counts only across matching daily windows, never uniques",()=>{
+ const github=repository=>({version:1,kind:"github-prompt-channel",repository,observedAt:"2026-11-10T08:00:00Z",timezone:"UTC",stars:10,forks:2,metadataStatus:"ok",metadataReason:null,
+ views:{status:"ok",count:7,uniques:3,days:[{date:"2026-11-08",count:3,uniques:2},{date:"2026-11-09",count:4,uniques:2}],reason:null},
+ clones:{status:"ok",count:3,uniques:2,days:[{date:"2026-11-08",count:1,uniques:1},{date:"2026-11-09",count:2,uniques:1}],reason:null},
+ referrals:[{start:"2026-11-09",end:"2026-11-09",status:"ok",sessions:2,users:1,observedAt:"2026-11-10T08:00:00Z",timezone:"America/Los_Angeles",reason:null}],
+ linkAudit:{status:"ok",flatkeyLinks:1,attributedLinks:1,reason:null}});
+ const rows=[github("flatkey-ai/awesome-images"),github("flatkey-ai/awesome-seedance-prompts")];
+ const report=buildSeoDigest({...base(),notificationCompact:true,githubObservations:rows});
+ assert.match(report.text,/Stars 20 \/ Forks 4；浏览 6→8，克隆 2→4；到站 4 会话/);
+ assert.match(report.text,/GitHub 2026-11-09/);assert.doesNotMatch(report.text,/去重/);
+ rows[1].views.days.pop();rows[1].referrals=[];
+ const partial=buildSeoDigest({...base(),notificationCompact:true,githubObservations:rows});
+ assert.match(partial.text,/浏览 待更新/);assert.match(partial.text,/到站 待更新/);assert.doesNotMatch(partial.text,/到站 0/);
 });

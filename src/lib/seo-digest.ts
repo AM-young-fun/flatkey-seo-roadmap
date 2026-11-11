@@ -1,5 +1,5 @@
-import { businessDigestLines, latestBusinessPeriod, businessEventLabels, type BusinessAnalytics } from "./seo-business-analytics";
-import { githubDigestLines, type GithubChannel } from "./seo-github-channel";
+import { businessDigestLines, latestBusinessPeriod, type BusinessAnalytics } from "./seo-business-analytics";
+import { githubComparable, githubDigestLines, PROMPT_REPOSITORIES, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
 import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
@@ -39,7 +39,7 @@ export type DigestInput = {
   publications: DigestPublication[]; optimizations: DigestOptimization[];
   effects: { url: string; comparison: string; evidence: string; judgment: string }[];
   priorities: { title: string; keyword?: string; country?: string; url?: string; reason: string; action: string }[];
-  issues: string[]; runNotes: string[]; rankingNotes?: string[]; nextPlanUrl?: string;
+  issues: string[]; runNotes: string[]; rankingNotes?: string[]; nextPlanUrl?: string; nextPlanStatus?: "draft" | "reviewed" | "bootstrap";
   publicationCoverage: "verified" | "missing" | "partial";
   optimizationCoverage: "verified" | "missing" | "partial";
   periods?: OrganicPeriod[];
@@ -116,9 +116,6 @@ function shortMetric(value: ReturnType<typeof comparableMetric>) {
   if (value.current === null || value.previous === null) return "待更新";
   const difference = value.current - value.previous;
   return `${value.previous}→${value.current}${value.previous ? `（${difference >= 0 ? "+" : ""}${(difference / value.previous * 100).toFixed(1)}%）` : "（基期0）"}`;
-}
-function shortWindow(value: ReturnType<typeof comparableMetric>) {
-  return value.current === null ? "日期待更新" : `${dateCoverage(value.previousDates)}→${dateCoverage(value.dates)} ${value.timezone}${value.reason ? "；日期未齐" : ""}`;
 }
 function confirmedInWindow(row: { verifiedAt: string; recordedAt: string }, start: number, end: number) {
   const stamp = Math.max(Date.parse(row.verifiedAt), Date.parse(row.recordedAt));
@@ -267,7 +264,7 @@ export function buildSeoDigest(input: DigestInput) {
     `新增博客 ${input.publicationCoverage === "missing" ? "待核实" : originals.length + " 篇"}；新内容上线语言页 ${input.publicationCoverage === "missing" ? "待核实" : `${originals.length + translations.length}（其中译文 ${translations.length}）`}；旧文补译 ${input.publicationCoverage === "missing" ? "待核实" : backfills.length}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
     `落地页/工具页 ${input.publicationCoverage === "missing" ? "待核实" : landingPages.length}，集群交付 ${input.publicationCoverage === "missing" ? "待核实" : clusterPages.length}（仅统计已上线验收）。`,
     `${window.kind === "weekly" ? "本周" : "今日"}优化 ${input.optimizationCoverage === "missing" ? "待核实" : optimizations.length + " 个页面"}${input.optimizationCoverage === "partial" ? "（台账覆盖不全）" : ""}。`];
-  const notification = [...lines];
+  const notification: string[] = [];
   lines.push("", "待审批页面（截至报告生成，含往期未处理）");
   if (!review) lines.push("• 审批台账读取失败或尚未接通，待更新。");
   else if (!review.pages.length) lines.push("• 当前没有待审批页面。");
@@ -310,7 +307,7 @@ export function buildSeoDigest(input: DigestInput) {
     lines.push(`  Google 点击 ${metricText(comparableMetric(input.observations, site, "clicks", input.date, "all", window.kind))}；曝光 ${metricText(comparableMetric(input.observations, site, "impressions", input.date, "all", window.kind))}`);
     const period = site === "flatkey.ai" && window.kind === "weekly" ? compareOrganicPeriods(input.periods ?? [], input.date) : null;
     const registrationText = period ? `${period.previous.registrations}→${period.current.registrations}（各区间独立去重；${period.previous.start}—${period.previous.end} → ${period.current.start}—${period.current.end}，${period.current.timezone}${period.current.end < window.trafficEnd ? "；周数据未齐，只比相同星期与天数" : ""}）` : metricText(comparableMetric(input.observations, site, "registrations", input.date, "all", window.kind));
-    lines.push(`  注册 ${site === "flatkey.ai" ? registrationText : "事件未核实，保留为空"}`);
+    lines.push(`  ${site === "flatkey.ai" ? "可归属注册" : "注册"} ${site === "flatkey.ai" ? registrationText : "事件未核实，保留为空"}`);
   }
   for (const ranking of pagePerformance) {
     const metric = ranking.source === "GSC" ? "Google 点击" : "自然搜索访问（会话）";
@@ -338,76 +335,93 @@ export function buildSeoDigest(input: DigestInput) {
     lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, window.kind))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, window.kind))}；曝光 ${metricText(comparableMetric(input.observations, "flatkey.ai", "impressions", input.date, country, window.kind))}`);
   }
   if (input.rankingNotes?.length) lines.push("", "关键词实测（本期实际回执）", ...input.rankingNotes.map(note => "• " + escaped(note)));
-  lines.push("", window.kind === "weekly" ? "下周已定事项与关键词" : "明日优先关注");
+  lines.push("", window.kind === "weekly" ? `下周事项与关键词（${input.nextPlanStatus === "reviewed" ? "已确认" : "待确认"}）` : "明日优先关注");
   if (input.nextPlanUrl) lines.push(link("查看下周完整工作计划", input.nextPlanUrl));
   if (!input.priorities.length) lines.push("• 尚未取得已核对任务，需补齐关键词、国家、行动和验收条件。");
   for (const [i, row] of input.priorities.slice(0, window.kind === "weekly" ? 8 : 3).entries()) lines.push(`${i + 1}. ${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""} · ${escaped(row.reason)} · ${escaped(row.action)}`);
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
-  const registrationCompatibility = input.observations.some(row => row.registrationMetric === "sign_up_or_legacy_distinct_users") ? "注册人数兼容规范 sign_up 与历史 sign_up_success，同查询去重，事件次数不相加；日报按日去重、周报按整个区间去重。" : null;
+  const registrationCompatibility = input.observations.some(row => row.registrationMetric === "sign_up_or_legacy_distinct_users") ? "可归属注册兼容 sign_up 与 sign_up_success，同查询去重；旧无域名事件未计入，0不代表实际无人注册。日报按日、周报按整个区间去重。" : null;
   if (registrationCompatibility) lines.splice(lines.length - 2, 0, registrationCompatibility);
   const detailText = lines.join("\n");
   if (input.notificationCompact) {
-    notification.push("", "待审批");
-    if (!review) notification.push("• 台账待更新，不能判断待审数量。");
-    else if (!review.pages.length) notification.push("• 当前没有待审批页面。");
-    for (const row of review?.pages.slice(0, 3) ?? []) notification.push(`• ${link(row.item.language + " · " + row.approval.title, approvalUrl(row.approval.id))}：${row.summary.slice(0, 75) || "简介待补"}${row.missing.length ? "；测试/截图等材料待补" : "；材料已齐，等待审核"}。`);
-    if ((review?.pages.length ?? 0) > 3) notification.push(`其余 ${review!.pages.length - 3} 个版本见${link("审批页", approvalsUrl)}。`);
-    if (window.kind === "daily") for (const page of [...originals, ...landingPages, ...clusterPages].slice(0, 5)) notification.push(`• 已上线：${link(page.title.slice(0, 80), page.url)}`);
-    for (const effect of input.effects.slice(0, 2)) notification.push(`• 优化跟踪：${link(new URL(effect.url).pathname, effect.url)} · ${escaped(effect.judgment)} · ${escaped(effect.evidence).slice(0, 160)}`);
-    notification.push("", "五站自然搜索（实际可比日期）");
-    for (const site of SEO_SITES) {
-      const get = (metric: DigestMetric) => comparableMetric(input.observations, site, metric, input.date, "all", window.kind);
-      const sessions = get("sessions"), clicks = get("clicks"), impressions = get("impressions");
-      notification.push(`• ${site}：会话 ${shortMetric(sessions)}；${shortWindow(sessions)}。点击 ${shortMetric(clicks)} / 曝光 ${shortMetric(impressions)}；${shortWindow(clicks)}。`);
+    const weekly = window.kind === "weekly";
+    const amount = (value: number, coverage: DigestInput["publicationCoverage"]) => coverage === "missing" ? "待核实" : `${value}${coverage === "partial" ? "+" : ""}`;
+    notification.push(title, ...(weekly ? [`${window.trafficStart}—${window.trafficEnd}`] : []), "",
+      `**${weekly ? "本周" : "今日"}上线**`,
+      `${link("博客", SEO_PLATFORM + executionViewRoutes.deliveries)} ${amount(originals.length, input.publicationCoverage)} 篇 · 落地页 ${amount(landingPages.length, input.publicationCoverage)} 页 · 集群 ${amount(clusterPages.length, input.publicationCoverage)} 页 · 优化 ${amount(optimizations.length, input.optimizationCoverage)} 页`,
+      ...(translations.length || backfills.length ? [`译文 ${translations.length} 页 · 旧文补译 ${backfills.length} 页`] : []),
+      "", "**关键变化**");
+    // Two evidence-backed highlights plus the independently measured GitHub channel.
+    // Raw counters from different metrics are not ranked against one another.
+    const highlights: string[] = [];
+    const dates = new Map<string, Set<string>>();
+    const recordDates = (source: string, values: string[]) => {
+      const own = dates.get(source) ?? new Set<string>(); values.forEach(day => own.add(day)); dates.set(source, own);
+    };
+    for (const source of ["GSC", "GA4"] as const) {
+      for (const site of SEO_SITES) recordDates(source, comparableMetric(input.observations, site, source === "GSC" ? "clicks" : "sessions", input.date, "all", window.kind).dates);
     }
-    if (pagePerformance.length) {
-      notification.push("", "页面表现（每模块点击/自然会话 Top1）");
-      for (const ranking of pagePerformance) notification.push(`${ranking.source}：${ranking.date ?? "待更新"}；完整站覆盖 ${ranking.coveredSites.length}/5，部分数据不参榜。`);
-      for (const module of pagePerformance[0].modules) {
-        if (module.id === "unknown") continue;
-        const winners = new Map<string, { label: string; values: string[] }>();
-        for (const ranking of pagePerformance) {
-          const page = ranking.modules.find(item => item.id === module.id)?.pages[0];
-          if (!page) continue;
-          const entry = winners.get(page.url) ?? { label: new URL(page.url).hostname + new URL(page.url).pathname, values: [] };
-          entry.values.push(`${ranking.source === "GSC" ? "点击" : "自然会话"} ${page.value}（${ranking.date}）`);
-          winners.set(page.url, entry);
-        }
-        notification.push(`• ${module.label}：${winners.size ? [...winners].map(([url, entry]) => `${link(entry.label, url)} · ${entry.values.join("；")}`).join(" / ") : "已采集完整范围暂无页面（非全模块0流量）"}`);
+    const clicks = SEO_SITES.map(site => ({site, value: comparableMetric(input.observations, site, "clicks", input.date, "all", window.kind)}))
+      .filter(row => row.value.current !== null && row.value.previous !== null)
+      .sort((a,b) => Math.abs(b.value.current! - b.value.previous!) - Math.abs(a.value.current! - a.value.previous!));
+    if (clicks[0]) {
+      const best = clicks[0];
+      highlights.push(`${link(best.site + " · Google 点击", SEO_PLATFORM + "/pages")} ${shortMetric(best.value)}`);
+      recordDates("GSC", best.value.dates);
+    }
+    const business = latestBusinessPeriod(input.businessObservations ?? [], window.trafficStart, window.trafficEnd, "all", "session-organic-search");
+    const rentals = business?.complete ? business.rows.find(row => row.event === "gpu_rental_success" && row.events > 0) : undefined;
+    if (rentals && business) {
+      highlights.push(`${link("GPU · 自然搜索租赁成功事件", SEO_PLATFORM + "/pages")} ${rentals.events} 次 / ${rentals.users} 人`);
+      recordDates("GA4", [business.start, business.end]);
+    } else {
+      // Prefer Google clicks, then sessions. Select within one source by absolute
+      // change when a comparable baseline exists, otherwise by current volume.
+      const ranking = pagePerformance.find(row => row.source === "GSC" && row.pages.length) ?? pagePerformance.find(row => row.pages.length);
+      const candidates = ranking?.modules.flatMap(module => module.pages.map(page => ({module: module.label, page}))) ?? [];
+      candidates.sort((a,b) => Number(b.page.difference !== null) - Number(a.page.difference !== null)
+        || Math.abs(b.page.difference ?? b.page.value) - Math.abs(a.page.difference ?? a.page.value));
+      const winner = candidates[0];
+      if (winner && ranking) {
+        const name = new URL(winner.page.url).pathname;
+        const change = winner.page.previous === null ? `${winner.page.value}（基线待补）` : `${winner.page.previous}→${winner.page.value}`;
+        highlights.push(`${link(winner.module + " · " + name.slice(0, 64), winner.page.url)} ${ranking.source === "GSC" ? "点击" : "自然会话"} ${change}`);
+        if (ranking.date) recordDates(ranking.source, [ranking.date]);
+      } else if (input.effects[0]) {
+        const effect = input.effects[0];
+        highlights.push(`${link("优化跟踪", effect.url)} ${escaped(effect.judgment).slice(0, 50)}；${escaped(effect.evidence).slice(0, 80)}`);
+      } else if (input.rankingNotes?.[0]) {
+        highlights.push(`${link("关键词", SEO_PLATFORM + "/keywords")} ${escaped(input.rankingNotes[0]).slice(0, 100)}`);
       }
-      const gaps = [...new Set(pagePerformance.flatMap(row => row.gaps))];
-      if (gaps.length) notification.push("页面覆盖缺口：" + gaps.map(escaped).join("；"));
     }
-    notification.push("", "GA4 业务链");
-    for (const scope of ["session-organic-search", "all-channels"] as const) {
-      const row = latestBusinessPeriod(input.businessObservations ?? [], window.trafficStart, window.trafficEnd, "all", scope);
-      const label = scope === "all-channels" ? "全渠道" : "自然搜索";
-      if (!row) { notification.push(`• ${label}：${window.trafficStart}～${window.trafficEnd} 区间回执待更新。`); continue; }
-      const present: string[] = [], absent: string[] = [];
-      for (const event of ["gpu_rental_success", "first_model_success", "first_payment_completed", "sign_up"] as const) {
-        const value = row.rows.find(item => item.event === event);
-        if (value) present.push(`${businessEventLabels[event]} ${value.events}次/${value.users}人`); else absent.push(businessEventLabels[event]);
-      }
-      notification.push(`• ${label}：${row.start}～${row.end} ${row.timezone}（${row.complete ? "查询完整" : "部分数据"}）；${present.join("；")}${absent.length ? `未观测：${absent.join("、")}，上线收数待验` : ""}。参与时长 ${row.engagement?.engagementSeconds ?? "待更新"}秒。`);
-      if (row.journeys?.length) notification.push("  同用户漏斗：" + row.journeys.map(j => `${j.business.toUpperCase()} ${j.status === "unavailable" ? "暂无匹配步骤，待核验" : j.steps.map(s => `${s.name}${s.users}人`).join("→") + (j.status === "partial" ? "（部分）" : "")}`).join("；") + "。");
-    }
-    notification.push("事件人数不相加作转化率；全渠道不当自然效果；完整路径/跨域仍需验收。", "", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, window.kind === "weekly", now, true));
-    notification.push("", "四国（同星期/天数，非全站合计）");
-    for (const country of ["US", "JP", "BR", "ES"] as const) {
-      const sessions = comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, window.kind), clicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, window.kind);
-      notification.push(`• ${country}：会话 ${shortMetric(sessions)}（${shortWindow(sessions)}）；点击 ${shortMetric(clicks)}（${shortWindow(clicks)}）。`);
-    }
-    if (input.rankingNotes?.length) notification.push("", "关键词实测", ...input.rankingNotes.slice(0, 3).map(note => "• " + escaped(note).slice(0, 180)));
-    notification.push("", window.kind === "weekly" ? "下周事项" : "明日优先");
-    if (!input.priorities.length) notification.push("• 计划尚未审核定稿，不能当作已承诺交付。");
-    for (const row of input.priorities.slice(0, 3)) notification.push(`• ${escaped(row.title).slice(0, 70)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + row.country : ""}：${escaped(row.action).slice(0, 140)}`);
-    notification.push(link("完整工作任务", input.nextPlanUrl ?? SEO_PLATFORM + "/work"));
-    const alerts = [...new Set([...input.issues, ...input.runNotes.filter(note => /partial|blocked|failed|失败|未测|429/i.test(note))])];
-    if (alerts.length) notification.push("", "异常与待处理", ...alerts.slice(0, 3).map(note => "• " + escaped(note).slice(0, 180)), link(`全部问题与证据（${alerts.length}项）`, SEO_PLATFORM + "/issues"));
-    notification.push("", `[数据基础](${SEO_DATA_HUB})`);
+    if (!highlights.length) highlights.push(`${link("页面效果", SEO_PLATFORM + "/pages")} 可比数据待更新`);
+    const repositories = PROMPT_REPOSITORIES.map(repository => {
+      const own = (input.githubObservations ?? []).filter(row => row.repository === repository && Date.parse(row.observedAt) <= now.getTime()).sort((a,b) => b.observedAt.localeCompare(a.observedAt));
+      return { own, latest: own[0], views: githubComparable(own, "views", window.trafficStart, window.trafficEnd, weekly), clones: githubComparable(own, "clones", window.trafficStart, window.trafficEnd, weekly) };
+    });
+    const total = (key: "stars" | "forks") => repositories.every(row => row.latest?.metadataStatus === "ok" && row.latest[key] !== null)
+      ? repositories.reduce((sum,row) => sum + row.latest![key]!, 0) : "待更新";
+    const traffic = (key: "views" | "clones") => {
+      const pairs = repositories.map(row => row[key]);
+      if (pairs.some(row => row.current === null) || pairs.some(row => JSON.stringify(row.dates) !== JSON.stringify(pairs[0].dates))) return "待更新";
+      recordDates("GitHub", pairs[0].dates);
+      return `${pairs.reduce((sum,row) => sum + row.previous!,0)}→${pairs.reduce((sum,row) => sum + row.current!,0)}`;
+    };
+    const referrals = repositories.map(({own}) => own.flatMap(row => row.referrals).filter(row => row.start === window.trafficStart && row.end === window.trafficEnd)
+      .sort((a,b) => b.observedAt.localeCompare(a.observedAt))[0]);
+    const arrivals = referrals.every(row => row?.status === "ok") ? `${referrals.reduce((sum,row) => sum + row!.sessions!,0)} 会话` : "待更新";
+    highlights.push(`GitHub 两库（${PROMPT_REPOSITORIES.map(repo => link(repo.split("/")[1].replace("awesome-", ""), "https://github.com/" + repo)).join(" / ")}）：Stars ${total("stars")} / Forks ${total("forks")}；浏览 ${traffic("views")}，克隆 ${traffic("clones")}；到站 ${arrivals}`);
+    notification.push(...highlights.slice(0, 3).map(value => "• " + value), "", "**待处理**",
+      `${review ? `待审批 ${review.tasks} 项 · 材料未齐 ${review.materialCount} 项` : "待审批 / 材料未齐：待更新"} · ${link("去审核", approvalsUrl)}`,
+      "", `**${weekly ? `下周计划 · ${input.nextPlanStatus === "reviewed" ? "已确认" : "待确认"}` : "明日重点"}**`);
+    if (!input.priorities.length) notification.push(`• ${link(weekly ? input.nextPlanStatus === "reviewed" ? "查看下周关键词与页面任务" : "确认下周关键词与页面任务" : "查看工作任务", input.nextPlanUrl ?? SEO_PLATFORM + executionViewRoutes.tasks)}`);
+    for (const row of input.priorities.slice(0, 2)) notification.push(`• ${link(escaped(row.title).slice(0, 48), row.url ?? input.nextPlanUrl ?? SEO_PLATFORM + executionViewRoutes.tasks)}${row.keyword ? " · " + escaped(row.keyword).slice(0, 45) : ""}${row.country ? "（" + row.country + "）" : ""}：${escaped(row.action).slice(0, 70)}`);
+    if (weekly && input.priorities.length) notification.push(link(input.nextPlanStatus === "reviewed" ? "查看完整周计划" : "确认完整周计划", input.nextPlanUrl ?? SEO_PLATFORM + executionViewRoutes.tasks));
+    const hasGaps = !review || input.publicationCoverage !== "verified" || input.optimizationCoverage !== "verified" || input.issues.length > 0 || input.runNotes.some(note => /partial|blocked|failed|失败|未测|429/i.test(note)) || pagePerformance.some(row => row.gaps.length) || referrals.some(row => row?.status !== "ok");
+    const coverage = ["GSC", "GA4", "GitHub"].map(source => `${source} ${dates.get(source)?.size ? dateCoverage([...dates.get(source)!]) : "待更新"}`).join("；");
+    notification.push("", `数据：${coverage}${hasGaps ? `；${link("缺数/异常见平台", SEO_PLATFORM + executionViewRoutes.issues)}` : ""}。`, "", `[数据基础](${SEO_DATA_HUB})`);
   }
-  if (registrationCompatibility) notification.splice(notification.length - 2, 0, registrationCompatibility);
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { id: `seo-digest:${input.date}:${hash.slice(0, 16)}`, date: input.date, kind: window.kind, title, text, detailText, hash,
