@@ -2,10 +2,11 @@ import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
 import { loadGithubChannels } from "./seo-github-channel";
 import { getSeoReportingControl } from "./seo-reporting-control";
+import { webhookReceiptSchema, type WebhookReceipt } from "../seo-webhook-receipt";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, SEO_REPORT_ROBOT, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
+import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
 import { analyticsObservationSchema, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
 import { loadWorkflowSnapshot } from "./seo-workflow";
@@ -17,9 +18,10 @@ import { loadSerpTasks } from "./serp-results";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
-async function requireReportingEnabled() {
+async function requireReportingEnabled(transport: "application-bot" | "signed-webhook" = "application-bot") {
   const control = await getSeoReportingControl();
-  if (!control.enabled || control.protocolVersion !== 2 || control.destination !== SEO_REPORT_GROUP || control.robotCode !== SEO_REPORT_ROBOT) throw new DigestError("统一通知尚未切换", 503);
+  if (!control.enabled || control.protocolVersion !== 2 || control.destination !== SEO_REPORT_GROUP || (control.transport ?? "application-bot") !== transport) throw new DigestError("统一通知渠道尚未切换", 503);
+  return control;
 }
 
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
@@ -97,8 +99,8 @@ export async function saveSeoDigest(digest: SeoDigest) {
   return digest;
 }
 
-export async function claimDigest(reportId: string, owner: string, now = new Date()) {
-  await requireReportingEnabled();
+export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot") {
+  const control = await requireReportingEnabled(transport);
   return prisma.$transaction(async tx => {
     const saved = await tx.seoReportVersion.findUnique({ where: { id: reportId } });
     if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
@@ -107,21 +109,27 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
     const expected = digestWindow(report.date, report.kind);
     if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${report.kind === "weekly" ? "周五10:00" : "18:00"} 前的草稿不能发送，请刷新最终快照`);
-    if (now.getTime() - Date.parse(report.generatedAt) > 15 * 60000 || Date.parse(report.generatedAt) > now.getTime()) throw new DigestError("请在发送前刷新报告");
     const id = `seo-digest-delivery:${report.kind}:${report.date}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
     const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
     const previous = await tx.seoDigestDelivery.findUnique({ where: { id } });
+    const recovered = previous?.status === "REJECTED_CONFIRMED" && previous.reportId === reportId;
+    if (previous?.status === "REJECTED_CONFIRMED" && !recovered) throw new DigestError("已核验拒绝仅允许恢复原报告快照");
+    if (!recovered && (now.getTime() - Date.parse(report.generatedAt) > 15 * 60000 || Date.parse(report.generatedAt) > now.getTime())) throw new DigestError("请在发送前刷新报告");
     if (previous && !digestClaimable(previous, clock.now)) throw new DigestError(previous.status === "DELIVERED" ? "当天该类报告已发送" : "发送已被领取或结果未核实，禁止重复发送");
-    const data = { reportId, reportHash: report.hash, destination: SEO_REPORT_GROUP, robotCode: SEO_REPORT_ROBOT, status: "CLAIMED", claimedBy: owner, fencingToken: (previous?.fencingToken ?? 0) + 1, leaseUntil: new Date(clock.now.getTime() + 5 * 60000), errorCode: null };
+    const data = { reportId, reportHash: report.hash, destination: control.destination, robotCode: control.robotCode, status: "CLAIMED", claimedBy: owner, fencingToken: (previous?.fencingToken ?? 0) + 1, leaseUntil: new Date(clock.now.getTime() + 5 * 60000), errorCode: null,
+      receipt: json({ transport, controlVersion: control.version, ...(control.webhookConfigSha256 ? { webhookConfigSha256: control.webhookConfigSha256 } : {}) }) };
     const receipt = previous ? await tx.seoDigestDelivery.update({ where: { id }, data }) : await tx.seoDigestDelivery.create({ data: { id, ...data } });
-    return { id, fencingToken: receipt.fencingToken, destination: receipt.destination, robotCode: receipt.robotCode, report };
+    return { id, fencingToken: receipt.fencingToken, destination: receipt.destination, robotCode: receipt.robotCode, transport, webhookConfigSha256: control.webhookConfigSha256, report };
   });
 }
 
-export async function beginDigestAttempt(id: string, owner: string, fencingToken: number) {
-  await requireReportingEnabled();
+export async function beginDigestAttempt(id: string, owner: string, fencingToken: number, transport: "application-bot" | "signed-webhook" = "application-bot") {
+  const control = await requireReportingEnabled(transport);
   return prisma.$transaction(async tx => {
+    const prior = await tx.seoDigestDelivery.findUnique({ where: { id } });
+    const binding = prior?.receipt as { transport?: string; controlVersion?: number; webhookConfigSha256?: string } | null;
+    if (!prior || prior.destination !== control.destination || prior.robotCode !== control.robotCode || binding?.transport !== transport || binding.webhookConfigSha256 !== control.webhookConfigSha256) throw new DigestError("通知渠道或绑定已变化，禁止使用旧发送令牌");
     const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
     const result = await tx.seoDigestDelivery.updateMany({ where: { id, claimedBy: owner, fencingToken, status: "CLAIMED", attemptedAt: null, leaseUntil: { gt: clock.now } }, data: { status: "SENDING", attemptedAt: clock.now } });
     if (result.count !== 1) throw new DigestError("发送令牌已过期或已使用");
@@ -129,16 +137,23 @@ export async function beginDigestAttempt(id: string, owner: string, fencingToken
   });
 }
 
-export async function finishDigestAttempt(input: { id: string; owner: string; fencingToken: number; reportId: string; reportHash: string; destination: string; robotCode: string; status: "DELIVERED" | "UNKNOWN"; processQueryKey?: string; errorCode?: string }, now = new Date()) {
-  if (input.status === "DELIVERED" && !input.processQueryKey?.trim()) throw new DigestError("送达必须有钉钉 processQueryKey 回执", 400);
+export async function finishDigestAttempt(input: { id: string; owner: string; fencingToken: number; reportId: string; reportHash: string; destination: string; robotCode: string; status: "DELIVERED" | "UNKNOWN"; processQueryKey?: string; webhookReceipt?: WebhookReceipt; errorCode?: string }, now = new Date()) {
+  const current = await prisma.seoDigestDelivery.findUnique({ where: { id: input.id } });
+  const currentReceipt = current?.receipt as { transport?: string; webhookConfigSha256?: string; webhookReceipt?: WebhookReceipt } | null;
+  const transport = currentReceipt?.transport ?? (currentReceipt?.webhookReceipt ? "signed-webhook" : "application-bot");
+  if (input.status === "DELIVERED" && transport === "signed-webhook") {
+    const receipt = webhookReceiptSchema.safeParse(input.webhookReceipt);
+    if (!receipt.success || input.processQueryKey || receipt.data.webhookConfigSha256 !== (currentReceipt?.webhookConfigSha256 ?? currentReceipt?.webhookReceipt?.webhookConfigSha256) || !current?.attemptedAt || Date.parse(receipt.data.acceptedAt) < current.attemptedAt.getTime() || Date.parse(receipt.data.acceptedAt) > now.getTime() + 300000) throw new DigestError("Webhook 需要实际成功回执及同一配置绑定", 400);
+  } else if (input.status === "DELIVERED" && (!input.processQueryKey?.trim() || input.webhookReceipt)) throw new DigestError("应用机器人送达必须有钉钉 processQueryKey 回执", 400);
   const result = await prisma.seoDigestDelivery.updateMany({ where: { id: input.id, reportId: input.reportId, reportHash: input.reportHash, destination: input.destination, robotCode: input.robotCode, claimedBy: input.owner, fencingToken: input.fencingToken, status: { in: input.status === "DELIVERED" ? ["SENDING", "UNKNOWN"] : ["SENDING"] } }, data: {
     status: input.status, deliveredAt: input.status === "DELIVERED" ? now : null, leaseUntil: null,
-    receipt: json({ processQueryKey: input.processQueryKey ?? null, recordedAt: now.toISOString(), receiptId: randomUUID() }), errorCode: input.errorCode ?? null,
+    receipt: json({ transport, webhookConfigSha256: currentReceipt?.webhookConfigSha256 ?? currentReceipt?.webhookReceipt?.webhookConfigSha256, ...(input.webhookReceipt ? { webhookReceipt: input.webhookReceipt } : {}), processQueryKey: input.processQueryKey ?? null, recordedAt: now.toISOString(), receiptId: randomUUID() }), errorCode: input.errorCode ?? null,
   } });
   if (result.count !== 1) {
     const existing = await prisma.seoDigestDelivery.findUnique({ where: { id: input.id } });
-    const receipt = existing?.receipt as { processQueryKey?: string } | null;
-    if (input.status === "DELIVERED" && existing?.status === "DELIVERED" && existing.reportId === input.reportId && existing.reportHash === input.reportHash && existing.destination === input.destination && existing.robotCode === input.robotCode && existing.claimedBy === input.owner && existing.fencingToken === input.fencingToken && receipt?.processQueryKey === input.processQueryKey) return { status: "DELIVERED", replay: true };
+    const receipt = existing?.receipt as { processQueryKey?: string; webhookReceipt?: WebhookReceipt } | null;
+    const sameReceipt = input.webhookReceipt ? Object.entries(input.webhookReceipt).every(([key, value]) => receipt?.webhookReceipt?.[key as keyof WebhookReceipt] === value) && Object.keys(receipt?.webhookReceipt ?? {}).length === Object.keys(input.webhookReceipt).length : receipt?.processQueryKey === input.processQueryKey;
+    if (input.status === "DELIVERED" && existing?.status === "DELIVERED" && existing.reportId === input.reportId && existing.reportHash === input.reportHash && existing.destination === input.destination && existing.robotCode === input.robotCode && existing.claimedBy === input.owner && existing.fencingToken === input.fencingToken && sameReceipt) return { status: "DELIVERED", replay: true };
     throw new DigestError("发送状态已变化，需核对原回执");
   }
   return { status: input.status };

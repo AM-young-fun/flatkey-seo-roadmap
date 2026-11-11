@@ -68,3 +68,9 @@ test('API uses bounded JSON, rejects stale writes and fails closed when storage 
  dbFails=true;assert.equal((await route.GET(request('GET',auth))).status,503);assert.equal((await route.POST(request('POST',auth,command({expectedVersion:1})))).status,503);dbFails=false;
  assert.equal(rows.length,1);
 });
+
+test('signed webhook channel requires the verified existing bot and credential fingerprint',()=>{
+ const valid={...command(),transport:'signed-webhook',robotCode:'tFmSJLB0+A1WmEX9zMnH2w==',webhookConfigSha256:'f'.repeat(64)};
+ assert.equal(service.seoReportingCommandSchema.safeParse(valid).success,true);
+ for(const bad of [{...valid,robotCode:SEO_REPORT_ROBOT},{...valid,webhookConfigSha256:undefined},{...valid,transport:'application-bot'},{...command(),webhookConfigSha256:'f'.repeat(64)}])assert.equal(service.seoReportingCommandSchema.safeParse(bad).success,false);
+});

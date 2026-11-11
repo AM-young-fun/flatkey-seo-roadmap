@@ -1,9 +1,31 @@
 name: Server SEO daily collection
+run-name: ${{ inputs.report_only && format('SEO {0} {1} (send={2})', inputs.report_kind, inputs.report_date, inputs.send_report) || 'Server SEO daily collection' }}
 on:
   schedule:
     - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
+      report_only:
+        description: Prepare or send the unified report only; never collect or send legacy notices
+        type: boolean
+        default: false
+      report_kind:
+        description: Report kind (weekly covers previous Friday through Thursday)
+        type: choice
+        options: [daily, weekly]
+        default: daily
+      report_date:
+        description: Beijing report date YYYY-MM-DD; required for report_only
+        type: string
+        default: ""
+      send_report:
+        description: Send the approved report via the existing signed Webhook (false means preview only)
+        type: boolean
+        default: false
+      report_id:
+        description: Optional existing immutable report ID; required for an audited retry
+        type: string
+        default: ""
       business_only:
         description: Only query and archive GA4 business events/funnels; skip inventory and traffic backfill
         type: boolean
@@ -24,11 +46,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: seo-production-daily
+  group: ${{ inputs.report_only && format('seo-report-{0}-{1}', inputs.report_kind, inputs.report_date) || 'seo-production-daily' }}
   cancel-in-progress: false
 jobs:
   collect:
-    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main' && !inputs.verify_dingtalk
+    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main' && !inputs.verify_dingtalk && !inputs.report_only
     runs-on: ubuntu-latest
     timeout-minutes: 180
     outputs:
@@ -96,7 +118,7 @@ jobs:
           fi
   notify:
     needs: collect
-    if: always() && needs.collect.result != 'skipped' && !inputs.business_only && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
+    if: always() && needs.collect.result != 'skipped' && !inputs.report_only && !inputs.business_only && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -112,7 +134,7 @@ jobs:
           INVENTORY_ADDED: ${{ needs.collect.outputs.added }}
         run: node scripts/server-seo-alert.cjs
   verify-dingtalk:
-    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk == true && inputs.send_notifications == true
+    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk == true && inputs.send_notifications == true && !inputs.report_only
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -124,3 +146,38 @@ jobs:
         env:
           SEO_DINGTALK_CONFIG: ${{ secrets.SEO_DINGTALK_CONFIG }}
         run: node scripts/server-seo-alert.cjs --verify
+  report-send:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.report_only == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare or send the unified report through the original bot
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_DINGTALK_CONFIG: ${{ secrets.SEO_DINGTALK_CONFIG }}
+          SEO_REPORT_KIND: ${{ inputs.report_kind }}
+          SEO_REPORT_DATE: ${{ inputs.report_date }}
+          SEO_REPORT_SEND: ${{ inputs.send_report }}
+          SEO_REPORT_ID: ${{ inputs.report_id }}
+          SEO_DIGEST_OUTPUT_DIR: ${{ runner.temp }}/seo-digest
+        run: |
+          args=(--kind="$SEO_REPORT_KIND" --date="$SEO_REPORT_DATE")
+          if [ -n "$SEO_REPORT_ID" ]; then
+            args+=(--report-id="$SEO_REPORT_ID")
+          fi
+          if [ "$SEO_REPORT_SEND" = true ]; then
+            args+=(--send)
+          fi
+          node scripts/server-seo-digest-send.cjs "${args[@]}"
+      - name: Archive preview and non-secret delivery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-digest-${{ inputs.report_kind }}-${{ inputs.report_date }}
+          path: ${{ runner.temp }}/seo-digest
+          if-no-files-found: warn
+          retention-days: 30

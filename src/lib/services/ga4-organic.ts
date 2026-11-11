@@ -127,6 +127,9 @@ async function requestReport(
   if (!report || !matchesHeaders(report.dimensionHeaders, dimensions) || !matchesHeaders(report.metricHeaders, metrics)
     || (report.rows !== undefined && !Array.isArray(report.rows))
     || (report.rowCount !== undefined && (!Number.isSafeInteger(report.rowCount) || report.rowCount < 0))) {
+    // Only schema metadata is logged: never query values, access tokens, users or page URLs.
+    const names = (headers: Report["dimensionHeaders"]) => Array.isArray(headers) ? headers.map(header => typeof header?.name === "string" && /^[A-Za-z0-9_:]{1,100}$/.test(header.name) ? header.name : "unrecognized") : null;
+    console.warn(JSON.stringify({ kind: "ga4-report-schema", method, expectedDimensions: dimensions, expectedMetrics: metrics, dimensions: names(report?.dimensionHeaders), metrics: names(report?.metricHeaders), rowCount: report?.rowCount ?? null, rowArrayLength: Array.isArray(report?.rows) ? report.rows.length : null, timezone: report?.metadata?.timeZone ?? null }));
     throw new GoogleReadError("invalid_response", "GA4 返回的报表字段或行数不符合查询。");
   }
   return report;

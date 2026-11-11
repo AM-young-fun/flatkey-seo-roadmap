@@ -36,3 +36,21 @@ test("scheduled collection keeps the existing behavior and unified reporting sti
  assert.equal(enabled("notify",{unified:"true"}),false);
  assert.equal(enabled("notify",{result:"skipped"}),false);
 });
+test("report-only dispatch never collects or invokes legacy notices, including conflicting inputs", () => {
+ for (const verify_dingtalk of [false,true]) {
+  const options={inputs:{report_only:true,verify_dingtalk,send_notifications:true,send_report:false}};
+  assert.equal(enabled("report-send",options),true);
+  for(const job of ["collect","notify","verify-dingtalk"]) assert.equal(enabled(job,options),false);
+ }
+ assert.equal(enabled("report-send",{event:"schedule"}),false);
+ assert.equal(enabled("report-send"),false);
+ assert.equal(workflow.on.workflow_dispatch.inputs.send_report.default,false);
+ const step=workflow.jobs["report-send"].steps.find(s=>s.env?.SEO_REPORT_SEND);
+ assert.equal(step.env.SEO_DINGTALK_CONFIG,"${{ secrets.SEO_DINGTALK_CONFIG }}");
+ assert.match(step.run,/if \[ "\$SEO_REPORT_SEND" = true \]/);
+ assert.match(step.run,/args\+=\(--send\)/);
+ assert.match(step.run,/args\+=\(--report-id="\$SEO_REPORT_ID"\)/);
+ assert.match(step.run,/node scripts\/server-seo-digest-send\.cjs "\$\{args\[@\]\}"/);
+ assert.match(workflow.concurrency.group,/inputs\.report_only/);
+ assert.match(workflow.concurrency.group,/seo-report-\{0\}-\{1\}/);
+});

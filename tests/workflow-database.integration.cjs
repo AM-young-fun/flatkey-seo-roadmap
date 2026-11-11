@@ -68,8 +68,8 @@ test("actual notification ledger rejects concurrent send and any retry after unk
  await assert.rejects(beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken), /尚未切换/);
  control = await getSeoReportingControl();
  await setSeoReportingControl(controlCommand(control.version, true), "admin-session");
- await beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken, testNow);
- await assert.rejects(beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken, testNow), /已过期或已使用/);
+ await beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken);
+ await assert.rejects(beginDigestAttempt(claim.id, stored.claimedBy, claim.fencingToken), /已过期或已使用/);
  const binding = { reportId: report.id, reportHash: report.hash, destination: claim.destination, robotCode: claim.robotCode };
  await finishDigestAttempt({ ...binding, id: claim.id, owner: stored.claimedBy, fencingToken: claim.fencingToken, status: "UNKNOWN", errorCode: "simulated timeout" }, testNow);
  await assert.rejects(claimDigest(report.id, "third", testNow), /禁止重复发送/);

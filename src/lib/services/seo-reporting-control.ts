@@ -2,20 +2,25 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { SEO_REPORT_GROUP, SEO_REPORT_ROBOT } from "../seo-digest";
+import { SEO_REPORT_GROUP, SEO_REPORT_ROBOT, SEO_REPORT_WEBHOOK_ROBOT } from "../seo-digest";
 
 const KIND = "REPORTING_CONTROL";
 const SITE = "flatkey.ai";
 const versionSchema = z.number().int().nonnegative().max(999999999999);
 const actorSchema = z.enum(["import-token", "admin-session"]);
-export const seoReportingCommandSchema = z.object({
+const commandFields = z.object({
   enabled: z.boolean(), expectedVersion: versionSchema,
   protocolVersion: z.literal(2), destination: z.literal(SEO_REPORT_GROUP),
-  robotCode: z.literal(SEO_REPORT_ROBOT), reason: z.string().trim().min(1).max(500),
+  robotCode: z.enum([SEO_REPORT_ROBOT, SEO_REPORT_WEBHOOK_ROBOT]),
+  transport: z.enum(["application-bot", "signed-webhook"]).optional(), webhookConfigSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(), reason: z.string().trim().min(1).max(500),
 }).strict();
-const storedSchema = seoReportingCommandSchema.omit({ expectedVersion: true }).extend({
+const binding = (value: { robotCode: string; transport?: string; webhookConfigSha256?: string }, ctx: z.RefinementCtx) => {
+  if ((value.transport ?? "application-bot") === "signed-webhook" ? value.robotCode !== SEO_REPORT_WEBHOOK_ROBOT || !value.webhookConfigSha256 : value.robotCode !== SEO_REPORT_ROBOT || value.webhookConfigSha256 !== undefined) ctx.addIssue({ code: "custom", message: "通知渠道与已核验机器人绑定不匹配" });
+};
+export const seoReportingCommandSchema = commandFields.superRefine(binding);
+const storedSchema = commandFields.omit({ expectedVersion: true }).extend({
   version: versionSchema.refine(value => value > 0), actor: actorSchema, updatedAt: z.iso.datetime(),
-}).strict();
+}).strict().superRefine(binding);
 type StoredControl = z.infer<typeof storedSchema>;
 export type SeoReportingControl = Omit<StoredControl, "actor" | "updatedAt"> & {
   actor: StoredControl["actor"] | null; updatedAt: string | null;

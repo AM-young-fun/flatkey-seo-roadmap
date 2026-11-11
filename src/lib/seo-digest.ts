@@ -11,6 +11,7 @@ import { executionViewRoutes } from "./seo-workspace-routes";
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
 export const SEO_REPORT_GROUP = "cid7d5au0J8RAKDDxMR+VNh1w==";
 export const SEO_REPORT_ROBOT = "dingoyxfe0koa0dme6fz";
+export const SEO_REPORT_WEBHOOK_ROBOT = "tFmSJLB0+A1WmEX9zMnH2w==";
 const SEO_PLATFORM = "https://flatkey-seo-roadmap.vercel.app";
 const approvalsUrl = SEO_PLATFORM + executionViewRoutes.approvals;
 export const SEO_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc", "mochichatbot.com", "jev-llm.com"] as const;
@@ -420,5 +421,5 @@ export type SeoDigest = ReturnType<typeof buildSeoDigest>;
 
 /** Transport ambiguity is terminal for automatic retries. A human must reconcile the provider receipt. */
 export function digestClaimable(row: { status: string; leaseUntil: Date | null; attemptedAt: Date | null }, now = new Date()) {
-  return row.status === "PREPARED" || row.status === "CLAIMED" && !row.attemptedAt && (!row.leaseUntil || row.leaseUntil <= now);
+  return row.status === "PREPARED" || row.status === "REJECTED_CONFIRMED" && !row.attemptedAt || row.status === "CLAIMED" && !row.attemptedAt && (!row.leaseUntil || row.leaseUntil <= now);
 }
