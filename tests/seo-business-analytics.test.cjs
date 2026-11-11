@@ -42,9 +42,9 @@ test("thresholding stays partial; all-channel query does not pretend organic and
 });
 test("provider pagination or malformed metrics cannot become a complete business report",async t=>{
  process.env.SEO_GA4_ACCESS_TOKEN="fixture-only";
- const replies=[provider({rowCount:2}),provider({metricHeaders:[{name:"eventCount"}]}),provider({rows:[{dimensionValues:[{value:"gpu_rental_success"}],metricValues:[{value:"NaN"},{value:"7"}]}]})];
+ const replies=[provider({rowCount:2}),provider({metricHeaders:[{name:"eventCount"}]}),provider({rows:[{dimensionValues:[{value:"gpu_rental_success"}],metricValues:[{value:"NaN"},{value:"7"}]}]}),provider({metadata:{}}),provider({metadata:{timeZone:"Asia/Shanghai"}})];
  t.mock.method(globalThis,"fetch",async()=>Response.json(replies.shift()));
- for(let i=0;i<3;i++) await assert.rejects(fetchGa4Business({start:"2026-11-01",end:"2026-11-07",country:"all",scope:"all-channels"},new Date("2026-11-09T12:00:00Z")));
+ for(let i=0;i<5;i++) await assert.rejects(fetchGa4Business({start:"2026-11-01",end:"2026-11-07",country:"all",scope:"all-channels"},new Date("2026-11-09T12:00:00Z")));
 });
 
 const { funnelRequest, fetchGa4Journey, fetchGa4Engagement } = require("../src/lib/services/ga4-journeys.ts");

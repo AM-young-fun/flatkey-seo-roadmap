@@ -22,7 +22,7 @@ export async function fetchGa4Business(query: Query, now = new Date()): Promise<
   const raw = report.rows ?? [];
   if (!Array.isArray(raw) || (report.rowCount ?? raw.length) !== raw.length || raw.length > 11) throw new GoogleReadError("invalid_response", "GA4业务报表行数不完整");
   const metadata = report.metadata ?? {};
-  if (metadata.timeZone && metadata.timeZone !== "America/Los_Angeles") throw new GoogleReadError("invalid_response", "GA4业务时区不匹配");
+  if (metadata.timeZone !== "America/Los_Angeles") throw new GoogleReadError("invalid_response", "GA4业务时区缺失或不匹配");
   const reasons = [metadata.subjectToThresholding && "thresholding", metadata.dataLossFromOtherRow && "other_row", metadata.emptyReason && "empty_reason",
     metadata.samplingMetadatas?.some((row: { samplesReadCount: string; samplingSpaceSize: string }) => row.samplesReadCount !== row.samplingSpaceSize) && "sampling",
     metadata.dataTruncationReasons?.length && "truncation", metadata.schemaRestrictionResponse?.activeMetricRestrictions?.length && "restricted_metrics"].filter((value): value is string => typeof value === "string");

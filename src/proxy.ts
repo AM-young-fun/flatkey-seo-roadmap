@@ -22,7 +22,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
-  if (["/api/seo/workflow", "/api/seo/workflow/claims", "/api/seo/workflow/approval-check", "/api/seo/workflow/history", "/api/seo/digest", "/api/seo/periods"].includes(request.nextUrl.pathname)) return NextResponse.next();
+  if (["/api/seo/workflow", "/api/seo/workflow/claims", "/api/seo/workflow/approval-check", "/api/seo/workflow/history", "/api/seo/digest", "/api/seo/periods", "/api/seo/business", "/api/seo/github"].includes(request.nextUrl.pathname)) return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/optimization-plans") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/ranking-notice") return NextResponse.next();
   // These endpoints check their own dedicated credentials, even when page
