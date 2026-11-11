@@ -59,9 +59,9 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
       if (!weekly && pair.dates.length === 1) { const point = series(own, key, end).get(pair.dates[0])!; lines.push(`  该UTC日去重${key === "views" ? "访客" : "克隆者"} ${point.uniques}。`); }
     }
     if (weekly) lines.push("  周去重访客/克隆者待精确区间数据；未把每日unique相加。GitHub API原始14日总数只作来源窗口，未当周报总数。");
-    const referrals = own.flatMap(r => r.referrals).filter(r => r.start === start && r.end <= end).sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));
+    const referrals = own.flatMap(r => r.referrals).filter(r => r.end <= end && (weekly ? r.start === start : r.start === r.end && r.start >= shift(end, -7))).sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));
     const referral = referrals[0];
-    lines.push(referral?.status === "ok" ? `  GitHub UTM→Flatkey 到站会话 ${referral.sessions}，去重访客 ${referral.users}；${referral.start}～${referral.end} ${referral.timezone}${referral.end < end ? "，末日尚未出齐" : ""}。` : "  GitHub UTM→Flatkey 到站会话/访客：待更新；没有把仓库浏览或克隆当作到站点击。");
+    lines.push(referral?.status === "ok" ? `  GitHub UTM→Flatkey 到站会话 ${referral.sessions}，去重访客 ${referral.users}；${referral.start}～${referral.end} ${referral.timezone}${referral.end < end ? weekly ? "，末日尚未出齐" : "，最新完整日滞后于报表目标日" : ""}。` : "  GitHub UTM→Flatkey 到站会话/访客：待更新；没有把仓库浏览或克隆当作到站点击。");
     lines.push(latest.linkAudit.status === "ok" ? `  公开README的Flatkey链接UTM覆盖 ${latest.linkAudit.attributedLinks}/${latest.linkAudit.flatkeyLinks}；仅表示已核查链接。` : "  公开README链接归因核查待更新。");
     if (latest.views.status !== "ok" || latest.clones.status !== "ok") lines.push("  仓库Traffic来源缺失或无权限，缺失值未写0。");
   }

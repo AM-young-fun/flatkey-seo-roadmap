@@ -22,6 +22,11 @@ function auditLinks(result,repository){
  let attributed=0;for(const raw of links){const u=new URL(raw);if(u.searchParams.get('utm_source')==='github'&&u.searchParams.get('utm_medium')==='referral'&&u.searchParams.get('utm_campaign')===repository.split('/')[1])attributed++;}
  return {status:'ok',flatkeyLinks:links.size,attributedLinks:attributed,reason:null};
 }
+function referralWindows(date,now=new Date()){
+ const propertyToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles'}).format(now),closedDay=shift(propertyToday,-1);
+ const friday=shift(date,-((new Date(date+'T00:00:00Z').getUTCDay()+2)%7));
+ return [{start:closedDay,end:closedDay},{start:shift(friday,-7),end:shift(friday,-1)}];
+}
 async function run(){
  const apply=process.argv.includes('--apply'),output=path.resolve(arg('--out')||'.local/github-channel'),now=new Date(),today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(now),date=arg('--date')||today;
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date!==today)throw Error('collection_date_must_be_today');
@@ -30,8 +35,7 @@ async function run(){
  if(apply&&!process.env.SEO_IMPORT_TOKEN)throw Error('missing_import_token');
  const api=async(route,body)=>{const r=await fetch(platform.origin+route,{method:body?'POST':'GET',headers:{authorization:'Bearer '+process.env.SEO_IMPORT_TOKEN,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),redirect:'error',signal:AbortSignal.timeout(60000)});if(!r.ok)throw Error('seo_api_'+r.status);return r.json();};
  await fs.mkdir(output,{recursive:true,mode:0o700});
- const friday=shift(date,-((new Date(date+'T00:00:00Z').getUTCDay()+2)%7));
- const windows=[{start:shift(date,-1),end:shift(date,-1)},{start:shift(friday,-7),end:shift(friday,-1)}];
+ const windows=referralWindows(date,now);
  const summaries=[];
  for(const repository of PROMPT_REPOSITORIES){
   const r=await Promise.allSettled([github('repos/'+repository),github('repos/'+repository+'/traffic/views?per=day'),github('repos/'+repository+'/traffic/clones?per=day'),github('repos/'+repository+'/readme')]);
@@ -44,4 +48,4 @@ async function run(){
  }
  console.log(JSON.stringify({date,repositories:summaries}));
 }
-module.exports={parseTraffic,auditLinks};if(require.main===module)run().catch(e=>{console.error(JSON.stringify({status:'blocked',error:e.name==='ZodError'?'invalid_github_response':e.message}));process.exitCode=1;});
+module.exports={parseTraffic,auditLinks,referralWindows};if(require.main===module)run().catch(e=>{console.error(JSON.stringify({status:'blocked',error:e.name==='ZodError'?'invalid_github_response':e.message}));process.exitCode=1;});

@@ -4,7 +4,7 @@ Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,n
 Module._load=function(name,...rest){return name==='server-only'?{}:load.call(this,name,...rest);};
 require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
 const {githubChannelSchema,githubComparable,githubDigestLines}=require('../src/lib/seo-github-channel.ts');
-const {parseTraffic,auditLinks}=require('../scripts/collect-github-channel.cjs');
+const {parseTraffic,auditLinks,referralWindows}=require('../scripts/collect-github-channel.cjs');
 const {fetchGithubReferrals}=require('../src/lib/services/ga4-github-referrals.ts');
 const days=Array.from({length:14},(_,i)=>({date:new Date(Date.UTC(2026,9,28+i)).toISOString().slice(0,10),count:3,uniques:2}));
 const traffic=()=>({status:'ok',count:42,uniques:9,days:structuredClone(days),reason:null});
@@ -41,4 +41,15 @@ test('GA4 forbidden or thresholded referral data stays unavailable or partial, n
  process.env.SEO_GA4_ACCESS_TOKEN='fixture-only';let response=new Response('Forbidden',{status:403});t.mock.method(globalThis,'fetch',async()=>response);
  let v=await fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-01','2026-11-07',new Date('2026-11-11'));assert.equal(v.status,'unavailable');assert.equal(v.sessions,null);
  response=Response.json({metricHeaders:[{name:'sessions'},{name:'totalUsers'}],metadata:{timeZone:'America/Los_Angeles',subjectToThresholding:true},rows:[]});v=await fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-01','2026-11-07',new Date('2026-11-11'));assert.equal(v.status,'partial');assert.equal(v.users,null);
+});
+
+test('09:00 Beijing collection requests the last closed LA day rather than a still-open Beijing yesterday',()=>{
+ const windows=referralWindows('2026-11-13',new Date('2026-11-13T01:00:00Z'));
+ assert.deepEqual(windows,[{start:'2026-11-11',end:'2026-11-11'},{start:'2026-11-06',end:'2026-11-12'}]);
+});
+test('daily attribution reports the latest closed source day with its real date, weekly does not borrow another period',()=>{
+ const row=fixture({referrals:[{start:'2026-11-09',end:'2026-11-09',timezone:'America/Los_Angeles',status:'ok',sessions:8,users:5,observedAt:'2026-11-11T01:00:00Z',reason:null}]});
+ const text=githubDigestLines([row],'2026-11-10','2026-11-10',false,new Date('2026-11-11T08:00:00Z')).join('\n');
+ assert.match(text,/到站会话 8/);assert.match(text,/2026-11-09～2026-11-09/);assert.match(text,/最新完整日滞后/);
+ const weekly=githubDigestLines([row],'2026-11-06','2026-11-12',true,new Date('2026-11-13')).join('\n');assert.doesNotMatch(weekly,/到站会话 8/);
 });
