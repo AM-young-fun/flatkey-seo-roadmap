@@ -26,6 +26,10 @@ on:
         description: Optional existing immutable report ID; required for an audited retry
         type: string
         default: ""
+      periods_only:
+        description: Only query independent interval users and registrations; never send notifications
+        type: boolean
+        default: false
       business_only:
         description: Only query and archive GA4 business events/funnels; skip inventory and traffic backfill
         type: boolean
@@ -69,14 +73,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Sync and verify page inventory
         id: inventory
-        if: ${{ !inputs.business_only }}
+        if: ${{ !inputs.business_only && !inputs.periods_only }}
         continue-on-error: true
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
         run: node scripts/server-seo-inventory.cjs
       - name: Collect, backfill and verify production
         id: analytics
-        if: ${{ !inputs.business_only }}
+        if: ${{ !inputs.business_only && !inputs.periods_only }}
         continue-on-error: true
         env:
           SEO_COLLECTION_RESULT: /tmp/seo-collection-result.json
@@ -94,7 +98,7 @@ jobs:
         run: node scripts/server-seo-periods.cjs
       - name: Collect GA4 business events and distinct interval users
         id: business
-        if: always() && (vars.SEO_GA4_BUSINESS_COLLECTION_ENABLED == 'true' || inputs.business_only)
+        if: always() && !inputs.periods_only && (vars.SEO_GA4_BUSINESS_COLLECTION_ENABLED == 'true' || inputs.business_only)
         continue-on-error: true
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
@@ -104,12 +108,15 @@ jobs:
         if: always()
         env:
           BUSINESS_ONLY: ${{ inputs.business_only }}
+          PERIODS_ONLY: ${{ inputs.periods_only }}
           INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
           ANALYTICS_OUTCOME: ${{ steps.analytics.outcome }}
           PERIODS_OUTCOME: ${{ steps.periods.outcome }}
           BUSINESS_OUTCOME: ${{ steps.business.outcome }}
         run: |
-          if [ "$BUSINESS_ONLY" = true ]; then
+          if [ "$PERIODS_ONLY" = true ]; then
+            test "$PERIODS_OUTCOME" = success
+          elif [ "$BUSINESS_ONLY" = true ]; then
             test "$BUSINESS_OUTCOME" = success
           else
             test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success
@@ -118,7 +125,7 @@ jobs:
           fi
   notify:
     needs: collect
-    if: always() && needs.collect.result != 'skipped' && !inputs.report_only && !inputs.business_only && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
+    if: always() && needs.collect.result != 'skipped' && !inputs.report_only && !inputs.business_only && !inputs.periods_only && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -134,7 +141,7 @@ jobs:
           INVENTORY_ADDED: ${{ needs.collect.outputs.added }}
         run: node scripts/server-seo-alert.cjs
   verify-dingtalk:
-    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk == true && inputs.send_notifications == true && !inputs.report_only
+    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk == true && inputs.send_notifications == true && !inputs.report_only && !inputs.periods_only
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

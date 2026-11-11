@@ -154,3 +154,16 @@ test("interval collection refuses an unverifiable property timezone", async t =>
   useMockGoogle(t, () => ({ rows: [], metadata: {} }));
   await assert.rejects(fetchGa4OrganicPeriod({ start: "2025-10-20", end: "2025-10-26" }), /属性时区/);
 });
+
+test("real metadata-only summary is archived as unmeasured while valid user counts survive", async t => {
+ const {fetchGa4OrganicPeriod}=require("../src/lib/services/ga4-organic.ts");
+ useMockGoogle(t,query=>query.dimensionFilter.andGroup.expressions.length===3 ? {rows:[],dimensionHeaders:undefined,metricHeaders:undefined,rowCount:undefined,metadata:{timeZone:"America/Los_Angeles"}} : {rows:[[[],[42]]],metadata:{timeZone:"America/Los_Angeles"}});
+ const result=await fetchGa4OrganicPeriod({start:"2025-10-20",end:"2025-10-26"});
+ assert.equal(result.users,42);assert.equal(result.registrations,null);assert.equal(result.quality.complete,false);
+ assert.deepEqual(result.quality.reasons,["registrations:empty_response_unverified"]);
+});
+test("missing summary headers with any nonempty or contradictory row evidence still fails",async t=>{
+ const {fetchGa4OrganicPeriod}=require("../src/lib/services/ga4-organic.ts");
+ useMockGoogle(t,()=>({rows:[],dimensionHeaders:undefined,metricHeaders:undefined,rowCount:3,metadata:{timeZone:"America/Los_Angeles"}}));
+ await assert.rejects(fetchGa4OrganicPeriod({start:"2025-10-20",end:"2025-10-26"}),/报表字段/);
+});

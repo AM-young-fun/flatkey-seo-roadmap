@@ -13,7 +13,7 @@ async function run() {
  if (!process.env.SEO_IMPORT_TOKEN || !process.env.SEO_GOOGLE_SERVICE_ACCOUNT_JSON) throw Error("missing_server_credentials");
  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
  const windows = organicReportWindows(today, shiftDay(propertyToday("America/Los_Angeles"), -1));
- let imported = 0;
+ let imported = 0; const periods = [];
  for (const range of windows) {
   const report = await fetchGa4OrganicPeriod(range);
   const row = organicPeriodSchema.parse({ hostScope: report.hostScope, ...range, siteDomain: "flatkey.ai", propertyId: report.propertyId, timezone: report.timezone, country: "all", source: "google-api", scope: report.scope, channelDimension: "sessionDefaultChannelGroup", users: report.users, registrations: report.registrations, registrationEvent: report.registrationMetric, distinctOverWholePeriod: true, observedAt: report.fetchedAt, complete: report.quality.complete, reasons: report.quality.reasons });
@@ -21,8 +21,8 @@ async function run() {
   if (!response.ok) throw Error("period_import_" + response.status);
   const receipt = await response.json();
   if (receipt.stored !== true || receipt.id !== organicPeriodId(organicPeriodSchema.parse(receipt.period))) throw Error("period_readback_failed");
-  imported++;
+  imported++; periods.push({start:row.start,end:row.end,timezone:row.timezone,hostScope:row.hostScope,registrationEvent:row.registrationEvent,users:row.users,registrations:row.registrations,complete:row.complete,reasons:row.reasons});
  }
- console.log(JSON.stringify({ kind: "organic-period", imported, windows }));
+ console.log(JSON.stringify({ kind: "organic-period", imported, windows, periods }));
 }
 if (require.main === module) run().catch(error => { console.error(JSON.stringify({ error: error.message })); process.exitCode = 1; });

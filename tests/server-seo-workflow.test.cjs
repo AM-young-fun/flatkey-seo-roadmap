@@ -54,3 +54,12 @@ test("report-only dispatch never collects or invokes legacy notices, including c
  assert.match(workflow.concurrency.group,/inputs\.report_only/);
  assert.match(workflow.concurrency.group,/seo-report-\{0\}-\{1\}/);
 });
+
+test("period-only repair skips unrelated collection and all message transports",()=>{
+ const options={inputs:{periods_only:true,send_notifications:true,verify_dingtalk:true}};
+ assert.equal(enabled("notify",options),false);assert.equal(enabled("verify-dingtalk",options),false);assert.equal(enabled("report-send",options),false);
+ assert.equal(Object.keys(workflow.on.workflow_dispatch.inputs).length,10);
+ const steps=workflow.jobs.collect.steps;
+ for(const id of ["inventory","analytics","business"])assert.match(steps.find(s=>s.id===id).if,/!inputs\.periods_only/);
+ assert.match(steps.find(s=>s.name==='Enforce collection health').run,/if \[ "\$PERIODS_ONLY" = true \]/);
+});

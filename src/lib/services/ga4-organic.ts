@@ -95,6 +95,7 @@ async function requestReport(
   token: string,
   method: "runReport" | "runRealtimeReport",
   query: ReportQuery,
+  allowUnmeasuredSummary = false,
 ): Promise<Report> {
   const url = `https://analyticsdata.googleapis.com/v1beta/properties/${id}:${method}`;
   let response: Response;
@@ -124,6 +125,12 @@ async function requestReport(
     const actual = headers ?? [];
     return Array.isArray(actual) && actual.length === expected.length && actual.every((header, i) => header?.name === expected[i]);
   };
+  // Production evidence: an unmatched dimensionless totalUsers query can return
+  // only metadata, omitting headers and rows. Retain it as unmeasured, never 0.
+  if (allowUnmeasuredSummary && method === "runReport" && dimensions.length === 0 && metrics.length === 1 && metrics[0] === "totalUsers"
+    && report?.metadata?.timeZone === GA4_TIMEZONE && (report.dimensionHeaders === undefined || Array.isArray(report.dimensionHeaders) && report.dimensionHeaders.length === 0)
+    && (report.metricHeaders === undefined || Array.isArray(report.metricHeaders) && report.metricHeaders.length === 0)
+    && (report.rows === undefined || Array.isArray(report.rows) && report.rows.length === 0) && (report.rowCount === undefined || report.rowCount === 0)) return report;
   if (!report || !matchesHeaders(report.dimensionHeaders, dimensions) || !matchesHeaders(report.metricHeaders, metrics)
     || (report.rows !== undefined && !Array.isArray(report.rows))
     || (report.rowCount !== undefined && (!Number.isSafeInteger(report.rowCount) || report.rowCount < 0))) {
@@ -332,12 +339,12 @@ export async function fetchGa4OrganicPeriod(range: DateRange, country?: SearchRe
     const result = await requestReport(id, token, "runReport", {
       dateRanges: [{ startDate: range.start, endDate: range.end }], metrics: [{ name: "totalUsers" }],
       dimensionFilter: filters.length === 1 ? filters[0] : { andGroup: { expressions: filters } }, limit: "1",
-    });
+    }, true);
     if (result.metadata?.timeZone !== GA4_TIMEZONE) throw new GoogleReadError("invalid_response", "GA4 区间汇总未返回可验证的属性时区");
     const rows = result.rows ?? [];
     if (rows.length > 1 || (result.rowCount ?? rows.length) !== rows.length) throw new GoogleReadError("invalid_response", "GA4 区间汇总返回意外行数");
     const reasons = qualityReasons(result);
-    if (!rows.length && result.rowCount === undefined) reasons.push("empty_response_unverified");
+    if (!rows.length && (result.rowCount === undefined || !result.metricHeaders?.length)) reasons.push("empty_response_unverified");
     return { value: rows[0] ? metric(rows[0], 0) : 0, reasons };
   };
   const [users, registrations] = await Promise.all([report(false), report(true)]);
