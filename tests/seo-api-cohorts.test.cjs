@@ -145,7 +145,7 @@ test("two UI cards show only same-funnel mature rates and explicitly distinguish
   const unknown=html(cohortKinds.map(kind=>planApiCohort(query,kind,now,"")));
   assert.match(unknown,/观察起点待确认/);assert.doesNotMatch(unknown,/0.0%/);
   const noUsers=html(plans().map(plan=>parseApiCohortResponse(plan,response([0,0]))));assert.match(noUsers,/不计算比率/);assert.doesNotMatch(noUsers,/0.0%/);
-  assert.match(html(undefined),/待采集/);
+  assert.match(html(undefined),/待采集/);assert.match(html(undefined),/该注册时段尚无统计结果/);assert.match(html(undefined),/按同一批注册用户统计/);assert.doesNotMatch(html(undefined),/canonical|cohort 回执/);
   const disabled=renderToStaticMarkup(React.createElement(SeoApiCohorts,{range:query,collectionPresent:true}));assert.match(disabled,/未启用/);assert.match(disabled,/生产版本与观察起点待确认/);assert.doesNotMatch(disabled,/0.0%/);
 });
 
