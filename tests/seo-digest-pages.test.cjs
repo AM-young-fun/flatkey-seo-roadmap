@@ -46,7 +46,7 @@ test("each leaderboard is capped at five and report text shows dates, URL, value
  const input={date:"2026-11-11",now,observations:[],pageObservations:[gs("2026-11-10",pages),ga("2026-11-10",gaPages)],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:"verified",optimizationCoverage:"verified"};
  const report=buildSeoDigest(input);
  assert.equal(report.pagePerformance.reduce((n,r)=>n+r.pages.length,0),10);
- assert.match(report.text,/Google 点击 Top 5.*2026-11-10.*覆盖 1\/5 站/);assert.match(report.text,/自然搜索访问（会话） Top 5/);
+ assert.match(report.text,/Google 点击 · 分模块 Top 3.*2026-11-10.*覆盖 1\/5 站/);assert.match(report.text,/自然搜索访问（会话） · 分模块 Top 3/);
  assert.match(report.text,/https:\/\/flatkey.ai\/p7.*Google 点击 8/);assert.match(report.text,/缺少前一日基线/);assert.match(report.text,/覆盖缺口/);
  assert.equal(buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00Z")}).pagePerformance.length,0);
 });
@@ -80,4 +80,14 @@ test("old complete snapshots cannot pull a leaderboard outside the seven-day fal
  assert.equal(rank([...old,current])[1].date,"2026-11-10");
  const staleCommon=properties.map(([host,property])=>ga("2026-10-27",[[host,"/old",999]],{property}));
  assert.equal(rank(staleCommon)[1].date,null);assert.match(rank(staleCommon)[1].selectionReason,/最近14天/);
+});
+test("module leaders are selected before global top five, preserve language and ignore GSC section duplicates", () => {
+ const manyBlogs=Array.from({length:7},(_,i)=>[url('blog/post-'+i),100-i]);
+ const ranking=rank([gs('2026-11-10',[...manyBlogs,[url('ja/compute'),8],[url('es/prompts/example'),6],[url('models/qwen'),4],[url('blog/post-0')+'#section',200]])])[0];
+ assert.equal(ranking.pages.length,5);assert.equal(ranking.pages[0].value,100);
+ assert.equal(ranking.modules.find(m=>m.id==='gpu').pages[0].url,url('ja/compute'));
+ assert.equal(ranking.modules.find(m=>m.id==='prompts').pages[0].value,6);
+ assert.equal(ranking.modules.find(m=>m.id==='models').pages[0].value,4);
+ assert.equal(ranking.modules.find(m=>m.id==='blog').pages.length,3);
+ assert.deepEqual(ranking.modules.find(m=>m.id==='other').pages,[]);
 });

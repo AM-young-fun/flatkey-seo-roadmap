@@ -281,13 +281,19 @@ export function buildSeoDigest(input: DigestInput) {
   }
   for (const ranking of pagePerformance) {
     const metric = ranking.source === "GSC" ? "Google 点击" : "自然搜索访问（会话）";
-    lines.push("", `${metric} Top 5 · 已采集完整页面（${ranking.date ?? "日期待更新"}；覆盖 ${ranking.coveredSites.length}/5 站）`);
+    lines.push("", `${metric} · 分模块 Top 3（${ranking.date ?? "日期待更新"}；覆盖 ${ranking.coveredSites.length}/5 站）`);
     lines.push(escaped(ranking.selectionReason) + "。");
     if (!ranking.date) lines.push("• 暂无完整的已结束日数据，未把缺失当作0。");
     else if (!ranking.pages.length) lines.push("• 该数据日已采集范围内没有大于0的页面记录。");
-    for (const page of ranking.pages) {
-      const change = page.previous === null ? `不可比：${page.comparisonReason}` : page.previous === 0 ? `较 ${page.previousDate} 新增 ${page.value}，基期为0不算百分比` : `较 ${page.previousDate} ${page.previous}→${page.value}（${page.percentage! >= 0 ? "+" : ""}${page.percentage!.toFixed(1)}%）`;
-      lines.push(`• ${link(page.url, page.url)} · ${page.site} · ${metric} ${page.value} · ${escaped(change)} · ${page.timezone}`);
+    for (const module of ranking.modules) {
+      if (module.id === "unknown" && !module.pages.length) continue;
+      lines.push(`• ${module.label}`);
+      if (!module.pages.length) lines.push("  当前已采集范围暂无可展示页面；不代表全模块流量为0。");
+      for (const page of module.pages) {
+        const change = page.previous === null ? `不可比：${page.comparisonReason}` : page.previous === 0 ? `较 ${page.previousDate} 新增 ${page.value}，基期为0不算百分比` : `较 ${page.previousDate} ${page.previous}→${page.value}（${page.percentage! >= 0 ? "+" : ""}${page.percentage!.toFixed(1)}%）`;
+        const url = new URL(page.url);
+        lines.push(`  ${link(url.hostname + url.pathname + url.search, page.url)} · ${metric} ${page.value} · ${escaped(change)} · ${page.timezone}`);
+      }
     }
     if (ranking.gaps.length) lines.push(`覆盖缺口：${ranking.gaps.map(escaped).join("；")}。`);
     lines.push("仅比较同来源、同站点、同日期口径；不同日期和未完成/截断数据未混排。");

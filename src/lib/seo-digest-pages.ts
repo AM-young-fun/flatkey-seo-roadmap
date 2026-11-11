@@ -1,5 +1,6 @@
 import { analyticsObservationSchema, analyticsSiteForProperty, safeAnalyticsUrl, type AnalyticsObservation } from "./seo-analytics";
 import { CLUSTER_SITES } from "./seo-cluster-sites";
+import { OVERVIEW_PAGE_MODULES, overviewPageModule } from "./seo-overview-scope";
 
 type PageObservation = Extract<AnalyticsObservation, { kind: "gsc-pages" | "ga4-pages" }>;
 const sites = ["flatkey.ai", ...CLUSTER_SITES.map(site => site.domain)];
@@ -23,6 +24,9 @@ function pageValues(row: PageObservation) {
   for (const page of row.rows) {
     const url = "url" in page ? page.url : `https://${page.hostname}${page.path}`;
     if (!safeAnalyticsUrl(url)) continue;
+    // Search Console section URLs are evidence about one document, not extra
+    // ranking pages. Use only the document row; never add fragment clicks.
+    if ("url" in page && new URL(url).hash) continue;
     const value = "clicks" in page ? page.clicks : page.sessions;
     if (value !== null) values.set(url, value);
   }
@@ -31,6 +35,7 @@ function pageValues(row: PageObservation) {
 export type DigestPageRanking = {
   source: "GSC" | "GA4"; metric: "clicks" | "sessions"; date: string | null;
   coveredSites: string[]; gaps: string[]; selectionReason: string;
+  modules: { id: string; label: string; pages: DigestPageRanking["pages"] }[];
   pages: { site: string; url: string; value: number; timezone: string; previousDate: string | null; previous: number | null; difference: number | null; percentage: number | null; comparisonReason: string | null }[];
 };
 
@@ -98,6 +103,10 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date):
       }
     }
     pages.sort((a, b) => b.value - a.value || a.site.localeCompare(b.site) || a.url.localeCompare(b.url));
-    return { source, metric: source === "GSC" ? "clicks" : "sessions", date, selectionReason, coveredSites: [...currentBySite.keys()].sort(), gaps, pages: pages.slice(0, 5) };
+    // Select from the full eligible page population BEFORE taking the global
+    // top five. Otherwise lower-traffic GPU/Prompt pages disappear entirely.
+    const modules = OVERVIEW_PAGE_MODULES.filter(([id]) => id !== "all").map(([id, label]) => ({ id, label,
+      pages: pages.filter(page => (overviewPageModule(page.url) ?? "unknown") === id).slice(0, 3) }));
+    return { source, metric: source === "GSC" ? "clicks" : "sessions", date, selectionReason, coveredSites: [...currentBySite.keys()].sort(), gaps, pages: pages.slice(0, 5), modules };
   });
 }
