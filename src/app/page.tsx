@@ -1,6 +1,7 @@
-import { redirect } from "next/navigation";
-import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
+import { SeoOverview } from "@/components/SeoOverview";
 
-export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
-  redirect(workspaceRedirectHref("/work", await searchParams));
+export const metadata = { title: "总览 · Flatkey SEO" };
+
+export default function Page() {
+  return <SeoOverview />;
 }

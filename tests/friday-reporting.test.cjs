@@ -14,8 +14,8 @@ test("Friday reports cover Friday through Thursday at the Shanghai day boundary"
  assert.equal(weeklyPeriods(new Date("2026-10-29T16:00:00Z")).current.end,"2026-10-29");
  assert.equal(activeReportPeriods(new Date("2026-10-29T02:00Z")).current.start,"2026-10-23");
  assert.equal(reportPeriods("2026-10-13").current.end,"2026-10-19");
- assert.equal(nextCollectorTime(new Date("2026-10-30T02:29:59Z"),"traffic"),"2026-10-30T02:30:00.000Z");
- assert.equal(nextCollectorTime(new Date("2026-10-30T02:30:00Z"),"traffic"),"2026-10-31T02:30:00.000Z");
+ assert.equal(nextCollectorTime(new Date("2026-10-30T00:29:59Z"),"traffic"),"2026-10-30T00:30:00.000Z");
+ assert.equal(nextCollectorTime(new Date("2026-10-30T00:30:00Z"),"traffic"),"2026-10-31T00:30:00.000Z");
 });
 test("both old enabled cursors converge on Thursday without mutating historical paid slots",()=>{
  for(const cursor of ["2026-11-03T02:30:00Z","2026-11-02T16:00:00Z","2026-11-05T00:00:00Z"])assert.equal(scheduledSerpDue(cursor).toISOString(),"2026-11-05T00:00:00.000Z");

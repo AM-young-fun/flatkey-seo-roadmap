@@ -1,0 +1,44 @@
+const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript');
+const root=path.resolve(__dirname,'..'),load=Module._load,resolve=Module._resolveFilename;
+Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,name.startsWith('@/')?path.join(root,'src',name.slice(2)):name,parent,...rest);};
+Module._load=function(name,...rest){return name==='server-only'?{}:load.call(this,name,...rest);};
+require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
+const {githubChannelSchema,githubComparable,githubDigestLines}=require('../src/lib/seo-github-channel.ts');
+const {parseTraffic,auditLinks}=require('../scripts/collect-github-channel.cjs');
+const {fetchGithubReferrals}=require('../src/lib/services/ga4-github-referrals.ts');
+const days=Array.from({length:14},(_,i)=>({date:new Date(Date.UTC(2026,9,28+i)).toISOString().slice(0,10),count:3,uniques:2}));
+const traffic=()=>({status:'ok',count:42,uniques:9,days:structuredClone(days),reason:null});
+const fixture=extra=>({version:1,kind:'github-prompt-channel',repository:'flatkey-ai/awesome-images',observedAt:'2026-11-11T08:00:00Z',timezone:'UTC',stars:828,forks:0,metadataStatus:'ok',metadataReason:null,views:traffic(),clones:traffic(),referrals:[],linkAudit:{status:'ok',flatkeyLinks:3,attributedLinks:0,reason:null},...extra});
+test('GitHub schema retains real zero but rejects invented zero after missing permissions and duplicate buckets',()=>{
+ assert.equal(githubChannelSchema.safeParse(fixture()).success,true);
+ assert.equal(githubChannelSchema.safeParse(fixture({views:{status:'unavailable',count:0,uniques:0,days:[],reason:'403'}})).success,false);
+ assert.equal(githubChannelSchema.safeParse(fixture({views:{...traffic(),days:[...days,days[0]]}})).success,false);
+ const missing=parseTraffic({status:'rejected',reason:Error('github_http_403')},'views');assert.equal(missing.count,null);assert.deepEqual(missing.days,[]);
+});
+test('rolling snapshots merge by UTC date rather than summing overlapping 14-day totals',()=>{
+ const old=fixture(),latest=fixture({observedAt:'2026-11-11T09:00:00Z'});
+ const result=githubComparable([old,latest],'views','2026-11-04','2026-11-10',true);
+ assert.equal(result.current,21);assert.equal(result.previous,21);assert.equal(result.dates.length,7);
+ const text=githubDigestLines([latest],'2026-11-04','2026-11-10',true,new Date('2026-11-11T10:00:00Z')).join('\n');
+ assert.match(text,/未把每日unique相加/);assert.match(text,/首次快照/);assert.match(text,/UTM覆盖 0\/3/);assert.doesNotMatch(text,/去重访客 14/);
+});
+test('provisional current UTC buckets and missing dates never become a complete comparison',()=>{
+ const row=fixture({observedAt:'2026-11-10T08:00:00Z'}),result=githubComparable([row],'views','2026-11-04','2026-11-10',true);
+ assert.equal(result.dates.length,6);assert.equal(result.current,18);
+ const missing=githubDigestLines([],'2026-11-10','2026-11-10',false,new Date('2026-11-11')).join('\n');assert.match(missing,/待更新/);assert.doesNotMatch(missing,/浏览 0/);
+});
+test('README attribution audit excludes image assets and accepts only repo-specific GitHub UTM',()=>{
+ const content='![asset](https://flatkey.ai/assets/image.png) [one](https://flatkey.ai?utm_source=github&utm_medium=referral&utm_campaign=awesome-images) [two](https://console.flatkey.ai/keys)';
+ const result=auditLinks({status:'fulfilled',value:{encoding:'base64',content:Buffer.from(content).toString('base64')}},'flatkey-ai/awesome-images');assert.equal(result.flatkeyLinks,2);assert.equal(result.attributedLinks,1);
+});
+test('GA4 referral query binds source, medium, repository, hosts and an exact closed interval',async t=>{
+ process.env.SEO_GA4_ACCESS_TOKEN='fixture-only';let query;
+ t.mock.method(globalThis,'fetch',async(_url,options)=>{query=JSON.parse(options.body);return Response.json({metricHeaders:[{name:'sessions'},{name:'totalUsers'}],metadata:{timeZone:'America/Los_Angeles'},rows:[{metricValues:[{value:'8'},{value:'5'}]}]});});
+ const value=await fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-06','2026-11-12',new Date('2026-11-13T01:30:00Z'));
+ assert.equal(value.end,'2026-11-11');assert.equal(value.sessions,8);assert.equal(value.users,5);assert.match(JSON.stringify(query),/sessionCampaignName/);assert.match(JSON.stringify(query),/awesome-images/);assert.match(JSON.stringify(query),/console.flatkey.ai/);assert.equal(query.dateRanges[0].endDate,'2026-11-11');
+});
+test('GA4 forbidden or thresholded referral data stays unavailable or partial, never zero',async t=>{
+ process.env.SEO_GA4_ACCESS_TOKEN='fixture-only';let response=new Response('Forbidden',{status:403});t.mock.method(globalThis,'fetch',async()=>response);
+ let v=await fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-01','2026-11-07',new Date('2026-11-11'));assert.equal(v.status,'unavailable');assert.equal(v.sessions,null);
+ response=Response.json({metricHeaders:[{name:'sessions'},{name:'totalUsers'}],metadata:{timeZone:'America/Los_Angeles',subjectToThresholding:true},rows:[]});v=await fetchGithubReferrals('flatkey-ai/awesome-images','2026-11-01','2026-11-07',new Date('2026-11-11'));assert.equal(v.status,'partial');assert.equal(v.users,null);
+});

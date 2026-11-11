@@ -4,10 +4,11 @@ import type { Metadata } from "next";
 import "antd/dist/reset.css";
 import "./globals.css";
 import "@/components/UiControls.css";
+import "./workspace-foundation.css";
 
 export const metadata: Metadata = {
-  title: "SEO 洞察",
-  description: "Keyword rank tracking dashboard",
+  title: "Flatkey SEO",
+  description: "Flatkey SEO 工作台",
 };
 
 export default function RootLayout({

@@ -1,6 +1,12 @@
 const assert = require("node:assert/strict");
 const { test, beforeEach } = require("node:test");
 const fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
+// Next.js supplies this boundary marker; the route tests still load the real token authenticator.
+const loadWithServerOnly = Module._load;
+Module._load = function (name, ...args) {
+  if (name === "server-only") return {};
+  return loadWithServerOnly.call(this, name, ...args);
+};
 const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename;
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 // Production-route tests isolate the development-only preview adapter.

@@ -1,7 +1,9 @@
+import { loadBusinessAnalytics } from "./seo-business-analytics";
+import { loadGithubChannels } from "./seo-github-channel";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, SEO_REPORT_ROBOT, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
+import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, SEO_REPORT_ROBOT, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
 import { analyticsObservationSchema, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
 import { loadWorkflowSnapshot } from "./seo-workflow";
@@ -14,8 +16,8 @@ import { loadSerpTasks } from "./serp-results";
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
 
-export async function generateSeoDigest(date: string, now = new Date()): Promise<SeoDigest> {
-  const window = digestWindow(date);
+export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
+  const window = digestWindow(date, kind);
   const start = shiftWorkflowDay(window.trafficStart, -15);
   const reads = await Promise.allSettled([
     loadWorkflowSnapshot({ week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, false),
@@ -24,8 +26,10 @@ export async function generateSeoDigest(date: string, now = new Date()): Promise
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(window.workStart), lt: new Date(Math.min(now.getTime(), Date.parse(window.workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
     prisma.seoReportVersion.findMany({ where: { kind: "ORGANIC_PERIOD", periodStart: { gte: new Date(start), lte: new Date(window.trafficEnd) } }, orderBy: { createdAt: "desc" }, take: 100, select: { payload: true } }),
     loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
+    loadBusinessAnalytics(window.trafficStart, window.trafficEnd),
+    loadGithubChannels(start, window.trafficEnd),
   ]);
-  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "区间去重人数", "排名回执"][index]}读取失败，相关项保留缺失。`] : []);
+  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "区间去重人数", "排名回执", "GA4业务归档", "GitHub渠道归档"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, "database");
   const nextWeek = reads[1].status === "fulfilled" ? reads[1].value : workflowSnapshot([], { week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, "database");
   const analytics = reads[2].status === "fulfilled" ? reads[2].value : [];
@@ -61,9 +65,10 @@ export async function generateSeoDigest(date: string, now = new Date()): Promise
     return completeDays.size >= expectedDays ? "verified" : "partial";
   };
   const input: DigestInput = {
-    date, now, observations, pageObservations, publications, optimizations, periods,
-    approvals: reads[0].status === "fulfilled" ? workflow.approvals : undefined,
-    reviewPending: reads[0].status === "fulfilled" ? workflow.tasks.filter(task => task.status === "review_pending").length : undefined,
+    date, kind, now, observations, pageObservations, publications, optimizations, periods,
+    businessObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
+    githubObservations: reads[7].status === "fulfilled" ? reads[7].value : [],
+    reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,
     historicalImports: workflow.historicalImports.map(archive => ({ id: archive.id, recordedAt: archive.recordedAt, sourceRunId: archive.sourceRunId,
       originals: archive.publications.filter(page => page.kind === "source_blog").length, translations: archive.publications.filter(page => page.kind === "translation").length,
       liveVerified: archive.publications.filter(page => page.verificationState === "live_verified").length, artifactOnly: archive.publications.filter(page => page.verificationState === "artifact_verified").length,
@@ -92,13 +97,15 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
     const report = saved.payload as unknown as SeoDigest;
     if (report.date !== beijingDay(now)) throw new DigestError("自动通知仅发送当天报告；历史报告保留归档");
-    if (report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError("18:00 前的草稿不能发送，请刷新最终快照");
+    if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
+    const expected = digestWindow(report.date, report.kind);
+    if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${report.kind === "weekly" ? "周五10:00" : "18:00"} 前的草稿不能发送，请刷新最终快照`);
     if (now.getTime() - Date.parse(report.generatedAt) > 15 * 60000 || Date.parse(report.generatedAt) > now.getTime()) throw new DigestError("请在发送前刷新报告");
-    const id = `seo-digest-delivery:${report.date}`;
+    const id = `seo-digest-delivery:${report.kind}:${report.date}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
     const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
     const previous = await tx.seoDigestDelivery.findUnique({ where: { id } });
-    if (previous && !digestClaimable(previous, clock.now)) throw new DigestError(previous.status === "DELIVERED" ? "当天已发送" : "发送已被领取或结果未核实，禁止重复发送");
+    if (previous && !digestClaimable(previous, clock.now)) throw new DigestError(previous.status === "DELIVERED" ? "当天该类报告已发送" : "发送已被领取或结果未核实，禁止重复发送");
     const data = { reportId, reportHash: report.hash, destination: SEO_REPORT_GROUP, robotCode: SEO_REPORT_ROBOT, status: "CLAIMED", claimedBy: owner, fencingToken: (previous?.fencingToken ?? 0) + 1, leaseUntil: new Date(clock.now.getTime() + 5 * 60000), errorCode: null };
     const receipt = previous ? await tx.seoDigestDelivery.update({ where: { id }, data }) : await tx.seoDigestDelivery.create({ data: { id, ...data } });
     return { id, fencingToken: receipt.fencingToken, destination: receipt.destination, robotCode: receipt.robotCode, report };

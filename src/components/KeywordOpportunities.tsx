@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "./PageHeader";
 import { KeywordResearchEvidence } from "./KeywordResearchEvidence";
 import { useSeoCountry } from "./useSeoCountry";
-import { useSeoRead, numberText } from "./useSeoAnalytics";
+import { useSeoRead, numberText, shanghaiStamp } from "./useSeoAnalytics";
 import { hydrateOverviewPayload, type OverviewPayload } from "@/lib/overview-payload";
 import type { DashboardResponse } from "@/lib/types";
 import { buildKeywordOpportunities, combineKeywordMarkets, sortKeywordOpportunities, estimateMonthlyClicks, optimizationWindow, flatkeyPage, opportunityReason, planKey, rankText, type KeywordMapping, type KeywordOpportunity, type KeywordPlan, type OpportunityMarket, type OpportunitySort } from "@/lib/keyword-opportunities";
@@ -30,6 +30,13 @@ const rankRanges = [
   { label: "第 21–50 名", min: 21, max: 50 },
   { label: "第 51–100 名", min: 51, max: 100 },
 ];
+const sortOptions: { value: OpportunitySort; label: string }[] = [
+  { value: "opportunity", label: "选题优先级" },
+  { value: "rank-asc", label: "排名由高到低" },
+  { value: "rank-desc", label: "排名由低到高" },
+  { value: "volume", label: "搜索量由高到低" },
+  { value: "volume-asc", label: "搜索量由低到高" },
+];
 type RankRange = typeof rankRanges[number];
 const inRankRange = (row: KeywordOpportunity, range: RankRange) =>
   row.rank !== null && row.rank >= range.min && row.rank <= range.max;
@@ -43,9 +50,8 @@ export function KeywordOpportunities() {
   const [query, setQuery] = useState(""), [targetUrl, setTargetUrl] = useState("");
   const urlQuery = useRef<string | null>(null);
   const [planCountry, setPlanCountry] = useState<OpportunityMarket>("US");
-  const [sort, setSort] = useState<Exclude<OpportunitySort, "opportunity">>("rank-asc");
-  const [rankSelection, setRankSelection] = useState<RankRange | null>(null);
-  const rankRange = rankSelection;
+  const [sort, setSort] = useState<OpportunitySort>("opportunity");
+  const [rankRange, setRankRange] = useState<RankRange | null>(null);
   const [page, setPage] = useState(1), [selected, setSelected] = useState<string | null>(null), [targetPage, setTargetPage] = useState("");
   const [plan, setPlan] = useState<KeywordPlan>(blankPlan), [saved, setSaved] = useState<Record<string, KeywordPlan>>({}), [message, setMessage] = useState("");
   useEffect(() => {
@@ -90,6 +96,7 @@ export function KeywordOpportunities() {
   const rankLabel = country === "all" ? "本站最佳排名" : "本站当前排名";
   const active = rowsByMarket.get(planCountry)?.find(row => row.key === selected);
   const pageCount = Math.max(1, Math.ceil(filtered.length / 25));
+  const currentPage = Math.min(page, pageCount);
   const clicks = estimateMonthlyClicks(active?.volume ?? null, plan.ctr);
   function savedTarget(row: KeywordOpportunity) {
     for (const market of country === "all" ? REGION_CODES : [country]) {
@@ -111,7 +118,7 @@ export function KeywordOpportunities() {
     loadPlan(row, existing?.url ?? (targetUrl || row.urls[0] || ""), market);
   }
   function filterRank(range: RankRange | null) {
-    setRankSelection(range);
+    setRankRange(range);
     setPage(1);
     setSelected(null);
   }
@@ -139,35 +146,101 @@ export function KeywordOpportunities() {
     } catch (error) { setMessage(error instanceof Error ? error.message : "保存失败，请重试"); }
     finally { setSaving(false); }
   }
-  const error = dashboard.error || worklist.error || plans.error;
+  const error = [
+    ["关键词词库", dashboard.error],
+    ["目标页关联", worklist.error],
+    ["优化目标", plans.error],
+  ].filter(([, message]) => message).map(([label, message]) => `${label} · ${message}`).join("；");
+  const hasData = dashboard.data && !dashboard.data.usingDemoData;
+  const snapshotAt = hasData ? dashboard.data?.displaySnapshot?.generatedAt : null;
+  const marketLabel = country === "all" ? "全部国家" : REGIONS[country].label;
   return <main className={workspace.shell}>
     <PageHeader active="opportunities" />
-    <div className={workspace.titleRow}>
-      <h1 className={workspace.title}>关键词选题</h1>
+    <div className={styles.heading}>
+      <div>
+        <h1>关键词选题</h1>
+        <p>Flatkey · {marketLabel}</p>
+      </div>
+      <a href="#keyword-evidence">选题依据与关键词操作</a>
     </div>
-    <p className={styles.intro}>选择有依据的关键词，设定目标页面，再加入工作任务。需要核对排名或清理候选词时，展开下方详情。</p>
-    <KeywordResearchEvidence />
-    {targetUrl ? <p className={styles.context}>目标页面：<a href={targetUrl} target="_blank" rel="noreferrer">{targetUrl}</a> · <Link href={country === "all" ? "/opportunities" : "/opportunities?country=" + country}>查看全部关键词</Link></p> : null}
-    {dashboard.data && !dashboard.data.usingDemoData ? <details className={styles.rankOverview}><summary>按排名区间筛选选题{rankRange ? ` · ${rankRange.label}` : ""}</summary>
-      <div className={styles.rankHeading}>
-        <div>
-          <h2 id="opportunity-rank-title">{country === "all" ? "全部国家" : REGIONS[country].label}关键词排名</h2>
-          <p className={styles.note}>{country === "all" ? "美国、日本、西班牙、巴西 · 每个词按四国最佳排名计入区间" : "本站最近有效 Google 实测排名"}</p>
+    <section className={styles.results} aria-label="关键词选题列表">
+      <div className={styles.toolbar}>
+        {targetUrl ? <div className={styles.context}>
+          <span>目标页面</span>
+          <a href={targetUrl} target="_blank" rel="noreferrer">{targetUrl}</a>
+          <Link href={country === "all" ? "/opportunities" : "/opportunities?country=" + country}>查看全部关键词</Link>
+        </div> : null}
+        <div className={styles.filters}>
+          <label className={styles.search}>搜索
+            <input aria-label="搜索关键词或页面" value={query} placeholder="关键词或页面" onChange={event => { setQuery(event.target.value); setPage(1); setSelected(null); }} />
+          </label>
+          <label>排名区间
+            <UiSelect
+              aria-label="排名区间"
+              value={rankRange?.label ?? "all"}
+              disabled={!hasData}
+              onChange={value => filterRank(rankRanges.find(range => range.label === value) ?? null)}
+              options={[
+                { value: "all", label: "全部区间" },
+                ...rankRanges.map((range, index) => ({ value: range.label, label: `${range.label}（${numberText(rankCounts[index])}）` })),
+              ]}
+            />
+          </label>
+          <label>排序
+            <UiSelect
+              aria-label="排序"
+              value={sort}
+              onChange={value => {
+                const option = sortOptions.find(option => option.value === value);
+                if (option) { setSort(option.value); setPage(1); }
+              }}
+              options={sortOptions}
+            />
+          </label>
         </div>
-        <button className={styles.rankReset} aria-pressed={rankRange === null} onClick={() => filterRank(null)}>全部关键词</button>
+        {hasData ? <div className={styles.meta}>
+          <p role="status"><strong>{numberText(filtered.length)}</strong> 个关键词 · {volumeLabel} {known.length ? numberText(volume) + " 次" : "—"}（{numberText(known.length)} 个词有数据）</p>
+          {snapshotAt ? <span>词库快照 <time dateTime={snapshotAt}>{shanghaiStamp(snapshotAt)}</time>（北京时间）</span> : null}
+        </div> : null}
+        {hasData ? <details className={styles.rules}>
+          <summary>排序与数据口径</summary>
+          <p>优先展示已关联页面且排名在第 4–20 名的关键词，其次是第 21–50 名和第 1–3 名。每组按已知月搜索量从高到低排序。</p>
+          <p>{country === "all" ? "全部国家按美国、日本、西班牙、巴西四国最佳排名计入区间，月搜索量合计已知记录。" : "排名区间按本站最近有效 Google 实测排名统计。"}未知搜索量显示「—」，已确认零次显示 0。</p>
+        </details> : null}
       </div>
-      <div className={styles.rankRanges} role="group" aria-label="按排名区间筛选关键词">
-        {rankRanges.map((range, index) => <button key={range.label} aria-pressed={rankRange === range} onClick={() => filterRank(range)}>
-          <span>{range.label}</span><strong>{numberText(rankCounts[index])}</strong>
-        </button>)}
-      </div>
-    </details> : null}
-    <div className={styles.filters}>
-      <input aria-label="搜索关键词或页面" value={query} placeholder="搜索关键词或页面" onChange={event => { setQuery(event.target.value); setPage(1); setSelected(null); }} />
-    </div>
-    <p className={styles.coverage}>{dashboard.data && !dashboard.data.usingDemoData ? <>{rankRange ? rankRange.label + " · " : ""}{filtered.length.toLocaleString()} 个关键词 · {volumeLabel} {known.length ? volume.toLocaleString() : "—"} 次（{known.length.toLocaleString()} 个词有数据）</> : "关键词数量与搜索量待读取，缺失不计为零。"}</p>
-    {error ? <p role="alert" className={styles.note}>{error} <button onClick={() => { dashboard.retry(); worklist.retry(); plans.retry(); }}>重试</button></p> : null}
-    {dashboard.data?.usingDemoData ? <p role="alert">当前来源为演示数据，暂不展示机会判断。</p> : null}
+      {error ? <p role="alert" className={styles.status}>{error} <button type="button" className={styles.link} onClick={() => { dashboard.retry(); worklist.retry(); plans.retry(); }}>重试</button></p> : null}
+      {dashboard.data?.usingDemoData ? <p role="status" className={styles.status}>当前来源为演示数据，等待真实关键词数据。</p> : null}
+      {!dashboard.data && !dashboard.error ? <p role="status" className={styles.status}>读取关键词数据…</p> : null}
+      {hasData ? <div className={styles.tableWrap}><table className={styles.table}>
+        <thead><tr>
+          <th scope="col">关键词</th>
+          <th scope="col" className={styles.sortable} aria-sort={sort === "volume" ? "descending" : sort === "volume-asc" ? "ascending" : "none"}>
+            <button type="button" onClick={() => sortBy("volume")}>{volumeLabel} <span aria-hidden="true">{sort === "volume" ? "↓" : sort === "volume-asc" ? "↑" : "↕"}</span></button>
+          </th>
+          <th scope="col" className={styles.sortable} aria-sort={sort === "rank-asc" ? "ascending" : sort === "rank-desc" ? "descending" : "none"}>
+            <button type="button" onClick={() => sortBy("rank")}>{rankLabel} <span aria-hidden="true">{sort === "rank-asc" ? "↑" : sort === "rank-desc" ? "↓" : "↕"}</span></button>
+          </th>
+          <th scope="col">目标页面</th><th scope="col">优化目标</th>
+        </tr></thead>
+        <tbody>{filtered.slice((currentPage - 1) * 25, currentPage * 25).map(row => <tr key={row.key}>
+          <td><button type="button" className={styles.keyword} onClick={() => choose(row)}>{row.keyword}</button></td>
+          <td data-label={volumeLabel}>{numberText(row.volume)}</td>
+          <td data-label={rankLabel}>
+            {country === "all" && row.rank === null ? "—" : rankText(row)}
+            {row.bestMarkets?.length ? <small>{row.bestMarkets.map(market => REGIONS[market].label).join("、")}</small> : null}
+          </td>
+          <td data-label="目标页面">{row.urls.length ? <><span title={row.urls[0]}>{new URL(row.urls[0]).pathname}</span>{row.urls.length > 1 ? <small>另 {row.urls.length - 1} 个页面</small> : null}</> : worklist.data ? "待关联" : "关联状态待核查"}</td>
+          <td data-label="优化目标"><button type="button" className={styles.rowAction} onClick={() => choose(row)}>{savedTarget(row) ? "查看目标" : "设定目标"}</button></td>
+        </tr>)}</tbody>
+      </table></div> : null}
+      {hasData && !filtered.length ? <p className={styles.status}>没有匹配的关键词。可调整国家、排名区间或搜索词。</p> : null}
+      {hasData && filtered.length > 0 ? <nav className={styles.pagination} aria-label="关键词列表分页">
+        <span>第 {currentPage} / {pageCount} 页</span>
+        <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>上一页</button>
+        <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>下一页</button>
+      </nav> : null}
+    </section>
+    <KeywordResearchEvidence />
     <Modal open={Boolean(active)} title={active ? `设定目标 · ${active.keyword}` : "设定目标"}
       width={720} footer={null} centered mask={{ closable: false }} keyboard={!saving}
       closable={!saving} onCancel={() => { if (!saving) setSelected(null); }}>
@@ -182,7 +255,9 @@ export function KeywordOpportunities() {
         <label className={styles.wide}>优化动作与判断依据<textarea rows={2} value={plan.notes} onChange={event => setPlan({ ...plan, notes: event.target.value })} placeholder="记录搜索意图、内容补齐、内链和竞争页面等依据" /></label>
       </div>
       <p className={styles.estimate}>假设达成后的月点击：<strong>{clicks == null ? "—" : clicks.toLocaleString("zh-CN", { maximumFractionDigits: 1 })}</strong>{clicks == null ? " · 填写点击率且有月搜索量后计算" : ` · ${numberText(active.volume)} × ${plan.ctr}%`}</p>
-      <p className={styles.note}>目标排名由你设定，是否可达仍需核查竞争；点击率为人工假设，不由目标排名自动推算。结果是单词情景估算，未计算新增流量。</p>
+      <details className={styles.rules}><summary>点击估算口径</summary>
+        <p>目标排名由你设定，是否可达仍需核查竞争。月点击为单个词的情景估算，使用人工填写的点击率。</p>
+      </details>
       <details className={styles.tracking}>
         <summary>优化后的效果跟踪</summary>
         <div className={styles.fields}>
@@ -196,31 +271,8 @@ export function KeywordOpportunities() {
         })}</div> : null}
         <p className={styles.note}>效果窗口从优化次日开始，只查看已结束日，并与优化前等长区间对比。页面效果可查看实际访问、注册和 GSC 点击；排名沿用既有采集记录，未开启额外付费抓取。</p>
       </details>
-      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><Link href={"/work?" + new URLSearchParams({ new: "1", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span>项目归档 · 用于后续效果复盘</span><span role="status">{message}</span></div>
+      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><Link href={"/work?" + new URLSearchParams({ new: "1", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span role="status">{message}</span></div>
     </section> : null}
     </Modal>
-    {!dashboard.data && !error ? <p className={styles.note}>读取关键词数据…</p> : <div className={styles.tableWrap}><table className={styles.table}>
-      <thead><tr>
-        <th scope="col">关键词</th>
-        <th scope="col" className={styles.sortable} aria-sort={sort === "volume" ? "descending" : sort === "volume-asc" ? "ascending" : "none"}>
-          <button onClick={() => sortBy("volume")}>{volumeLabel} <span aria-hidden="true">{sort === "volume" ? "↓" : sort === "volume-asc" ? "↑" : "↕"}</span></button>
-        </th>
-        <th scope="col" className={styles.sortable} aria-sort={sort === "rank-asc" ? "ascending" : sort === "rank-desc" ? "descending" : "none"}>
-          <button onClick={() => sortBy("rank")}>{rankLabel} <span aria-hidden="true">{sort === "rank-asc" ? "↑" : sort === "rank-desc" ? "↓" : "↕"}</span></button>
-        </th>
-        <th scope="col">目标页面</th><th scope="col">优化目标</th>
-      </tr></thead>
-      <tbody>{filtered.slice((page - 1) * 25, page * 25).map(row => <tr key={row.key}>
-        <td><button className={styles.link} onClick={() => choose(row)}>{row.keyword}</button></td>
-        <td data-label={volumeLabel}>{numberText(row.volume)}</td>
-        <td data-label={rankLabel}>
-          {country === "all" && row.rank === null ? "—" : rankText(row)}
-          {row.bestMarkets?.length ? <small>{row.bestMarkets.map(market => REGIONS[market].label).join("、")}</small> : null}
-        </td>
-        <td data-label="目标页面">{row.urls.length ? <><span title={row.urls[0]}>{new URL(row.urls[0]).pathname}</span>{row.urls.length > 1 ? <small>另 {row.urls.length - 1} 个页面</small> : null}</> : "待关联"}</td>
-        <td data-label="优化目标"><button className={styles.link} onClick={() => choose(row)}>{savedTarget(row) ? "查看目标" : "设定目标"}</button></td>
-      </tr>)}</tbody>
-    </table>{!filtered.length && dashboard.data ? <p className={styles.note}>没有匹配的关键词。可切换市场、排名区间或搜索条件。</p> : null}</div>}
-    <div className={styles.pagination}><span>第 {page} / {pageCount} 页</span><button disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><button disabled={page >= pageCount} onClick={() => setPage(page + 1)}>下一页</button></div>
   </main>;
 }

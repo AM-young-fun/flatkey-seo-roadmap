@@ -1,15 +1,14 @@
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { organicPeriodId, organicPeriodSchema } from "@/lib/seo-organic-period";
 
 export const dynamic = "force-dynamic";
-const authorized = (request: Request) => { const secret = getRankingImportSecret(); return !request.headers.get("origin") && Boolean(secret && importSecretMatches(request.headers.get("authorization"), secret)); };
+const authorized = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 export async function GET(request: Request) {
-  if (!authorized(request) && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
+  if (!await authorized(request) && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
   try {
     const start = z.iso.date().parse(new URL(request.url).searchParams.get("start"));
     const rows = await prisma.seoReportVersion.findMany({ where: { siteDomain: "flatkey.ai", kind: "ORGANIC_PERIOD", periodStart: new Date(start) }, orderBy: { createdAt: "desc" }, take: 100, select: { id: true, payload: true } });
@@ -17,7 +16,7 @@ export async function GET(request: Request) {
   } catch (error) { return Response.json({ message: "区间日期无效或暂时无法读取" }, { status: error instanceof z.ZodError ? 400 : 503, headers }); }
 }
 export async function POST(request: Request) {
-  if (!authorized(request)) return Response.json({ message: "需要服务器采集凭据" }, { status: 401, headers });
+  if (!await authorized(request)) return Response.json({ message: "需要服务器采集凭据" }, { status: 401, headers });
   try {
     const body = await request.text();
     if (body.length > 16000) return Response.json({ message: "请求过大" }, { status: 413, headers });

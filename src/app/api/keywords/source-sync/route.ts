@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { isDatabaseConfigured } from "@/lib/env";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches, ImportRequestError, readImportJson } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
+import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { databaseErrorCode } from "@/lib/database-read";
 import { sourceSyncSchema } from "@/lib/source-sync";
 import { syncKeywordSources } from "@/lib/services/source-sync";
@@ -40,8 +40,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const secret = getRankingImportSecret();
-  const bearer = Boolean(secret && importSecretMatches(request.headers.get("authorization"), secret));
+  const bearer = await authenticateImportToken(request);
   const session = !bearer && isAuthEnabled() && await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value);
   if (!bearer && !session) return NextResponse.json({ message: "需要登录或有效导入凭证" }, { status: 401, headers });
   if (!isDatabaseConfigured()) return NextResponse.json({ message: "DATABASE_URL is not configured" }, { status: 503, headers });

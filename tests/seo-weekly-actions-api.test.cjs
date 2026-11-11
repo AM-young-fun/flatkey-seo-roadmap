@@ -6,7 +6,8 @@ Module._load = function (name, ...args) {
   if (name === "next/headers") return { cookies: async () => ({ get: () => undefined }) };
   if (name === "./auth") return { AUTH_COOKIE_NAME: "auth", isAuthEnabled: () => true, isValidAuthToken: async () => false };
   if (name === "@/lib/import-credential") return { getRankingImportSecret: () => "test-weekly-secret" };
-  if (name === "@/lib/ranking-import") return { importSecretMatches: (value, secret) => value === `Bearer ${secret}` };
+  // Legacy credentials use the real authenticator; no database is reachable in this fixture.
+  if (name === "@/lib/prisma") return { prisma: {} };
   if (name.startsWith("@/")) return originalLoad.call(this, path.resolve(__dirname, "../src", name.slice(2)) + ".ts", ...args);
   return originalLoad.call(this, name, ...args);
 };

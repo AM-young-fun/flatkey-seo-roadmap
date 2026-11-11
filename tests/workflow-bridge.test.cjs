@@ -21,3 +21,7 @@ test("digest reconciliation binds production origin, group, robot and report has
  }
  assert.throws(() => reconciliationBinding(delivery(), "http://127.0.0.1:4100"), /untrusted_delivery_receipt/);
 });
+
+test("daily and weekly receipts reconcile independently while preserving legacy receipt recovery", () => {
+ for (const kind of ["daily","weekly"]) { const row = delivery(); row.id = `seo-digest-delivery:${kind}:2026-11-10`; assert.equal(reconciliationBinding(row,origin).reportId,row.reportId); }
+});

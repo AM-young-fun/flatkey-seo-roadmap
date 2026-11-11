@@ -1,6 +1,42 @@
 # SEO 执行接口与切换验收
 
-2026-11-10。范围五站/四国，用户沿用 Amplitude。工作周一至周日；周五16:30确定下周，周五18:00通知统计上周五18点以来工作。流量区间独立按周五至周四。
+2026-11-11 当前执行口径。范围为 Flatkey 与 JEV、Mochi、ModelFit、RackRate 五站，美国/日本/巴西/西班牙四国；业务以 GPU 算力租赁为主、API Token 为辅，埋点统一 GA4，Amplitude 暂不接入。新官网建设不在本轮范围。
+
+工作计划仍按周一至周日建档：周四14:00候选、16:30定稿，包含下周落地页和博客的本国语言关键词。周五10:00群发周报，统计上周五00:00至本周四23:59:59；每天18:00群发日报，周五也照常发送。日报交付窗口为上次18:00至本次18:00。GA4/GSC各按来源实际数据日和时区显示，数据延迟不能假称完整周期。
+
+本文件取代 `weekly-workflow.md`、`dataforseo.md` 内历史日程/页面规划；排名付费周期仍以已授权线上期次和配置为准，不据文档重新定相位或增加费用。配置、代码、本地验证、线上发布和真实运行回执是不同状态。
+
+## 17项本机定时任务
+
+以下为已通过 Codex automation_update 配置的时间，启停以 `/automations` 的实际配置快照及本机配置回读为准；不能因列在表中就假定已启用。
+
+| 时间（北京） | 任务 ID | 工作与依赖 |
+|---|---|---|
+| 每日09:00 | 10-30-seo | 三张协作表同步：预览、版本校验、写入与读回 |
+| 每日09:30 | seo-09-30 | 四国独立关键词研究，写入正确三表并同步 |
+| 每日10:00 | seo-10-00 | 五站基础技术/收录巡检，异常页优先 |
+| 每日10:30 | automation-2 | Prompt素材采集、本地去重、审批准备，禁止生产凭据/上传/导入 |
+| 每日11:00 | flatkey-5 | 5篇源文制稿：英文2、日/葡/西各1，逐页审批 |
+| 每日13:30 | seo-13-30 | 旧页优化，基线和后续观察 |
+| 工作日14:30 | seo-14-30 | 已计划落地页制作与测试环境准备 |
+| 工作日15:00 | seo-15-00 | 集群站制作与来源归因，JEV无源码则保留阻塞 |
+| 周二/周四15:30 | seo | 推广研究及旧文深审轮查，不自动对外提交 |
+| 每日16:00 | seo-16-00 | 实际交付验收、优化监控、台账补齐 |
+| 每日17:30 | seo-17-30 | 独立项目cron：日报预览 |
+| 每日18:00 | seo-18-00 | 独立项目cron：最终日报，含周五 |
+| 周四14:00 | seo-14-00 | 下周候选及证据草案 |
+| 周四16:30 | automation | 下周工作/关键词定稿 |
+| 周五09:30 | seo-09-30-2 | 独立项目cron：周报预览 |
+| 周五10:00 | seo-10-00-2 | 独立项目cron：最终周报 |
+| 每月首个工作日15:00 | seo-2 | 月度复盘与资源分配 |
+
+服务器 GA4/GSC 日采为北京时间08:30（`seo-daily.yml` 发布后生效），先于周五周报；排名沿用已有隔周付费调度，不在这17项中重复创建。local cron需电脑与Codex可用；heartbeat绑定会话忙时会排队，不能承诺精确起跑。
+
+## 关键词和周计划契约
+
+美国英语、日本日语、巴西葡语、西班牙西语分别研究。巴西和西班牙不可合并；不能把中文词放进英文/葡语/西语任务。研究产物先写 API、GPU 或旧页优化对应协作表并读回，再同步平台。DataForSEO按已核实目标国家取排名，排除自有品牌词；跨国监控需分别有真实需求，失败查询不算掉榜。
+
+每日源文2/1/1/1，周源文共35：`targets.blogLanguages={en:14,ja:7,"pt-BR":7,"es-ES":7}`。`apiBlogs+gpuBlogs=35`，不再硬编码API21/GPU14，GPU主业的具体投入按本国机会、业务价值与产能说明。周计划仍列5个落地页、5个优化页；没有足够证据/产能时写明缺口，不强行凑数。其他语言翻译独立计数，不挤占源文额度。新 reviewed 计划必须符合本契约，旧计划保留历史事实。
 
 ## 权威记录
 
@@ -9,36 +45,40 @@
 | 接口 | 用途 |
 |---|---|
 | GET `/api/seo/workflow?week=current/next/YYYY-MM-DD` | 本周/下周完整执行台账，`pageUrl`看跨周页面历史，`allHistory=true`供汇总 |
-| POST `/api/seo/workflow` | `{requestId, action, expectedVersion, record, claim?}`；操作为save_task/save_plan/save_issue/save_optimization/record_publication/record_run |
+| POST `/api/seo/workflow` | `{requestId, action, expectedVersion, record, claim?}`；操作为save_task/save_plan/save_approval/save_issue/save_optimization/record_publication/record_run/record_historical_import |
 | POST `/api/seo/workflow/claims` | claim→renew→complete；共享数据库时钟、运行ID/阶段/时间唯一与递增fencingToken |
 | GET `/api/seo/workflow/history?kind=task&id=...` | 不可变版本；不能覆盖人工批准的内容 |
 | POST `/api/seo/periods` | 已结束区间独立查询的用户和注册人数，禁止日去重人数求和 |
-| GET/POST `/api/seo/digest` | 只读预览/归档与发送领取、开始尝试、补记回执；平台无日报周报页面 |
+| GET/POST `/api/seo/digest` | GET带`kind=daily|weekly`；POST prepare也显式带kind，按kind+date独立发送防重；平台无日报周报页面 |
 
-网页操作需登录和同源校验，服务器写入使用既有导入Bearer凭据，不能带Origin。生产没有数据库就返回不可用，不能悄悄写本地文件。开发预览显示local_preview，不代表生产入库。
+网页操作需登录和同源校验，自动化的台账导入使用SEO平台生成管理的导入Bearer凭据，不能带Origin；该凭据不是登录、批准、合并或发布权限。生产没有数据库就返回不可用，不能悄悄写本地文件。开发预览显示local_preview，不代表生产入库。
 
 ## 一个任务的顺序
 
 1. 创建研究/内容任务，使用具体站点、主国家、对应语言关键词、业务、页面类型、负责人、截止日、验收条件。候选为planned/researching。
 2. 保存真实Ahrefs/SERP/GSC证据与业务价值；Volume≥10、KD<30优先，例外需理由。证据合格才ready/drafting。
-3. 内容产物对应contentVersion；所有页面及每个译文都须具体逐项审批。改稿须新单替换旧批准；未批准一律停在review_pending。
+3. 内容产物对应contentVersion。提交审批前必须具备独立测试环境HTTPS链接、绑定相同contentVersion的部署版本、简单变更介绍、桌面和手机截图。缺任一项保持draft/drafting并展示待补材料；齐全后才review_pending。所有页面及每个译文都逐项审批，改稿须新单替换旧批准。
 4. 发布前保存baseline和上线版本。发布回执只有published；正式URL的HTTP、canonical、语言、内容、内链、发布来源回执完整后才verified。200不是Google收录。
 5. 原文、翻译、补译使用独立kind和sourcePublicationId；同canonical/版本不重复计数。首次验收入库时间不可回写，迟到回执在下一统计窗口补记。
-6. 7/28/56天回看对比前后相同口径；数据不足标观察中，不写因果结论。问题关联到任务，解决需恢复证据。
+6. 优化次日起先看7个可比日、低量页看28天，必要时延长到56天，前后使用相同口径；数据不足标观察中，不写因果结论。问题关联到任务，解决需恢复证据。
 
 保存时必须带当前expectedVersion。服务器返回409后先读新版本，不用新requestId把冲突数据覆盖。自动化不能修改人工已确认关键字段。
 
 ## 本机桥接与依赖
 
-`scripts/seo-workflow-bridge.cjs --input=/absolute/commands.json`先逐条验证并进入持久outbox；输入按依赖排序：前置任务→后续任务→周计划→基线→已批准版本→发布/验收回执→完成回执。追加`--apply`才导入。`--claim=/absolute/claim.json --apply`领取；动作执行中续租，写回记录携带claim令牌，最后保存阶段回执再complete租约。
+`scripts/seo-prepare-page-review.cjs --manifest=/absolute/manifest.json --out=/absolute/review`从真实文件生成任务及审批草稿，缺测试证据不会伪装为已提审。`scripts/seo-workflow-bridge.cjs --input=/absolute/commands.json`先逐条验证mutation及对应record schema，再进入持久outbox；输入按依赖排序：前置任务→后续任务→周计划→基线→已批准版本→发布/验收回执→完成回执。追加`--apply`才导入。`--claim=/absolute/claim.json --apply`领取；动作执行中续租，写回记录携带claim令牌，最后保存阶段回执再complete租约。
 
 未知发布先检查远端CMS/生产版本，不盲目重发；outbox保留原请求与平台读回。只有storage=database才可标平台已同步。
 
 ## 通知切换
 
-`scripts/seo-digest-dws.cjs`默认只保存Markdown预览。每天18点刷新当前日期最终快照后`--send`，只用DWS猫猫侠→Flatkey seo/geo。每日唯一发送记录由数据库控制；预览、旧日期、过期快照拒绝发送。外部超时进入UNKNOWN，禁止再次发送。若本机已有provider_accepted回执，`--reconcile=/absolute/receipt.json`只补记平台状态，不发群。
+`scripts/seo-digest-dws.cjs --kind=daily|weekly --date=YYYY-MM-DD`默认只生成并保存Markdown预览；离线核对可用 `seo-digest-preview.cjs`读取真实归档并明确归档日期。18:00只发送daily，周五10:00只发送weekly，两个独立项目cron不依赖当前主会话。发送时重新prepare最终快照补齐预览之后的工作，再`--send`；不得发送preliminary。
 
-最后切换前：验证日报、周报各一份、真实发布和优化台账、三表与数据基础链接可访问、实际自动化启停状态。然后服务端环境与GitHub变量`SEO_UNIFIED_REPORTING_ENABLED=true`关闭旧日采/排名单发；本机control.notification_cutover=true关闭逐篇博客消息并启用唯一18点任务。`SEO_WORKFLOW_ENABLED=true`启用服务器区间人数采集。旧通知停用与新任务启用须同一切换批次记录，失败回滚开关，不能两套同时发。
+每份报告按首页及其他功能页、Prompt、博客、模型、GPU分块，列真实点击/自然会话优质页、五站四国变化、优化效果、GitHub提示词渠道、下一步和缺口。顶部注明跨日跨周待审核任务数、审批单数、页面版本数、待补材料任务数。末尾“数据基础”链接到含三表及平台入口的钉钉文档；密码由用户补充，报告不展示密码。未核实的注册/租赁等保持缺失，不填0。
+
+只用DWS猫猫侠→Flatkey seo/geo。数据库以kind+date原子领取，记录开始尝试与完整回执；旧日期、过期快照拒绝发送。外部超时进入UNKNOWN，禁止再次发送。已有provider_accepted回执时用`--reconcile=/absolute/receipt.json`只补记平台，不重发。
+
+最终切换须先验收日报/周报各一份、真实交付与优化台账、三表与数据基础链接、实际任务启停；再核对服务端与GitHub `SEO_UNIFIED_REPORTING_ENABLED=true`、本机control中的report_preview_accepted/notification_cutover，并停止旧日采/排名单发和逐篇博客消息。同一切换批次启用每日18日报与周五10周报，不能双重发送。`SEO_WORKFLOW_ENABLED=true`控制服务器区间去重人数采集；`SEO_GA4_BUSINESS_COLLECTION_ENABLED=true`控制GA4业务链采集，均须各自验收，不能因埋点代码已写好就启用并声称有结果。
 
 ## 仅采集验收（不发群）
 
@@ -54,7 +94,7 @@
 gh workflow run seo-daily.yml --repo AM-young-fun/flatkey-seo-roadmap --ref main -f lookback_days=14 -f send_notifications=false -f verify_dingtalk=false
 ```
 
-验收需查看该次 run 的 `collect` 成功、`notify` 和 `verify-dingtalk` 均为 skipped，并核对生产按日的 `ga4-pages`（含 `hostnameDimension=hostName`）、`gsc-pages` 归档后再生成报告预览。失败只保留 GitHub 结果与采集回执，不发测试消息。定时触发继续保持原有通知行为。
+验收需查看该次 run 的 `collect` 成功、`notify` 和 `verify-dingtalk` 均为 skipped，并核对生产按日的 `ga4-pages`（含 `hostnameDimension=hostName`）、`gsc-pages` 归档后再生成报告预览。失败只保留 GitHub 结果与采集回执，不发测试消息。定时触发受统一通知开关控制；切换验收前不得擅自启用新发送任务。
 
 日报每来源的页面 Top 5 优先最近14天内的五站共同完整日期；没有共同日时，在最新来源日及向前7天内选择完整站覆盖最多的日期，同覆盖再选最新日。每榜最多5条，标实际日期、选择理由和覆盖缺口；不跨日期混排。
 
@@ -64,14 +104,14 @@ gh workflow run seo-daily.yml --repo AM-young-fun/flatkey-seo-roadmap --ref main
 
 代码检查、生产构建、浏览器本地任务创建/冲突审核、局部与全套测试；独立PostgreSQL从旧schema执行增量SQL及重跑、并发领取、幂等回放、旧令牌隔离、UNKNOWN发送禁止重试。测试不调用付费排名、不发送钉钉、不写生产。
 
-生产部署后的schema、实际Google新维度回填、任务回执导入、Amplitude业务事件与通知送达必须再取得真实回执；代码通过不能代替这些结果。集群注册与逐页跨域注册在未核实前保留空值。
+生产部署后的schema、实际Google新维度回填、任务回执导入、GA4 GPU/API业务事件、真实顺序漏斗与通知送达必须再取得真实回执；代码通过不能代替这些结果。集群注册与逐页跨域注册在未核实前保留空值。
 
 
 ## 所有页面发布必须逐项审批
 
 新增、旧页更新、博客、每个译文、落地页、工具页、集群页，以及标题、描述、canonical、结构化数据等技术页面变更，均先提交平台审批。旧 `task.approval` 只允许已有历史字段原样保留，不得新建或改写。新建/切换 task 的 approved 状态（含 technical）必须已有对应逐页审批；`standing_new_blog` 不再是发布许可。历史补记 `historical_import` 仍是只读档案，不能生成新发布授权。
 
-审批实体 `kind=approval` 使用已有 `SeoWorkflowRecord` / `SeoWorkflowEvent`，不新增表。`POST /api/seo/workflow` 使用 `action=save_approval`、稳定 `requestId` 和 `expectedVersion`。一单可含多个 URL/语言，但每项必须明确 `id`、`taskId`、`operation=new|update`、`pageUrl`、`language`、`contentVersion`、具体变更、改前/改后说明、证据；修改需 `baseContentVersion`。必须包含平台可读的 `reviewContent`（`reviewFormat=markdown|diff|text`）或 HTTPS 稿件/预览链接，仅本地文件路径不足以提审。外部链接须由审核人实际打开核对；文字版本标记不能替代对实际稿件的检查。
+审批实体 `kind=approval` 使用已有 `SeoWorkflowRecord` / `SeoWorkflowEvent`，不新增表。`POST /api/seo/workflow` 使用 `action=save_approval`、稳定 `requestId` 和 `expectedVersion`。一单可含多个 URL/语言，但每项必须明确 `id`、`taskId`、`operation=new|update`、`pageUrl`、`language`、`contentVersion`、具体变更、改前/改后说明、证据；修改需 `baseContentVersion`。必须包含平台可读的完整 `reviewContent`（`reviewFormat=markdown|diff|text`）或可读取稿件，另须独立HTTPS测试地址、`previewContentVersion=contentVersion`、相同版本的桌面/手机截图及变更说明；只有本地路径、正式站链接或一个截图都不足以提审。外部链接须由审核人实际打开核对；文字版本标记不能替代对实际稿件的检查。
 
 草稿可以修改；提交待审后，正文、URL、语言、版本、任务和替换关系锁定。`decisions[]` 每项包含选择的 `itemIds[]`、`decision`、`decidedBy`、`decidedAt`、说明和证据；服务器追加真实 `recordedAt`。只有登录平台的 `human` 操作可批准、拒绝、要求修改、撤回或替换，采集 token 只能提单和读取。审批状态可为 `draft/pending/partially_reviewed/approved/rejected/changes_requested/withdrawn/superseded`。整批批准必须明确选择全部项，不自动批准未选中的译文。
 
@@ -96,3 +136,10 @@ gh workflow run seo-daily.yml --repo AM-young-fun/flatkey-seo-roadmap --ref main
 现有十语言博客可使用一个真实源文任务，加每个 locale 独立审批项及独立发布回执。译文 `language` 保留真实语言，不强改为四国语言；非重点市场或无国家证据时 `country=null`，没有对应语言关键词证据时 `keyword=null`。这些译文不因此成为研究合格关键词或自动进入付费排名池。源文、落地页继续要求明确国家和本语言关键词；技术页面修改可不编造关键词国家。新工具的非目标市场本地化页可各建 technical 任务并逐项审批：operation=new 的发布记 kind=landing，operation=update 的旧页修改才记 kind=optimization，不能将新页伪记优化；这些技术本地化任务不会冒充周计划中需要关键词研究的主落地页任务。
 
 工作台 `approvals[]` 默认保留跨周待审项；`summary.pendingApprovals` 和 `pendingApprovalItems` 按逐项有效状态计算，替换旧单不重复催审。日报从这里读取待审项并链接 `/approvals?approvalId=<id>`，不再以任务里一个“批准”字段代替逐页审批。
+
+
+## GA4业务链与上线验证
+
+所有业务保留完整链路：来源/落地页→页面与模块浏览→活跃阅读/步骤→CTA→注册或登录→业务操作→成功/失败→付款。GPU以成功租赁为核心转化，不另造“激活”；API保留首次成功模型响应/生成、Token消耗与付费口径。不能用相互独立的事件人数冒充同一批人的漏斗，停留采用可见且有活动的阅读时间，不把后台闲置当兴趣。
+
+所有站内导航正常埋点；只有集群/公开GitHub提示词仓库引导到Flatkey时加可识别UTM。GA4是统计入口，SEO平台从已核实数据展示相关工作页面中的效果/优先级/跟踪；缺数据明确待接入。统一客户端手动page_view时，必须在同次生产发布关闭对应GA4增强型历史变更page_view，避免重复；未同意、拒绝、撤回以及本地预览不向生产属性上报。每站独立GID、关键事件与自定义维度均需生产DebugView/实时和后续Data API读回验收。

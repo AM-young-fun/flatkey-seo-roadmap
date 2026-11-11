@@ -56,8 +56,7 @@ test("optimization API enforces authorization, same-origin writes and the stream
  const module = { exports: {} };
  const stubs = {
   "@/lib/seo-analytics-access": { analyticsLocalPreview: () => true, authorizeAnalyticsRead: async () => authorized, privateAnalyticsHeaders: { "Cache-Control": "private, no-store" } },
-  "@/lib/import-credential": { getRankingImportSecret: () => "unit-secret" },
-  "@/lib/ranking-import": { importSecretMatches: (header, secret) => header === `Bearer ${secret}` },
+  "@/lib/services/import-tokens": { authenticateImportToken: async request => request.headers.get("authorization") === "Bearer unit-secret" },
   "@/lib/preview-origin": { isLocalPreviewOrigin: request => request.headers.get("origin") === "http://127.0.0.1:3104" },
   "@/lib/seo-optimization-plans": { optimizationPlansDirectory: () => "/unit-test-only", readOptimizationPlans: async () => [], writeOptimizationPlan: async input => { writes++; return input; } },
  };

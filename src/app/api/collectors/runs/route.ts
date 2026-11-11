@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { AUTH_COOKIE_NAME,isAuthEnabled,isValidAuthToken } from "@/lib/auth";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches,readImportJson } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
+import { readImportJson } from "@/lib/ranking-import";
 import { collectorRunId,collectorRunSchema } from "@/lib/collector-runs";
 import { weeklyEvidenceSchema } from "@/lib/weekly-evidence-schema";
 import { PILLAR_VISITORS_START } from "@/lib/weekly-page-visitors";
@@ -12,7 +12,7 @@ export const runtime="nodejs";
 export const dynamic="force-dynamic";
 const headers={"Cache-Control":"private, no-store"};
 export async function POST(request:Request){
-  const secret=getRankingImportSecret(),bearer=Boolean(secret&&importSecretMatches(request.headers.get("authorization"),secret));
+  const bearer=await authenticateImportToken(request);
   if(!bearer&&(!isAuthEnabled()||!await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value)))return NextResponse.json({message:"请先登录或使用现有采集凭据"},{status:401,headers});
   try{
     const input=collectorRunSchema.parse(await readImportJson(request)),id=collectorRunId(input.kind,input.periodStart);

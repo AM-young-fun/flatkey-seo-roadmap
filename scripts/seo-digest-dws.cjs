@@ -10,7 +10,8 @@ const DESTINATION = "cid7d5au0J8RAKDDxMR+VNh1w==";
 const ROBOT_CODE = "dingoyxfe0koa0dme6fz";
 function reconciliationBinding(receipt, origin) {
   if (origin !== PLATFORM_ORIGIN || receipt?.version !== 1 || receipt.origin !== origin || receipt.status !== "provider_accepted" || !receipt.processQueryKey || receipt.destination !== DESTINATION || receipt.robotCode !== ROBOT_CODE || !/^[a-f0-9]{64}$/.test(receipt.reportHash ?? "")) throw Error("untrusted_delivery_receipt_binding");
-  const date = /^seo-digest-delivery:(\d{4}-\d{2}-\d{2})$/.exec(receipt.id ?? "")?.[1];
+  const match = /^seo-digest-delivery:(?:(daily|weekly):)?(\d{4}-\d{2}-\d{2})$/.exec(receipt.id ?? "");
+  const date = match?.[2];
   if (!date || receipt.reportId !== `seo-digest:${date}:${receipt.reportHash.slice(0,16)}`) throw Error("untrusted_delivery_receipt_identity");
   return { reportId: receipt.reportId, reportHash: receipt.reportHash, destination: receipt.destination, robotCode: receipt.robotCode };
 }
@@ -34,6 +35,8 @@ function executeDws(args) {
 }
 async function run() {
   const send = process.argv.includes("--send");
+  const kind = process.argv.find(arg => arg.startsWith("--kind="))?.slice(7) ?? "daily";
+  if (!["daily", "weekly"].includes(kind)) throw Error("invalid_report_kind");
   const dateArg = process.argv.find(arg => arg.startsWith("--date="))?.slice(7);
   const date = dateArg || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Error("invalid_date");
@@ -55,11 +58,11 @@ async function run() {
     console.log(JSON.stringify({ status: "receipt_reconciled_no_resend", id: receipt.id }));
     return;
   }
-  const { report } = await api({ action: "prepare", date });
+  const { report } = await api({ action: "prepare", date, kind });
   const directory = process.env.SEO_DIGEST_OUTPUT_DIR || path.join(process.cwd(), ".local", "seo-digests");
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-  await fs.writeFile(path.join(directory, date + ".md"), report.text, { mode: 0o600 });
-  if (!send) { console.log(JSON.stringify({ status: "preview_saved", reportId: report.id, preliminary: report.preliminary, path: path.join(directory, date + ".md") })); return; }
+  await fs.writeFile(path.join(directory, date + "." + kind + ".md"), report.text, { mode: 0o600 });
+  if (!send) { console.log(JSON.stringify({ status: "preview_saved", reportId: report.id, preliminary: report.preliminary, path: path.join(directory, date + "." + kind + ".md") })); return; }
   if (url.origin !== "https://flatkey-seo-roadmap.vercel.app") throw Error("local_preview_cannot_send");
   const owner = "codex-digest-" + randomUUID();
   const claim = await api({ action: "claim", reportId: report.id, owner });
@@ -73,7 +76,7 @@ async function run() {
     const processQueryKey = providerReceipt(result);
     if (!processQueryKey) throw Error("provider_receipt_missing");
     // Persist locally before remote acknowledgement, so a network failure can be reconciled without resend.
-    await fs.writeFile(path.join(directory, date + ".delivery.json"), JSON.stringify({ version: 1, origin: url.origin, ...context, ...binding, processQueryKey, status: "provider_accepted" }), { mode: 0o600 });
+    await fs.writeFile(path.join(directory, date + "." + kind + ".delivery.json"), JSON.stringify({ version: 1, origin: url.origin, ...context, ...binding, processQueryKey, status: "provider_accepted" }), { mode: 0o600 });
     await api({ action: "finish", ...context, ...binding, status: "DELIVERED", processQueryKey });
     console.log(JSON.stringify({ status: "DELIVERED", reportId: report.id }));
   } catch (error) {

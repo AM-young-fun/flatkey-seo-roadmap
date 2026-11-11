@@ -11,7 +11,7 @@ const { workspaceRedirectHref, executionViewRoutes } = compiled.exports;
 
 test("legacy execution views return to their actionable workspace", () => {
   assert.equal(executionViewRoutes.deliveries, "/work?panel=deliveries");
-  assert.equal(executionViewRoutes.runs, "/work?panel=runs");
+  assert.equal(executionViewRoutes.runs, "/automations");
   assert.equal(executionViewRoutes.optimizations, "/pages?panel=optimizations");
   assert.equal(executionViewRoutes.approvals, "/approvals");
 });

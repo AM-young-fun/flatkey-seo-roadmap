@@ -1,0 +1,70 @@
+import { z } from "zod";
+import { createHash } from "node:crypto";
+
+export const PROMPT_REPOSITORIES = ["flatkey-ai/awesome-images", "flatkey-ai/awesome-seedance-prompts"] as const;
+const metric = z.number().int().nonnegative();
+const day = z.object({ date: z.iso.date(), count: metric, uniques: metric }).strict();
+const traffic = z.object({ status: z.enum(["ok", "unavailable"]), count: metric.nullable(), uniques: metric.nullable(), days: z.array(day).max(16), reason: z.string().max(300).nullable() }).strict().superRefine((v, ctx) => {
+  if (new Set(v.days.map(d => d.date)).size !== v.days.length || v.days.some(d => d.uniques > d.count)) ctx.addIssue({ code: "custom", message: "流量日期或去重人数无效" });
+  if (v.status === "unavailable" && (v.count !== null || v.uniques !== null || v.days.length)) ctx.addIssue({ code: "custom", message: "缺失流量不能填零" });
+  if (v.status === "ok" && (v.count === null || v.uniques === null || v.uniques > v.count || v.count !== v.days.reduce((n, d) => n + d.count, 0))) ctx.addIssue({ code: "custom", message: "GitHub流量与逐日明细不一致" });
+});
+export const githubReferralSchema = z.object({ start: z.iso.date(), end: z.iso.date(), timezone: z.literal("America/Los_Angeles"), status: z.enum(["ok", "partial", "unavailable"]), sessions: metric.nullable(), users: metric.nullable(), observedAt: z.iso.datetime({ offset: true }), reason: z.string().max(300).nullable() }).strict().superRefine((v, ctx) => {
+  if (v.end < v.start || v.status !== "ok" && (v.sessions !== null || v.users !== null)) ctx.addIssue({ code: "custom", message: "归因范围或缺失指标无效" });
+  if (v.status === "ok" && (v.sessions === null || v.users === null)) ctx.addIssue({ code: "custom", message: "归因成功需要实际指标" });
+});
+export const githubChannelSchema = z.object({
+  version: z.literal(1), kind: z.literal("github-prompt-channel"), repository: z.enum(PROMPT_REPOSITORIES), observedAt: z.iso.datetime({ offset: true }), timezone: z.literal("UTC"),
+  stars: metric.nullable(), forks: metric.nullable(), metadataStatus: z.enum(["ok", "unavailable"]), metadataReason: z.string().max(300).nullable(),
+  views: traffic, clones: traffic, referrals: z.array(githubReferralSchema).max(8),
+  linkAudit: z.object({ status: z.enum(["ok", "unavailable"]), flatkeyLinks: metric.nullable(), attributedLinks: metric.nullable(), reason: z.string().max(300).nullable() }).strict(),
+}).strict().superRefine((v, ctx) => {
+  if (v.metadataStatus === "unavailable" && (v.stars !== null || v.forks !== null)) ctx.addIssue({ code: "custom", message: "缺失仓库元数据不能填零" });
+  if (v.metadataStatus === "ok" && (v.stars === null || v.forks === null)) ctx.addIssue({ code: "custom", message: "仓库元数据不完整" });
+  if (v.linkAudit.status === "ok" && (v.linkAudit.flatkeyLinks === null || v.linkAudit.attributedLinks === null || v.linkAudit.attributedLinks > v.linkAudit.flatkeyLinks)) ctx.addIssue({ code: "custom", message: "链接归因覆盖无效" });
+  if (v.linkAudit.status === "unavailable" && (v.linkAudit.flatkeyLinks !== null || v.linkAudit.attributedLinks !== null)) ctx.addIssue({ code: "custom", message: "缺失链接审计不能填零" });
+  if ([...v.views.days, ...v.clones.days].some(d => d.date > v.observedAt.slice(0, 10))) ctx.addIssue({ code: "custom", message: "不接受未来流量" });
+});
+export type GithubChannel = z.infer<typeof githubChannelSchema>;
+export const githubChannelId = (value: GithubChannel) => "github-channel:" + createHash("sha256").update(JSON.stringify(githubChannelSchema.parse(value))).digest("hex");
+const shift = (date: string, n: number) => new Date(Date.parse(date + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+function series(rows: GithubChannel[], kind: "views" | "clones", cutoff: string) {
+  const days = new Map<string, z.infer<typeof day>>();
+  for (const row of [...rows].sort((a, b) => a.observedAt.localeCompare(b.observedAt))) if (row[kind].status === "ok") for (const point of row[kind].days) {
+    // Today's UTC bucket is provisional even if the API returns it.
+    if (point.date < row.observedAt.slice(0, 10) && point.date <= cutoff) days.set(point.date, point);
+  }
+  return days;
+}
+export function githubComparable(rows: GithubChannel[], kind: "views" | "clones", start: string, end: string, weekly: boolean) {
+  const days = series(rows, kind, end), dates: string[] = [], previousDates: string[] = [];
+  for (let d = start; d <= end; d = shift(d, 1)) if (days.has(d) && days.has(shift(d, weekly ? -7 : -1))) { dates.push(d); previousDates.push(shift(d, weekly ? -7 : -1)); }
+  const sum = (keys: string[]) => keys.length ? keys.reduce((n, d) => n + days.get(d)!.count, 0) : null;
+  return { current: sum(dates), previous: sum(previousDates), dates, previousDates, expectedDays: Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1 };
+}
+export function githubDigestLines(rows: GithubChannel[], start: string, end: string, weekly: boolean, now: Date) {
+  const lines = ["GitHub 提示词渠道（独立于自然搜索）"];
+  for (const repository of PROMPT_REPOSITORIES) {
+    const own = rows.filter(r => r.repository === repository && Date.parse(r.observedAt) <= now.getTime()).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
+    const latest = own[0];
+    lines.push(`• [${repository}](https://github.com/${repository})`);
+    if (!latest) { lines.push("  Stars / Forks / 浏览 / 克隆 / Flatkey 到站：待更新，尚无采集回执。"); continue; }
+    const before = own.find(r => r.observedAt.slice(0, 10) < start && r.metadataStatus === "ok");
+    const total = (key: "stars" | "forks") => latest[key] === null ? "待更新" : `${latest[key]}${before?.[key] != null ? `（较 ${before.observedAt.slice(0, 10)} ${latest[key]! - before[key]! >= 0 ? "+" : ""}${latest[key]! - before[key]!}）` : "（首次快照，增量待观察）"}`;
+    lines.push(`  Stars ${total("stars")}；Forks ${total("forks")}；快照 ${latest.observedAt}。`);
+    for (const [key, label] of [["views", "浏览次数"], ["clones", "克隆次数"]] as const) {
+      const pair = githubComparable(own, key, start, end, weekly);
+      const range = (days: string[]) => days.length ? `${days[0]}～${days.at(-1)}` : "无";
+      lines.push(`  ${label} ${pair.previous ?? "待更新"}→${pair.current ?? "待更新"}；UTC ${range(pair.previousDates)} 对比 ${range(pair.dates)}，可比 ${pair.dates.length}/${pair.expectedDays} 日。`);
+      if (!weekly && pair.dates.length === 1) { const point = series(own, key, end).get(pair.dates[0])!; lines.push(`  该UTC日去重${key === "views" ? "访客" : "克隆者"} ${point.uniques}。`); }
+    }
+    if (weekly) lines.push("  周去重访客/克隆者待精确区间数据；未把每日unique相加。GitHub API原始14日总数只作来源窗口，未当周报总数。");
+    const referrals = own.flatMap(r => r.referrals).filter(r => r.start === start && r.end <= end).sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));
+    const referral = referrals[0];
+    lines.push(referral?.status === "ok" ? `  GitHub UTM→Flatkey 到站会话 ${referral.sessions}，去重访客 ${referral.users}；${referral.start}～${referral.end} ${referral.timezone}${referral.end < end ? "，末日尚未出齐" : ""}。` : "  GitHub UTM→Flatkey 到站会话/访客：待更新；没有把仓库浏览或克隆当作到站点击。");
+    lines.push(latest.linkAudit.status === "ok" ? `  公开README的Flatkey链接UTM覆盖 ${latest.linkAudit.attributedLinks}/${latest.linkAudit.flatkeyLinks}；仅表示已核查链接。` : "  公开README链接归因核查待更新。");
+    if (latest.views.status !== "ok" || latest.clones.status !== "ok") lines.push("  仓库Traffic来源缺失或无权限，缺失值未写0。");
+  }
+  lines.push("GitHub不提供仓库出站点击计数；GA4到站为带仓库UTM的真实会话，受同意与拦截影响，不是点击总量。");
+  return lines;
+}

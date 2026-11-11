@@ -1,6 +1,5 @@
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { isLocalPreviewOrigin } from "@/lib/preview-origin";
 import { optimizationPlansDirectory, readOptimizationPlans, writeOptimizationPlan } from "@/lib/seo-optimization-plans";
 
@@ -9,8 +8,7 @@ export const dynamic = "force-dynamic";
 const unavailable = () => Response.json({ message: "优化目标尚未配置持久存储" }, { status: 503, headers });
 
 export async function GET(request: Request) {
-  const secret = getRankingImportSecret();
-  const importAuthorized = Boolean(secret && importSecretMatches(request.headers.get("authorization"), secret));
+  const importAuthorized = await authenticateImportToken(request);
   if (!importAuthorized && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录或使用采集凭据" }, { status: 401, headers });
   if (importAuthorized && request.headers.get("origin") || analyticsLocalPreview(request) && request.headers.get("origin") && !isLocalPreviewOrigin(request)) return Response.json({ message: "请求来源无效" }, { status: 403, headers });
   try {
@@ -23,8 +21,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const secret = getRankingImportSecret();
-  const importAuthorized = Boolean(secret && importSecretMatches(request.headers.get("authorization"), secret));
+  const importAuthorized = await authenticateImportToken(request);
   if (!importAuthorized && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录或使用采集凭据" }, { status: 401, headers });
   const local = analyticsLocalPreview(request), origin = request.headers.get("origin");
   if (importAuthorized ? Boolean(origin) : local ? !isLocalPreviewOrigin(request) : origin !== new URL(request.url).origin) return Response.json({ message: "请求来源无效" }, { status: 403, headers });

@@ -4,7 +4,7 @@ const { prepareWorkflowMutation, checkWorkflowApproval, workflowSnapshot } = req
 const { workflowApprovalSchema, workflowApprovalStatus } = require('../src/lib/seo-workflow.ts');
 const time = new Date('2026-11-10T08:00:00Z'), evidence=[{label:'Visible draft and review',url:'https://flatkey.ai/preview',observedAt:'2026-11-10T06:00:00Z'}];
 const task={id:'review-task',weekStart:'2026-11-09',siteDomain:'flatkey.ai',title:'Review model API page',kind:'blog',country:'US',language:'en',business:'API',pageType:'blog',keyword:'model api',pageUrl:'https://flatkey.ai/blog/review',owner:'AI',dueAt:'2026-11-10T09:00:00Z',status:'review_pending',dependencies:[],evidence,nextAction:'Review exact draft',contentVersion:'v1',acceptanceCriteria:['Reviewed exact version'],research:{volume:20,kd:10,businessValue:3,exceptionReason:null,intent:'API integration',observedAt:'2026-11-10T06:00:00Z',evidence},approval:null,source:'automation'};
-const item=(patch={})=>({id:'item-en',taskId:task.id,operation:'new',pageUrl:task.pageUrl,language:'en',contentVersion:'v1',baseContentVersion:null,changeSummary:'Create exact page and title/meta',beforeSummary:null,afterSummary:'Full new draft',draftUrl:null,previewUrl:null,reviewContent:'# Full reviewer-visible draft\nVerified API instructions.',reviewFormat:'markdown',beforeContent:null,evidence,...patch});
+const item=(patch={})=>({id:'item-en',taskId:task.id,operation:'new',pageUrl:task.pageUrl,language:'en',contentVersion:'v1',baseContentVersion:null,changeSummary:'Create exact page and title/meta',beforeSummary:null,afterSummary:'Full new draft',draftUrl:null,previewUrl:"https://staging-website.flatkey.ai/review",previewContentVersion:patch.contentVersion??"v1",reviewContent:'# Full reviewer-visible draft\nVerified API instructions.',reviewFormat:'markdown',beforeContent:null,evidence:[...evidence,{label:"Desktop screenshot",url:"https://staging-website.flatkey.ai/review.jpg",observedAt:"2026-11-10T06:00:00Z"},{label:"Mobile screenshot",url:"https://staging-website.flatkey.ai/mobile.jpg",observedAt:"2026-11-10T06:00:00Z"}],...patch});
 const approval=(patch={})=>({id:'approval-main',weekStart:'2026-11-09',siteDomain:'flatkey.ai',title:'Review two language pages',requestedBy:'AI',submittedAt:'2026-11-10T07:00:00Z',status:'pending',items:[item(),item({id:'item-ja',language:'ja',pageUrl:'https://flatkey.ai/ja/blog/review',contentVersion:'v1-ja'})],decisions:[],supersedesApprovalIds:[],evidence,...patch});
 const decision=(patch={})=>({id:'decision-1',itemIds:['item-en'],decision:'approved',decidedBy:'负责人',decidedAt:'2026-11-10T08:00:00Z',note:'Read exact text and version',evidence,...patch});
 const inputRecord = record => { const raw=Object.fromEntries(Object.entries(record).filter(([key])=>!["version","recordedAt","updatedAt","submittedRecordedAt"].includes(key))); if(raw.decisions)raw.decisions=raw.decisions.map(decision=>Object.fromEntries(Object.entries(decision).filter(([key])=>key!=="recordedAt")));return raw; };
@@ -19,7 +19,7 @@ test('collector can submit visible drafts but cannot decide or forge old standin
  assert.throws(()=>checkWorkflowApproval(check(),all,time),/尚未批准/);
  const legacy={...all[0],record:{...all[0].record,status:'approved',approval:{kind:'standing_new_blog',approvedBy:'old-standing',approvedAt:'2026-11-09T00:00:00Z',contentVersion:'v1',evidence}}};
  assert.throws(()=>mutate(publication(),[legacy],'record_publication','collector'),/缺少已提交/);
- assert.equal(workflowApprovalSchema.safeParse(approval({items:[item({reviewContent:null})]})).success,false,'local artifact evidence is not a remotely reviewable draft');
+ assert.equal(workflowApprovalSchema.safeParse(approval({items:[item({reviewContent:null,previewUrl:null})]})).success,false,'local artifact evidence is not a remotely reviewable draft');
 });
 test('decisions apply to exact selected language page and task/version, never the whole batch implicitly',()=>{
  const {all,pending,taskRow}=setup(),approved=decide(pending,all),rows=[taskRow,approved];
@@ -96,4 +96,14 @@ test('new localized tool pages keep their actual locale and count as landing pag
  const value=publication({taskId:technical.id,kind:'landing',pageUrl:technical.pageUrl,language:'fr',country:null,keyword:null,contentVersion:technical.contentVersion});
  const receipt=mutate(value,[taskRow,approved],'record_publication','collector');assert.equal(receipt.record.kind,'landing');
  assert.throws(()=>mutate({...value,kind:'optimization'},[taskRow,approved],'record_publication','collector'),/新增交付/);
+});
+
+test('missing staging URL or screenshot blocks both approval and old approved publication preflight',()=>{
+ for(const patch of [{previewUrl:null},{previewUrl:task.pageUrl},{evidence}]) {
+  const taskRow=mutate(task,[],'save_task');
+  const pending=mutate(approval({items:[item(patch)]}),[taskRow],'save_approval','collector');
+  assert.throws(()=>decide(pending,[taskRow,pending]),/批准前须补齐/);
+  const legacy={...pending,record:{...pending.record,status:'approved',decisions:[{...decision(),recordedAt:time.toISOString()}]}};
+  assert.throws(()=>checkWorkflowApproval(check(),[taskRow,legacy],time),/发布前须补齐/);
+ }
 });

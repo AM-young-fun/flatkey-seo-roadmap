@@ -1,0 +1,145 @@
+.content {
+  --overview-border: #e5e9f0;
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+  padding-top: 24px;
+  color: #17243b;
+  font-size: 13px;
+}
+
+.title {
+  margin: 0 0 2px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.trends {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@container (min-width: 860px) {
+  .trends { grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr); }
+  .rankings { display: grid; grid-template-columns: minmax(0, 1fr); }
+}
+
+.traffic,
+.rankings :global(.trendPanel),
+.network :global(.graphPanel) {
+  min-width: 0;
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--overview-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.trafficHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+}
+
+.trafficHeading h2,
+.rankings :global(.trendPanel h2),
+.network :global(.graphPanel h2) {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.trafficHeading p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.trafficHeading > * { min-width: 0; }
+
+.rankings :global(.dailyHeading),
+.network :global(.panelHeader) {
+  gap: 10px 20px;
+  margin-bottom: 12px;
+}
+
+.rankings :global(.chartNote),
+.network :global(.chartNote),
+.network :global(.panelHeader p:not(.eyebrow)) {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.rankings :global(.inventoryTrendTotal) {
+  margin: 0;
+}
+
+.rankings :global(.trendRankCounts) {
+  margin: 12px 0 4px;
+}
+
+.rankings :global(.rankingTrend) {
+  height: 212px;
+}
+
+.network :global(.overviewGrid) {
+  display: block;
+}
+
+.network :global(.panelHeader .uiSelect) {
+  width: 172px;
+}
+
+.network :global(.rankLegend) {
+  gap: 8px 14px;
+  margin: 12px 0 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.network :global(.keywordGraph),
+.network :global(.emptyGraph),
+.network :global(.loadingState) {
+  height: clamp(340px, 70vw, 560px);
+  min-height: 0;
+}
+
+.network :global(.graphPanel summary) {
+  width: fit-content;
+  color: var(--ui-primary);
+  cursor: pointer;
+}
+
+.network :global(.graphPanel label) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.relatedLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.relatedLinks a {
+  color: var(--ui-primary);
+}
+
+.content > aside {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .content { padding-top: 18px; }
+  .content, .trends { gap: 12px; }
+  .traffic, .rankings :global(.trendPanel), .network :global(.graphPanel) { padding: 14px; }
+}

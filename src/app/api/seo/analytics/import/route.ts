@@ -1,5 +1,4 @@
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { analyticsObservationSchema, analyticsStorageKind, type AnalyticsObservation } from "@/lib/seo-analytics";
@@ -9,8 +8,7 @@ import { clusterDomainForProperty, siteReportToday } from "@/lib/seo-cluster-sit
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
 export async function POST(request: Request) {
-  const secret = getRankingImportSecret();
-  if (!secret || !importSecretMatches(request.headers.get("authorization"), secret)) {
+  if (!await authenticateImportToken(request)) {
     return Response.json({ message: "需要采集凭据" }, { status: 401, headers });
   }
   if (request.headers.get("origin")) return Response.json({ message: "仅接受服务器采集请求" }, { status: 403, headers });
@@ -73,8 +71,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const secret = getRankingImportSecret();
-  if (!secret || !importSecretMatches(request.headers.get("authorization"), secret) || request.headers.get("origin")) {
+  if (!await authenticateImportToken(request) || request.headers.get("origin")) {
     return Response.json({ message: "需要采集凭据" }, { status: 401, headers });
   }
   const params = new URL(request.url).searchParams;

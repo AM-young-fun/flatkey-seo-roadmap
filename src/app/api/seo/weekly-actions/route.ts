@@ -1,6 +1,5 @@
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { isLocalPreviewOrigin } from "@/lib/preview-origin";
 import { propertyToday, shiftDay } from "@/lib/seo-date-range";
 import { readWeeklyActionPlan, weeklyActionPeriodSchema, weeklyActionsDirectory, writeWeeklyActionPlan } from "@/lib/seo-weekly-actions";
@@ -25,8 +24,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const secret = getRankingImportSecret();
-  const importAuthorized = Boolean(secret && importSecretMatches(request.headers.get("authorization"), secret));
+  const importAuthorized = await authenticateImportToken(request);
   if (!importAuthorized && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录或使用采集凭据" }, { status: 401, headers });
   const local = analyticsLocalPreview(request), origin = request.headers.get("origin");
   if (importAuthorized ? Boolean(origin) : local ? !isLocalPreviewOrigin(request) : origin !== new URL(request.url).origin) {

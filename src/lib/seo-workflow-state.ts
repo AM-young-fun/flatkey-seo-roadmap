@@ -1,3 +1,4 @@
+import { approvalReviewReadiness } from "./seo-workflow";
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
@@ -62,13 +63,25 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   const tasks = plan.taskIds.map(id => all.find(row => row.kind === "task" && row.record.id === id)?.record as WorkflowTask | undefined);
   if (tasks.some(task => !task || task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
   if (plan.status !== "reviewed") return;
+  if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "新正式计划须明确 en14、ja7、pt-BR7、es-ES7 源文额度；旧计划仅保留历史读取");
   const ready = tasks.filter((task): task is WorkflowTask => Boolean(task && !["planned", "researching", "blocked", "failed"].includes(task.status)));
   const counts = {
     landing: ready.filter(task => task.kind === "landing" && task.siteDomain === "flatkey.ai").length,
-    apiBlogs: ready.filter(task => task.kind === "blog" && task.business === "API").length,
-    gpuBlogs: ready.filter(task => task.kind === "blog" && task.business === "GPU").length,
+    apiBlogs: ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai" && task.business === "API").length,
+    gpuBlogs: ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai" && task.business === "GPU").length,
     optimizedPages: new Set(ready.filter(task => task.kind === "optimization" && task.pageUrl).map(task => task.pageUrl)).size,
   };
+  const languageCategories = { en: "blogEn", ja: "blogJa", "pt-BR": "blogPt", "es-ES": "blogEs" } as const;
+  const dailyQuota = { en: 2, ja: 1, "pt-BR": 1, "es-ES": 1 };
+  const blogs = ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai");
+  for (const language of Object.keys(languageCategories) as (keyof typeof languageCategories)[]) {
+    const selected = blogs.filter(task => task.language === language);
+    const gap = Math.max(0, plan.targets.blogLanguages[language] - selected.length);
+    if (gap > plan.gaps.filter(row => row.category === languageCategories[language]).reduce((sum, row) => sum + row.count, 0)) reject("plan_language_gap_unrecorded", `${language} 还缺 ${gap} 篇源文；需登记国家语言缺口`);
+    const days = new Map<string, number>();
+    for (const task of selected) { const day = new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }); days.set(day, (days.get(day) ?? 0) + 1); }
+    if ([...days.values()].some(count => count > dailyQuota[language])) reject("plan_daily_language_quota", `${language} 单日源文不能超过 ${dailyQuota[language]} 篇；翻译另记`);
+  }
   for (const category of Object.keys(counts) as (keyof typeof counts)[]) {
     const gap = Math.max(0, plan.targets[category] - counts[category]);
     const recorded = plan.gaps.filter(row => row.category === category).reduce((sum, row) => sum + row.count, 0);
@@ -116,7 +129,10 @@ function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | un
       if (before !== "pending" && !(before === "approved" && ["withdrawn", "superseded"].includes(decision.decision))) reject("approval_decision_transition", "已拒绝、要求修改、撤回或替换的稿件不能重新批准；请新建稿件版本审批");
       if (decision.decision === "approved") {
         if (workflowApprovalEffectiveItemStatus({ ...value, decisions: decided }, itemId, approvalRows(all)) === "superseded") reject("approval_superseded", "此稿件已有替换审批，旧稿不能再批准");
-        checkApprovalItemContext(value.items.find(item => item.id === itemId)!, value.siteDomain, all);
+        const item = value.items.find(item => item.id === itemId)!;
+        const readiness = approvalReviewReadiness(item);
+        if (!readiness.ready) reject("approval_preview_missing", "批准前须补齐：" + readiness.missing.join("、"));
+        checkApprovalItemContext(item, value.siteDomain, all);
       }
     }
     decided.push(decision);
@@ -147,6 +163,8 @@ export function checkWorkflowApproval(input: WorkflowApprovalCheck, all: Workflo
   if (workflowApprovalEffectiveItemStatus(approval, item.id, approvals) !== "approved") reject("publication_unapproved", "该页面版本尚未批准，或审批已撤回、要求修改、被新稿替换");
   const decision = [...approval.decisions].reverse().find(decision => decision.itemIds.includes(item.id))!;
   if (!decision.recordedAt) reject("publication_approval_unverified", "审批缺少服务器记录的决定时刻");
+  const readiness = approvalReviewReadiness(item);
+  if (!readiness.ready) reject("approval_preview_missing", "发布前须补齐：" + readiness.missing.join("、"));
   checkApprovalItemContext(item, approval.siteDomain, all);
   const task = all.find(row => row.kind === "task" && row.record.id === item.taskId)?.record as WorkflowTask;
   for (const dependency of task.dependencies) if (!all.some(row => row.kind === "task" && row.record.id === dependency && ["verified", "observing"].includes(row.record.status))) reject("dependency_incomplete", "前置任务尚未验收，不能发布");

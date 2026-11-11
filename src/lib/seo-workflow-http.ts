@@ -1,14 +1,12 @@
 import { ZodError } from "zod";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders } from "./seo-analytics-access";
-import { getRankingImportSecret } from "./import-credential";
-import { importSecretMatches } from "./ranking-import";
+import { authenticateImportToken } from "./services/import-tokens";
 import { isLocalPreviewOrigin } from "./preview-origin";
 import { WorkflowError } from "./seo-workflow-state";
 
 export const workflowHeaders = privateAnalyticsHeaders;
 export async function authorizeWorkflow(request: Request, write = false) {
-  const secret = getRankingImportSecret();
-  const collector = Boolean(secret && importSecretMatches(request.headers.get("authorization"), secret));
+  const collector = await authenticateImportToken(request);
   if (!collector && !await authorizeAnalyticsRead(request)) throw new WorkflowError("unauthorized", "请先登录或使用采集凭据", 401);
   const localPreview = analyticsLocalPreview(request), origin = request.headers.get("origin");
   if (collector ? Boolean(origin) : write ? (localPreview ? !isLocalPreviewOrigin(request) : origin !== new URL(request.url).origin) : Boolean(origin && (localPreview ? !isLocalPreviewOrigin(request) : origin !== new URL(request.url).origin))) throw new WorkflowError("invalid_origin", "请求来源无效", 403);

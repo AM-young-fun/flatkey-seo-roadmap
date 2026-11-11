@@ -1,0 +1,17 @@
+/* Shared frame for the operational workspace. Component detail remains locally scoped. */
+:root { --bg:#f6f8fb; --surface:#fff; --surface-strong:#f8fafc; --border:#e5e9f0; --text:#17243b; --muted:#64748b; --shadow:0 1px 3px rgb(23 36 59 / 3%); }
+body { background:var(--bg); }
+main:has(> [data-seo-workspace]) { width:calc(100% - 208px); max-width:none; min-height:100vh; margin:0 0 0 208px; padding:0 32px 40px; font-size:13px; }
+main:has(> [data-seo-workspace]) h1 { font-size:24px; line-height:1.4; letter-spacing:-.6px; font-weight:650; }
+main:has(> [data-seo-workspace]) h2 { font-size:15px; line-height:1.5; font-weight:600; }
+main:has(> [data-seo-workspace]) :where(th,td,strong) { font-variant-numeric:tabular-nums; }
+main:has(> [data-seo-workspace]) :where(.dailyPanel,.trendPanel,.graphPanel,.visualSerpOverview,.seoMetricGrid article,.pageTrafficHeading) { border-radius:8px; border-color:var(--border); box-shadow:none; }
+main:has(> [data-seo-workspace]) :where(.dailyPanel,.trendPanel) { padding:20px; }
+main:has(> [data-seo-workspace]) :where(.chartNote,.visualChartFootnote) { color:#64748b; }
+main:has(> [data-seo-workspace]) .seoMetricGrid { gap:12px; margin-top:18px; }
+main:has(> [data-seo-workspace]) .seoMetricGrid article { padding:18px; }
+main:has(> [data-seo-workspace]) .seoMetricGrid strong { font-size:27px; }
+main:has(> [data-seo-workspace]) .pageTrafficHeading { padding:16px 20px; }
+@media(min-width:1800px) { main:has(> [data-seo-workspace]) { padding-inline:48px; } }
+@media(max-width:1099px) { main:has(> [data-seo-workspace]) { width:100%; margin:0; padding:0 24px 32px; } }
+@media(max-width:600px) { main:has(> [data-seo-workspace]) { padding:0 14px 24px; } main:has(> [data-seo-workspace]) h1 { font-size:22px; } main:has(> [data-seo-workspace]) :where(.dailyPanel,.trendPanel) { padding:16px; } }

@@ -3,6 +3,12 @@ const { test, beforeEach } = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
+// Next.js supplies this boundary marker; the route tests still load the real token authenticator.
+const loadWithServerOnly = Module._load;
+Module._load = function (name, ...args) {
+  if (name === "server-only") return {};
+  return loadWithServerOnly.call(this, name, ...args);
+};
 const ts = require("typescript");
 const root = path.resolve(__dirname, "..");
 const resolve = Module._resolveFilename;
@@ -302,8 +308,10 @@ test("secret is required and matches only exact Bearer credentials", () => {
 });
 test("unconfigured or invalid credentials cannot write", async () => {
   assert.equal((await route.POST(request(batch(), "wrong"))).status, 401);
+  assert.equal(batches.length, 0);
   delete process.env.RANKING_IMPORT_SECRET;
-  assert.equal((await route.POST(request(batch()))).status, 503);
+  // Managed credentials may exist without a legacy secret; the unmatched legacy value is unauthenticated.
+  assert.equal((await route.POST(request(batch()))).status, 401);
   assert.equal(batches.length, 0);
 });
 test("import is atomic and retries are idempotent", async () => {

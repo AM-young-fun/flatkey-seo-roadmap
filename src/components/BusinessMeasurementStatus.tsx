@@ -4,12 +4,12 @@ import styles from "./BusinessMeasurementStatus.module.css";
 export function BusinessMeasurementStatus({ compact = false }: { compact?: boolean }) {
   return <aside className={`${styles.panel}${compact ? ` ${styles.compact}` : ""}`} aria-label="业务数据接入状态">
     {compact ? <>
-      <div><strong>业务测量待办</strong><Link href="/issues#issue-amplitude-organic-cohorts-pending">查看待办 →</Link></div>
-      <p>自然来源 7 日激活率、30 日付费率待接入 Amplitude；尚未核验来源与观察窗口，当前不补 0。</p>
+      <div><strong>用户行为与转化</strong><Link href="/issues#issue-ga4-business-journey-pending">查看接入待办 →</Link></div>
+      <p>GA4 行为链路待完善 · GPU 租赁、API 使用与付费、用户路径待核验。</p>
     </> : <>
-    <div><strong>Amplitude 自然来源成熟队列待接入</strong><Link href="/issues#issue-amplitude-organic-cohorts-pending">查看接入待办 →</Link></div>
-    <dl><div><dt>自然来源 7 日激活率</dt><dd>待接入</dd></div><div><dt>自然来源 30 日付费率</dt><dd>待接入</dd></div></dl>
-    <p>服务端首次成功 / 付款事实和 SDK 事件不等于已完成归因报表。待后续授权后台读取，再核验自然来源、注册队列、观察窗口及覆盖后计算；当前不补 0。</p>
+    <div><strong>用户行为与转化</strong><Link href="/issues#issue-ga4-business-journey-pending">查看接入待办 →</Link></div>
+    <dl><div><dt>GPU 成功租赁</dt><dd>待接入</dd></div><div><dt>API 首次成功使用 / 付费</dt><dd>待接入</dd></div><div><dt>用户路径 / 停留 / 流失</dt><dd>待接入</dd></div></dl>
+    <details><summary>数据口径</summary><p>GA4 已有访问采集；业务事件、用户路径与来源关联尚待验收。GPU 以成功租赁衡量转化；API 首次成功响应与付费分别统计。转化率需核实观察窗口，缺失数据不补 0。</p></details>
     </>}
   </aside>;
 }

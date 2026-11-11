@@ -3,6 +3,12 @@ const { test, beforeEach } = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
+// Next.js supplies this boundary marker; the route tests still load the real token authenticator.
+const loadWithServerOnly = Module._load;
+Module._load = function (name, ...args) {
+  if (name === "server-only") return {};
+  return loadWithServerOnly.call(this, name, ...args);
+};
 const ts = require("typescript");
 const root = path.resolve(__dirname, "..");
 const resolve = Module._resolveFilename;

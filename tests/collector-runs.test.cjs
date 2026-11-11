@@ -1,4 +1,10 @@
 const assert=require("node:assert/strict"),{test,beforeEach}=require("node:test"),fs=require("node:fs"),path=require("node:path"),Module=require("node:module"),ts=require("typescript");
+// Next.js supplies this boundary marker; the route tests still load the real token authenticator.
+const loadWithServerOnly = Module._load;
+Module._load = function (name, ...args) {
+  if (name === "server-only") return {};
+  return loadWithServerOnly.call(this, name, ...args);
+};
 const root=path.resolve(__dirname,".."),resolve=Module._resolveFilename;
 Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,name.startsWith("@/")?path.join(root,"src",name.slice(2)):name,parent,...rest);};
 require.extensions[".ts"]=(module,filename)=>module._compile(ts.transpileModule(fs.readFileSync(filename,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);
@@ -16,7 +22,7 @@ test("sheets precede research and server analytics uses its own daily collection
   const now=new Date("2026-10-20T03:00Z");
   assert.equal(nextCollectorTime(now,"sheets"),"2026-10-21T01:00:00.000Z");
   assert.equal(nextCollectorTime(now,"ahrefs"),"2026-10-21T01:30:00.000Z");
-  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-21T02:30:00.000Z");
+  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-21T00:30:00.000Z");
 });
 test("three-table completion needs all three actual success receipts; zero changes need not mean no read",()=>{
   const base={kind:"SHEETS",periodStart:"2026-10-20",status:"COMPLETED",checkedItems:15};

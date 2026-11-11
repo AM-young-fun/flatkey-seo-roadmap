@@ -11,5 +11,7 @@ test('overview strips receipt duplication but preserves each country rank and to
  assert.deepEqual(data,before);assert.ok(JSON.stringify(compact).length < JSON.stringify(data).length/10);
  for(const region of ['US','JP','ES','BR']) {assert.equal(roundtrip.keywords[0].latestRanks[region]?.rank,ranks[region]?.rank);assert.equal(roundtrip.keywords[0].latestRanks[region]?.rankStatus,ranks[region]?.rankStatus);}
  assert.deepEqual(roundtrip.keywords[0].parentIds,['parent']);assert.deepEqual(roundtrip.serpOverview,data.serpOverview);
+ assert.deepEqual(roundtrip.keywords[0].targetUrls,keyword.targetUrls,"registered page mappings must survive the persisted overview payload");
+ assert.equal(roundtrip.keywords[0].latestRanks.US.url,null,"a registered target URL must not become an observed SERP URL");
  assert.equal(hydrateOverviewPayload(data),data);
 });

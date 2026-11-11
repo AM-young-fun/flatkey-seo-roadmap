@@ -544,4 +544,14 @@ CREATE TABLE IF NOT EXISTS "SeoDigestDelivery" (
 );
 CREATE INDEX IF NOT EXISTS "SeoDigestDelivery_status_createdAt_idx" ON "SeoDigestDelivery"("status", "createdAt");
 
+-- Managed import credentials are additive; legacy environment secrets remain unchanged.
+-- Never store plaintext or reversible token ciphertext in this table.
+CREATE TABLE IF NOT EXISTS "SeoImportToken" (
+  "id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "tokenHash" TEXT NOT NULL,
+  "prefix" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "expiresAt" TIMESTAMP(3), "lastUsedAt" TIMESTAMP(3), "revokedAt" TIMESTAMP(3)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "SeoImportToken_tokenHash_key" ON "SeoImportToken"("tokenHash");
+CREATE INDEX IF NOT EXISTS "SeoImportToken_createdAt_idx" ON "SeoImportToken"("createdAt" DESC);
+
 COMMIT;

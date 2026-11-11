@@ -41,8 +41,10 @@ export const workflowTaskSchema = z.object({
 export const workflowPlanSchema = z.object({
   id, weekStart: workflowWeekSchema, status: z.enum(["draft", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
-  targets: z.object({ landing: z.literal(5), apiBlogs: z.literal(21), gpuBlogs: z.literal(14), optimizedPages: z.literal(5) }).strict(),
-  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
+  targets: z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
+    blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict().optional(),
+  }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "API/GPU源文计划合计35篇，按关键词机会分配；翻译不占源文额度"),
+  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
   evidence, notes: z.string().max(5000),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) ctx.addIssue({ code: "custom", path: ["taskIds"], message: "计划任务不能重复" });
@@ -54,13 +56,23 @@ export const workflowApprovalItemSchema = z.object({
   language: z.string().trim().min(2).max(20).regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/),
   contentVersion: z.string().trim().min(1).max(200), baseContentVersion: z.string().trim().min(1).max(200).nullable(),
   changeSummary: z.string().trim().min(1).max(5000), beforeSummary: z.string().trim().min(1).max(5000).nullable(), afterSummary: z.string().trim().min(1).max(5000),
-  draftUrl: httpsUrl.nullable(), previewUrl: httpsUrl.nullable(), reviewContent: z.string().trim().min(1).max(120000).nullable().default(null), reviewFormat: z.enum(["markdown", "diff", "text"]).default("text"), beforeContent: z.string().max(120000).nullable().default(null), evidence: evidence.min(1),
+  draftUrl: httpsUrl.nullable(), previewUrl: httpsUrl.nullable(), previewContentVersion: z.string().trim().min(1).max(200).nullable().default(null), reviewContent: z.string().trim().min(1).max(120000).nullable().default(null), reviewFormat: z.enum(["markdown", "diff", "text"]).default("text"), beforeContent: z.string().max(120000).nullable().default(null), evidence: evidence.min(1),
 }).strict().superRefine((item, ctx) => {
   if (!item.draftUrl && !item.previewUrl && !item.reviewContent) ctx.addIssue({ code: "custom", message: "每项审批必须提供平台内可读稿件正文、完整差异或 HTTPS 稿件/预览链接" });
   if (item.operation === "update" && (!item.baseContentVersion || !item.beforeSummary)) ctx.addIssue({ code: "custom", message: "修改页面需保留改前版本和改前说明" });
   if (item.operation === "new" && item.baseContentVersion) ctx.addIssue({ code: "custom", message: "新增页面不能冒用旧版本基线" });
   if (item.baseContentVersion === item.contentVersion) ctx.addIssue({ code: "custom", message: "改稿必须使用新的内容版本" });
 });
+export function approvalReviewReadiness(item: z.infer<typeof workflowApprovalItemSchema>) {
+  const missing: string[] = [];
+  const safe = (value: string | null | undefined) => { try { const url = new URL(value ?? ""); return url.protocol === "https:" && !url.username && !url.password ? url : null; } catch { return null; } };
+  const preview = safe(item.previewUrl);
+  if (!preview || preview.origin === safe(item.pageUrl)?.origin) missing.push("独立测试环境链接");
+  if (item.previewContentVersion !== item.contentVersion) missing.push("与稿件一致的测试部署版本");
+  if (!item.evidence.some(row => safe(row.url) && /桌面|desktop/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("桌面截图链接");
+  if (!item.evidence.some(row => safe(row.url) && /手机|移动|mobile/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("手机截图链接");
+  return { ready: missing.length === 0, missing };
+}
 export const workflowApprovalDecisionSchema = z.object({
   id, itemIds: z.array(id).min(1).max(500), decision: z.enum(["approved", "rejected", "changes_requested", "withdrawn", "superseded"]),
   decidedBy: z.string().trim().min(1).max(200), decidedAt: stamp, note: z.string().trim().min(1).max(5000), evidence: evidence.min(1),

@@ -38,3 +38,7 @@
 .error p { margin:5px 0; }
 .refresh:focus-visible,.plan > summary:focus-visible,.receipts > summary:focus-visible { outline:2px solid var(--ui-primary); outline-offset:3px; }
 @media(max-width:600px) { .root { padding:18px 15px; } .plan > summary { gap:8px; align-items:flex-start; padding:11px 10px; flex-wrap:wrap; } .planTitle { flex-basis:calc(100% - 24px); } .state { margin-left:18px; } .groupHeading { align-items:flex-start; } }
+
+.counts { display:flex; flex-wrap:wrap; gap:12px; margin:18px 0; }
+.counts > span { flex:1; min-width:140px; padding:13px 16px; border:1px solid #e5e9f0; border-radius:6px; color:#64748b; font-size:12px; }
+.counts strong { display:block; margin-top:6px; font-size:22px; font-weight:650; color:#17243b; }

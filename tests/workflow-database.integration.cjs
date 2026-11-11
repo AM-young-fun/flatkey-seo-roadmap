@@ -43,7 +43,7 @@ test("actual notification ledger rejects concurrent send and any retry after unk
  const testNow = new Date("2026-11-09T10:01:00Z");
  const report = buildSeoDigest({ date: "2026-11-09", now: testNow, publications: [], optimizations: [], observations: [], effects: [], priorities: [], issues: ["Local integration fixture, never sent"], runNotes: [], publicationCoverage: "missing", optimizationCoverage: "missing" });
  await saveSeoDigest(report);
- await prisma.seoDigestDelivery.deleteMany({ where: { id: "seo-digest-delivery:2026-11-09" } });
+ await prisma.seoDigestDelivery.deleteMany({ where: { id: "seo-digest-delivery:daily:2026-11-09" } });
  const claims = await Promise.allSettled([claimDigest(report.id, "one", testNow), claimDigest(report.id, "two", testNow)]);
  assert.equal(claims.filter(result => result.status === "fulfilled").length, 1);
  const claim = claims.find(result => result.status === "fulfilled").value;
@@ -59,7 +59,22 @@ test("actual notification ledger rejects concurrent send and any retry after unk
  await assert.rejects(finishDigestAttempt({ ...reconcile, destination: "wrong-group" }, testNow), /状态已变化/);
  await finishDigestAttempt(reconcile, testNow);
  assert.equal((await finishDigestAttempt(reconcile, testNow)).replay, true);
- await assert.rejects(claimDigest(report.id, "fourth", testNow), /当天已发送/);
+ await assert.rejects(claimDigest(report.id, "fourth", testNow), /当天该类报告已发送/);
+});
+
+test("Friday weekly and daily have separate cross-node send locks and distinct ready times", async () => {
+ process.env.SEO_UNIFIED_REPORTING_ENABLED="true";
+ const base={date:"2026-11-13",publications:[],optimizations:[],observations:[],effects:[],priorities:[],issues:["Isolated fixture only"],runNotes:[],publicationCoverage:"missing",optimizationCoverage:"missing"};
+ const weekly=buildSeoDigest({...base,kind:"weekly",now:new Date("2026-11-13T10:00:00+08:00")});
+ const daily=buildSeoDigest({...base,kind:"daily",now:new Date("2026-11-13T18:00:00+08:00")});
+ const draft=buildSeoDigest({...base,kind:"weekly",now:new Date("2026-11-13T09:59:00+08:00")});
+ await Promise.all([weekly,daily,draft].map(saveSeoDigest));
+ await prisma.seoDigestDelivery.deleteMany({where:{id:{in:["seo-digest-delivery:weekly:2026-11-13","seo-digest-delivery:daily:2026-11-13"]}}});
+ await assert.rejects(claimDigest(draft.id,"early",new Date("2026-11-13T09:59:00+08:00")),/10:00/);
+ const a=await claimDigest(weekly.id,"weekly",new Date("2026-11-13T10:00:00+08:00"));
+ const b=await claimDigest(daily.id,"daily",new Date("2026-11-13T18:00:00+08:00"));
+ assert.notEqual(a.id,b.id);assert.equal(a.id,"seo-digest-delivery:weekly:2026-11-13");assert.equal(b.id,"seo-digest-delivery:daily:2026-11-13");
+ await assert.rejects(claimDigest(weekly.id,"duplicate",new Date("2026-11-13T10:00:00+08:00")),/禁止重复发送/);
 });
 
 test("PostgreSQL serializes human decisions, duplicate publishing and withdrawal after preflight", async () => {
@@ -68,8 +83,8 @@ test("PostgreSQL serializes human decisions, duplicate publishing and withdrawal
  const id="approval-db-"+nonce, taskId="approval-task-"+nonce, pageUrl="https://flatkey.ai/blog/approval-"+nonce;
  const task={id:taskId,weekStart,title:"Exact review DB fixture",siteDomain:"flatkey.ai",kind:"blog",country:"US",language:"en",business:"API",pageType:"blog",keyword:"model api approval "+nonce,pageUrl,owner:"test",dueAt:stamp,status:"review_pending",dependencies:[],evidence,nextAction:"review",contentVersion:"v1",acceptanceCriteria:["Exact review"],research:{volume:10,kd:10,businessValue:3,exceptionReason:null,intent:"model API",observedAt:stamp,evidence},approval:null,source:"automation"};
  await saveWorkflowMutation({requestId:taskId,action:"save_task",expectedVersion:0,record:task},"collector");
- const item={id:"en",taskId,operation:"new",pageUrl,language:"en",contentVersion:"v1",baseContentVersion:null,changeSummary:"Full new page",beforeSummary:null,afterSummary:"Reviewed full page",draftUrl:null,previewUrl:null,reviewContent:"Full isolated test draft",reviewFormat:"text",beforeContent:null,evidence};
- const pending={id,weekStart,siteDomain:"flatkey.ai",title:"Two exact pages",requestedBy:"fixture",submittedAt:stamp,status:"pending",items:[item,{...item,id:"ja",language:"ja",pageUrl:pageUrl+"-ja",contentVersion:"v1-ja"}],decisions:[],supersedesApprovalIds:[],evidence};
+ const item={id:"en",taskId,operation:"new",pageUrl,language:"en",contentVersion:"v1",baseContentVersion:null,changeSummary:"Full new page",beforeSummary:null,afterSummary:"Reviewed full page",draftUrl:null,previewUrl:"https://staging-website.flatkey.ai/review",previewContentVersion:"v1",reviewContent:"Full isolated test draft",reviewFormat:"text",beforeContent:null,evidence:[...evidence,{label:"Desktop screenshot",url:"https://staging-website.flatkey.ai/review.jpg",observedAt:"2026-11-10T06:00:00Z"},{label:"Mobile screenshot",url:"https://staging-website.flatkey.ai/mobile.jpg",observedAt:"2026-11-10T06:00:00Z"}]};
+ const pending={id,weekStart,siteDomain:"flatkey.ai",title:"Two exact pages",requestedBy:"fixture",submittedAt:stamp,status:"pending",items:[item,{...item,id:"ja",language:"ja",pageUrl:pageUrl+"-ja",contentVersion:"v1-ja",previewContentVersion:"v1-ja"}],decisions:[],supersedesApprovalIds:[],evidence};
  await saveWorkflowMutation({requestId:id+"-submit",action:"save_approval",expectedVersion:0,record:pending},"collector");
  const decided={...pending,status:"approved",decisions:[{id:"approve",itemIds:["en","ja"],decision:"approved",decidedBy:"Human fixture",decidedAt:new Date().toISOString(),note:"Reviewed exact local fixture",evidence}]};
  await assert.rejects(saveWorkflowMutation({requestId:id+"-forged",action:"save_approval",expectedVersion:1,record:decided},"collector"),/负责人登录/);
@@ -91,4 +106,16 @@ test("PostgreSQL serializes human decisions, duplicate publishing and withdrawal
  await assert.rejects(saveWorkflowMutation({requestId:id+"-late-publish",action:"record_publication",expectedVersion:0,record:{...publication,id:id+"-ja-pub",approvalItemId:"ja",pageUrl:pageUrl+"-ja",country:null,keyword:null,language:"ja",contentVersion:"v1-ja",kind:"translation",sourcePublicationId:accepted.id,publishedAt:new Date().toISOString()}},"collector"),/撤回/);
  const history=await prisma.seoWorkflowEvent.findMany({where:{recordKey:"approval:"+id},orderBy:{version:"asc"}});
  assert.deepEqual(history.map(row=>row.version),[1,2,3]);assert.equal(history[1].payload.decisions[0].decision,"approved");
+});
+
+
+test("GA4 business imports are idempotent and read back exact interval/source evidence", async () => {
+ const { saveBusinessAnalytics, loadBusinessAnalytics } = require("../src/lib/services/seo-business-analytics.ts");
+ const row={version:1,siteDomain:"flatkey.ai",propertyId:"541304395",source:"google-api",start:"2026-11-01",end:"2026-11-07",timezone:"America/Los_Angeles",country:"JP",scope:"session-organic-search",observedAt:"2026-11-09T12:00:00Z",distinctOverWholePeriod:true,complete:true,reasons:[],rows:[{event:"gpu_rental_success",events:12,users:7}]};
+ const receipts=await Promise.all(Array.from({length:5},()=>saveBusinessAnalytics(row)));
+ assert.ok(receipts.every(receipt=>receipt.id===receipts[0].id && receipt.stored));
+ assert.equal(await prisma.seoReportVersion.count({where:{id:receipts[0].id}}),1);
+ const loaded=await loadBusinessAnalytics(row.start,row.end);
+ assert.equal(loaded.find(value=>value.country==="JP").rows[0].users,7);
+ await assert.rejects(saveBusinessAnalytics({...row,source:"invented"}));
 });

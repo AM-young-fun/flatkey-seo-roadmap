@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Durable local outbox → authenticated platform; failures retain the exact request for safe replay.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
-const { workflowMutationSchema, workflowClaimSchema } = (() => {
+const { workflowMutationSchema, workflowClaimSchema, WORKFLOW_SCHEMAS, ACTION_KIND } = (() => {
  const ts = require("typescript"), syncfs = require("node:fs");
  require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(syncfs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
  return require("../src/lib/seo-workflow.ts");
@@ -42,6 +42,7 @@ async function run() {
   if (!commands.length || commands.length > 1000) throw Error("invalid_command_count");
   for (const command of commands) {
    const value = workflowMutationSchema.parse(command);
+   WORKFLOW_SCHEMAS[ACTION_KIND[value.action]].parse(value.record);
    const body = JSON.stringify(value), hash = crypto.createHash("sha256").update(body).digest("hex");
    const file = path.join(directory, value.requestId + ".json");
    try { await fs.writeFile(file, body, { flag: "wx", mode: 0o600 }); }
@@ -62,6 +63,7 @@ async function run() {
  for (const file of files) {
   const receiptFile = path.join(directory, file.replace(/\.json$/, ".receipt.json"));
   const command = workflowMutationSchema.parse(JSON.parse(await fs.readFile(path.join(directory, file), "utf8")));
+  WORKFLOW_SCHEMAS[ACTION_KIND[command.action]].parse(command.record);
   try { const receipt = JSON.parse(await fs.readFile(receiptFile, "utf8")); if (receiptMatches(receipt, origin.origin, command)) continue; } catch { /* No confirmed destination-bound receipt. */ }
   const result = await submit("/api/seo/workflow", command);
   if (result.stored !== true || result.storage !== "database") throw Error("production_persistence_unconfirmed");

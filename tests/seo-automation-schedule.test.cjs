@@ -29,7 +29,7 @@ test("paused paid queries have no advertised next execution; resumed and emergen
   let plans = readonlyAutomationPlans(status);
   assert.equal(plans[0].configurationState, "paused"); assert.equal(plans[0].nextConfiguredAt, null);
   assert.equal(plans[1].executionLocation, "server"); assert.equal(plans[1].configurationState, "unknown");
-  assert.equal(plans.filter(plan => plan.executionLocation === "computer").length, 14);
+  assert.equal(plans.filter(plan => plan.executionLocation === "computer").length, require("../src/lib/data/seo-automation-config.json").tasks.length);
   status.controls.enabled = true;
   assert.equal(readonlyAutomationPlans(status)[0].nextConfiguredAt, "2026-12-03T00:00:00Z");
   status.controls.emergencyStopped = true;

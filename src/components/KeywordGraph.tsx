@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { DashboardKeyword } from "@/lib/types";
 import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { keywordGraphVolume, keywordGraphSize } from "@/lib/keyword-graph-data";
+import { keywordGraphDimensions, keywordGraphViewport, type KeywordGraphViewport } from "@/lib/keyword-graph-viewport";
 import {
   displayBucket,
   displayRank,
@@ -15,7 +16,7 @@ export function KeywordGraph({
   keywords: DashboardKeyword[]; region?: "all" | SearchRegionCode;
 }) {
   const element = useRef<HTMLDivElement>(null);
-  const viewport=useRef<{zoom?:number;center?:unknown}>({});
+  const viewport = useRef<KeywordGraphViewport>({});
   const option = useMemo<echarts.EChartsOption>(() => {
     const ids = new Set(keywords.map((keyword) => keyword.id));
     const groups = new Map<string, DashboardKeyword[]>();
@@ -115,21 +116,35 @@ export function KeywordGraph({
     const target = element.current;
     let disposed = false;
     let chart: echarts.ECharts | undefined;
-    let observer: ResizeObserver | undefined;
-    void import("@/lib/charts").then(({ init }) => {
+    let init: typeof import("@/lib/charts")["init"] | undefined;
+    const updateSize = () => {
+      if (disposed || !init) return;
+      const size = keywordGraphDimensions(target);
+      // A detached/hidden container is a temporary layout state, not a 0px chart.
+      // Leave its current transform alone and resume on the next positive-size observation.
+      if (!size) return;
+      if (!chart) {
+        chart = init(target, undefined, size);
+        const next = { ...option, series: (option.series as echarts.GraphSeriesOption[]).map(series => ({ ...series, ...viewport.current })) };
+        chart.setOption(next, true);
+      } else if (chart.getWidth() !== size.width || chart.getHeight() !== size.height) {
+        chart.resize(size);
+      }
+    };
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(target);
+    void import("@/lib/charts").then(module => {
       if (disposed) return;
-      chart = init(target);
-      const next={...option,series:(option.series as echarts.GraphSeriesOption[]).map(series=>({...series,...viewport.current}))};
-      chart.setOption(next, true);
-      observer = new ResizeObserver(() => chart?.resize());
-      observer.observe(target);
+      init = module.init;
+      updateSize();
     });
     return () => {
       disposed = true;
-      observer?.disconnect();
-      const series=(chart?.getOption().series as {zoom?:number;center?:unknown}[]|undefined)?.[0];
-      if(series)viewport.current={zoom:series.zoom,center:series.center};
+      observer.disconnect();
+      const series = (chart?.getOption().series as unknown[] | undefined)?.[0];
+      if (series) viewport.current = keywordGraphViewport(series);
       chart?.dispose();
+      chart = undefined;
     };
   }, [keywords.length, option]);
   return keywords.length ? (
@@ -140,6 +155,6 @@ export function KeywordGraph({
       aria-label={`${region === "all" ? "四国汇总" : REGIONS[region].label}关键词关系图，圆点大小表示月搜索量，颜色表示实际排名，悬停查看具体声量`}
     />
   ) : (
-    <div className="emptyGraph">暂无关键词，请通过顶部「数据管理」导入</div>
+    <div className="emptyGraph">当前筛选没有匹配关键词。可切换国家、清空模块筛选，或到“关键词选题”核查目标页登记。</div>
   );
 }

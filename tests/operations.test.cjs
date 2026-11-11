@@ -23,6 +23,7 @@ mock("src/lib/prisma.ts", { prisma: {
 } });
 const { schedulerState, plannedRankingTime, operationStateLabels, configuredAutomationPlans, nextAutomationTime } = require("../src/lib/operations.ts");
 const { loadOperationsStatus } = require("../src/lib/services/operations.ts");
+mock("src/lib/seo-analytics-access.ts", { analyticsLocalPreview: () => false });
 const { GET } = require("../src/app/api/operations/route.ts");
 test("configured schedule and unfinished heartbeat cannot masquerade as successful execution", () => {
   const now = new Date("2026-10-19T08:00:00Z");
@@ -48,11 +49,11 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.scheduler.state, "UNCONFIRMED");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
-  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 10:30");
+  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 08:30（仓库配置）");
   assert.equal(status.plans.find(row => row.id === "10-30-seo").cadence, "每日 09:00");
   assert.equal(status.plans.find(row => row.id === "automation").state, "配置已暂停");
   assert.equal(status.plans.find(row => row.id === "automation").nextAt, null);
-  assert.equal(status.automationConfigurationVerifiedAt, "2026-11-10");
+  assert.equal(status.automationConfigurationVerifiedAt, require("../src/lib/data/seo-automation-config.json").verifiedAt);
   assert.match(status.records[0].name, /第1期/);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
   for (const secret of ["encryptedCredentials", "LOGIN_PWD", "CRON_SECRET", "rawResponse", "configJson"]) assert.ok(!JSON.stringify(status).includes(secret));
@@ -67,9 +68,9 @@ test("actual Codex configuration keeps paused tasks unscheduled and first-weekda
 });
 test("operations API needs a real session; denied reads never touch the database", async () => {
   calls = 0; session = false;
-  assert.equal((await GET()).status, 401); assert.equal(calls, 0);
+  assert.equal((await GET(new Request("https://platform.example/api/operations"))).status, 401); assert.equal(calls, 0);
   session = true;
-  const response = await GET();
+  const response = await GET(new Request("https://platform.example/api/operations"));
   assert.equal(response.status, 200); assert.match(response.headers.get("cache-control"), /private, no-store/);
 });
 

@@ -48,7 +48,7 @@ test("each leaderboard is capped at five and report text shows dates, URL, value
  assert.equal(report.pagePerformance.reduce((n,r)=>n+r.pages.length,0),10);
  assert.match(report.text,/Google 点击 Top 5.*2026-11-10.*覆盖 1\/5 站/);assert.match(report.text,/自然搜索访问（会话） Top 5/);
  assert.match(report.text,/https:\/\/flatkey.ai\/p7.*Google 点击 8/);assert.match(report.text,/缺少前一日基线/);assert.match(report.text,/覆盖缺口/);
- assert.equal(buildSeoDigest({...input,date:"2026-11-13",now:new Date("2026-11-13T10:00:00Z")}).pagePerformance.length,0);
+ assert.equal(buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00Z")}).pagePerformance.length,0);
 });
 test("zero is only displayed as an observed result and no data never becomes zero pages", () => {
  assert.equal(rank([])[0].date,null); const empty=rank([gs("2026-11-10",[])]);assert.equal(empty[0].date,"2026-11-10");assert.equal(empty[0].pages.length,0);

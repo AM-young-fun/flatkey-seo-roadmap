@@ -8,7 +8,7 @@ const ENDPOINT = "/api/seo/workflow/approval-check";
 const DEFAULT_ORIGIN = "https://flatkey-seo-roadmap.vercel.app";
 const INPUT_KEYS = ["approvalId", "approvalItemId", "taskId", "pageUrl", "language", "contentVersion"];
 const WIRE_KEYS = ["approvalId", "itemId", "taskId", "pageUrl", "language", "contentVersion"];
-const DENIAL_CODES = new Set(["publication_unapproved", "publication_approval_mismatch", "publication_approval_unverified", "dependency_incomplete", "approval_task_missing", "approval_task_mismatch", "approval_context_mismatch", "unauthorized", "invalid_origin", "invalid_record", "invalid_json", "storage_unavailable"]);
+const DENIAL_CODES = new Set(["approval_preview_missing", "publication_unapproved", "publication_approval_mismatch", "publication_approval_unverified", "dependency_incomplete", "approval_task_missing", "approval_task_mismatch", "approval_context_mismatch", "unauthorized", "invalid_origin", "invalid_record", "invalid_json", "storage_unavailable"]);
 
 class CheckError extends Error {
   constructor(code) { super(code); this.code = code; }

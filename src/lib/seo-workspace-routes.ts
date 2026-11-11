@@ -4,7 +4,7 @@ export const executionViewRoutes = {
   deliveries: "/work?panel=deliveries",
   optimizations: "/pages?panel=optimizations",
   issues: "/issues",
-  runs: "/work?panel=runs",
+  runs: "/automations",
 } as const;
 
 export type WorkspaceSearchParams = Record<string, string | string[] | undefined>;

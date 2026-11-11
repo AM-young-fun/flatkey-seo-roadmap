@@ -1,9 +1,13 @@
 name: Server SEO daily collection
 on:
   schedule:
-    - cron: '30 2 * * *'
+    - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
+      business_only:
+        description: Only query and archive GA4 business events/funnels; skip inventory and traffic backfill
+        type: boolean
+        default: false
       lookback_days:
         description: Ended days per property (14 incremental; 90 historical gap backfill)
         type: choice
@@ -43,12 +47,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Sync and verify page inventory
         id: inventory
+        if: ${{ !inputs.business_only }}
         continue-on-error: true
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
         run: node scripts/server-seo-inventory.cjs
       - name: Collect, backfill and verify production
         id: analytics
+        if: ${{ !inputs.business_only }}
         continue-on-error: true
         env:
           SEO_COLLECTION_RESULT: /tmp/seo-collection-result.json
@@ -58,24 +64,39 @@ jobs:
         run: node scripts/server-seo-daily.cjs
       - name: Collect independent period users and registrations
         id: periods
-        if: always() && vars.SEO_WORKFLOW_ENABLED == 'true'
+        if: always() && !inputs.business_only && vars.SEO_WORKFLOW_ENABLED == 'true'
         continue-on-error: true
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: node scripts/server-seo-periods.cjs
+      - name: Collect GA4 business events and distinct interval users
+        id: business
+        if: always() && (vars.SEO_GA4_BUSINESS_COLLECTION_ENABLED == 'true' || inputs.business_only)
+        continue-on-error: true
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/server-seo-business.cjs --import
       - name: Enforce collection health
         if: always()
         env:
+          BUSINESS_ONLY: ${{ inputs.business_only }}
           INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
           ANALYTICS_OUTCOME: ${{ steps.analytics.outcome }}
           PERIODS_OUTCOME: ${{ steps.periods.outcome }}
+          BUSINESS_OUTCOME: ${{ steps.business.outcome }}
         run: |
-          test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success
-          test "$PERIODS_OUTCOME" != failure
+          if [ "$BUSINESS_ONLY" = true ]; then
+            test "$BUSINESS_OUTCOME" = success
+          else
+            test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success
+            test "$PERIODS_OUTCOME" != failure
+            test "$BUSINESS_OUTCOME" != failure
+          fi
   notify:
     needs: collect
-    if: always() && needs.collect.result != 'skipped' && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
+    if: always() && needs.collect.result != 'skipped' && !inputs.business_only && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

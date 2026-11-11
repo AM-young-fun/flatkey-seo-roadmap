@@ -2,8 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { isLocalPreviewOrigin, isLocalPreviewRequest } from "@/lib/preview-origin";
 import { prisma } from "@/lib/prisma";
 import { parseSitemap, mergeInventory, type InventoryPage } from "@/lib/seo-page-inventory";
@@ -16,8 +15,7 @@ const previewFile = () => process.cwd() + "/.local/page-inventory.json";
 const preview = (request: Request) => process.env.NODE_ENV === "development" && Boolean(process.env.SEO_PREVIEW_UPSTREAM_TOKEN) && isLocalPreviewRequest(request);
 async function authorized(request: Request) {
   if (preview(request)) return true;
-  const secret = getRankingImportSecret();
-  if (secret && importSecretMatches(request.headers.get("authorization"), secret)) return true;
+  if (await authenticateImportToken(request)) return true;
   return isAuthEnabled() && await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value);
 }
 async function load(local: boolean): Promise<InventoryPage[]> {

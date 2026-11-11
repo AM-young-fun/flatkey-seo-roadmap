@@ -2,8 +2,8 @@ import {previewRead} from "@/lib/seo-preview";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
-import { getRankingImportSecret } from "@/lib/import-credential";
-import { importSecretMatches, ImportRequestError, readImportJson } from "@/lib/ranking-import";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
+import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { dailySeoTrafficSchema, parseDailySeoTrafficQuery } from "@/lib/daily-seo-traffic";
 import { importDailySeoTraffic, loadDailySeoTrafficHistory } from "@/lib/services/daily-seo-traffic";
 import { importFailure } from "@/lib/import-failure";
@@ -15,8 +15,7 @@ export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
 
 async function authorized(request: Request) {
-  const secret = getRankingImportSecret();
-  if (secret && importSecretMatches(request.headers.get("authorization"), secret)) return true;
+  if (await authenticateImportToken(request)) return true;
   return isAuthEnabled() && await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value);
 }
 

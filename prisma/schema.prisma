@@ -83,6 +83,20 @@ model RankingImport {
   dailyRankings DailyRankingReport[]
 }
 
+// Managed import credentials. Plaintext is returned once on creation and never stored.
+model SeoImportToken {
+  id         String   @id @default(cuid())
+  name       String
+  tokenHash  String   @unique
+  prefix     String
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([createdAt(sort: Desc)])
+}
+
 model KeywordObservation {
   id           String       @id @default(cuid())
   keywordId    String

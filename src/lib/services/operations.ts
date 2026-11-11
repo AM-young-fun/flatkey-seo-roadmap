@@ -38,12 +38,12 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
   ].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 10);
   return {
     checkedAt: now.toISOString(),
-    automationConfigurationVerifiedAt,
+    automationConfigurationVerifiedAt, executionEvidence: "available",
     controls: { enabled: rankingEnabled && discoveryEnabled, emergencyStopped: stopped, maxRunCostMicros: config?.maxRunCostMicros ?? 0, maxMonthCostMicros: config?.maxMonthCostMicros ?? 0, discoveryMaxCostMicros: cycle.maxDiscoveryCostMicros },
     scheduler: { configured: Boolean(process.env.CRON_SECRET), cadence: "每5分钟检查及续跑任务", state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
     plans: [
       { id: "rankings", name: "DataForSEO 新词与排名", location: "项目服务器 · Vercel", cadence: "隔周周四 08:00", state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "仅Flatkey：先发现业务新词，再查询已有合适页面的正式词；美国、日本、西班牙、巴西。" },
-      { id: "traffic", name: "五站 GA4 / GSC 与页面台账", location: "GitHub Actions · 服务器采集", cadence: "每日 10:30", state: "服务器定时 · 成功待回执", nextAt:nextCollectorTime(now,"traffic"), note: "自然搜索与来源实际日期分别保存，回补近期数据；三表同步和博客任务不重复采集。任何来源缺失均保留原因。" },
+      { id: "traffic", name: "五站 GA4 / GSC 与页面台账", location: "GitHub Actions · 服务器采集", cadence: "每日 08:30（仓库配置）", state: "生产调度部署待核验", nextAt:nextCollectorTime(now,"traffic"), note: "仓库配置提前至08:30，以留出周五10:00周报窗口；生产部署与执行需读回核验。自然搜索与来源实际日期分别保存，回补近期数据；三表同步和博客任务不重复采集。任何来源缺失均保留原因。" },
       ...configuredAutomationPlans(now),
     ], records,
   };

@@ -1,0 +1,15 @@
+.panel { padding:18px 20px; background:#fff; border:1px solid #e5e9f0; border-radius:8px; margin:16px 0; }
+.header { display:flex; gap:12px; justify-content:space-between; align-items:center; flex-wrap:wrap; }
+.header h2 { margin:0; font-size:15px; font-weight:650; }
+.header > div { display:flex; gap:8px; align-items:center; }
+.header button { border:1px solid #e5e9f0; border-radius:5px; background:white; padding:8px 12px; cursor:pointer; color:#526078; }
+.note { font-size:12px; color:#64748b; line-height:1.8; }
+.table { overflow-x:auto; }
+.table table { width:100%; border-collapse:collapse; font-size:12px; }
+.table th,.table td { text-align:left; padding:10px 8px; border-bottom:1px solid #eef1f5; }
+.table th { color:#64748b; font-weight:500; }
+.table td:not(:first-child),.table th:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+.panel details { margin-top:14px; font-size:12px; color:#64748b; }
+.panel summary { cursor:pointer; }
+.panel a { color:#2563eb; margin-right:20px; }
+@media(max-width:600px) { .panel { padding:16px 14px; } .header > div { width:100%; } }
