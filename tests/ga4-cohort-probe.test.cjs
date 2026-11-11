@@ -81,6 +81,9 @@ test("diagnostic artifact excludes unknown labels and nonnumeric arbitrary value
   const shape = aggregateShape({ funnelTable: { rows: [{ dimensionValues: [{ value: "private user text" }], metricValues: [{ value: "private text" }] }] } });
   assert.equal(shape.rows[0].step, null); assert.deepEqual(shape.rows[0].values, [null]);
   assert.doesNotMatch(JSON.stringify(shape), /private/);
+  const visualization = aggregateShape({ funnelVisualization: { dimensionHeaders: [{ name: "funnelStepName" }], metricHeaders: [{ name: "activeUsers", type: "TYPE_INTEGER" }],
+    rows: [{ dimensionValues: [{ value: "1. Page-view diagnostic start" }], metricValues: [{ value: "200" }] }] } }, "funnelVisualization");
+  assert.deepEqual(visualization.metricHeaders, ["activeUsers"]); assert.equal(visualization.rows[0].step, "1. Page-view diagnostic start"); assert.deepEqual(visualization.rows[0].values, ["200"]);
 });
 
 test("HTTP 200 without a funnel table remains failed diagnostic evidence", async () => {

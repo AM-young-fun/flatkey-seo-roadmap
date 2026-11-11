@@ -54,8 +54,8 @@ function safeReceiptText(value, token, limit = 150) {
   return typeof value === "string" ? value.split(token).join("[redacted]").slice(0, limit) : null;
 }
 
-function aggregateShape(body) {
-  const table = body?.funnelTable;
+function aggregateShape(body, part = "funnelTable") {
+  const table = body?.[part];
   const headerNames = headers => Array.isArray(headers) ? headers.slice(0, 10).map(row => typeof row?.name === "string" ? row.name.slice(0, 100) : null) : null;
   const numberValue = value => typeof value === "string" && /^\d+(\.\d+)?$/.test(value) ? value : null;
   return {
@@ -103,6 +103,7 @@ async function runCohortProbe({ now = new Date(), mode = "business-contract", fe
       const { response, body, receipt } = await send(FUNNEL_URL, testCase.request);
       const validTable = body?.funnelTable && Array.isArray(body.funnelTable.dimensionHeaders) && Array.isArray(body.funnelTable.metricHeaders);
       record.receipt = { ...receipt, status: response.ok ? validTable ? "api_accepted" : "invalid_response" : "api_rejected", responseShape: response.ok ? aggregateShape(body) : null,
+        visualizationShape: response.ok ? aggregateShape(body, "funnelVisualization") : null,
         ...(!response.ok ? { providerError: safeProviderError(body, token) } : {}) };
     } catch { record.receipt = { status: "network_error" }; }
     result.queries.push(record);
