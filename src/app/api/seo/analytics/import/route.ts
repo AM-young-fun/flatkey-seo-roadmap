@@ -55,11 +55,15 @@ export async function POST(request: Request) {
       ORDER BY item."kind", item."date"
       ON CONFLICT ("kind", "date") DO UPDATE SET
         "observedAt" = EXCLUDED."observedAt", "complete" = EXCLUDED."complete", "payload" = EXCLUDED."payload"
-      WHERE (EXCLUDED."complete" AND NOT "SeoAnalyticsDay"."complete")
+      WHERE (EXCLUDED."payload"->>'hostScope' = 'production-hosts-v1'
+          AND "SeoAnalyticsDay"."payload"->>'hostScope' IS DISTINCT FROM 'production-hosts-v1'
+          AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
+        OR (("SeoAnalyticsDay"."payload"->>'hostScope' IS DISTINCT FROM 'production-hosts-v1'
+          OR EXCLUDED."payload"->>'hostScope' = 'production-hosts-v1') AND ((EXCLUDED."complete" AND NOT "SeoAnalyticsDay"."complete")
         OR (EXCLUDED."complete" = "SeoAnalyticsDay"."complete" AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
         OR (EXCLUDED."kind" LIKE 'ga4-pages%' AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt"
           AND EXCLUDED."payload"->>'hostnameDimension' = 'hostName'
-          AND "SeoAnalyticsDay"."payload"->>'hostnameDimension' IS DISTINCT FROM 'hostName')
+          AND "SeoAnalyticsDay"."payload"->>'hostnameDimension' IS DISTINCT FROM 'hostName')))
     `;
     if (batch) return Response.json({ stored, received: records.length }, { headers });
     const row = records[0].payload;
@@ -88,11 +92,11 @@ export async function GET(request: Request) {
     orderBy: [{ date: "desc" }, { kind: "asc" }],
   });
   // Small metadata projection avoids transferring full 90-day query payloads.
-  const hosts = await prisma.$queryRaw<Array<{ kind: string; date: string; hostnameDimension: string | null }>>(Prisma.sql`
-    SELECT kind, date, payload->>'hostnameDimension' AS "hostnameDimension"
-    FROM "SeoAnalyticsDay" WHERE date >= ${start} AND date <= ${end} AND kind LIKE 'ga4-pages%'
+  const hosts = await prisma.$queryRaw<Array<{ kind: string; date: string; hostnameDimension: string | null; hostScope: string | null }>>(Prisma.sql`
+    SELECT kind, date, payload->>'hostnameDimension' AS "hostnameDimension", payload->>'hostScope' AS "hostScope"
+    FROM "SeoAnalyticsDay" WHERE date >= ${start} AND date <= ${end} AND kind LIKE 'ga4-%'
       ${kind ? Prisma.sql`AND kind = ${kind}` : Prisma.empty}
   `);
-  const byKey = new Map(hosts.map(row => [`${row.kind}:${row.date}`, row.hostnameDimension]));
-  return Response.json({ rows: rows.map(row => ({ ...row, ...(byKey.has(`${row.kind}:${row.date}`) ? { hostnameDimension: byKey.get(`${row.kind}:${row.date}`) } : {}) })) }, { headers });
+  const byKey = new Map(hosts.map(row => [`${row.kind}:${row.date}`, { hostnameDimension: row.hostnameDimension, hostScope: row.hostScope }]));
+  return Response.json({ rows: rows.map(row => ({ ...row, ...(byKey.has(`${row.kind}:${row.date}`) ? byKey.get(`${row.kind}:${row.date}`) : {}) })) }, { headers });
 }

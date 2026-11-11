@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { shiftWorkflowDay } from "./seo-workflow";
 
 export const organicPeriodSchema = z.object({
-  siteDomain: z.literal("flatkey.ai"), propertyId: z.literal("541304395"),
+  hostScope: z.literal("production-hosts-v1").optional(), siteDomain: z.literal("flatkey.ai"), propertyId: z.literal("541304395"),
   start: z.iso.date(), end: z.iso.date(), timezone: z.literal("America/Los_Angeles"),
   country: z.enum(["all", "US", "JP", "BR", "ES"]), source: z.literal("google-api"),
   scope: z.literal("session-organic-search"), channelDimension: z.literal("sessionDefaultChannelGroup"),
@@ -31,7 +31,7 @@ export function organicReportWindows(date: string, lastClosed: string) {
 
 export function compareOrganicPeriods(rows: OrganicPeriod[], date: string) {
   const currentStart = shiftWorkflowDay(date, -7), currentEnd = shiftWorkflowDay(date, -1);
-  const valid = rows.filter(row => row.country === "all" && row.complete && row.distinctOverWholePeriod && row.scope === "session-organic-search");
+  const valid = rows.filter(row => row.hostScope === "production-hosts-v1" && row.country === "all" && row.complete && row.distinctOverWholePeriod && row.scope === "session-organic-search");
   const current = valid.filter(row => row.start === currentStart && row.end <= currentEnd)
     .sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));
   for (const row of current) {

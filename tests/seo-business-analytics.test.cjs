@@ -5,7 +5,7 @@ Module._load = function(name, ...rest) { return name === "server-only" ? {} : lo
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { businessAnalyticsSchema, latestBusinessPeriod, businessDigestLines } = require("../src/lib/seo-business-analytics.ts");
 const { fetchGa4Business } = require("../src/lib/services/ga4-business.ts");
-const fixture = (extra={}) => ({ version:1,siteDomain:"flatkey.ai",propertyId:"541304395",source:"google-api",start:"2026-11-01",end:"2026-11-07",timezone:"America/Los_Angeles",country:"all",scope:"session-organic-search",observedAt:"2026-11-09T12:00:00Z",distinctOverWholePeriod:true,complete:true,reasons:[],rows:[{event:"gpu_rental_success",events:12,users:7}],...extra });
+const fixture = (extra={}) => ({ hostScope:"production-hosts-v1",version:1,siteDomain:"flatkey.ai",propertyId:"541304395",source:"google-api",start:"2026-11-01",end:"2026-11-07",timezone:"America/Los_Angeles",country:"all",scope:"session-organic-search",observedAt:"2026-11-09T12:00:00Z",distinctOverWholePeriod:true,complete:true,reasons:[],rows:[{event:"gpu_rental_success",events:12,users:7}],...extra });
 const provider = (extra={}) => ({ dimensionHeaders:[{name:"eventName"}],metricHeaders:[{name:"eventCount"},{name:"totalUsers"}],rows:[{dimensionValues:[{value:"gpu_rental_success"}],metricValues:[{value:"12"},{value:"7"}]}],rowCount:1,metadata:{timeZone:"America/Los_Angeles"},...extra });
 
 test("business intervals reject duplicate events, unclosed days, future, unknown and mislabeled complete data",()=>{
@@ -70,4 +70,10 @@ test("engagement verifies standard duration independently of missing custom acti
  process.env.SEO_GA4_ACCESS_TOKEN="fixture-only";
  t.mock.method(globalThis,"fetch",async url=>url.endsWith("/metadata")?Response.json({metrics:[]}):Response.json({metricHeaders:[{name:"userEngagementDuration"},{name:"activeUsers"}],rows:[{metricValues:[{value:"150.5"},{value:"3"}]}]}));
  const value=await fetchGa4Engagement(journeyQuery);assert.equal(value.status,"ready");assert.equal(value.engagementSeconds,150.5);assert.equal(value.activeTimeCustomMetric,"missing");
+});
+
+test("legacy shared-property business totals are hidden without production hostname provenance",()=>{
+ const legacy=fixture({hostScope:undefined});const row=latestBusinessPeriod([legacy],legacy.start,legacy.end,"all",legacy.scope);
+ assert.equal(row.complete,false);assert.deepEqual(row.rows,[]);assert.match(row.reasons[0],/正式域名/);
+ assert.doesNotMatch(businessDigestLines([legacy],legacy.start,legacy.end).join("\n"),/12 次/);
 });

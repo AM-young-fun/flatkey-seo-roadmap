@@ -137,14 +137,14 @@ async function run() {
           logQuality(site, country, range, "siteSessions", flatkey ? report.quality?.siteSessions : report.quality);
           if (flatkey) logQuality(site, country, range, "siteRegistrations", report.quality?.siteRegistrations);
           if (!report.daily.length) throw new Error("source_has_no_data");
-          const base = { ...common, property: site.ga4, scope: "session-organic-search", observedAt: report.fetchedAt };
+          const base = { ...common, ...(flatkey ? { hostScope: report.hostScope } : {}), property: site.ga4, scope: "session-organic-search", observedAt: report.fetchedAt };
           await newestDays(report.daily, async day => {
             expectDay(base, "ga4-site", day.date);
             const sessions = flatkey ? (report.quality.siteSessions.complete ? day.sessions : null) : day.sessions;
             const registrations = flatkey && report.quality.siteRegistrations.complete ? day.registrations : null;
             if (sessions === null && registrations === null) return;
             const old = saved.get(recordKey({ ...base, kind: "ga4-site" }) + ":" + day.date);
-            if (old?.complete && day.date < shiftDay(range.end, -13)) return;
+            if (old?.complete && (!flatkey || old.hostScope === report.hostScope && old.hostScope) && day.date < shiftDay(range.end, -13)) return;
             await save({ ...base, kind: "ga4-site", date: day.date, sessions, registrations, complete: sessions !== null && registrations !== null });
             sourceDates++;
           });
@@ -158,8 +158,8 @@ async function run() {
             await newestDays(report.daily, async day => {
               expectDay(base, "ga4-pages", day.date);
               const old = saved.get(recordKey({ ...base, kind: "ga4-pages" }) + ":" + day.date);
-              if (old?.complete && old.hostnameDimension === "hostName" && day.date < shiftDay(range.end, -13)) return;
-              const rows = (pages[day.date] ?? []).filter(row => row.hostname === site.domain || row.hostname.endsWith(`.${site.domain}`))
+              if (old?.complete && (!flatkey || old.hostScope === report.hostScope && old.hostScope) && old.hostnameDimension === "hostName" && day.date < shiftDay(range.end, -13)) return;
+              const rows = (pages[day.date] ?? []).filter(row => [site.domain, `www.${site.domain}`, ...(flatkey ? ["console.flatkey.ai"] : [])].includes(row.hostname))
                 .map(({ hostname, path, sessions, registrations }) => ({ hostname, path, sessions, registrations }));
               if (rows.length || sessionsComplete) await save({ ...base, observedAt: pageReport.fetchedAt, kind: "ga4-pages", date: day.date,
                 hostnameDimension: "hostName", registrationMissingReason: flatkey ? "landing_host_attribution_unverified" : "cluster_registration_event_unverified", sessionsComplete, complete, rows });

@@ -8,7 +8,7 @@ require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule
 const { analyticsObservationSchema, analyticsView, landingTrafficDays, observedPageUrls, pageDailyView, pageQueryView, rangeDays, safeAnalyticsUrl } = require("../src/lib/seo-analytics.ts");
 const range = { start: "2026-10-04", end: "2026-10-05" };
 const observedAt = "2026-11-04T03:00:00.000Z";
-const ga4 = { observedAt, source: "browser-export", property: "541304395", scope: "session-organic-search" };
+const ga4 = { hostScope: "production-hosts-v1", observedAt, source: "browser-export", property: "541304395", scope: "session-organic-search" };
 const gsc = { observedAt, source: "browser-export", property: "sc-domain:flatkey.ai" };
 const url = "https://flatkey.ai/zh/models";
 const day = (date, sessions, registrations) => ({ ...ga4, kind: "ga4-site", date, sessions, registrations, complete: sessions !== null && registrations !== null });
@@ -181,4 +181,14 @@ test("a period never adds per-day distinct registrants into a fake unique-user t
     rows: [{ hostname: "flatkey.ai", path: "/", sessions: 4, registrations: 1 }] }));
   const result = analyticsView(range, ["https://flatkey.ai/"], rows).pages[0].ga4;
   assert.equal(result.sessions, 8); assert.equal(result.registrations, null);
+});
+
+test("shared-property legacy totals are withheld; exact page hosts exclude staging and Mochi",()=>{
+ const old=day(range.start,777,7);delete old.hostScope;
+ const records=[old,{...ga4,kind:"ga4-pages",date:range.start,complete:false,sessionsComplete:true,rows:[
+ {hostname:"flatkey.ai",path:"/gpu",sessions:3,registrations:null},
+ {hostname:"staging-console.flatkey.ai",path:"/gpu",sessions:99,registrations:null},
+ {hostname:"mochichatbot.com",path:"/",sessions:88,registrations:null}]}];
+ const view=analyticsView(range,["https://flatkey.ai/gpu","https://staging-console.flatkey.ai/gpu"],records);
+ assert.equal(view.daily[0].sessions,null);assert.match(view.ga4.reason,/正式域名/);assert.equal(view.pages[0].ga4.sessions,3);assert.equal(view.pages[1].ga4,null);
 });

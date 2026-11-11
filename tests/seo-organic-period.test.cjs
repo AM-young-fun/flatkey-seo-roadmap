@@ -1,7 +1,7 @@
 const { test } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), ts = require("typescript");
 require.extensions[".ts"] = (m,f) => m._compile(ts.transpileModule(fs.readFileSync(f,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,f);
 const { organicPeriodSchema, organicReportWindows, compareOrganicPeriods } = require("../src/lib/seo-organic-period.ts");
-const period=(start,end,extra={})=>({siteDomain:"flatkey.ai",propertyId:"541304395",start,end,timezone:"America/Los_Angeles",country:"all",source:"google-api",scope:"session-organic-search",channelDimension:"sessionDefaultChannelGroup",users:20,registrations:2,registrationEvent:"sign_up_success",distinctOverWholePeriod:true,observedAt:"2026-11-10T02:00:00Z",complete:true,reasons:[],...extra});
+const period=(start,end,extra={})=>({hostScope:"production-hosts-v1",siteDomain:"flatkey.ai",propertyId:"541304395",start,end,timezone:"America/Los_Angeles",country:"all",source:"google-api",scope:"session-organic-search",channelDimension:"sessionDefaultChannelGroup",users:20,registrations:2,registrationEvent:"sign_up_success",distinctOverWholePeriod:true,observedAt:"2026-11-10T02:00:00Z",complete:true,reasons:[],...extra});
 test("Friday's not-yet-closed source day yields equal shorter weekly windows",()=>{
  assert.deepEqual(organicReportWindows("2026-11-13","2026-11-11"),[{start:"2026-11-06",end:"2026-11-11"},{start:"2026-10-30",end:"2026-11-04"}]);
  assert.deepEqual(organicReportWindows("2026-11-14","2026-11-12"),[]);

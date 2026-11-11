@@ -1,3 +1,4 @@
+import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
 import { loadGithubChannels } from "./seo-github-channel";
 import { getSeoReportingControl } from "./seo-reporting-control";
@@ -5,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, SEO_REPORT_ROBOT, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
-import { analyticsObservationSchema, type AnalyticsObservation } from "@/lib/seo-analytics";
+import { analyticsObservationSchema, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { shiftWorkflowDay, workflowWeek } from "@/lib/seo-workflow";
@@ -46,7 +47,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     const parsed = analyticsObservationSchema.safeParse(payload);
     if (!parsed.success) { issues.push("存在未通过结构校验的历史数据，已排除。"); continue; }
     const row = parsed.data;
-    if (row.kind === "gsc-pages" || row.kind === "ga4-pages") pageObservations.push(row);
+    if (row.kind === "gsc-pages" || row.kind === "ga4-pages") pageObservations.push(...scopedAnalytics([row]));
+    if (row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) { issues.push(GA4_HOST_UNVERIFIED); continue; }
     const site = clusterDomainForProperty(row.property) ?? "flatkey.ai";
     if (row.kind === "ga4-site") observations.push({ site, country: row.country, date: row.date, source: "GA4", timezone: CLUSTER_SITES.find(s => s.domain === site)?.ga4TimeZone ?? "America/Los_Angeles", observedAt: row.observedAt, complete: row.sessions !== null, scope: "session-organic-search", sessions: row.sessions, registrations: row.complete ? row.registrations : null });
     if (row.kind === "gsc-site") observations.push({ site, country: row.country, date: row.date, source: "GSC", timezone: "America/Los_Angeles", observedAt: row.observedAt, complete: row.complete, scope: "google-web", clicks: row.clicks, impressions: row.impressions });

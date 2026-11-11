@@ -1,4 +1,5 @@
 import "server-only";
+import { GA4_HOST_SCOPE, FLATKEY_ENTRY_HOSTS, ga4HostFilter } from "../ga4-host-scope";
 
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
 import { propertyToday, shiftDay, validRange, type DateRange } from "../seo-date-range";
@@ -23,6 +24,7 @@ export type Ga4OrganicDay = {
 export type Ga4OrganicPage = Ga4OrganicDay & { path: string; hostname: string };
 export type Ga4ReportQuality = { complete: boolean; reasons: string[] };
 export type Ga4OrganicResult = DateRange & {
+  hostScope: typeof GA4_HOST_SCOPE;
   propertyId: string;
   timezone: string;
   fetchedAt: string;
@@ -162,7 +164,7 @@ async function coreReport(
 ) {
   const dimensions = ["date", ...(byPage ? ["landingPage", "hostName"] : [])];
   const channel = exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL);
-  const filters = [channel];
+  const filters: unknown[] = [channel, ...(id === GA4_PROPERTY_ID ? [ga4HostFilter(FLATKEY_ENTRY_HOSTS)] : [])];
   if (country) filters.push(exact("countryId", country));
   if (registration) filters.push(exact("eventName", GA4_REGISTRATION_EVENT));
   else if (byPage) filters.push(exact("eventName", "session_start"));
@@ -248,7 +250,7 @@ export async function fetchGa4Organic(range: DateRange, country?: SearchRegionCo
   }));
   return {
     ...range,
-    propertyId: id,
+    hostScope: GA4_HOST_SCOPE, propertyId: id,
     timezone: GA4_TIMEZONE,
     fetchedAt: new Date().toISOString(),
     daily,
@@ -320,7 +322,7 @@ export async function fetchGa4OrganicPeriod(range: DateRange, country?: SearchRe
   if (!validRange(range) || range.end >= propertyToday() || Date.parse(range.end) - Date.parse(range.start) > 365 * 86_400_000) throw new RangeError("请选择 GA4 属性时区内 1 至 366 个已结束日。");
   const id = propertyId(), token = await accessToken();
   const report = async (registration: boolean) => {
-    const filters = [exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL)];
+    const filters: unknown[] = [exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL), ga4HostFilter(FLATKEY_ENTRY_HOSTS)];
     if (country) filters.push(exact("countryId", country));
     if (registration) filters.push(exact("eventName", GA4_REGISTRATION_EVENT));
     const result = await requestReport(id, token, "runReport", {
@@ -336,7 +338,7 @@ export async function fetchGa4OrganicPeriod(range: DateRange, country?: SearchRe
   };
   const [users, registrations] = await Promise.all([report(false), report(true)]);
   const reasons = [...new Set([...users.reasons.map(reason => `users:${reason}`), ...registrations.reasons.map(reason => `registrations:${reason}`)])];
-  return { ...range, range, propertyId: id, timezone: GA4_TIMEZONE, fetchedAt: new Date().toISOString(),
+  return { ...range, range, hostScope: GA4_HOST_SCOPE, propertyId: id, timezone: GA4_TIMEZONE, fetchedAt: new Date().toISOString(),
     scope: "session-organic-search" as const, users: users.reasons.length ? null : users.value,
     registrations: registrations.reasons.length ? null : registrations.value,
     quality: { complete: reasons.length === 0, reasons } };

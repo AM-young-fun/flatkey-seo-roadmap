@@ -16,7 +16,7 @@ async function run() {
  let imported = 0;
  for (const range of windows) {
   const report = await fetchGa4OrganicPeriod(range);
-  const row = organicPeriodSchema.parse({ ...range, siteDomain: "flatkey.ai", propertyId: report.propertyId, timezone: report.timezone, country: "all", source: "google-api", scope: report.scope, channelDimension: "sessionDefaultChannelGroup", users: report.users, registrations: report.registrations, registrationEvent: "sign_up_success", distinctOverWholePeriod: true, observedAt: report.fetchedAt, complete: report.quality.complete, reasons: report.quality.reasons });
+  const row = organicPeriodSchema.parse({ hostScope: report.hostScope, ...range, siteDomain: "flatkey.ai", propertyId: report.propertyId, timezone: report.timezone, country: "all", source: "google-api", scope: report.scope, channelDimension: "sessionDefaultChannelGroup", users: report.users, registrations: report.registrations, registrationEvent: "sign_up_success", distinctOverWholePeriod: true, observedAt: report.fetchedAt, complete: report.quality.complete, reasons: report.quality.reasons });
   const response = await fetch("https://flatkey-seo-roadmap.vercel.app/api/seo/periods", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + process.env.SEO_IMPORT_TOKEN }, body: JSON.stringify(row), redirect: "error", signal: AbortSignal.timeout(60000) });
   if (!response.ok) throw Error("period_import_" + response.status);
   const receipt = await response.json();

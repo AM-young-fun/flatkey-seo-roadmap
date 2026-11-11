@@ -1,3 +1,4 @@
+import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED, isFlatkeyEntryHost } from "./ga4-host-scope";
 import { z } from "zod";
 import { shiftDay, validRange, type DateRange } from "./seo-date-range";
 import { REGION_CODES, type SeoCountry } from "./seo";
@@ -11,7 +12,7 @@ const base = {
   complete: z.boolean(),
   country: z.enum(REGION_CODES).optional(),
 };
-const ga4 = { ...base, property: z.literal("541304395"), scope: z.literal("session-organic-search") };
+const ga4 = { hostScope: z.literal("production-hosts-v1").optional(), ...base, property: z.literal("541304395"), scope: z.literal("session-organic-search") };
 const sessions = { sessions: count.nullable(), registrations: count.nullable() };
 const gscMetrics = { clicks: count, impressions: count, position: z.number().finite().nonnegative().nullable() };
 const gscProperty = z.enum(["sc-domain:flatkey.ai", "https://flatkey.ai/", "https://www.flatkey.ai/"]);
@@ -112,10 +113,20 @@ function indexLandingRows(rows: { path: string; hostname?: string | null; sessio
   return index;
 }
 
+/** Keep raw archives intact; unscoped totals cannot be presented as Flatkey-only. */
+export function scopedAnalytics(observations: AnalyticsObservation[]): AnalyticsObservation[] {
+  return observations.flatMap((row): AnalyticsObservation[] => {
+    if (row.property !== "541304395") return [row];
+    if (row.kind === "ga4-site" && row.hostScope !== GA4_HOST_SCOPE) return [];
+    if (row.kind === "ga4-pages") return [{ ...row, rows: row.rows.filter(page => !page.hostname || isFlatkeyEntryHost(page.hostname)) }];
+    return [row];
+  });
+}
+
 export function analyticsView(range: DateRange, urls: string[], observations: AnalyticsObservation[]) {
   const dates = rangeDays(range);
   const dateSet = new Set(dates);
-  const records = observations.filter(record => dateSet.has(record.date));
+  const records = scopedAnalytics(observations).filter(record => dateSet.has(record.date));
   const site = records.filter(row => row.kind === "ga4-site");
   const gaPages = records.filter(row => row.kind === "ga4-pages");
   const gsPages = records.filter(row => row.kind === "gsc-pages");
@@ -141,7 +152,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
   return {
     ...range,
     scope: "session-organic-search" as const,
-    ga4: { ...status(ga4Reports, dates.length, "缺失不计为零；旧数据无 hostname 不分配。逐页注册的跨域入口归因尚未核实，独立保留站点注册。"),
+    ga4: { ...status(ga4Reports, dates.length, observations.some(row => row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) ? GA4_HOST_UNVERIFIED : "缺失不计为零；旧数据无 hostname 不分配。逐页注册的跨域入口归因尚未核实，独立保留站点注册。"),
       sessionsStatus: status(ga4SessionReports, dates.length, "部分入口会话尚未取得可核实报表").status,
       registrationsStatus: status(ga4Reports, dates.length, "注册归因待核实").status },
     gsc: status(gsPages, dates.length, "仅显示已取得的 GSC 网页搜索数据；延迟、导出上限及未返回页面保留缺失。"),
@@ -171,7 +182,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
 /** Enumerate observed pages so the UI can sort the entire result before pagination. */
 export function observedPageUrls(observations: AnalyticsObservation[]) {
   const urls = new Set<string>();
-  for (const day of observations) {
+  for (const day of scopedAnalytics(observations)) {
     if (day.kind === "ga4-pages") for (const row of day.rows) {
       const path = landingKey(row.path, row.hostname);
       if (path) urls.add(path);
@@ -186,7 +197,7 @@ export function observedPageUrls(observations: AnalyticsObservation[]) {
 
 /** Daily traffic for the catalog, using the same GA4 landing-path keys as its rows. */
 export function landingTrafficDays(range: DateRange, observations: AnalyticsObservation[]) {
-  const complete = new Map(observations
+  const complete = new Map(scopedAnalytics(observations)
     .filter(row => row.kind === "ga4-pages" && (row.complete || row.sessionsComplete) && row.rows.every(page => Boolean(page.hostname)))
     .map(row => [row.date, row]));
 

@@ -14,6 +14,8 @@ require.extensions[".ts"] = (module, file) => {
   });
   module._compile(source.outputText, file);
 };
+const { ga4HostFilter, FLATKEY_ENTRY_HOSTS } = require("../src/lib/ga4-host-scope.ts");
+const host = ga4HostFilter(FLATKEY_ENTRY_HOSTS);
 const { fetchGa4Organic, fetchGa4Realtime } = require("../src/lib/services/ga4-organic.ts");
 
 function useMockGoogle(t, respond) {
@@ -51,15 +53,15 @@ test("organic GA4 queries preserve a clean sessions denominator, and thresholded
     const registration = query.metrics.some(({ name }) => name === "totalUsers");
     const dimensions = page ? ["20251020", "/models", "flatkey.ai"] : ["20251020"];
     if (registration) {
-      assert.deepEqual(query.dimensionFilter.andGroup.expressions, [channel, {
+      assert.deepEqual(query.dimensionFilter.andGroup.expressions, [channel, host, {
         filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "sign_up_success", caseSensitive: true } },
       }]);
       return { rows: page ? [] : [[dimensions, [2, 3]]], metadata: { timeZone: "America/Los_Angeles", subjectToThresholding: true } };
     }
-    if (page) assert.deepEqual(query.dimensionFilter.andGroup.expressions, [channel, {
+    if (page) assert.deepEqual(query.dimensionFilter.andGroup.expressions, [channel, host, {
       filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "session_start", caseSensitive: true } },
     }]);
-    else assert.deepEqual(query.dimensionFilter, channel);
+    else assert.deepEqual(query.dimensionFilter.andGroup.expressions, [channel, host]);
     return { rows: [[dimensions, [19]]], metadata: { timeZone: "America/Los_Angeles" } };
   });
   const report = await fetchGa4Organic({ start: "2025-10-20", end: "2025-10-21" });
@@ -131,8 +133,8 @@ test("period-unique organic users and registrations have no date/page dimensions
     assert.deepEqual(query.metrics, [{ name: "totalUsers" }]);
     const filters = query.dimensionFilter.andGroup.expressions;
     assert.equal(filters[0].filter.stringFilter.value, "Organic Search");
-    assert.equal(filters[1].filter.stringFilter.value, "BR");
-    return { rows: [[[], [filters.length === 3 ? 2 : 9]]], metadata: { timeZone: "America/Los_Angeles" } };
+    assert.equal(filters[2].filter.stringFilter.value, "BR");
+    return { rows: [[[], [filters.length === 4 ? 2 : 9]]], metadata: { timeZone: "America/Los_Angeles" } };
   });
   const result = await fetchGa4OrganicPeriod({ start: "2025-10-20", end: "2025-10-26" }, "BR");
   assert.equal(calls, 2); assert.equal(result.users, 9); assert.equal(result.registrations, 2); assert.equal(result.quality.complete, true);

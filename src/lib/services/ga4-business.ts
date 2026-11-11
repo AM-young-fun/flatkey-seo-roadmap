@@ -1,4 +1,5 @@
 import "server-only";
+import { GA4_HOST_SCOPE, FLATKEY_BUSINESS_HOSTS, ga4HostFilter } from "../ga4-host-scope";
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
 import { businessAnalyticsSchema, businessEventLabels, type BusinessAnalytics } from "../seo-business-analytics";
 
@@ -7,7 +8,7 @@ const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stri
 
 export async function fetchGa4Business(query: Query, now = new Date()): Promise<BusinessAnalytics> {
   const token = process.env.SEO_GA4_ACCESS_TOKEN?.trim() || await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
-  const filters: unknown[] = [{ filter: { fieldName: "eventName", inListFilter: { values: Object.keys(businessEventLabels), caseSensitive: true } } }];
+  const filters: unknown[] = [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), { filter: { fieldName: "eventName", inListFilter: { values: Object.keys(businessEventLabels), caseSensitive: true } } }];
   if (query.country !== "all") filters.push(exact("countryId", query.country));
   if (query.scope === "session-organic-search") filters.push(exact("sessionDefaultChannelGroup", "Organic Search"));
   const response = await fetch("https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport", {
@@ -27,7 +28,7 @@ export async function fetchGa4Business(query: Query, now = new Date()): Promise<
     metadata.samplingMetadatas?.some((row: { samplesReadCount: string; samplingSpaceSize: string }) => row.samplesReadCount !== row.samplingSpaceSize) && "sampling",
     metadata.dataTruncationReasons?.length && "truncation", metadata.schemaRestrictionResponse?.activeMetricRestrictions?.length && "restricted_metrics"].filter((value): value is string => typeof value === "string");
   const count = (value: unknown) => { if (typeof value !== "string" || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new GoogleReadError("invalid_response", "GA4业务计数无效"); return Number(value); };
-  return businessAnalyticsSchema.parse({ version: 1, siteDomain: "flatkey.ai", propertyId: "541304395", source: "google-api", ...query,
+  return businessAnalyticsSchema.parse({ hostScope: GA4_HOST_SCOPE, version: 1, siteDomain: "flatkey.ai", propertyId: "541304395", source: "google-api", ...query,
     timezone: "America/Los_Angeles", observedAt: now.toISOString(), distinctOverWholePeriod: true, complete: reasons.length === 0, reasons,
     rows: raw.map((row: { dimensionValues?: { value: string }[]; metricValues?: { value: string }[] }) => ({ event: row.dimensionValues?.[0]?.value, events: count(row.metricValues?.[0]?.value), users: count(row.metricValues?.[1]?.value) })) });
 }

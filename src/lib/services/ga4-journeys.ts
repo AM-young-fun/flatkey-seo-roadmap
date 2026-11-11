@@ -1,4 +1,5 @@
 import "server-only";
+import { FLATKEY_BUSINESS_HOSTS, ga4HostFilter } from "../ga4-host-scope";
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
 import { journeyLabels, journeySchema, engagementSchema, type BusinessJourney, type BusinessEngagement } from "../seo-business-journeys";
 import type { BusinessAnalytics } from "../seo-business-analytics";
@@ -22,7 +23,7 @@ export function funnelRequest(query: Query, business: "gpu" | "api") {
   const filters = business === "gpu" ? [event("page_view", { business: "gpu" }), event("flow_step", { flow: "gpu_rental", step: "start" }), event("gpu_rental_success")] : [event("sign_up"), event("first_model_success", { business: "api" }), event("first_payment_completed", { business: "api" })];
   return { dateRanges: [{ startDate: query.start, endDate: query.end }], funnel: { isOpenFunnel: false,
     steps: filters.map((filterExpression, i) => ({ name: journeyLabels[business][i], filterExpression, isDirectlyFollowedBy: false, ...(i ? { withinDurationFromPriorStep: business === "gpu" ? "86400s" : i === 1 ? "604800s" : "2592000s" } : {}) })) },
-    ...(query.country === "all" ? {} : { dimensionFilter: exact("countryId", query.country) }) };
+    dimensionFilter: { andGroup: { expressions: [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), ...(query.country === "all" ? [] : [exact("countryId", query.country)])] } } };
 }
 export async function fetchGa4Journey(query: Query, business: "gpu" | "api"): Promise<BusinessJourney> {
   const base = { business, closedFunnel: true as const, identity: "ga4-reporting-identity" as const };
@@ -53,7 +54,7 @@ export async function fetchGa4Engagement(query: Query): Promise<BusinessEngageme
       const metadata = await request(`/v1beta/${property}/metadata`, token);
       if (Array.isArray(metadata.metrics)) activeTimeCustomMetric = metadata.metrics.some((row: { apiName: string }) => row.apiName === "customEvent:active_time_msec") ? "registered" : "missing";
     } catch { /* Metadata cannot replace or invalidate the independently queried standard metric. */ }
-    const filters = [...(query.country === "all" ? [] : [exact("countryId", query.country)]), ...(query.scope === "all-channels" ? [] : [exact("sessionDefaultChannelGroup", "Organic Search")])];
+    const filters = [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), ...(query.country === "all" ? [] : [exact("countryId", query.country)]), ...(query.scope === "all-channels" ? [] : [exact("sessionDefaultChannelGroup", "Organic Search")])];
     const report = await request(`/v1beta/${property}:runReport`, token, { dateRanges: [{ startDate: query.start, endDate: query.end }], metrics: [{ name: "userEngagementDuration" }, { name: "activeUsers" }], ...(filters.length ? { dimensionFilter: { andGroup: { expressions: filters } } } : {}) });
     if (report.metricHeaders?.map((row: { name: string }) => row.name).join() !== "userEngagementDuration,activeUsers" || report.rows?.length !== 1) throw new GoogleReadError("invalid_response", "参与时长无完整回执");
     return engagementSchema.parse({ status: partial(report.metadata) ? "partial" : "ready", engagementSeconds: finite(report.rows[0].metricValues?.[0]?.value), activeUsers: finite(report.rows[0].metricValues?.[1]?.value), activeTimeCustomMetric });

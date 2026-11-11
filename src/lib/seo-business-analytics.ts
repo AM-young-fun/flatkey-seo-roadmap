@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "./ga4-host-scope";
 import { createHash } from "node:crypto";
 
 import { journeySchema, engagementSchema } from "./seo-business-journeys";
@@ -8,7 +9,7 @@ export const businessEventSchema = z.enum(Object.keys(businessEventLabels) as [k
 export const businessScopeSchema = z.enum(["all-channels", "session-organic-search"]);
 export const businessCountrySchema = z.enum(["all", "US", "JP", "BR", "ES"]);
 export const businessAnalyticsSchema = z.object({
-  version: z.literal(1), siteDomain: z.literal("flatkey.ai"), propertyId: z.literal("541304395"),
+  hostScope: z.literal("production-hosts-v1").optional(), version: z.literal(1), siteDomain: z.literal("flatkey.ai"), propertyId: z.literal("541304395"),
   source: z.literal("google-api"), start: z.iso.date(), end: z.iso.date(), timezone: z.literal("America/Los_Angeles"),
   country: businessCountrySchema, scope: businessScopeSchema, observedAt: z.iso.datetime(),
   distinctOverWholePeriod: z.literal(true), complete: z.boolean(), reasons: z.array(z.string().max(500)).max(30),
@@ -27,8 +28,10 @@ export const businessAnalyticsId = (row: BusinessAnalytics) => `ga4-business:${c
 
 /** No daily-user summation or conversion rates inferred from unjoined event totals. */
 export function latestBusinessPeriod(rows: BusinessAnalytics[], start: string, end: string, country: BusinessAnalytics["country"], scope: BusinessAnalytics["scope"]) {
-  return rows.filter(row => row.start === start && row.end === end && row.country === country && row.scope === scope)
+  const row = rows.filter(row => row.start === start && row.end === end && row.country === country && row.scope === scope)
     .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0] ?? null;
+  if (!row || row.hostScope === GA4_HOST_SCOPE) return row;
+  return { ...row, complete: false, reasons: [GA4_HOST_UNVERIFIED], rows: [], journeys: undefined, engagement: undefined };
 }
 
 export function businessDigestLines(rows: BusinessAnalytics[], start: string, end: string) {
