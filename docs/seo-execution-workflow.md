@@ -42,12 +42,16 @@
 
 ## 仅采集验收（不发群）
 
+每日定时采集与手动默认均只刷新各属性时区内最近14个已结束日；保留数据库全部旧历史，不删除或把窗口外日期记为缺失。每次在日志和采集回执中记录实际各站GA4/GSC起止日与窗口大小。月度复盘发现历史缺口时，可显式选择手动 `lookback_days=90` 回填；脚本仅接受14或90，其他输入在请求前拒绝。90日回填仍须单独验收，不用每天重复90日读取替代增量。
+
+同一运行先完成五站全局范围，再采四国切片；每个来源按最新日期优先，最多3条不同日期的独立采集/写入/读回流水线。每条成功写入仍验证完整payload；POST失败也只做一次读回，不盲目重发。出现失败停止分派该批新日期，等待所有在途读回结束，再将该来源标为失败并继续其他独立范围。无源数据、注册未核实和会话覆盖不完整仍保留缺失；不会为了出榜补0或放宽complete。GA4质量不完整时仅记录站点、国家、实际窗口、指标和白名单原因，不输出原始用户行或凭据。
+
 `seo-daily.yml` 手动输入 `send_notifications` 为布尔类型，默认 `true` 保留现有行为。联调时明确设 `send_notifications=false`、`verify_dingtalk=false`：页面清单与五站全站/逐页 GA4、GSC 采集、生产读回正常执行；无论成功或失败，都跳过该运行的日采通知与测试消息。此开关只约束这一次 workflow，不修改18:00统一通知、其他定时通知或付费开关。`verify_dingtalk=true` 与通知关闭同时设置时，两类消息均不发送且采集不运行。
 
 经授权的维护者可在变更已合入 `main` 后执行：
 
 ```sh
-gh workflow run seo-daily.yml --repo AM-young-fun/flatkey-seo-roadmap --ref main -f send_notifications=false -f verify_dingtalk=false
+gh workflow run seo-daily.yml --repo AM-young-fun/flatkey-seo-roadmap --ref main -f lookback_days=14 -f send_notifications=false -f verify_dingtalk=false
 ```
 
 验收需查看该次 run 的 `collect` 成功、`notify` 和 `verify-dingtalk` 均为 skipped，并核对生产按日的 `ga4-pages`（含 `hostnameDimension=hostName`）、`gsc-pages` 归档后再生成报告预览。失败只保留 GitHub 结果与采集回执，不发测试消息。定时触发继续保持原有通知行为。

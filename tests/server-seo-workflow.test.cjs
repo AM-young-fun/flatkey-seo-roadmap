@@ -10,6 +10,14 @@ test("manual notification opt-out uses a boolean defaulting to legacy delivery",
  assert.equal(workflow.on.workflow_dispatch.inputs.send_notifications.default,true);
  assert.equal(enabled("collect"),true);assert.equal(enabled("notify"),true);assert.equal(enabled("verify-dingtalk"),false);
 });
+test("manual and scheduled collection use fourteen days unless ninety-day backfill is explicit", () => {
+ const input=workflow.on.workflow_dispatch.inputs.lookback_days;
+ assert.equal(input.type,"choice");assert.equal(input.default,"14");assert.deepEqual(input.options,["14","90"]);
+ const expression=workflow.jobs.collect.steps.find(step=>step.id==="analytics").env.SEO_COLLECTION_LOOKBACK_DAYS.slice(3,-3).trim();
+ const evaluate=(event,days)=>vm.runInNewContext(expression,{github:{event_name:event},inputs:{lookback_days:days}});
+ assert.equal(evaluate("schedule",undefined),"14");assert.equal(evaluate("workflow_dispatch",undefined),"14");
+ assert.equal(evaluate("workflow_dispatch","14"),"14");assert.equal(evaluate("workflow_dispatch","90"),"90");
+});
 test("collection-only manual runs retain collection and suppress every workflow group send on success or failure", () => {
  for(const result of ["success","failure","cancelled"]){
   const options={result,inputs:{send_notifications:false,verify_dingtalk:false}};

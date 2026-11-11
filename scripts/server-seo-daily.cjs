@@ -28,13 +28,39 @@ const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = r
 const endpoint = "https://flatkey-seo-roadmap.vercel.app/api/seo/analytics/import";
 const credential = process.env.SEO_IMPORT_TOKEN;
 const sites = [{ domain: "flatkey.ai", ga4: "541304395", gsc: "sc-domain:flatkey.ai", ga4TimeZone: "America/Los_Angeles" }, ...CLUSTER_SITES];
-const start = shiftDay(propertyToday(), -90);
+const SAVE_CONCURRENCY = 3;
+const QUALITY_REASONS = new Set(["thresholding", "other_row", "sampling", "data_truncation", "restricted_metrics", "empty_reason", "unknown_hostname", "incomplete_pagination", "landing_host_attribution_unverified", "cluster_registration_event_unverified"]);
 let failures = 0;
 let imported = 0;
 let unavailable = 0;
 const expected = new Set();
 const scopes = [];
 function expectDay(base, kind, date) { expected.add(recordKey({ ...base, kind }) + ":" + date); }
+
+function collectionWindow(days, timezone) {
+  const end = shiftDay(propertyToday(timezone), -1);
+  return { start: shiftDay(end, 1 - days), end };
+}
+function logQuality(site, country, range, metric, quality) {
+  if (quality?.complete !== false) return;
+  const reasons = [...new Set((quality.reasons ?? []).map(reason => QUALITY_REASONS.has(reason) ? reason : "unrecognized_quality_reason"))];
+  console.log(JSON.stringify({ site: site.domain, country: country ?? "all", source: "GA4", status: "quality_incomplete", metric, dateRange: range, reasons }));
+}
+/** Bound each scope; drain started writes/readbacks before propagating any error. */
+async function newestDays(days, action) {
+  const ordered = [...days].sort((a, b) => (typeof b === "string" ? b : b.date).localeCompare(typeof a === "string" ? a : a.date));
+  const keys = ordered.map(day => typeof day === "string" ? day : day.date);
+  if (new Set(keys).size !== keys.length) throw new Error("invalid_duplicate_dates");
+  let cursor = 0, failure;
+  async function worker() {
+    while (!failure && cursor < ordered.length) {
+      const day = ordered[cursor++];
+      try { await action(day); } catch (error) { failure ??= error; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(SAVE_CONCURRENCY, ordered.length) }, worker));
+  if (failure) throw failure;
+}
 
 async function api(suffix = "", record) {
   const response = await fetch(endpoint + suffix, {
@@ -51,8 +77,12 @@ function recordKey(row) {
 }
 async function save(input) {
   const record = analyticsObservationSchema.parse(input);
-  const receipt = await api("", record);
-  if (typeof receipt.stored !== "boolean") throw new Error("invalid_import_receipt");
+  let receipt, writeError;
+  try {
+    receipt = await api("", record);
+    if (typeof receipt.stored !== "boolean") throw new Error("invalid_import_receipt");
+  } catch (error) { writeError = error; }
+  // A timed-out write may have reached the server. Read once, never blindly repost.
   const params = new URLSearchParams({ start: record.date, end: record.date, kind: recordKey(record) });
   const readback = (await api("?" + params)).rows?.[0];
   if (!readback || !readback.payload || readback.complete < record.complete
@@ -66,18 +96,32 @@ async function save(input) {
     if (JSON.stringify(normalize(readback.payload)) !== JSON.stringify(normalize(JSON.parse(JSON.stringify(record))))) {
       throw new Error("production_values_differ");
     }
+  } else {
+    console.log(JSON.stringify({ status: "existing_snapshot_retained", site: clusterDomainForProperty(record.property) ?? "flatkey.ai", country: record.country ?? "all", kind: record.kind, date: record.date,
+      reason: readback.complete > record.complete ? "more_complete_existing_snapshot" : "newer_existing_snapshot", collectedComplete: record.complete, retainedComplete: readback.complete,
+      collectedAt: record.observedAt, retainedAt: readback.observedAt }));
   }
+  if (writeError) throw writeError;
   imported += Number(receipt.stored);
 }
 async function run() {
+  const requestedDays = process.env.SEO_COLLECTION_LOOKBACK_DAYS ?? "14";
+  if (!["14", "90"].includes(requestedDays)) throw new Error("invalid_lookback_days");
+  const lookbackDays = Number(requestedDays);
   if (!credential || !process.env.SEO_GOOGLE_SERVICE_ACCOUNT_JSON) throw new Error("missing_server_credentials");
-  const coverage = (await api("?" + new URLSearchParams({ start, end: propertyToday() }))).rows;
+  // Freeze the actual local-day windows for the entire run, including across midnight.
+  const gscWindow = collectionWindow(lookbackDays);
+  const windows = sites.map(site => ({ site: site.domain, ga4: collectionWindow(lookbackDays, site.ga4TimeZone), gsc: gscWindow }));
+  const start = windows.flatMap(window => [window.ga4.start, window.gsc.start]).sort()[0];
+  const end = windows.flatMap(window => [window.ga4.end, window.gsc.end]).sort().at(-1);
+  console.log(JSON.stringify({ status: "collection_windows", lookbackDays, concurrency: SAVE_CONCURRENCY, windows }));
+  const coverage = (await api("?" + new URLSearchParams({ start, end }))).rows;
   if (!Array.isArray(coverage)) throw new Error("invalid_coverage");
   const saved = new Map(coverage.map(row => [row.kind + ":" + row.date, row]));
-  for (const site of sites) for (const country of [undefined, "US", "JP", "ES", "BR"]) {
+  // Get all five global scopes before country slices so cross-site Top pages can be verified first.
+  for (const country of [undefined, "US", "JP", "ES", "BR"]) for (const site of sites) {
     const flatkey = site.domain === "flatkey.ai";
-    const end = shiftDay(propertyToday(site.ga4TimeZone), -1);
-    const range = { start, end };
+    const range = windows.find(window => window.site === site.domain).ga4;
     for (const source of ["GA4", "GSC"]) {
       try {
         let sourceDates = 0;
@@ -85,40 +129,44 @@ async function run() {
         if (source === "GA4") {
           const report = flatkey ? await fetchGa4Organic(range, country)
             : await fetchGa4SiteSessions(range, site.ga4, site.ga4TimeZone, country);
+          logQuality(site, country, range, "siteSessions", flatkey ? report.quality?.siteSessions : report.quality);
+          if (flatkey) logQuality(site, country, range, "siteRegistrations", report.quality?.siteRegistrations);
           if (!report.daily.length) throw new Error("source_has_no_data");
           const base = { ...common, property: site.ga4, scope: "session-organic-search", observedAt: report.fetchedAt };
-          for (const day of report.daily) {
+          await newestDays(report.daily, async day => {
             expectDay(base, "ga4-site", day.date);
             const sessions = flatkey ? (report.quality.siteSessions.complete ? day.sessions : null) : day.sessions;
             const registrations = flatkey && report.quality.siteRegistrations.complete ? day.registrations : null;
-            if (sessions === null && registrations === null) continue;
+            if (sessions === null && registrations === null) return;
             const old = saved.get(recordKey({ ...base, kind: "ga4-site" }) + ":" + day.date);
-            if (old?.complete && day.date < shiftDay(end, -13)) continue;
+            if (old?.complete && day.date < shiftDay(range.end, -13)) return;
             await save({ ...base, kind: "ga4-site", date: day.date, sessions, registrations, complete: sessions !== null && registrations !== null });
             sourceDates++;
-          }
+          });
           {
             const pageReport = flatkey ? report : await fetchGa4SitePages(range, site.ga4, site.ga4TimeZone, country);
             const pages = Object.groupBy(pageReport.pages, row => row.date);
             const sessionsComplete = flatkey ? report.quality.pageSessions.complete : pageReport.quality.complete;
             const complete = flatkey && sessionsComplete && report.quality.pageRegistrations.complete;
-            for (const day of report.daily) {
+            logQuality(site, country, range, "pageSessions", flatkey ? report.quality.pageSessions : pageReport.quality);
+            if (flatkey) logQuality(site, country, range, "pageRegistrations", report.quality.pageRegistrations);
+            await newestDays(report.daily, async day => {
               expectDay(base, "ga4-pages", day.date);
               const old = saved.get(recordKey({ ...base, kind: "ga4-pages" }) + ":" + day.date);
-              if (old?.complete && old.hostnameDimension === "hostName" && day.date < shiftDay(end, -13)) continue;
+              if (old?.complete && old.hostnameDimension === "hostName" && day.date < shiftDay(range.end, -13)) return;
               const rows = (pages[day.date] ?? []).filter(row => row.hostname === site.domain || row.hostname.endsWith(`.${site.domain}`))
                 .map(({ hostname, path, sessions, registrations }) => ({ hostname, path, sessions, registrations }));
               if (rows.length || sessionsComplete) await save({ ...base, observedAt: pageReport.fetchedAt, kind: "ga4-pages", date: day.date,
                 hostnameDimension: "hostName", registrationMissingReason: flatkey ? "landing_host_attribution_unverified" : "cluster_registration_event_unverified", sessionsComplete, complete, rows });
-            }
+            });
           }
         } else {
-          const gscEnd = shiftDay(propertyToday(), -1);
+          const gscEnd = gscWindow.end;
           const options = { country, property: site.gsc, aggregation: "byPage" };
           // Site totals and page totals use different GSC aggregation semantics.
-          const dates = await fetchGscDateCoverage(start, gscEnd, { ...options, aggregation: "byProperty" });
-          const pageDates = await fetchGscDateCoverage(start, gscEnd, options);
-          for (const date of Object.keys(dates).sort().reverse()) {
+          const dates = await fetchGscDateCoverage(gscWindow.start, gscEnd, { ...options, aggregation: "byProperty" });
+          const pageDates = await fetchGscDateCoverage(gscWindow.start, gscEnd, options);
+          await newestDays(Object.keys(dates), async date => {
             const base = { ...common, property: site.gsc, date };
             expectDay(base, "gsc-site", date);
             if (pageDates[date]) { expectDay(base, "gsc-pages", date); expectDay(base, "gsc-page-queries", date); }
@@ -141,7 +189,7 @@ async function run() {
                 await save({ ...base, kind: "gsc-page-queries", ...report });
               }
             }
-          }
+          });
           if (!Object.keys(dates).length) throw new Error("source_has_no_final_dates");
         }
         scopes.push({ site: site.domain, country: country ?? "all", source, status: "checked" });
@@ -158,18 +206,18 @@ async function run() {
       }
     }
   }
-  const finalRows = (await api("?" + new URLSearchParams({ start, end: propertyToday() }))).rows;
+  const finalRows = (await api("?" + new URLSearchParams({ start, end }))).rows;
   if (!Array.isArray(finalRows)) throw new Error("invalid_final_coverage");
   const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
-  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, scopes };
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes };
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));
   console.log(JSON.stringify({ imported, failures, unavailable, expected: expected.size, missing: missing.length }));
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `imported=${imported}\nunavailable=${unavailable}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-      `## SEO collection result\n\n- Imported and read back: ${imported} observations\n- Failed scopes: ${failures}\n- Source-backed observations expected: ${expected.size}; missing in production: ${missing.length}\n- Scopes without source data: ${unavailable} (left missing; not zero)\n`);
+      `## SEO collection result\n\n- Window: ${lookbackDays} ended days per property; ${start} through ${end} across timezones\n- Concurrent date pipelines: ${SAVE_CONCURRENCY}\n- Imported and read back: ${imported} observations\n- Failed scopes: ${failures}\n- Source-backed observations expected: ${expected.size}; missing in production: ${missing.length}\n- Scopes without source data: ${unavailable} (left missing; not zero)\n`);
   }
   if (failures) process.exitCode = 1;
 }
