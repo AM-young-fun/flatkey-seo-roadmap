@@ -25,3 +25,8 @@ for(const channel of ['business','github'])test(`${channel} import reaches its o
 test('managed credentials and unrelated APIs still require the human login session',async()=>{
  for(const endpoint of ['/api/import-tokens','/api/keywords','/api/seo/github-private'])assert.equal((await proxy(new NextRequest('https://flatkey.test'+endpoint,{headers:{authorization:'Bearer fixture'}}))).status,401);
 });
+test('only exact screenshot asset routes delegate to their own strict authorization',async()=>{
+ const origin='https://flatkey.test';
+ for(const endpoint of ['/api/seo/review-assets','/api/seo/review-assets/'+'a'.repeat(64)])assert.equal((await proxy(new NextRequest(origin+endpoint))).headers.get('x-middleware-next'),'1');
+ for(const endpoint of ['/api/seo/review-assets/admin','/api/seo/review-assets-private','/api/seo/review-assets/'+'a'.repeat(64)+'/admin'])assert.equal((await proxy(new NextRequest(origin+endpoint,{headers:{authorization:'Bearer fixture'}}))).status,401);
+});
