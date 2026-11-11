@@ -24,6 +24,9 @@ const { propertyToday, shiftDay } = require("../src/lib/seo-date-range.ts");
 const { CLUSTER_SITES, clusterDomainForProperty } = require("../src/lib/seo-cluster-sites.ts");
 const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages } = require("../src/lib/services/ga4-organic.ts");
 const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = require("../src/lib/gsc-source.ts");
+const { saveCollectionReceipt } = require("./server-seo-receipt.cjs");
+const collectionStartedAt = new Date().toISOString();
+let receiptAttempted = false;
 
 const endpoint = "https://flatkey-seo-roadmap.vercel.app/api/seo/analytics/import";
 const credential = process.env.SEO_IMPORT_TOKEN;
@@ -212,6 +215,8 @@ async function run() {
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
   const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes };
+  receiptAttempted = true;
+  await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), result });
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));
   console.log(JSON.stringify({ imported, failures, unavailable, expected: expected.size, missing: missing.length }));
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `imported=${imported}\nunavailable=${unavailable}\n`);
@@ -221,4 +226,7 @@ async function run() {
   }
   if (failures) process.exitCode = 1;
 }
-run().catch(() => { console.error("Server SEO collection failed. Check configured read-only Google credentials and production access."); process.exitCode = 1; });
+run().catch(async () => {
+  if (!receiptAttempted) await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), error: true }).catch(() => {});
+  console.error("Server SEO collection failed. Check configured read-only Google credentials and production access."); process.exitCode = 1;
+});

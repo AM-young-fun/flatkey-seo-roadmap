@@ -20,6 +20,7 @@ mock("src/lib/prisma.ts", { prisma: {
   serpMonitorRun: { findMany: async () => [{ id: "existing", scope: "SAMPLE", periodKey: "2026-10-2", periodLabel: "2026年10月第2期", status: "COMPLETED", queryCount: 152, startedAt: new Date("2026-10-16T01:00Z"), completedAt: new Date("2026-10-16T02:00Z") }] },
   dataForSeoRun: { findMany: async () => [] }, weeklyTraffic: { findMany: async () => [] },
   collectorRun:{findMany:async()=>[]},
+  seoWorkflowRecord:{findMany:async()=>[]},
 } });
 const { schedulerState, plannedRankingTime, operationStateLabels, configuredAutomationPlans, nextAutomationTime } = require("../src/lib/operations.ts");
 const { loadOperationsStatus } = require("../src/lib/services/operations.ts");
@@ -89,4 +90,14 @@ test("an advanced unfinished round is separate from the next automatic date", as
   assert.match(result.plans[0].currentExecution, /4\/4 国已完成，实际排名待开始/);
   assert.equal(result.controls.discoveryMaxCostMicros, 528000);
   assert.equal(due.toISOString(), "2026-10-20T02:30:00.000Z");
+});
+
+test("server collection metadata displays partial coverage and ignores unrelated malformed records", async t => {
+ const {prisma}=require("../src/lib/prisma.ts"),{collectionReceipt}=require("../scripts/server-seo-receipt.cjs");
+ const {record}=collectionReceipt({runId:"123",sha:"a".repeat(40),startedAt:"2026-11-11T08:00:00Z",completedAt:"2026-11-11T08:10:00Z",result:{imported:20,expected:21,missing:0,failures:0,unavailable:1,windows:[]}});
+ t.mock.method(prisma.seoWorkflowRecord,"findMany",async()=>[{payload:{...record,version:1,updatedAt:record.completedAt,recordedAt:record.completedAt}},{payload:null}]);
+ const status=await loadOperationsStatus(new Date("2026-11-11T09:00:00Z"));
+ assert.equal(status.records.find(row=>row.id===record.id).state,"部分完成");
+ assert.match(status.plans.find(row=>row.id==="traffic").currentExecution,/部分完成/);
+ assert.match(status.plans.find(row=>row.id==="traffic").note,/42991831838/);
 });

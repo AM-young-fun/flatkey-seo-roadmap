@@ -251,7 +251,7 @@ export const workflowClaimSchema = z.object({ action: z.enum(["claim", "renew", 
 export function githubReviewBelongsToSite(value: string, domain: string) {
   try {
     const url = new URL(value);
-    if (domain !== "flatkey.ai" || url.protocol !== "https:" || url.hostname !== "github.com" || url.username || url.password || url.port || url.hash || url.search) return false;
+    if (domain !== "flatkey.ai" || url.protocol !== "https:" || url.hostname !== "github.com" || url.username || url.password || url.port || url.hash || url.search || /%(?:2f|5c|25)/i.test(url.pathname)) return false;
     return ["/flatkey-ai/awesome-images", "/flatkey-ai/awesome-seedance-prompts"].some(repo => url.pathname === repo || url.pathname.startsWith(repo + "/"));
   } catch { return false; }
 }

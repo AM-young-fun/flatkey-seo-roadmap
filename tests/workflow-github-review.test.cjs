@@ -11,6 +11,7 @@ test('only exact GitHub owned repository path boundaries are accepted for review
  for(const valid of [url,url+'/',url+'/blob/main/README.md','https://github.com/flatkey-ai/awesome-seedance-prompts'])assert.equal(githubReviewBelongsToSite(valid,'flatkey.ai'),true);
  for(const bad of ['http://github.com/flatkey-ai/awesome-images','https://user@github.com/flatkey-ai/awesome-images','https://github.com.evil.test/flatkey-ai/awesome-images','https://www.github.com/flatkey-ai/awesome-images','https://github.com/flatkey-ai/awesome-images-evil','https://github.com/flatkey-ai/awesome-images2/README.md','https://github.com/other/awesome-images','https://github.com/flatkey-ai/awesome-images/../../other/repo','https://github.com/flatkey-ai/awesome-images%2fevil',url+'?redirect=outside',url+'#readme',url.replace('github.com','github.com:444')])assert.equal(githubReviewBelongsToSite(bad,'flatkey.ai'),false,bad);
  assert.equal(githubReviewBelongsToSite(url,'modelfit.cc'),false);
+ for(const suffix of ['/%2e%2e%2fother-repo','/%252e%252e%252fother-repo','/%5c..%5cother-repo'])assert.equal(githubReviewBelongsToSite(url+suffix,'flatkey.ai'),false);
 });
 test('explicit GitHub task/approval draft saves through real workflow validators without broadening website ownership',()=>{
  assert.equal(workflowTaskSchema.parse(task).channel,'github');assert.equal(workflowApprovalSchema.parse(approval).channel,'github');

@@ -1,0 +1,9 @@
+{
+  "verifiedAt": "2026-11-11T09:19:34Z",
+  "repository": "AM-young-fun/flatkey-seo-roadmap",
+  "workflow": "seo-daily.yml",
+  "enabled": true,
+  "cron": "30 0 * * *",
+  "sourceUrl": "https://github.com/AM-young-fun/flatkey-seo-roadmap/blob/main/.github/workflows/seo-daily.yml",
+  "lastVerifiedRun": "https://github.com/AM-young-fun/flatkey-seo-roadmap/actions/runs/42991831838"
+}
