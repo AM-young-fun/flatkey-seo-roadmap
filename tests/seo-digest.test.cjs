@@ -256,3 +256,8 @@ test("short GitHub summary adds repository counts only across matching daily win
  const partial=buildSeoDigest({...base(),notificationCompact:true,githubObservations:rows});
  assert.match(partial.text,/浏览 待更新/);assert.match(partial.text,/到站 待更新/);assert.doesNotMatch(partial.text,/到站 0/);
 });
+
+test("partial zero delivery coverage is pending verification instead of a cryptic zero plus",()=>{
+ const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:"partial",optimizationCoverage:"partial"});
+ assert.doesNotMatch(report.text,/0\+/);assert.doesNotMatch(report.text,/待核实 [篇页]/);assert.match(report.text,/落地页 待核实/);
+});

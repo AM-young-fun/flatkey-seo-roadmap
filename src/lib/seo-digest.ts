@@ -346,10 +346,10 @@ export function buildSeoDigest(input: DigestInput) {
   const detailText = lines.join("\n");
   if (input.notificationCompact) {
     const weekly = window.kind === "weekly";
-    const amount = (value: number, coverage: DigestInput["publicationCoverage"]) => coverage === "missing" ? "待核实" : `${value}${coverage === "partial" ? "+" : ""}`;
+    const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit: string) => coverage === "missing" || coverage === "partial" && value === 0 ? "待核实" : `${value} ${unit}${coverage === "partial" ? "（已核实）" : ""}`;
     notification.push(title, ...(weekly ? [`${window.trafficStart}—${window.trafficEnd}`] : []), "",
       `**${weekly ? "本周" : "今日"}上线**`,
-      `${link("博客", SEO_PLATFORM + executionViewRoutes.deliveries)} ${amount(originals.length, input.publicationCoverage)} 篇 · 落地页 ${amount(landingPages.length, input.publicationCoverage)} 页 · 集群 ${amount(clusterPages.length, input.publicationCoverage)} 页 · 优化 ${amount(optimizations.length, input.optimizationCoverage)} 页`,
+      `${link("博客", SEO_PLATFORM + executionViewRoutes.deliveries)} ${amount(originals.length, input.publicationCoverage, "篇")} · 落地页 ${amount(landingPages.length, input.publicationCoverage, "页")} · 集群 ${amount(clusterPages.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")}`,
       ...(translations.length || backfills.length ? [`译文 ${translations.length} 页 · 旧文补译 ${backfills.length} 页`] : []),
       "", "**关键变化**");
     // Two evidence-backed highlights plus the independently measured GitHub channel.
