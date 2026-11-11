@@ -8,7 +8,7 @@ export const organicPeriodSchema = z.object({
   country: z.enum(["all", "US", "JP", "BR", "ES"]), source: z.literal("google-api"),
   scope: z.literal("session-organic-search"), channelDimension: z.literal("sessionDefaultChannelGroup"),
   users: z.number().int().nonnegative().nullable(), registrations: z.number().int().nonnegative().nullable(),
-  registrationEvent: z.literal("sign_up_success"), distinctOverWholePeriod: z.literal(true),
+  registrationEvent: z.enum(["sign_up_success", "sign_up_or_legacy_distinct_users"]), distinctOverWholePeriod: z.literal(true),
   observedAt: z.iso.datetime(), complete: z.boolean(), reasons: z.array(z.string().max(1000)).max(30),
 }).strict().superRefine((row, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: "custom", message });

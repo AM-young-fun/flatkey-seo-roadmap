@@ -25,6 +25,7 @@ export type PagePerformance = {
 
 export type SeoAnalytics = DateRange & {
   scope: "session-organic-search";
+  registrationMetric?: "sign_up_success" | "sign_up_or_legacy_distinct_users";
   ga4: AnalyticsSource;
   gsc: AnalyticsSource;
   daily: SessionDay[];

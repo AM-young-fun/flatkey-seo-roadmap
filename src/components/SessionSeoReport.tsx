@@ -73,7 +73,7 @@ export function SessionSeoReport({ range, comparison = null, expanded = false, s
     {comparison ? <p className={styles.comparison}>对比 {comparison.start === comparison.end ? comparison.start : `${comparison.start} — ${comparison.end}`}{previous.error ? <> · 读取失败 <button type="button" onClick={previous.retry}>重试</button></> : null}</p> : null}
     {expanded && data ? <section className={styles.records}><h2>日期明细</h2><SessionDaysTable points={data.daily} /></section> : null}
     {footer || showDetails ? <div className={styles.footer}>{footer}{showDetails ? <details className={styles.disclosure}><summary>{detailsLabel}</summary><div className={styles.explanation}>
-      <p>访问按当次自然搜索会话计次；注册统计这些会话中触发 sign_up_success 的用户，每日去重后累加为区间注册人次。</p><p>按 GA4 属性时区 America/Los_Angeles 划分日期。缺失数据以「—」显示，核实为零的记录显示 0。缺日时不显示涨跌百分比，等长周期比较合计，不等长周期比较日均。</p>
+      <p>访问按当次自然搜索会话计次；注册统计{data?.registrationMetric === "sign_up_or_legacy_distinct_users" ? "这些会话中触发规范 sign_up 或历史 sign_up_success 的用户并集，同一次查询去重，不把事件次数相加" : "这些会话中触发历史 sign_up_success 的用户（兼容新事件的归档待刷新）"}，每日去重后累加为区间注册人次。</p><p>按 GA4 属性时区 America/Los_Angeles 划分日期。缺失数据以「—」显示，核实为零的记录显示 0。缺日时不显示涨跌百分比，等长周期比较合计，不等长周期比较日均。</p>
       {data && !showSourceSummary ? <SeoAnalyticsStatus name="GA4 自然搜索" source={data.ga4} /> : null}
       {foldSourceReason && (missingCountry || data?.ga4.reason) ? <p>{data?.ga4.reason ?? missingCountry}</p> : null}
       {comparison && baseline ? <SeoAnalyticsStatus name="GA4 对比期" source={baseline.ga4} /> : null}

@@ -23,6 +23,7 @@ export type DigestMetric = "sessions" | "registrations" | "clicks" | "impression
 export type DigestObservation = {
   site: string; date: string; source: "GA4" | "GSC"; timezone: string; observedAt: string;
   complete: boolean; scope: "session-organic-search" | "google-web";
+  registrationMetric?: "sign_up_success" | "sign_up_or_legacy_distinct_users";
   country?: "US" | "JP" | "BR" | "ES";
   sessions?: number | null; registrations?: number | null; clicks?: number | null; impressions?: number | null;
 };
@@ -342,6 +343,8 @@ export function buildSeoDigest(input: DigestInput) {
   for (const [i, row] of input.priorities.slice(0, window.kind === "weekly" ? 8 : 3).entries()) lines.push(`${i + 1}. ${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""} · ${escaped(row.reason)} · ${escaped(row.action)}`);
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
+  const registrationCompatibility = input.observations.some(row => row.registrationMetric === "sign_up_or_legacy_distinct_users") ? "注册人数兼容规范 sign_up 与历史 sign_up_success，同查询去重，事件次数不相加；日报按日去重、周报按整个区间去重。" : null;
+  if (registrationCompatibility) lines.splice(lines.length - 2, 0, registrationCompatibility);
   const detailText = lines.join("\n");
   if (input.notificationCompact) {
     notification.push("", "待审批");
@@ -403,6 +406,7 @@ export function buildSeoDigest(input: DigestInput) {
     if (alerts.length) notification.push("", "异常与待处理", ...alerts.slice(0, 3).map(note => "• " + escaped(note).slice(0, 180)), link(`全部问题与证据（${alerts.length}项）`, SEO_PLATFORM + "/issues"));
     notification.push("", `[数据基础](${SEO_DATA_HUB})`);
   }
+  if (registrationCompatibility) notification.splice(notification.length - 2, 0, registrationCompatibility);
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { id: `seo-digest:${input.date}:${hash.slice(0, 16)}`, date: input.date, kind: window.kind, title, text, detailText, hash,

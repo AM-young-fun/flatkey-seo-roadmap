@@ -32,7 +32,7 @@ const gscPage = z.string().url().max(2048).refine(value => {
   } catch { return false; }
 }, "页面必须属于五站已登记属性");
 export const analyticsObservationSchema = z.discriminatedUnion("kind", [
-  z.object({ ...ga4, ...sessions, property: z.union([ga4.property, clusterGa4Property]), kind: z.literal("ga4-site") }).strict(),
+  z.object({ ...ga4, ...sessions, registrationMetric: z.enum(["sign_up_success", "sign_up_or_legacy_distinct_users"]).optional(), property: z.union([ga4.property, clusterGa4Property]), kind: z.literal("ga4-site") }).strict(),
   z.object({ ...base, ...gscMetrics, kind: z.literal("gsc-site"), property: anyGscProperty }).strict(),
   z.object({ ...ga4, property: ga4Property, kind: z.literal("ga4-pages"), sessionsComplete: z.boolean().optional(), hostnameDimension: z.literal("hostName").optional(),
     registrationMissingReason: z.string().max(300).optional(),
@@ -152,6 +152,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
   return {
     ...range,
     scope: "session-organic-search" as const,
+    registrationMetric: site.length && site.every(row => row.registrationMetric === "sign_up_or_legacy_distinct_users") ? "sign_up_or_legacy_distinct_users" as const : "sign_up_success" as const,
     ga4: { ...status(ga4Reports, dates.length, observations.some(row => row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) ? GA4_HOST_UNVERIFIED : "缺失不计为零；旧数据无 hostname 不分配。逐页注册的跨域入口归因尚未核实，独立保留站点注册。"),
       sessionsStatus: status(ga4SessionReports, dates.length, "部分入口会话尚未取得可核实报表").status,
       registrationsStatus: status(ga4Reports, dates.length, "注册归因待核实").status },

@@ -50,7 +50,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     if (row.kind === "gsc-pages" || row.kind === "ga4-pages") pageObservations.push(...scopedAnalytics([row]));
     if (row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) { issues.push(GA4_HOST_UNVERIFIED); continue; }
     const site = clusterDomainForProperty(row.property) ?? "flatkey.ai";
-    if (row.kind === "ga4-site") observations.push({ site, country: row.country, date: row.date, source: "GA4", timezone: CLUSTER_SITES.find(s => s.domain === site)?.ga4TimeZone ?? "America/Los_Angeles", observedAt: row.observedAt, complete: row.sessions !== null, scope: "session-organic-search", sessions: row.sessions, registrations: row.complete ? row.registrations : null });
+    if (row.kind === "ga4-site") observations.push({ site, country: row.country, date: row.date, source: "GA4", timezone: CLUSTER_SITES.find(s => s.domain === site)?.ga4TimeZone ?? "America/Los_Angeles", observedAt: row.observedAt, complete: row.sessions !== null, scope: "session-organic-search", registrationMetric: row.registrationMetric, sessions: row.sessions, registrations: row.complete ? row.registrations : null });
     if (row.kind === "gsc-site") observations.push({ site, country: row.country, date: row.date, source: "GSC", timezone: "America/Los_Angeles", observedAt: row.observedAt, complete: row.complete, scope: "google-web", clicks: row.clicks, impressions: row.impressions });
   }
   const verified = workflow.publications.filter(row => row.status === "verified" && row.verifiedAt && row.verificationRecordedAt);
