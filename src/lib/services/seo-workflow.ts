@@ -3,7 +3,8 @@ import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ACTION_KIND, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan } from "@/lib/seo-workflow";
+import { ACTION_KIND, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval } from "@/lib/seo-workflow";
+import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, workflowHash, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 
@@ -76,6 +77,12 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     const rows = await tx.seoWorkflowRecord.findMany();
     const all = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
     const prepared = prepareWorkflowMutation(request, all, actor);
+    if (prepared.kind === "approval") await validateInternalReviewAssets(prepared.record as WorkflowApproval, tx);
+    if (prepared.kind === "publication") {
+      const approvalId = (prepared.record as { approvalId: string }).approvalId;
+      const approval = all.find(row => row.kind === "approval" && row.record.id === approvalId)?.record as WorkflowApproval | undefined;
+      if (approval) await validateInternalReviewAssets(approval, tx, true);
+    }
     const data = { kind: prepared.kind, recordId: prepared.record.id, weekStart: prepared.record.weekStart, siteDomain: "siteDomain" in prepared.record ? prepared.record.siteDomain : null, status: prepared.record.status, version: prepared.record.version, payload: json(prepared.record) };
     await tx.seoWorkflowRecord.upsert({ where: { key: prepared.key }, create: { key: prepared.key, ...data }, update: data });
     await tx.seoWorkflowEvent.create({ data: { requestId: request.requestId, requestHash, recordKey: prepared.key, kind: prepared.kind, version: prepared.record.version, payload: json(prepared.record) } });
@@ -95,6 +102,8 @@ export async function checkWorkflowApprovalRequest(input: unknown, localPreview 
   if (directory) return { ...checkWorkflowApproval(request, (await readLocal(directory)).records), storage: "local_preview" as const };
   requireDatabase();
   const rows = await prisma.seoWorkflowRecord.findMany();
+  const approval = rows.find(row => row.kind === "approval" && row.recordId === request.approvalId)?.payload as unknown as WorkflowApproval | undefined;
+  if (approval) await validateInternalReviewAssets(approval, undefined, true);
   return { ...checkWorkflowApproval(request, rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }))), storage: "database" as const };
 }
 

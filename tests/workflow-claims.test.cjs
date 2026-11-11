@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict"), { test, beforeEach, afterEach } = require("node:test"), fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
 const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename;
+const load = Module._load;
+Module._load = function (name, ...rest) { return name === "server-only" ? {} : load.call(this, name, ...rest); };
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 let leases, receipts, time, locks, transactionQueue;

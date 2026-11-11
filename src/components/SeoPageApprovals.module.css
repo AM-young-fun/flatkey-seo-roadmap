@@ -44,3 +44,11 @@
 .inlineLink { display:inline-block; margin:0 8px 4px 0; }
 .recordEvidence { border-top:1px solid #edf0f4; margin-top:18px; padding-top:12px; }
 @media(max-width:700px) { .beforeAfter { grid-template-columns:1fr; } .filters :global(.uiSelect) { flex:1; min-width:140px; } .filters input { flex-basis:100%; min-width:0; } .editor { padding:16px; } .itemEditor { padding:12px; } .itemDetail { padding:14px; } .actions { gap:10px; } .content pre { padding:12px; } }
+
+.screenshots { display: grid; gap: 12px; }
+.uploadButton { position: relative; overflow: hidden; padding: 7px 10px; border: 1px solid var(--border, #dce2e9); border-radius: 7px; cursor: pointer; font-size: 13px; }
+.uploadButton input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.uploadButton:focus-within { outline: 2px solid #2563eb; outline-offset: 2px; }
+.screenshotGrid { display: flex; flex-wrap: wrap; gap: 14px; }
+.screenshotGrid a { display: grid; gap: 6px; max-width: 240px; overflow-wrap: anywhere; font-size: 12px; }
+.screenshotGrid img { width: 240px; height: 160px; max-width: 100%; object-fit: contain; background: #f3f4f6; border: 1px solid #dce2e9; border-radius: 7px; }

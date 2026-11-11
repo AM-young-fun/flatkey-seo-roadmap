@@ -18,6 +18,7 @@ const beforePublication = new Set(["planned", "researching", "ready", "drafting"
 const productionStates = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
 
 function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
+  if (previous && (previous.channel === "product" || task.channel === "product") && previous.channel !== task.channel) reject("product_task_channel_immutable", "产品技术任务不能更换渠道；请新建独立任务");
   const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
   const lookup = new Map(tasks.map(row => [row.id, row])); lookup.set(task.id, task);
   if (task.keyword && contentKinds.has(task.kind)) {
@@ -111,9 +112,13 @@ function checkApprovalItemContext(item: WorkflowApproval["items"][number], siteD
 }
 
 function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
+  for (const item of value.items) {
+    const task = all.find(row => row.kind === "task" && row.record.id === item.taskId)?.record as WorkflowTask | undefined;
+    if ((value.channel === "product" || task?.channel === "product") && (value.channel !== "product" || task?.channel !== "product" || task.kind !== "technical")) reject("approval_product_task_required", "产品渠道审批必须关联同渠道技术任务");
+  }
   if (!previous && value.decisions.length) reject("approval_submission_required", "先保存待审单，再由负责人追加逐项审批决定");
   if (previous && previous.status !== "draft") {
-    for (const key of ["weekStart", "title", "requestedBy", "submittedAt", "items", "supersedesApprovalIds", "evidence"] as const) if (!same(previous[key], value[key])) reject("approval_content_immutable", "已提交审批内容不可改写；改稿需新版本和新审批单");
+    for (const key of ["weekStart", "title", "channel", "requestedBy", "submittedAt", "items", "supersedesApprovalIds", "evidence"] as const) if (!same(previous[key], value[key])) reject("approval_content_immutable", "已提交审批内容不可改写；改稿需新版本和新审批单");
     if (value.status === "draft") reject("approval_content_immutable", "已提交审批不能退回草稿");
   }
   const oldDecisions = previous?.decisions ?? [];

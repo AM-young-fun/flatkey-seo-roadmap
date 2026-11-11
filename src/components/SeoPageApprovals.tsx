@@ -2,6 +2,7 @@
 
 import { approvalReviewReadiness } from "@/lib/seo-workflow";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ExternalLink, ImageIcon, Plus, RefreshCw } from "lucide-react";
@@ -47,6 +48,34 @@ function ScreenshotLinks({ items }: { items: ApprovalItem["evidence"] }) {
   return [...urls].map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer">
     <ImageIcon size={14} aria-hidden="true" />查看截图{urls.size > 1 ? ` ${index + 1}` : ""}
   </a>);
+}
+
+function ReviewScreenshots({ approvalId, item, editable, onRefresh }: { approvalId: string; item: ApprovalItem; editable: boolean; onRefresh: () => void }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [capturedVersion, setCapturedVersion] = useState(item.previewContentVersion ?? "");
+  const uploads = item.evidence.filter(row => row.url?.startsWith("https://flatkey-seo-roadmap.vercel.app/api/seo/review-assets/"));
+  async function upload(file: File | undefined, viewport: "desktop" | "mobile") {
+    if (!file || busy) return;
+    setError(""); setBusy(true);
+    try {
+      if (!capturedVersion.trim()) throw new Error("请填写截图实际部署版本，不要用待审版本代替。");
+      if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 1024 * 1024) throw new Error("请选择不超过 1 MB 的 PNG 或 JPEG 截图。");
+      const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.onerror = () => reject(new Error("截图读取失败")); reader.readAsDataURL(file); });
+      const response = await fetch("/api/seo/review-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approvalId, itemId: item.id, contentVersion: item.contentVersion, capturedVersion: capturedVersion.trim(), viewport, mime: file.type, data }) });
+      const result = await response.json();
+      if (!response.ok || !result.asset?.sha256 || !result.approvalVersion) throw new Error(result.message ?? "截图未保存，请重试。");
+      onRefresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "截图上传失败"); }
+    finally { setBusy(false); }
+  }
+  if (!editable && !uploads.length) return null;
+  return <div className={review.screenshots}>
+    {editable ? <label className={review.selectLabel}>截图实际部署版本<input maxLength={200} value={capturedVersion} onChange={event => setCapturedVersion(event.target.value)} placeholder="截图所对应的实际部署 SHA" /></label> : null}
+    {editable && capturedVersion && capturedVersion !== item.contentVersion ? <small className={styles.muted}>截图与待审版本不同，仅作审阅资料，不满足同版本发布条件。</small> : null}
+    {editable ? <div className={review.actions}>{(["desktop", "mobile"] as const).map(viewport => <label className={review.uploadButton} key={viewport}>{busy ? "上传中…" : viewport === "desktop" ? "上传桌面截图" : "上传手机截图"}<input aria-label={viewport === "desktop" ? "上传桌面截图" : "上传手机截图"} type="file" accept="image/png,image/jpeg" disabled={busy} onChange={event => { void upload(event.target.files?.[0], viewport); event.target.value = ""; }} /></label>)}<small className={styles.muted}>PNG / JPEG · 每张 ≤1 MB · 仅登录后可见</small></div> : null}
+    {error ? <p role="alert" className={styles.warning}>{error}</p> : null}
+    {uploads.length ? <div className={review.screenshotGrid}>{uploads.map(row => <a href={row.url} key={row.url} target="_blank" rel="noreferrer"><Image src={row.url!} unoptimized width={240} height={160} alt={row.label} /><span>{row.label}</span></a>)}</div> : null}
+  </div>;
 }
 
 function useApprovalWrite() {
@@ -106,7 +135,7 @@ function ApprovalEditor({ weekStart, tasks, allApprovals, initialTask, original,
     const saved = await write.save(identity, () => {
       const now = new Date().toISOString();
       return {
-        id, weekStart: original?.weekStart ?? weekStart, siteDomain: site, title: title.trim(), requestedBy: requestedBy.trim(), submittedAt: desiredStatus === "pending" ? now : null,
+        id, ...(source?.channel || initialTask?.channel ? { channel: source?.channel ?? initialTask?.channel } : {}), weekStart: original?.weekStart ?? weekStart, siteDomain: site, title: title.trim(), requestedBy: requestedBy.trim(), submittedAt: desiredStatus === "pending" ? now : null,
         status: desiredStatus, decisions: [], supersedesApprovalIds: [...new Set([...(original?.supersedesApprovalIds ?? []), ...(revision ? [revision.id] : []), ...replacedApprovals.map(approval => approval.id)])],
         items: items.map(({ evidenceUrl, evidenceArtifact, desktopScreenshot, mobileScreenshot, ...item }) => ({ ...item, pageUrl: item.pageUrl.trim(), language: item.language.trim(), contentVersion: item.contentVersion.trim(),
           baseContentVersion: item.operation === "update" ? item.baseContentVersion?.trim() || null : null, beforeSummary: item.operation === "update" ? item.beforeSummary?.trim() || null : null,
@@ -231,6 +260,7 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefre
             {draft ? <a href={draft} target="_blank" rel="noreferrer">打开稿件 <ExternalLink size={13} aria-hidden="true" /></a> : null}
             <ScreenshotLinks items={item.evidence} />
           </div>
+          <ReviewScreenshots approvalId={approval.id} item={item} editable={approval.status === "draft"} onRefresh={onRefresh} />
           <h4>变更摘要</h4><p className={review.preserveLines}>{item.changeSummary}</p>
           <dl className={styles.metadata}><div><dt>本次待审版本</dt><dd><code>{item.contentVersion}</code></dd></div>{item.baseContentVersion ? <div><dt>修改前版本</dt><dd><code>{item.baseContentVersion}</code></dd></div> : null}</dl>
           {mismatch ? <p className={styles.warning}>关联任务已有新版本。此单仅适用于上述版本，请为新版本另建审批单。</p> : null}

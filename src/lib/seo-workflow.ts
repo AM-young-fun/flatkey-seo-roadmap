@@ -18,7 +18,7 @@ const research = z.object({ volume: z.number().int().nonnegative().nullable(), k
 
 export const workflowTaskSchema = z.object({
   id, weekStart: workflowWeekSchema, title: z.string().trim().min(1).max(500), siteDomain: site,
-  channel: z.enum(["website", "github"]).optional(),
+  channel: z.enum(["website", "github", "product"]).optional(),
   kind: z.enum(["blog", "landing", "optimization", "cluster", "technical", "research", "promotion", "review"]),
   country: country.nullable(), language: language.nullable(), business: z.enum(["API", "GPU", "CLUSTER"]),
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
@@ -35,6 +35,8 @@ export const workflowTaskSchema = z.object({
   if (["blog", "landing", "optimization", "cluster"].includes(value.kind) && (!value.country || !value.language || !value.keyword)) ctx.addIssue({ code: "custom", message: "内容任务必须有明确国家、本语言关键词和语言" });
   if (value.channel === "github") {
     if (!value.pageUrl || !githubReviewBelongsToSite(value.pageUrl, value.siteDomain) || value.kind !== "technical") ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "GitHub任务只允许Flatkey两个自有提示词库的渠道审核，不计博客或落地页产量" });
+  } else if (value.channel === "product") {
+    if (value.kind !== "technical" || value.siteDomain !== "flatkey.ai" || value.pageUrl && !productReviewBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "产品渠道只允许Flatkey主站、Console与Router的技术变更审核" });
   } else if (value.pageUrl && !pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
   if (value.dependencies.includes(value.id) || new Set(value.dependencies).size !== value.dependencies.length) ctx.addIssue({ code: "custom", path: ["dependencies"], message: "依赖不能重复或指向自身" });
   if (new Date(value.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) < value.weekStart || new Date(value.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) > shiftWorkflowDay(value.weekStart, 6)) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "交付日须在对应周一至周日内" });
@@ -72,8 +74,9 @@ export function approvalReviewReadiness(item: z.infer<typeof workflowApprovalIte
   const preview = safe(item.previewUrl);
   if (!preview || preview.origin === safe(item.pageUrl)?.origin) missing.push("独立测试环境链接");
   if (item.previewContentVersion !== item.contentVersion) missing.push("与稿件一致的测试部署版本");
-  if (!item.evidence.some(row => safe(row.url) && /桌面|desktop/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("桌面截图链接");
-  if (!item.evidence.some(row => safe(row.url) && /手机|移动|mobile/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("手机截图链接");
+  const sameVersion = (row: typeof item.evidence[number]) => !row.url?.startsWith("https://flatkey-seo-roadmap.vercel.app/api/seo/review-assets/") || row.label.endsWith(` · ${item.contentVersion}`);
+  if (!item.evidence.some(row => safe(row.url) && sameVersion(row) && /桌面|desktop/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("桌面截图链接");
+  if (!item.evidence.some(row => safe(row.url) && sameVersion(row) && /手机|移动|mobile/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("手机截图链接");
   return { ready: missing.length === 0, missing };
 }
 export const workflowApprovalDecisionSchema = z.object({
@@ -90,7 +93,7 @@ export function workflowApprovalStatus(decisions: z.infer<typeof workflowApprova
 }
 export const workflowApprovalSchema = z.object({
   id, weekStart: workflowWeekSchema, siteDomain: site, title: z.string().trim().min(1).max(500), requestedBy: z.string().trim().min(1).max(200),
-  channel: z.enum(["website", "github"]).optional(),
+  channel: z.enum(["website", "github", "product"]).optional(),
   submittedAt: stamp.nullable(), status: z.enum(WORKFLOW_APPROVAL_STATUSES), items: z.array(workflowApprovalItemSchema).min(1).max(500),
   decisions: z.array(workflowApprovalDecisionSchema).max(1000), supersedesApprovalIds: z.array(id).max(100), evidence: evidence.min(1),
 }).strict().superRefine((value, ctx) => {
@@ -100,7 +103,7 @@ export const workflowApprovalSchema = z.object({
   if (new Set(value.items.map(item => item.id)).size !== value.items.length || new Set(value.items.map(item => JSON.stringify([item.pageUrl,item.language]))).size !== value.items.length) fail("同一审批单不能重复页面语言或审批项编号");
   if (new Set(value.decisions.map(decision => decision.id)).size !== value.decisions.length) fail("审批决定编号不能重复");
   if (new Set(value.supersedesApprovalIds).size !== value.supersedesApprovalIds.length || value.supersedesApprovalIds.includes(value.id)) fail("替换审批单不能重复或指向自身");
-  for (const item of value.items) if (!(value.channel === "github" ? githubReviewBelongsToSite(item.pageUrl, value.siteDomain) : pageBelongsToSite(item.pageUrl, value.siteDomain))) fail("审批页面必须属于所选站点或明确标记的自有GitHub渠道");
+  for (const item of value.items) if (!(value.channel === "github" ? githubReviewBelongsToSite(item.pageUrl, value.siteDomain) : value.channel === "product" ? productReviewBelongsToSite(item.pageUrl, value.siteDomain) : pageBelongsToSite(item.pageUrl, value.siteDomain))) fail("审批页面必须属于所选站点或明确标记的自有渠道");
   for (const decision of value.decisions) if (new Set(decision.itemIds).size !== decision.itemIds.length || decision.itemIds.some(id => !value.items.some(item => item.id === id))) fail("决定只能引用本单唯一审批项");
 });
 
@@ -256,5 +259,11 @@ export function githubReviewBelongsToSite(value: string, domain: string) {
   } catch { return false; }
 }
 export function pageBelongsToSite(value: string, domain: string) { const url = new URL(value); return url.protocol === "https:" && [domain, `www.${domain}`].includes(url.hostname) && !url.username && !url.password && !url.port && !url.hash; }
+export function productReviewBelongsToSite(value: string, domain: string) {
+  // Explicit production host ownership only. Reject raw escape syntax before
+  // URL normalisation can erase a port, path traversal or encoded separator.
+  if (domain !== "flatkey.ai" || !/^https:\/\/(?:flatkey\.ai|www\.flatkey\.ai|console\.flatkey\.ai|router\.flatkey\.ai)(?:\/|$)/.test(value) || /[\\%?#]/.test(value) || [...value].some(char => char.charCodeAt(0) <= 32) || value.split("/").some(part => part === "." || part === "..")) return false;
+  try { const url = new URL(value); return !url.username && !url.password && !url.port && !url.search && !url.hash; } catch { return false; }
+}
 export function shiftWorkflowDay(value: string, days: number) { return new Date(Date.parse(value + "T00:00:00Z") + days * 86_400_000).toISOString().slice(0, 10); }
 export function workflowWeek(now = new Date()) { const day = now.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }); return shiftWorkflowDay(day, -((new Date(day + "T00:00:00Z").getUTCDay() + 6) % 7)); }
