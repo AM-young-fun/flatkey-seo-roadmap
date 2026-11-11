@@ -40,6 +40,22 @@
 
 最后切换前：验证日报、周报各一份、真实发布和优化台账、三表与数据基础链接可访问、实际自动化启停状态。然后服务端环境与GitHub变量`SEO_UNIFIED_REPORTING_ENABLED=true`关闭旧日采/排名单发；本机control.notification_cutover=true关闭逐篇博客消息并启用唯一18点任务。`SEO_WORKFLOW_ENABLED=true`启用服务器区间人数采集。旧通知停用与新任务启用须同一切换批次记录，失败回滚开关，不能两套同时发。
 
+## 仅采集验收（不发群）
+
+`seo-daily.yml` 手动输入 `send_notifications` 为布尔类型，默认 `true` 保留现有行为。联调时明确设 `send_notifications=false`、`verify_dingtalk=false`：页面清单与五站全站/逐页 GA4、GSC 采集、生产读回正常执行；无论成功或失败，都跳过该运行的日采通知与测试消息。此开关只约束这一次 workflow，不修改18:00统一通知、其他定时通知或付费开关。`verify_dingtalk=true` 与通知关闭同时设置时，两类消息均不发送且采集不运行。
+
+经授权的维护者可在变更已合入 `main` 后执行：
+
+```sh
+gh workflow run seo-daily.yml --repo AM-young-fun/flatkey-seo-roadmap --ref main -f send_notifications=false -f verify_dingtalk=false
+```
+
+验收需查看该次 run 的 `collect` 成功、`notify` 和 `verify-dingtalk` 均为 skipped，并核对生产按日的 `ga4-pages`（含 `hostnameDimension=hostName`）、`gsc-pages` 归档后再生成报告预览。失败只保留 GitHub 结果与采集回执，不发测试消息。定时触发继续保持原有通知行为。
+
+日报每来源的页面 Top 5 优先最近14天内的五站共同完整日期；没有共同日时，在最新来源日及向前7天内选择完整站覆盖最多的日期，同覆盖再选最新日。每榜最多5条，标实际日期、选择理由和覆盖缺口；不跨日期混排。
+
+日报页面 Top 5 复用上述现有逐页数据，不依赖 `SEO_WORKFLOW_ENABLED`，无需为此打开新开关。该变量只控制独立区间去重用户/注册采集，须另按周/月数据验收启用。无完整页面覆盖、缺 hostname 或不同日期不可比时，日报应明确缺口，不用站点总数替代页面数据。
+
 ## 已验证与仍需生产验证
 
 代码检查、生产构建、浏览器本地任务创建/冲突审核、局部与全套测试；独立PostgreSQL从旧schema执行增量SQL及重跑、并发领取、幂等回放、旧令牌隔离、UNKNOWN发送禁止重试。测试不调用付费排名、不发送钉钉、不写生产。

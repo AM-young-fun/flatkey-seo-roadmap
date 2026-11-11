@@ -1,3 +1,5 @@
+import { digestTopPages } from "./seo-digest-pages";
+import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { compareOrganicPeriods, type OrganicPeriod } from "./seo-organic-period";
@@ -21,6 +23,7 @@ export type DigestPublication = { id: string; url: string; title: string; kind: 
 export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string };
 export type DigestInput = {
   date: string; now?: Date; observations: DigestObservation[];
+  pageObservations?: AnalyticsObservation[];
   publications: DigestPublication[]; optimizations: DigestOptimization[];
   effects: { url: string; comparison: string; evidence: string; judgment: string }[];
   priorities: { title: string; keyword?: string; country?: string; url?: string; reason: string; action: string }[];
@@ -114,6 +117,7 @@ export function digestOptimizationEffect(row: WorkflowOptimization, observation:
 
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date), now = input.now ?? new Date();
+  const pagePerformance = window.kind === "daily" ? digestTopPages(input.pageObservations ?? [], input.date, now) : [];
   const start = Date.parse(window.workStart), end = Math.min(now.getTime(), Date.parse(window.workEnd));
   const publications = [...new Map(input.publications.filter(row => confirmedInWindow(row, start, end) && safeLink(row.url)
     && Date.parse(row.publishedAt) <= Date.parse(row.verifiedAt)).map(row => [row.url, row])).values()];
@@ -164,6 +168,19 @@ export function buildSeoDigest(input: DigestInput) {
     const registrationText = period ? `${period.previous.registrations}→${period.current.registrations}（各区间独立去重；${period.previous.start}—${period.previous.end} → ${period.current.start}—${period.current.end}，${period.current.timezone}${period.current.end < window.trafficEnd ? "；周数据未齐，只比相同星期与天数" : ""}）` : metricText(comparableMetric(input.observations, site, "registrations", input.date));
     lines.push(`  注册 ${site === "flatkey.ai" ? registrationText : "事件未核实，保留为空"}`);
   }
+  for (const ranking of pagePerformance) {
+    const metric = ranking.source === "GSC" ? "Google 点击" : "自然搜索访问（会话）";
+    lines.push("", `${metric} Top 5 · 已采集完整页面（${ranking.date ?? "日期待更新"}；覆盖 ${ranking.coveredSites.length}/5 站）`);
+    lines.push(escaped(ranking.selectionReason) + "。");
+    if (!ranking.date) lines.push("• 暂无完整的已结束日数据，未把缺失当作0。");
+    else if (!ranking.pages.length) lines.push("• 该数据日已采集范围内没有大于0的页面记录。");
+    for (const page of ranking.pages) {
+      const change = page.previous === null ? `不可比：${page.comparisonReason}` : page.previous === 0 ? `较 ${page.previousDate} 新增 ${page.value}，基期为0不算百分比` : `较 ${page.previousDate} ${page.previous}→${page.value}（${page.percentage! >= 0 ? "+" : ""}${page.percentage!.toFixed(1)}%）`;
+      lines.push(`• ${link(page.url, page.url)} · ${page.site} · ${metric} ${page.value} · ${escaped(change)} · ${page.timezone}`);
+    }
+    if (ranking.gaps.length) lines.push(`覆盖缺口：${ranking.gaps.map(escaped).join("；")}。`);
+    lines.push("仅比较同来源、同站点、同日期口径；不同日期和未完成/截断数据未混排。");
+  }
   lines.push("", "Flatkey 四国分项（四国合计不等于全站）");
   for (const country of ["US", "JP", "BR", "ES"] as const) {
     lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country))}；曝光 ${metricText(comparableMetric(input.observations, "flatkey.ai", "impressions", input.date, country))}`);
@@ -189,6 +206,7 @@ export function buildSeoDigest(input: DigestInput) {
   return { id: `seo-digest:${input.date}:${hash.slice(0, 16)}`, date: input.date, kind: window.kind, title, text, hash,
     generatedAt: now.toISOString(), readyAfter: window.workEnd, preliminary: now.getTime() < Date.parse(window.workEnd),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
+    pagePerformance,
     approvalQueue: input.approvals ? { tickets: pendingApprovalCount, pages: pending.length } : null,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: input.approvals ? "verified" : "missing" } };
 }

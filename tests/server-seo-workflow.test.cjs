@@ -1,0 +1,30 @@
+const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
+const yaml = require("js-yaml");
+const workflow = yaml.load(fs.readFileSync(path.join(__dirname, "../.github/workflows/seo-daily.yml"), "utf8"));
+function enabled(job, { event = "workflow_dispatch", result = "success", unified = "false", inputs = {} } = {}) {
+ const defaults = Object.fromEntries(Object.entries(workflow.on.workflow_dispatch.inputs).map(([name, config]) => [name, config.default]));
+ return Boolean(vm.runInNewContext(workflow.jobs[job].if, { always: () => true, github: {ref:"refs/heads/main",event_name:event}, vars:{SEO_SERVER_COLLECTION_ENABLED:"true",SEO_UNIFIED_REPORTING_ENABLED:unified}, needs:{collect:{result}}, inputs:event === "workflow_dispatch" ? {...defaults,...inputs} : {} }));
+}
+test("manual notification opt-out uses a boolean defaulting to legacy delivery", () => {
+ assert.equal(workflow.on.workflow_dispatch.inputs.send_notifications.type,"boolean");
+ assert.equal(workflow.on.workflow_dispatch.inputs.send_notifications.default,true);
+ assert.equal(enabled("collect"),true);assert.equal(enabled("notify"),true);assert.equal(enabled("verify-dingtalk"),false);
+});
+test("collection-only manual runs retain collection and suppress every workflow group send on success or failure", () => {
+ for(const result of ["success","failure","cancelled"]){
+  const options={result,inputs:{send_notifications:false,verify_dingtalk:false}};
+  assert.equal(enabled("collect",options),true);assert.equal(enabled("notify",options),false);assert.equal(enabled("verify-dingtalk",options),false);
+ }
+});
+test("notification opt-out also suppresses explicit verification and cannot send a test by accident", () => {
+ const options={inputs:{send_notifications:false,verify_dingtalk:true}};
+ for(const job of ["collect","notify","verify-dingtalk"])assert.equal(enabled(job,job==="notify"?{...options,result:"skipped"}:options),false);
+ assert.equal(enabled("verify-dingtalk",{inputs:{verify_dingtalk:true,send_notifications:true}}),true);
+});
+test("scheduled collection keeps the existing behavior and unified reporting still disables old notifications", () => {
+ assert.equal(enabled("collect",{event:"schedule"}),true);
+ assert.equal(enabled("notify",{event:"schedule"}),true);assert.equal(enabled("verify-dingtalk",{event:"schedule"}),false);
+ assert.equal(enabled("notify",{event:"schedule",unified:"true"}),false);
+ assert.equal(enabled("notify",{unified:"true"}),false);
+ assert.equal(enabled("notify",{result:"skipped"}),false);
+});

@@ -4,6 +4,10 @@ on:
     - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
+      send_notifications:
+        description: Allow DingTalk messages (disable for collection-only validation, including test messages)
+        type: boolean
+        default: true
       verify_dingtalk:
         description: Send one DingTalk test message without collecting data
         type: boolean
@@ -65,7 +69,7 @@ jobs:
           test "$PERIODS_OUTCOME" != failure
   notify:
     needs: collect
-    if: always() && needs.collect.result != 'skipped' && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true'
+    if: always() && needs.collect.result != 'skipped' && vars.SEO_UNIFIED_REPORTING_ENABLED != 'true' && (github.event_name != 'workflow_dispatch' || inputs.send_notifications == true)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -81,7 +85,7 @@ jobs:
           INVENTORY_ADDED: ${{ needs.collect.outputs.added }}
         run: node scripts/server-seo-alert.cjs
   verify-dingtalk:
-    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk
+    if: github.ref == 'refs/heads/main' && inputs.verify_dingtalk == true && inputs.send_notifications == true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
