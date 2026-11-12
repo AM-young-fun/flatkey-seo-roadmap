@@ -3,7 +3,10 @@ import { GA4_HOST_SCOPE, FLATKEY_BUSINESS_HOSTS, ga4HostFilter, ga4RegistrationF
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
 import { businessAnalyticsSchema, businessEventLabels, type BusinessAnalytics } from "../seo-business-analytics";
 
+import { registrationDaysSchema } from "../seo-registration-days";
+
 type Query = Pick<BusinessAnalytics, "start" | "end" | "country" | "scope">;
+const endpoint = "https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport";
 const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value, caseSensitive: true } } });
 
 function registrationHostFilter(query: Query) {
@@ -22,7 +25,7 @@ export async function fetchGa4Business(query: Query, now = new Date(), options: 
   const filters: unknown[] = [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), { filter: { fieldName: "eventName", inListFilter: { values: Object.keys(businessEventLabels).filter(name => !options.registrationCompatibility || name !== "sign_up"), caseSensitive: true } } }];
   if (query.country !== "all") filters.push(exact("countryId", query.country));
   if (query.scope === "session-organic-search") filters.push(exact("sessionDefaultChannelGroup", "Organic Search"));
-  const response = await fetch("https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport", {
+  const response = await fetch(endpoint, {
     method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000),
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ dateRanges: [{ startDate: query.start, endDate: query.end }], dimensions: [{ name: "eventName" }],
@@ -44,7 +47,7 @@ export async function fetchGa4Business(query: Query, now = new Date(), options: 
     // One dimensionless IN query: GA4 deduplicates people observed under both
     // historical event names. Event counts are raw occurrences, not users.
     try {
-      const registration = await fetch("https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport", {
+      const registration = await fetch(endpoint, {
         method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000),
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ dateRanges: [{ startDate: query.start, endDate: query.end }], metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
@@ -67,4 +70,45 @@ export async function fetchGa4Business(query: Query, now = new Date(), options: 
   return businessAnalyticsSchema.parse({ ...(options.registrationCompatibility ? { registrationMetric: GA4_REGISTRATION_METRIC } : {}), hostScope: GA4_HOST_SCOPE, version: 1, siteDomain: "flatkey.ai", propertyId: "541304395", source: "google-api", ...query,
     timezone: "America/Los_Angeles", observedAt: now.toISOString(), distinctOverWholePeriod: true, complete: reasons.length === 0, reasons,
     rows });
+}
+
+
+export async function fetchGa4RegistrationDays(query: Pick<Query, "start" | "end" | "country">, now = new Date()) {
+  const token = process.env.SEO_GA4_ACCESS_TOKEN?.trim() || await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
+  const response = await fetch(endpoint, {
+    method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000),
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      dateRanges: [{ startDate: query.start, endDate: query.end }],
+      dimensions: [{ name: "date" }], metrics: [{ name: "totalUsers" }],
+      dimensionFilter: { andGroup: { expressions: [
+        registrationHostFilter({ ...query, country: "all", scope: "all-channels" }), ga4RegistrationFilter(),
+        ...(query.country === "all" ? [] : [exact("countryId", query.country)]),
+      ] } }, limit: "366",
+    }),
+  });
+  if (!response.ok) throw new GoogleReadError("unavailable", "daily_registration_query_failed", response.status);
+  const report = await response.json();
+  const metadata = report.metadata ?? {};
+  const rows = report.rows ?? [];
+  const restricted = metadata.subjectToThresholding || metadata.dataLossFromOtherRow || metadata.dataTruncationReasons?.length
+    || metadata.schemaRestrictionResponse?.activeMetricRestrictions?.length
+    || metadata.samplingMetadatas?.some((sample: { samplesReadCount: string; samplingSpaceSize: string }) => sample.samplesReadCount !== sample.samplingSpaceSize);
+  if (restricted || !Array.isArray(rows) || (report.rowCount ?? rows.length) !== rows.length || rows.length > 366) {
+    throw new GoogleReadError("invalid_response", "daily_registration_coverage_invalid");
+  }
+  if (rows.length && (report.dimensionHeaders?.[0]?.name !== "date" || report.metricHeaders?.[0]?.name !== "totalUsers"
+    || metadata.timeZone !== "America/Los_Angeles" || metadata.emptyReason)) {
+    throw new GoogleReadError("invalid_response", "daily_registration_schema_invalid");
+  }
+  const days = rows.map((row: { dimensionValues?: { value: string }[]; metricValues?: { value: string }[] }) => {
+    const day = row.dimensionValues?.[0]?.value, count = row.metricValues?.[0]?.value;
+    if (!day || !/^\d{8}$/.test(day) || !count || !/^\d+$/.test(count) || !Number.isSafeInteger(Number(count))) {
+      throw new GoogleReadError("invalid_response", "daily_registration_row_invalid");
+    }
+    return { date: `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6)}`, users: Number(count) };
+  });
+  return registrationDaysSchema.parse({ ...query, siteDomain: "flatkey.ai", propertyId: "541304395",
+    timezone: "America/Los_Angeles", source: "google-api", scope: "all-channels",
+    registrationMetric: GA4_REGISTRATION_METRIC, observedAt: now.toISOString(), days });
 }
