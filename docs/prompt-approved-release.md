@@ -1,38 +1,42 @@
-# Prompt 审批后导入
+# Prompt 自动导入与博客自动发布边界
 
-本入口补齐“候选审核 → 精确版本审批 → 正式创建 → 发布台账”的缺口。它不会把每日预筛池当作合格稿件，也不替代媒体/作者/许可审核。当前首次真实生产演练仍待：两端新协议部署、完整合格素材、逐页批准、具体版本发布授权。
+2026-11-12 用户最终决定：所有博客新增、旧博客优化、翻译和已有译文更新，以及 Prompt 定时导入，免人工逐页审批。落地页、功能页及其他非博客页面先提供同版本测试链接、双端截图和简介，由团队在本地 Codex 继续调整并自行发布；平台登记“已发布”后仍要真实生产核验，不因点击按钮自动部署或假称验收。
 
-## 准备与审批
+## Prompt 执行入口
 
-1. 沿用 10:30 候选任务，对单条完成原始作者与许可、完整图片视觉或视频完整解码/关键帧、真实生成模型、公开 CDN 和重复内容核查。记录来源目录、确切 revision、素材 SHA256、审核人/时间及 HTTPS 证据；不能只凭 Range 传输成功。
-2. 冻结单条 import JSON，包括 `slug/category/model/prompt/title/summary/tags/output/artifact/source` 和 `_seo_review`。`title/summary` 含现有十语言。`_seo_review` 不进公开业务字段，但整个 JSON 的原始 UTF-8 字节都参与 `sha256:` 版本，审批后不能重新排版或替换素材。
-3. 创建 `technical` 任务，国家/语言/关键词/pageUrl 均为 null；每个实际公开的十语言详情页分别有审批 item，`operation=new`，`reviewContent` 是同一完整 JSON 字符串，`contentVersion` 是其哈希。测试 URL 和桌面/手机截图必须与该版本一致。只准备源语言审批不足以授权自动出现的其他九个页面。
-4. 由负责人在平台逐项批准。后台导入 token 无此权限。生产执行还要求操作者明确提供同版本 `--release-authorized`，不能因旧自动任务历史曾直接导入就沿用该权限。
+`node scripts/seo-prompt-release.cjs --input=<qualified.json>` 只预检；加 `--execute` 执行本次合格条目的 create-only 自动导入，不再传逐页审批或 release-authorized 参数。输入保留 `version:1, taskId, weekStart, approvedItemJSON, contentVersion`；`approvedItemJSON` 只是兼容后端协议的字段名，不表示人审。十语言页面从实际规范路由和条目 slug 派生，不接受客户端自定义审批 URL。
 
-输入 manifest：`version:1`、`taskId`、`weekStart`、`approvedItemJSON`、`contentVersion`、十个 `approvals`。每个 approval 是已有 `seo-page-approval-check.cjs` 的六字段结构；语言采用路由 locale（en/zh/es/fr/pt/ru/ja/vi/de/id），目标 URL 是 `https://flatkey.ai/[locale/]prompts/{image|video}/{slug}`。
+来源、作者许可、原帖、精确生成模型、完整媒体复核、可用公开 CDN、去重、十语言文本及其证据必须绑定同一 SHA256。候选池不等于合格素材；缺任何项只记录缺口。只使用现有 import-only Keychain 凭据，不新增管理员凭据，不把 SEO_IMPORT_TOKEN 当生产写入密钥。
 
-`_seo_review` 必需：`catalogUrl`（既有合法来源白名单）、40位 revision、`originalSourceUrl/author/license/reviewer/checkedAt/artifactSha256/evidence[]`，以及 `originalAuthorAndLicense/fullMediaReview/publicCdnVerified/duplicateCheck/generationModelVerified=true`。视频另需 `fullDecode/keyframesReviewed=true`。这是真实已做审核的记录，禁止为通过校验而预填 true。素材 URL 必须为不含临时签名查询的公开 HTTPS 地址。
+执行器先核对平台 `capabilities.automaticPublicationPolicy=1` 和后端 `X-Prompt-Import-Protocol: approved-create-only-v1`，缺新版协议停止。持久 workflow claim 与数据库唯一 slug 共同防重；凭据检查在 POST 尝试标记之前。标记之后请求结果未知，只按精确版本公开读回恢复，不能盲重发。正式 API 写入回读生成 `kind=prompt,status=published` 台账，十个页面不计十篇博客；未做 HTML/canonical/语言/正文/链接验收前不会标 verified。
 
-## 执行顺序
+## 平台自动发布回执
 
-默认 `node scripts/seo-prompt-release.cjs --input=/path/manifest.json` 只做预检：核对平台数据库能力、完整审核内容、十个精确版本 approval-check 及正式 Prompt API 的协议/同名情况。不获取生产导入密钥、不 claim、不写台账、不发布。
+`record_publication` 原字段保留，自动发布增加：
 
-明确授权后才在既有 SEO 环境包装器内加 `--execute --release-authorized=sha256:…`。脚本固定两个目标 origin，拒绝重定向；SEO token 仅用于平台。Prompt import-only AccessKey 从现有 macOS Keychain 的 `flatkey-prompt-library-import-access-key` / `automation-2` 临时读入进程内存，不进 argv、环境、文件、报告或日志。不会创建新凭据，不能用 SEO token 代替。
+```json
+{
+  "publicationPolicy": "auto_blog",
+  "approvalId": null,
+  "approvalItemId": null,
+  "automaticWrite": {
+    "operation": "update",
+    "sourceId": "actual-cms-id",
+    "baseContentVersion": "actual-old-version",
+    "contentVersion": "actual-new-version",
+    "publishedAt": "actual-provider-write-time",
+    "verifiedAt": "actual-provider-readback-time",
+    "receipt": "immutable-receipt-path-or-url"
+  }
+}
+```
 
-执行依次：专用凭据读取与其他可证明未发送的准备 → 平台 claim → 刷新数据库状态 → 再核审批 → 持久化尝试标记 → create-only POST → 精确版本及字段只读读回 → 十页 `kind=prompt/status=published` 台账 → task published → run partial/释放租约。记录实际 backend 高精度 `importCreatedAt`（旧 `createdAt` 秒字段仅作一致性核验），不采用素材抓取日或客户端假定时间；重复执行不增加新增数。
+`auto_blog` 只接受已核实的主站规范 `/blog/:slug` 及合法语言路径，并且 task.kind 为 blog/optimization、pageType=blog、渠道为网站。博客必须属于用户明确设定的任务或已确认周计划；其他页面不能只改客户端 kind 绕过。新增 source_blog/translation/backfill_translation 使用 create；译文关联真实同任务 sourcePublicationId。旧博客和已有译文改动统一 kind=optimization、operation=update；CMS 执行器必须做改前版本 CAS，优化基线先保存（缺数保留 null），平台会核对已知最新版本。实际媒体/CMS CAS 并不由台账本身替代。
 
-后端新增的 `approved-create-only-v1` 使用现有数据库唯一 slug 约束决定唯一创建者，跨节点不会覆盖同名数据。存在同版本且全部字段相同才可只读返回；不同版本、旧条目无版本、被禁用或后来编辑过的条目均拒绝。旧客户端原 upsert 行为保留；新客户端不发送 legacy `items`，因此旧服务节点会拒绝，不会误走旧覆盖路径。新增模型版本列与高精度创建时间列均为可重复的 GORM additive migration，三数据库兼容；本地实际测试为 SQLite，未声称三种数据库均实跑。
+`auto_prompt` 仅真实 `/prompts/image|video/:slug` 详情路径、technical/other 任务，operation 必须 create；不消费博客周计划额度。非博客免审申请会拒绝；原有人工审批记录仍可正常读写。
 
-## 中断与验收
+旧 pending 博客/Prompt 审批原决定不改、不自动批准或撤回；列表显示“免审历史”，不计可行动待审项。非博客仍保留原逐页审批记录与审计。
 
-- 超时或响应不明确：保留持久尝试标记与 UNKNOWN，后续只查已存在的 exact version/字段/importCreatedAt，**不重发 POST**。记录缺失或内容漂移时停止，须查真实后端结果；不能改 runId 绕过。平台 claim 只是减少并发，数据库约束才是创建幂等的最后保障。
-- 导入成功只说明 API 中已有正式条目。网站可能仍有 ISR 缓存，不能立即虚写 verified。日常交付验收须逐页补正式 HTTP 200、canonical、语言、实际内容、有效链接与时间证据，调用已有 publication mutation 升为 verified，之后才 observing。`linksChecked` 不能凭 API 返回设为 true。
-- Prompt 的十个语言 URL 不算十篇新增博客；新增条目数量按唯一 slug，页验收按 URL，分别记录。日报仅用真实已验收交付，原有博客/优化计数不被 Prompt 混入。
+## 本地验证与部署边界
 
-## 上线交接
-
-先部署 Console 后端 create-only 协议，再部署 SEO 的能力 marker/schema/脚本并同步验收后的 stable runtime；反序也安全，旧一端能力不足会在读取 Prompt 密钥前停止。daily 10:30 默认仍是候选与审批准备，本补丁不修改任何定时任务或发送日报。
-
-Router deploy: **required** for a coordinated release of this shared Go model/runtime: PromptLibraryItem is registered in the shared startup migration list and the same API router exposes its handlers. Console deploy and additive database migration are required; no relay/billing business logic is changed. SEO platform deploy/runtime sync are separate. A rolling deployment may temporarily reject protected imports on old nodes; never retry blindly. Verify the two new columns and protocol/readback on the actual Console entry before allowing imports.
-
-验证：后端 controller/model Prompt 定向及并发创建测试；平台真实 workflow state-machine 合约测试覆盖精确审批、10语言、旧服务能力、丢响应、跨执行器 claim、既有条目冲突、发布台账和不混计博客。模拟测试不是生产发布证据。
+Prompt 后端 create-only +精确版本 API 是独立 Go 候选，需 Console/Router 同步部署；SQLite race 测试不代表 PostgreSQL/MySQL 已做真实生产验收。SEO 平台与稳定 runtime 要同时达到新 capability 后，定时执行器才会执行生产导入。旧线上协议下保持停止并记录具体缺口。本文不表示任何 Prompt 已实际导入。

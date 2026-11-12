@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-// One approved Prompt at a time. Default: read-only preflight. Never approves,
+// One qualified Prompt at a time. Scheduled imports are approval-exempt. Default: read-only preflight. Never approves,
 // uploads media, rewrites an existing slug, or retries an ambiguous POST.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
 const { execFile } = require("node:child_process"), { promisify } = require("node:util");
-const { approvalRequest, checkedResponse } = require("./seo-page-approval-check.cjs");
 const SEO = "https://flatkey-seo-roadmap.vercel.app", CONSOLE = "https://console.flatkey.ai";
 const PROTOCOL = "approved-create-only-v1";
 const POST_MARKER = "PROMPT_POST_ATTEMPT_V1";
@@ -29,7 +28,7 @@ function validateInput(input) {
   if (!models[item.category].includes(item.model) || typeof item.prompt !== "string" || !item.prompt.trim() || item.prompt !== item.prompt.trim()) fail("invalid_prompt_model_or_content");
   if (!object(item.artifact) || item.artifact.kind !== item.category || !https(item.artifact.url) || !object(item.source) || !https(item.source.url) || !item.source.platform || !item.source.label) fail("invalid_prompt_provenance");
   if (new URL(item.artifact.url).search || !Array.isArray(item.tags) || item.tags.some(tag => typeof tag !== "string") || !object(item.output) || Object.keys(item.source).some(key => !["label", "platform", "url", "captured_at"].includes(key)) || ["label", "platform", "url", "captured_at"].some(key => typeof item.source[key] !== "string" || item.source[key] !== item.source[key].trim())) fail("noncanonical_import_fields");
-  // These are signed into the same content hash reviewers approve. An existing
+  // These quality/provenance checks are bound into the immutable content hash. An existing
   // candidate pool is not evidence that any of these checks passed.
   const review = item._seo_review;
   if (!object(review) || !CATALOGS.has(review.catalogUrl) || !/^[a-f0-9]{40}$/.test(review.revision) || review.originalSourceUrl !== item.source.url || !review.author || !review.license || !review.reviewer || !Number.isFinite(Date.parse(review.checkedAt)) || !/^[a-f0-9]{64}$/.test(review.artifactSha256)) fail("review_evidence_missing");
@@ -39,13 +38,9 @@ function validateInput(input) {
   const contentVersion = "sha256:" + sha(input.approvedItemJSON);
   if (input.contentVersion !== contentVersion || typeof input.taskId !== "string" || !/^[a-zA-Z0-9_.:-]{1,160}$/.test(input.taskId) || !/^\d{4}-\d{2}-\d{2}$/.test(input.weekStart) || new Date(input.weekStart + "T00:00:00Z").getUTCDay() !== 1) fail("release_version_or_week_mismatch");
   if (!object(item.title) || !object(item.summary) || Object.keys(LANGUAGES).some(lang => !item.title[lang]?.trim() || !item.summary[lang]?.trim())) fail("ten_language_content_required");
-  if (!Array.isArray(input.approvals) || input.approvals.length !== 10) fail("all_ten_page_approvals_required");
-  const approvals = input.approvals.map(approvalRequest);
-  for (const locale of Object.keys(LANGUAGES)) {
-    const pageUrl = `https://flatkey.ai/${locale === "en" ? "" : locale + "/"}prompts/${item.category}/${item.slug}`;
-    if (approvals.filter(a => a.pageUrl === pageUrl && a.language === locale && a.taskId === input.taskId && a.contentVersion === contentVersion).length !== 1) fail("approval_page_binding_mismatch");
-  }
-  return { ...input, item, approvals, contentVersion };
+  if (input.approvals !== undefined) fail("prompt_approval_not_required");
+  const pages = Object.keys(LANGUAGES).map(language => ({ language, pageUrl: `https://flatkey.ai/${language === "en" ? "" : language + "/"}prompts/${item.category}/${item.slug}` }));
+  return { ...input, item, pages, contentVersion };
 }
 function exactPublicItem(actual, input) {
   if (!object(actual) || actual.contentVersion !== input.contentVersion || !Number.isSafeInteger(actual.createdAt) || actual.createdAt <= 0 || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/.test(actual.importCreatedAt ?? "") || !Number.isFinite(Date.parse(actual.importCreatedAt)) || Math.floor(Date.parse(actual.importCreatedAt) / 1000) !== actual.createdAt) return false;
@@ -69,9 +64,9 @@ function options(argv) {
   const value = { execute: false };
   for (const arg of argv) {
     if (arg === "--execute" && !value.execute) value.execute = true;
-    else { const m = /^--(input|receipt-dir|release-authorized)=(.+)$/.exec(arg); if (!m || value[m[1]]) fail("invalid_arguments"); value[m[1]] = m[2]; }
+    else { const m = /^--(input|receipt-dir)=(.+)$/.exec(arg); if (!m || value[m[1]]) fail("invalid_arguments"); value[m[1]] = m[2]; }
   }
-  if (!value.input || (value.execute && !value["release-authorized"])) fail("explicit_release_authorization_required");
+  if (!value.input) fail("input_required");
   return value;
 }
 function cleanStored(value) { const copy = { ...value }; for (const k of ["version", "updatedAt", "recordedAt", "verificationRecordedAt"]) delete copy[k]; return copy; }
@@ -82,7 +77,7 @@ async function releasePrompt({ argv = process.argv.slice(2), env = process.env, 
   let raw; try { const b = await fs.readFile(path.resolve(cwd, args.input)); if (b.length > 2 * 1024 * 1024) fail("input_too_large"); raw = JSON.parse(b); } catch { fail("input_unreadable"); }
   if (JSON.stringify(raw).includes(token)) fail("credential_in_input");
   const input = validateInput(raw);
-  if (args.execute && args["release-authorized"] !== input.contentVersion) fail("explicit_release_version_mismatch");
+  if (Date.parse(input.item._seo_review.checkedAt) > now().getTime()) fail("quality_check_in_future");
   const directory = path.resolve(cwd, args["receipt-dir"] || ".local/prompt-release");
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const receiptPath = path.join(directory, `${sha(input.contentVersion).slice(0, 20)}-${crypto.randomUUID()}.json`);
@@ -97,18 +92,7 @@ async function releasePrompt({ argv = process.argv.slice(2), env = process.env, 
     return { response, data };
   }
   async function seo(endpoint, body) { const r = await request(SEO + endpoint, body); if (!r.response.ok) fail("seo_http_" + r.response.status); return r.data; }
-  async function snapshot() { const data = await seo("/api/seo/workflow?week=" + input.weekStart + "&allHistory=true"); if (data.storage !== "database") fail("durable_workflow_unavailable"); if (data.capabilities?.promptPublication !== 1) fail("platform_prompt_publication_not_deployed"); return data; }
-  async function approvals() {
-    const results = [];
-    for (const approval of input.approvals) {
-      // Already accepted publication receipts are facts, not permission to POST.
-      // The server deliberately refuses a new-page approval once it is live.
-      const accepted = state.publications.some(p => p.pageUrl === approval.pageUrl && p.contentVersion === input.contentVersion && p.taskId === input.taskId && p.approvalId === approval.approvalId && p.approvalItemId === approval.itemId && ["published", "verified"].includes(p.status));
-      if (accepted) continue;
-      const started = stamp(); const data = await seo("/api/seo/workflow/approval-check", approval); results.push(checkedResponse(data, approval, started, stamp()));
-    }
-    return results;
-  }
+  async function snapshot() { const data = await seo("/api/seo/workflow?week=" + input.weekStart + "&allHistory=true"); if (data.storage !== "database") fail("durable_workflow_unavailable"); if (data.capabilities?.automaticPublicationPolicy !== 1) fail("platform_prompt_publication_not_deployed"); return data; }
   const publicURL = CONSOLE + "/api/prompt-library/" + input.item.slug;
   async function publicItem() {
     const { response, data } = await request(publicURL, undefined, null);
@@ -133,22 +117,15 @@ async function releasePrompt({ argv = process.argv.slice(2), env = process.env, 
     state = await snapshot();
     const task = state.tasks.find(t => t.id === input.taskId);
     if (!task || task.kind !== "technical" || task.siteDomain !== "flatkey.ai" || task.contentVersion !== input.contentVersion || task.weekStart !== input.weekStart || task.pageUrl !== null || task.country !== null || task.language !== null || task.keyword !== null) fail("prompt_task_context_mismatch");
-    for (const a of input.approvals) {
-      const item = state.approvals.find(row => row.id === a.approvalId)?.items.find(row => row.id === a.itemId);
-      if (item?.operation !== "new" || item.reviewContent !== input.approvedItemJSON) fail("approved_content_not_bound");
-    }
-    const checks = await approvals();
     let stored = await publicItem();
     receipt.existingMatched = Boolean(stored);
-    if (!args.execute) { receipt.code = "preflight_passed_not_permission"; await save(); return { exitCode: 0, ...receipt, receipt: receiptPath }; }
+    if (!args.execute) { receipt.code = "preflight_passed_no_write"; await save(); return { exitCode: 0, ...receipt, receipt: receiptPath }; }
     stage = "PROMPT_RELEASE_" + sha(input.contentVersion).slice(0, 24).toUpperCase();
-    // Identical content always uses one durable run identity. Approval decisions
-    // can be revised, but cannot produce a new production attempt identity.
+    // Identical content always uses one durable run identity, independent of runs or retries.
     const runId = "prompt-release-" + sha(input.contentVersion).slice(0, 40);
     const previous = state.runs.find(r => r.id === runId);
     if (previous) scheduledFor = previous.scheduledFor;
-    else if (checks.length === 10) scheduledFor = new Date(Math.max(...checks.map(c => Date.parse(c.decisionRecordedAt)))).toISOString();
-    else fail("partial_historical_import_requires_reconciliation");
+    else scheduledFor = new Date(input.item._seo_review.checkedAt).toISOString();
     // All demonstrably pre-POST preparation happens before the durable marker.
     // A missing/revoked Keychain entry must remain retryable after it is repaired.
     if (!stored && !previous?.evidence.some(e => e.label === POST_MARKER)) {
@@ -162,13 +139,13 @@ async function releasePrompt({ argv = process.argv.slice(2), env = process.env, 
     state = await snapshot(); run = state.runs.find(r => r.id === runId);
     const attemptedBefore = Boolean(run?.evidence.some(e => e.label === POST_MARKER));
     if (run && (run.inputVersion !== input.contentVersion || run.stage !== stage)) fail("existing_run_mismatch");
-    await approvals(); // Latest check immediately before durable attempt and POST.
+    const freshTask = state.tasks.find(t => t.id === input.taskId);
+    if (!freshTask || freshTask.contentVersion !== input.contentVersion || ["planned", "researching", "blocked", "failed"].includes(freshTask.status)) fail("prompt_task_not_ready");
     // Refresh after claim: another author may have published while preflighting.
     stored = await publicItem();
     if (!stored && attemptedBefore) fail("previous_attempt_unknown_readback_missing");
     const newRun = { id: runId, weekStart: input.weekStart, stage, scheduledFor, startedAt: stamp(), completedAt: null, status: "running", owner: lease.owner, taskIds: [input.taskId], inputVersion: input.contentVersion, evidence: [], failureReason: null, nextAction: "正在只读核对已导入条目。", checkedItems: 10, completedItems: 0, costMicros: 0, coverage: "unknown", sourceDates: {} };
     if (!stored) {
-      if (checks.length !== 10) fail("all_current_approvals_required_before_post");
       if (!promptToken) fail("prompt_credential_unavailable");
       const postBody = { create_only: true, content_version: input.contentVersion, approved_item_json: input.approvedItemJSON };
       await save();
@@ -183,20 +160,20 @@ async function releasePrompt({ argv = process.argv.slice(2), env = process.env, 
     // Backend stores the high-precision creation instant alongside the legacy
     // second-resolution field; do not round it or invent a later client time.
     const publishedAt = stored.importCreatedAt;
-    if (checks.length && Date.parse(publishedAt) < Math.max(...checks.map(c => Date.parse(c.decisionRecordedAt))) || Date.parse(publishedAt) > now().getTime() + 5000) fail("production_timestamp_invalid");
+    if (Date.parse(publishedAt) > now().getTime() + 5000) fail("production_timestamp_invalid");
     receipt.publishedAt = publishedAt; receipt.publicApiVerifiedAt = stamp();
     await save();
     // A verified API row is a real import, not proof the website ISR cache has
     // served the new page. Keep published, and let normal live-page verification
     // supply HTML/canonical/language/link evidence before marking verified.
-    for (const a of input.approvals) {
+    for (const a of input.pages) {
       const existing = state.publications.find(p => p.pageUrl === a.pageUrl && p.contentVersion === input.contentVersion);
       if (existing) { if (existing.kind !== "prompt" || existing.taskId !== input.taskId || existing.publishedAt !== publishedAt) fail("publication_identity_conflict"); receipt.publishedPages++; if (existing.status === "verified") receipt.verifiedPages++; continue; }
-      await mutation("record_publication", { id: "prompt-" + sha(input.contentVersion + a.pageUrl).slice(0, 40), taskId: input.taskId, approvalId: a.approvalId, approvalItemId: a.itemId, weekStart: input.weekStart, runId, siteDomain: "flatkey.ai", pageUrl: a.pageUrl, country: null, language: a.language, keyword: null, contentVersion: input.contentVersion, title: input.item.title[a.language], kind: "prompt", sourcePublicationId: null, publishedAt, verifiedAt: null, status: "published", liveCheck: null, evidence: [proof("create-only 正式 API 同版本读回；页面渲染待验"), { label: "正式 Prompt API", url: publicURL, observedAt: stamp() }], failureReason: null }, 0);
+      await mutation("record_publication", { id: "prompt-" + sha(input.contentVersion + a.pageUrl).slice(0, 40), taskId: input.taskId, approvalId: null, approvalItemId: null, publicationPolicy: "auto_prompt", automaticWrite: { operation: "create", sourceId: input.item.slug, baseContentVersion: null, contentVersion: input.contentVersion, publishedAt, verifiedAt: receipt.publicApiVerifiedAt, receipt: receiptPath }, weekStart: input.weekStart, runId, siteDomain: "flatkey.ai", pageUrl: a.pageUrl, country: null, language: a.language, keyword: null, contentVersion: input.contentVersion, title: input.item.title[a.language], kind: "prompt", sourcePublicationId: null, publishedAt, verifiedAt: null, status: "published", liveCheck: null, evidence: [proof("create-only 正式 API 同版本读回；页面渲染待验"), { label: "正式 Prompt API", url: publicURL, observedAt: stamp() }], failureReason: null }, 0);
       receipt.publishedPages++;
     }
     state = await snapshot();
-    if (input.approvals.some(a => !state.publications.some(p => p.pageUrl === a.pageUrl && p.contentVersion === input.contentVersion && p.kind === "prompt"))) fail("publication_readback_mismatch");
+    if (input.pages.some(a => !state.publications.some(p => p.pageUrl === a.pageUrl && p.contentVersion === input.contentVersion && p.kind === "prompt"))) fail("publication_readback_mismatch");
     const latestTask = state.tasks.find(t => t.id === input.taskId);
     if (!["published", "verified", "observing"].includes(latestTask.status)) await mutation("save_task", { ...cleanStored(latestTask), status: "published", evidence: [...latestTask.evidence, proof("正式导入已读回，十语言页面渲染仍待验")], nextAction: "用正式页面的 HTTP、canonical、语言、内容和链接证据逐页验收；不得把 API 已导入当作页面已验证。" }, latestTask.version);
     receipt.code = receipt.verifiedPages === 10 ? "all_pages_verified" : "imported_pages_need_live_verification";
@@ -207,7 +184,7 @@ async function releasePrompt({ argv = process.argv.slice(2), env = process.env, 
     receipt.outcome = receipt.productionPostAttempted ? "unknown_requires_readback" : "blocked";
     // Never resend here. Preserve the attempt marker across crashes/nodes.
     if (claim && !run) {
-      try { run = await mutation("record_run", { id: claim.runId, weekStart: input.weekStart, stage, scheduledFor, startedAt: receipt.startedAt, completedAt: stamp(), status: "blocked", owner: claim.owner, taskIds: [input.taskId], inputVersion: input.contentVersion, evidence: [proof("生产POST之前停止，未创建不可重试尝试标记")], failureReason: receipt.code, nextAction: "修复准备条件后重新检查审批；尚未发送生产请求。", checkedItems: 10, completedItems: 0, costMicros: 0, coverage: "partial", sourceDates: {} }, 0); }
+      try { run = await mutation("record_run", { id: claim.runId, weekStart: input.weekStart, stage, scheduledFor, startedAt: receipt.startedAt, completedAt: stamp(), status: "blocked", owner: claim.owner, taskIds: [input.taskId], inputVersion: input.contentVersion, evidence: [proof("生产POST之前停止，未创建不可重试尝试标记")], failureReason: receipt.code, nextAction: "修复准备条件后重新检查质量与版本；尚未发送生产请求。", checkedItems: 10, completedItems: 0, costMicros: 0, coverage: "partial", sourceDates: {} }, 0); }
       catch { receipt.workflowRecoveryRequired = true; }
     }
     if (claim && run) { try { await finish("partial", receipt.code); } catch { receipt.workflowRecoveryRequired = true; } }

@@ -5,7 +5,7 @@ import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { compareOrganicPeriods, type OrganicPeriod } from "./seo-organic-period";
-import { approvalReviewReadiness, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes } from "./seo-workspace-routes";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
@@ -181,7 +181,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   for (const approval of approvals) {
     for (const item of approval.items) {
       const task = tasks.get(item.taskId);
-      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind)) continue;
+      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind) || !approvalItemNeedsHuman(item, workflow.tasks)) continue;
       // Blog translations have independent content versions from their source task.
       const translation = task.kind === "blog" && item.language !== task.language;
       if (!translation && (item.contentVersion !== task.contentVersion
@@ -212,7 +212,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   for (const approval of allApprovals.filter(row => row.status === "draft")) {
     for (const item of approval.items) {
       const task = tasks.get(item.taskId);
-      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind)) continue;
+      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind) || !approvalItemNeedsHuman(item, workflow.tasks)) continue;
       const translation = task.kind === "blog" && item.language !== task.language;
       if (!translation && item.contentVersion !== task.contentVersion) continue;
       draftTasks.add(task.id); draftTickets.add(approval.id); draftPages++;
@@ -225,7 +225,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   const standalone = [];
   const materials = [];
   for (const task of tasks.values()) {
-    if (task.status !== "review_pending") continue;
+    if (task.status !== "review_pending" || automaticTaskPolicy(task)) continue;
     const taskUrl = `${SEO_PLATFORM}${executionViewRoutes.tasks}?week=${task.weekStart}#task-${encodeURIComponent(task.id)}`;
     if (pageApprovalKinds.has(task.kind)) {
       const revision = revisions.get(task.id);

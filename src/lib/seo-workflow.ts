@@ -107,9 +107,39 @@ export const workflowApprovalSchema = z.object({
   for (const decision of value.decisions) if (new Set(decision.itemIds).size !== decision.itemIds.length || decision.itemIds.some(id => !value.items.some(item => item.id === id))) fail("决定只能引用本单唯一审批项");
 });
 
+// Automatic publication is a route-and-task policy, never a client-selected kind bypass.
+const BLOG_LOCALES = new Set(["en", "zh", "es", "fr", "pt", "ru", "ja", "vi", "de", "id"]);
+export function automaticPageRoute(pageUrl: string, siteDomain: string): "blog" | "prompt" | null {
+  try {
+    const url = new URL(pageUrl);
+    if (siteDomain !== "flatkey.ai" || url.protocol !== "https:" || url.hostname !== siteDomain || url.port || url.username || url.password || url.search || url.hash) return null;
+    if (url.pathname.includes("//")) return null;
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length && BLOG_LOCALES.has(parts[0])) parts.shift();
+    if (parts.length === 2 && parts[0] === "blog" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[1]) && !url.pathname.endsWith("/")) return "blog";
+    if (parts.length === 3 && parts[0] === "prompts" && ["image", "video"].includes(parts[1]) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[2]) && !url.pathname.endsWith("/")) return "prompt";
+  } catch { /* Unknown routes retain individual approval. */ }
+  return null;
+}
+export function automaticTaskPolicy(task: Pick<WorkflowTask, "siteDomain" | "kind" | "pageType" | "pageUrl" | "channel"> | undefined, pageUrl = task?.pageUrl): "auto_blog" | "auto_prompt" | null {
+  if (!task || task.channel && task.channel !== "website" || !pageUrl) return null;
+  const route = automaticPageRoute(pageUrl, task.siteDomain);
+  if (route === "blog" && task.pageType === "blog" && ["blog", "optimization"].includes(task.kind)) return "auto_blog";
+  if (route === "prompt" && task.kind === "technical" && task.pageType === "other") return "auto_prompt";
+  return null;
+}
+export function approvalItemNeedsHuman(item: { taskId: string; pageUrl: string }, tasks: WorkflowTask[]): boolean {
+  return !automaticTaskPolicy(tasks.find(task => task.id === item.taskId), item.pageUrl);
+}
+const automaticWriteReceipt = z.object({
+  operation: z.enum(["create", "update"]), sourceId: z.string().trim().min(1).max(300),
+  baseContentVersion: z.string().trim().min(1).max(200).nullable(), contentVersion: z.string().trim().min(1).max(200),
+  publishedAt: stamp, verifiedAt: stamp, receipt: z.string().trim().min(1).max(3000),
+}).strict();
+
 const liveCheck = z.object({ checkedAt: stamp, httpStatus: z.literal(200), canonicalUrl: httpsUrl, language: z.string().min(2).max(20), contentVersion: z.string().min(1).max(200), contentMatched: z.literal(true), linksChecked: z.literal(true), sourceReceipt: z.string().trim().min(1).max(3000), evidence: evidence.min(1) }).strict();
 export const workflowPublicationSchema = z.object({
-  id, taskId: id, approvalId: id, approvalItemId: id, weekStart: workflowWeekSchema, runId: id, siteDomain: site, pageUrl: httpsUrl,
+  id, taskId: id, approvalId: id.nullable(), approvalItemId: id.nullable(), publicationPolicy: z.enum(["auto_blog", "auto_prompt"]).optional(), automaticWrite: automaticWriteReceipt.optional(), weekStart: workflowWeekSchema, runId: id, siteDomain: site, pageUrl: httpsUrl,
   country: country.nullable(), language: z.string().trim().min(2).max(20), keyword: z.string().trim().min(1).max(300).nullable(),
   contentVersion: z.string().trim().min(1).max(200), title: z.string().trim().min(1).max(500),
   kind: z.enum(["source_blog", "translation", "backfill_translation", "landing", "optimization", "cluster", "prompt"]),
@@ -117,6 +147,17 @@ export const workflowPublicationSchema = z.object({
   status: z.enum(["published", "verified", "failed", "unknown"]), liveCheck: liveCheck.nullable(), evidence,
   failureReason: z.string().max(3000).nullable(),
 }).strict().superRefine((value, ctx) => {
+  const fail = (message: string) => ctx.addIssue({ code: "custom", message });
+  if (value.publicationPolicy) {
+    if (value.approvalId !== null || value.approvalItemId !== null) fail("自动发布不伪造人工审批；审批字段必须为空");
+    const expectedRoute = value.publicationPolicy === "auto_blog" ? "blog" : "prompt";
+    if (automaticPageRoute(value.pageUrl, value.siteDomain) !== expectedRoute || (value.publicationPolicy === "auto_prompt" ? value.kind !== "prompt" : !["source_blog", "translation", "backfill_translation", "optimization"].includes(value.kind))) fail("自动发布仅限已支持的真实博客或提示词详情路径");
+    const write = value.automaticWrite;
+    if (!write || write.contentVersion !== value.contentVersion || write.publishedAt !== value.publishedAt || Date.parse(write.verifiedAt) < Date.parse(write.publishedAt) || write.operation === "update" && (!write.baseContentVersion || write.baseContentVersion === value.contentVersion) || write.operation === "create" && write.baseContentVersion !== null) fail("自动发布需要实际写入版本及读回回执；修改须绑定改前版本");
+    if (value.publicationPolicy === "auto_prompt" && write?.operation !== "create") fail("提示词定时导入只能create-only");
+    if (write?.operation === "update" && value.kind !== "optimization") fail("已有博客或译文修改须记为优化，不能计为新增博客或译文");
+    if (value.kind === "optimization" && write?.operation !== "update") fail("旧博客优化必须保留版本比较与更新回执");
+  } else if (!value.approvalId || !value.approvalItemId || value.automaticWrite) fail("非自动发布仍需真实逐页审批，不接受免审写入凭证");
   if (!pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
   if (!["translation", "backfill_translation", "optimization", "landing", "prompt"].includes(value.kind) && (!value.country || !value.keyword)) ctx.addIssue({ code: "custom", message: "源文及页面发布需要明确目标国家与本语言关键词" });
   if (value.kind === "prompt" && (value.siteDomain !== "flatkey.ai" || !/^https:\/\/flatkey\.ai\/(?:zh\/|es\/|fr\/|pt\/|ru\/|ja\/|vi\/|de\/|id\/)?prompts\/(?:image|video)\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.pageUrl))) ctx.addIssue({ code: "custom", message: "提示词发布只允许主站正式提示词详情页" });

@@ -1,6 +1,6 @@
 "use client";
 
-import { approvalReviewReadiness } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -17,7 +17,7 @@ type ApprovalItem = WorkflowApproval["items"][number];
 type ApprovalDecision = Omit<WorkflowApproval["decisions"][number], "recordedAt">;
 type ApprovalInput = Omit<WorkflowApproval, "version" | "updatedAt" | "recordedAt" | "submittedRecordedAt" | "decisions"> & { decisions: ApprovalDecision[] };
 type EditItem = ApprovalItem & { evidenceUrl: string; evidenceArtifact: string; desktopScreenshot: string; mobileScreenshot: string };
-const labels: Record<string, string> = { draft: "草稿", pending: "待审批", partially_reviewed: "逐项处理", approved: "已批准", rejected: "已拒绝", changes_requested: "要求修改", withdrawn: "已撤回", superseded: "已被新单替换" };
+const labels: Record<string, string> = { automatic_history: "免审历史", draft: "草稿", pending: "待审批", partially_reviewed: "逐项处理", approved: "已批准", rejected: "已拒绝", changes_requested: "要求修改", withdrawn: "已撤回", superseded: "已被新单替换" };
 const languages = ["en", "ja", "pt-BR", "es-ES", "zh", "fr", "de", "it", "ru", "vi", "ko"];
 const siteLabels: Record<string, string> = { "flatkey.ai": "Flatkey", "jev-llm.com": "JEV LLM", "mochichatbot.com": "MochiChatbot", "modelfit.cc": "ModelFit", "rackrate.org": "RackRate" };
 const stamp = (value: string | null) => value ? shanghaiStamp(value) : "尚未提交";
@@ -200,12 +200,12 @@ function ApprovalEditor({ weekStart, tasks, allApprovals, initialTask, original,
   </section>;
 }
 
-function DecisionForm({ id, approval, allApprovals, onSaved, onRefresh }: { id: string; approval: WorkflowApproval; allApprovals: WorkflowApproval[]; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void }) {
+function DecisionForm({ id, approval, allApprovals, tasks, onSaved, onRefresh }: { id: string; approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[]; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void }) {
   const [decision, setDecision] = useState<ApprovalDecision["decision"]>(() => approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending") ? "approved" : "withdrawn"), [selected, setSelected] = useState<string[]>([]), [reviewer, setReviewer] = useState(""), [note, setNote] = useState(""), [confirmed, setConfirmed] = useState(false);
   const write = useApprovalWrite();
-  const eligible = approval.items.filter(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === (decision === "withdrawn" ? "approved" : "pending"));
+  const eligible = approval.items.filter(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === (decision === "withdrawn" ? "approved" : "pending"));
   const selectedItems = eligible.filter(item => selected.includes(item.id));
-  const hasPending = approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending"), hasApproved = approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "approved");
+  const hasPending = approval.items.some(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending"), hasApproved = approval.items.some(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "approved");
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!confirmed || !selectedItems.length || !reviewer.trim() || !note.trim()) return;
@@ -237,14 +237,15 @@ function DecisionForm({ id, approval, allApprovals, onSaved, onRefresh }: { id: 
 function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefresh, onEdit, onRevise }: { approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[]; focused: boolean; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void; onEdit: () => void; onRevise: () => void }) {
   const [open, setOpen] = useState(focused);
   const itemStates = approval.items.map(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals));
-  const pending = itemStates.filter(status => status === "pending").length;
+  const pending = approval.items.filter((item, i) => itemStates[i] === "pending" && approvalItemNeedsHuman(item, tasks)).length;
+  const automaticHistory = approval.items.every(item => !approvalItemNeedsHuman(item, tasks));
   const effectiveStatus = itemStates.every(status => status === "superseded") ? "superseded" : approval.status;
-  const canDecide = pending > 0 || itemStates.includes("approved");
+  const canDecide = !automaticHistory && (pending > 0 || itemStates.includes("approved"));
   const decisionFormId = `decision-form-${approval.id}`;
   return <details className={`${styles.record} ${focused ? review.focused : ""}`} id={`approval-${approval.id}`} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <span><strong>{approval.title}</strong><small>{siteLabels[approval.siteDomain]} · {approval.requestedBy} · {stamp(approval.submittedAt)}</small></span>
-      <span className={styles.taskMeta}><ApprovalBadge status={effectiveStatus} /><small>{pending ? `待审 ${pending} / ${approval.items.length} 项` : `${approval.items.length} 个版本`}</small></span>
+      <span className={styles.taskMeta}><ApprovalBadge status={automaticHistory ? "automatic_history" : effectiveStatus} /><small>{pending ? `待审 ${pending} / ${approval.items.length} 项` : `${approval.items.length} 个版本`}</small></span>
     </summary>
     <div className={styles.detail}>
       <div className={review.actions}><Link href={href(approval.id)}>审批单固定链接 ↗</Link>{canDecide ? <a href={`#${decisionFormId}`}>记录审核决定 ↓</a> : null}<ScreenshotLinks items={approval.evidence} /></div>
@@ -253,7 +254,7 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefre
         const mismatch = Boolean(task?.pageUrl === item.pageUrl && task?.language === item.language && task?.contentVersion && task.contentVersion !== item.contentVersion);
         const preview = safeUrl(item.previewUrl), draft = safeUrl(item.draftUrl);
         return <section key={item.id} className={review.itemDetail} aria-label={`审批页面 ${index + 1}`}>
-          <div className={styles.sectionHeading}><h3>{item.operation === "new" ? "新增页面" : "修改页面"} · {item.language}</h3><ApprovalBadge status={itemStates[index]} /></div>
+          <div className={styles.sectionHeading}><h3>{item.operation === "new" ? "新增页面" : "修改页面"} · {item.language}</h3><ApprovalBadge status={approvalItemNeedsHuman(item, tasks) ? itemStates[index] : "automatic_history"} /></div>
           <a className={review.targetUrl} href={item.pageUrl} target="_blank" rel="noreferrer">{item.pageUrl} ↗</a>
           <div className={review.actions}>
             {preview ? <a href={preview} target="_blank" rel="noreferrer">打开测试页面 <ExternalLink size={13} aria-hidden="true" /></a> : <span className={styles.muted}>未提供测试链接</span>}
@@ -277,7 +278,7 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefre
         </section>;
       })}
       <details className={review.content}><summary>审核历史 · {approval.decisions.length} 条</summary>{approval.decisions.length ? <ol className={review.decisions}>{approval.decisions.map(decision => <li key={decision.id}><div><ApprovalBadge status={decision.decision} /><strong>{decision.decidedBy}</strong><small>{stamp(decision.decidedAt)} · 入库 {stamp(decision.recordedAt)}</small></div><p>适用页面：{decision.itemIds.map(id => { const item = approval.items.find(item => item.id === id); return item ? `${item.language} ${item.pageUrl}` : id; }).join("；")}</p><p className={review.preserveLines}>{decision.note}</p><details><summary>审核证据</summary><Evidence items={decision.evidence} /></details></li>)}</ol> : <p className={styles.muted}>尚无人工审批决定。</p>}</details>
-      {approval.status === "draft" ? <button type="button" className={styles.primary} onClick={onEdit}>编辑草稿并提交审批</button> : <><DecisionForm id={decisionFormId} key={`${approval.id}:${approval.version}`} approval={approval} allApprovals={allApprovals} onSaved={onSaved} onRefresh={onRefresh} /><button type="button" className={styles.secondary} onClick={onRevise}>改稿后新建审批单</button></>}
+      {automaticHistory ? <p className={styles.muted}>此页面按当前规则自动执行。本单仅保留历史，不计待审批；原审核决定未改写。</p> : approval.status === "draft" ? <button type="button" className={styles.primary} onClick={onEdit}>编辑草稿并提交审批</button> : <><DecisionForm id={decisionFormId} key={`${approval.id}:${approval.version}`} approval={approval} allApprovals={allApprovals} tasks={tasks} onSaved={onSaved} onRefresh={onRefresh} /><button type="button" className={styles.secondary} onClick={onRevise}>改稿后新建审批单</button></>}
       <details className={review.recordEvidence}><summary>审批单信息与来源证据</summary>
         <dl className={styles.metadata}><div><dt>单号 / 记录版本</dt><dd>{approval.id} / {approval.version}</dd></div><div><dt>归档工作周</dt><dd>{approval.weekStart}</dd></div><div><dt>提交入库</dt><dd>{stamp(approval.submittedRecordedAt)}</dd></div></dl>
         {approval.supersedesApprovalIds.length ? <p>替换原审批单 {approval.supersedesApprovalIds.map(id => <Link key={id} href={href(id)} className={review.inlineLink}>{id}</Link>)}</p> : null}
@@ -296,7 +297,7 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
   const newButton = useRef<HTMLButtonElement>(null);
   function closeEditor() { setEditor(null); requestAnimationFrame(() => newButton.current?.focus()); }
   const data = result.data, approvals = data?.approvals ?? [], allApprovals = approvals;
-  const pending = approvals.filter(approval => approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending"));
+  const pending = approvals.filter(approval => approval.items.some(item => approvalItemNeedsHuman(item, data?.tasks ?? []) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending"));
   function refresh() { result.retry(); }
   function saved(record: WorkflowApproval) { setEditor(null); setNotice(record.status === "draft" ? "草稿已保存，尚未提交审批。" : "审批记录已保存。"); refresh(); router.push(href(record.id), { scroll: false }); }
   const focused = approvals.find(approval => approval.id === selectedId);
