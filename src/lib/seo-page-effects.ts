@@ -11,7 +11,32 @@ export const gscPeriodEnd = (now: Date) => shiftDay(gscDate(now), -1);
 
 type GscPages = Extract<AnalyticsObservation, { kind: "gsc-pages" }>;
 export type GscPoint = { date: string; clicks: number; impressions: number; ctr: number | null; position: number | null };
-export type GscSeries = { date: string; clicks: number | null; impressions: number | null; ctr: number | null }[];
+export type GscSeries = { date: string; clicks: number | null; impressions: number | null; ctr: number | null; position: number | null }[];
+
+export type OptimizedEffectVersion = { id: string; date: string | null };
+export type OptimizedEffectPage = {
+  url: string; title: string; site: string; versions: OptimizedEffectVersion[];
+};
+
+type MetricDay = { date: string; value: number | null; weight?: number | null };
+export function optimizationWeekComparison(days: MetricDay[], optimizedDay: string) {
+  const observations = days.filter(day => day.value != null && day.weight !== null);
+  const start = shiftDay(optimizedDay, -7), end = shiftDay(optimizedDay, 7);
+  const before = observations.filter(day => day.date >= start && day.date < optimizedDay);
+  const after = observations.filter(day => day.date > optimizedDay && day.date <= end);
+  const weekday = (day: MetricDay) => new Date(day.date + "T00:00:00Z").getUTCDay();
+  const pairedBefore = before.filter(day => after.some(other => weekday(day) === weekday(other)));
+  const pairedAfter = after.filter(day => pairedBefore.some(other => weekday(day) === weekday(other)));
+  const total = (entries: MetricDay[]) => {
+    const weight = entries.reduce((sum, day) => sum + (day.weight ?? 0), 0);
+    const values = entries.reduce((sum, day) => sum + (day.value ?? 0) * (day.weight ?? 1), 0);
+    return !entries.length ? null : entries[0].weight === undefined ? values : weight ? values / weight : null;
+  };
+  const beforeValue = total(pairedBefore.length ? pairedBefore : before);
+  const afterValue = total(pairedAfter.length ? pairedAfter : after);
+  return { beforeValue, afterValue, paired: pairedBefore.length,
+    beforeDays: pairedBefore.length || before.length, afterDays: pairedAfter.length || after.length };
+}
 
 export function completeGscReports(observations: AnalyticsObservation[], site: string, country: SeoCountry, range: DateRange, now: Date) {
   const reports = new Map<string, GscPages>();
@@ -58,7 +83,7 @@ export function optimizationEffect(input: {
   const latest = afterRelease.at(-1) ?? null;
   const series: GscSeries = rangeDays({ ...range, end: range.end > launchDay ? range.end : launchDay }).map(date => {
     const row = byDate.get(date);
-    return { date, clicks: row?.clicks ?? null, impressions: row?.impressions ?? null, ctr: row?.ctr ?? null };
+    return { date, clicks: row?.clicks ?? null, impressions: row?.impressions ?? null, ctr: row?.ctr ?? null, position: row?.position ?? null };
   });
   const status = !before || !latest ? "waiting" : before.impressions < 20 || latest.impressions < 20 ? "observing" : "updated";
   return { launchDay, property, before, first, latest, status, series,

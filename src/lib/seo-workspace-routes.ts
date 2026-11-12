@@ -22,14 +22,11 @@ export function workspaceRedirectHref(destination: string, params: WorkspaceSear
   return target.pathname + (query.size ? `?${query}` : "") + target.hash;
 }
 
-const taskFilterKeys = ["week", "site", "business", "language", "country", "taskType", "status", "q"] as const;
+const taskFilterKeys = ["country", "taskType", "status", "q"] as const;
 
 export function workTaskHref(task: { id: string; weekStart: string }, filters?: URLSearchParams) {
   const query = new URLSearchParams({ week: task.weekStart });
-  const listWeek = filters?.get("week");
-  if (listWeek && listWeek !== task.weekStart) query.set("listWeek", listWeek);
   for (const key of taskFilterKeys) {
-    if (key === "week") continue;
     const value = filters?.get(key);
     if (value) query.set(key, value);
   }
@@ -39,7 +36,7 @@ export function workTaskHref(task: { id: string; weekStart: string }, filters?: 
 export function workTaskListHref(filters: WorkspaceSearchParams) {
   const query = new URLSearchParams();
   for (const key of taskFilterKeys) {
-    const value = key === "week" ? filters.listWeek ?? filters.week : filters[key];
+    const value = filters[key];
     if (typeof value === "string" && value) query.set(key, value);
   }
   return query.size ? `/work?${query}` : "/work";

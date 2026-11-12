@@ -9,6 +9,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { ExternalLink, ImageIcon, RefreshCw } from "lucide-react";
 import { workflowApprovalEffectiveItemStatus, workflowApprovalStatus, WORKFLOW_SITES, type WorkflowApproval, type WorkflowSnapshot, type WorkflowTask } from "@/lib/seo-workflow";
 import { UiSelect } from "./UiSelect";
+import { WorkflowEvidence } from "./WorkflowEvidence";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 import review from "./SeoPageApprovals.module.css";
@@ -29,13 +30,6 @@ const recordInput = (approval: WorkflowApproval): ApprovalInput => {
 
 function ApprovalBadge({ status }: { status: string }) {
   return <span className={review.badge} data-state={status}>{labels[status] ?? status}</span>;
-}
-
-function Evidence({ items }: { items: ApprovalItem["evidence"] }) {
-  return <ul className={styles.evidence}>{items.map((item, index) => <li key={index}>
-    {safeUrl(item.url) ? <a href={item.url} target="_blank" rel="noreferrer">{item.label}<ExternalLink size={12} aria-hidden="true" /></a> : <span>{item.label}</span>}
-    {item.artifact ? <code>{item.artifact}</code> : null}<small>{stamp(item.observedAt)}</small>
-  </li>)}</ul>;
 }
 
 function ScreenshotLinks({ items }: { items: ApprovalItem["evidence"] }) {
@@ -155,16 +149,16 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefre
           </details>
           <details className={review.content}><summary>关联任务、页面效果与证据</summary>
             <p>关联任务 {task ? <Link href={workTaskHref(task)}>{task.title}</Link> : item.taskId} · <Link href={"/pages?" + new URLSearchParams({ site: approval.siteDomain, pageUrl: item.pageUrl })}>页面效果</Link></p>
-            <Evidence items={item.evidence} />
+            <WorkflowEvidence evidence={item.evidence} />
           </details>
         </section>;
       })}
-      <details className={review.content}><summary>审核历史 · {approval.decisions.length} 条</summary>{approval.decisions.length ? <ol className={review.decisions}>{approval.decisions.map(decision => <li key={decision.id}><div><ApprovalBadge status={decision.decision} /><strong>{decision.decidedBy}</strong><small>{stamp(decision.decidedAt)} · 入库 {stamp(decision.recordedAt)}</small></div><p>适用页面：{decision.itemIds.map(id => { const item = approval.items.find(item => item.id === id); return item ? `${item.language} ${item.pageUrl}` : id; }).join("；")}</p><p className={review.preserveLines}>{decision.note}</p><details><summary>审核证据</summary><Evidence items={decision.evidence} /></details></li>)}</ol> : <p className={styles.muted}>尚无人工审批决定。</p>}</details>
+      <details className={review.content}><summary>审核历史 · {approval.decisions.length} 条</summary>{approval.decisions.length ? <ol className={review.decisions}>{approval.decisions.map(decision => <li key={decision.id}><div><ApprovalBadge status={decision.decision} /><strong>{decision.decidedBy}</strong><small>{stamp(decision.decidedAt)} · 入库 {stamp(decision.recordedAt)}</small></div><p>适用页面：{decision.itemIds.map(id => { const item = approval.items.find(item => item.id === id); return item ? `${item.language} ${item.pageUrl}` : id; }).join("；")}</p><p className={review.preserveLines}>{decision.note}</p><details><summary>审核证据</summary><WorkflowEvidence evidence={decision.evidence} /></details></li>)}</ol> : <p className={styles.muted}>尚无人工审批决定。</p>}</details>
       {automaticHistory ? <p className={styles.muted}>此页面按当前规则自动执行。本单仅保留历史，不计待审批；原审核决定未改写。</p> : approval.status === "draft" ? <p className={styles.muted}>等待执行任务补齐材料并送审。</p> : <DecisionForm id={decisionFormId} key={`${approval.id}:${approval.version}`} approval={approval} allApprovals={allApprovals} tasks={tasks} onSaved={onSaved} onRefresh={onRefresh} />}
       <details className={review.recordEvidence}><summary>审批单信息与来源证据</summary>
         <dl className={styles.metadata}><div><dt>单号 / 记录版本</dt><dd>{approval.id} / {approval.version}</dd></div><div><dt>归档工作周</dt><dd>{approval.weekStart}</dd></div><div><dt>提交入库</dt><dd>{stamp(approval.submittedRecordedAt)}</dd></div></dl>
         {approval.supersedesApprovalIds.length ? <p>替换原审批单 {approval.supersedesApprovalIds.map(id => <Link key={id} href={href(id)} className={review.inlineLink}>{id}</Link>)}</p> : null}
-        <Evidence items={approval.evidence} /></details>
+        <WorkflowEvidence evidence={approval.evidence} /></details>
     </div>
   </details>;
 }

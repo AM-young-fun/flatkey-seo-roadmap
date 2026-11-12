@@ -3,7 +3,8 @@
 import { workTaskHref } from "@/lib/seo-workspace-routes";
 import Link from "next/link";
 import type { WorkflowSnapshot } from "@/lib/seo-workflow";
-import { OptimizationHistory, WorkflowEvidence, WorkflowStatus } from "./SeoWorkWorkspace";
+import { OptimizationHistory, WorkflowStatus } from "./SeoWorkWorkspace";
+import { WorkflowEvidence } from "./WorkflowEvidence";
 import { useSeoRead, shanghaiStamp } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 

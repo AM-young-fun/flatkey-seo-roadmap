@@ -269,7 +269,7 @@ function optimizationMonitorSummary(rows: OptimizationReportRow[]) {
   return `跟踪 ${rows.length} 页 · 两点齐全 ${rows.length - waiting} 页 · 待数据 ${waiting} 页 · 观察中 ${observing} 页 · 需复查 ${review} 页`;
 }
 
-const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/reports?" + new URLSearchParams({ view: "published", publication: row.id });
+const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/optimization-effects?" + new URLSearchParams({ publication: row.id, ...(row.country === "all" ? {} : { country: row.country }) });
 
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();

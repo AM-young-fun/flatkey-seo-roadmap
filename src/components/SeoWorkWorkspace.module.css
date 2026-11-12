@@ -55,7 +55,6 @@
 .evidence li { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:9px 0; }
 .evidence a { display:inline-flex; align-items:center; gap:4px; }
 .evidence small { color:#8c96a5; font-size:11px; }
-.evidence code { width:100%; font-size:11px; line-height:1.5; color:#61718a; padding:6px 8px; background:#f5f7fa; border-radius:4px; overflow-wrap:anywhere; }
 .timeline { border-left:1px solid #dce4ed; margin:16px 0 24px 8px; padding-left:24px; }
 .timeline li { padding:0 0 16px 6px; }
 .timeline strong { font-size:12px; font-weight:600; }
@@ -128,6 +127,8 @@
 .taskLink:focus-visible { outline:2px solid var(--ui-primary); outline-offset:2px; }
 .taskLink strong { display:block; overflow-wrap:anywhere; }
 .taskLink small { display:block; margin-top:4px; color:#64748b; font-size:12px; }
+.taskLink .taskContext { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; overflow-wrap:anywhere; }
+.siteTag { display:inline-flex; align-items:center; padding:2px 7px; border-radius:4px; background:#edf3ff; color:#28559c; font-size:11px; font-weight:600; white-space:nowrap; }
 .taskLink > svg { color:#64748b; }
 @media(max-width:600px) {
   .taskLink { grid-template-columns:minmax(0,1fr) auto; gap:8px; }

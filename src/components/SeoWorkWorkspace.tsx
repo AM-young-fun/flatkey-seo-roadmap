@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { CheckCircle2, ChevronRight, CircleAlert, Clock3, ExternalLink, RefreshCw } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
 import { approvalReviewReadiness, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
 import type { WorkflowSnapshot, WorkflowTask, WorkflowPlan, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
+import { WorkflowEvidence } from "./WorkflowEvidence";
 import { PageHeader } from "./PageHeader";
 import { SeoAutomationSchedule } from "./SeoAutomationSchedule";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
@@ -32,19 +33,11 @@ const displayTime = (value: string | null | undefined) => value ? shanghaiStamp(
 const shiftDay = (day: string, offset: number) => new Date(Date.parse(day + "T00:00:00Z") + offset * 86_400_000).toISOString().slice(0, 10);
 const currentMonday = () => { const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date()); return shiftDay(today, -((new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7)); };
 const pageHref = (url: string, country: string | null) => "/pages?" + new URLSearchParams({ pageUrl: url, ...(country ? { country } : {}) });
-const safeWebUrl = (url: string | null | undefined) => { try { const parsed = new URL(url ?? ""); return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.toString() : null; } catch { return null; } };
 
 export function WorkflowStatus({ status }: { status: string }) {
   return <span className={styles.badge} data-state={status}>{stateLabel(status)}</span>;
 }
 
-export function WorkflowEvidence({ evidence }: { evidence: WorkflowTask["evidence"] }) {
-  if (!evidence.length) return <p className={styles.muted}>尚未提交证据。</p>;
-  return <ul className={styles.evidence}>{evidence.map((item, index) => <li key={index}>
-    {safeWebUrl(item.url) ? <a href={item.url} target="_blank" rel="noreferrer">{item.label} <ExternalLink size={12} aria-hidden="true" /></a> : <span>{item.label}</span>}
-    {item.artifact ? <code>{item.artifact}</code> : null}<small>{displayTime(item.observedAt)}</small>
-  </li>)}</ul>;
-}
 
 async function mutateWorkflow(body: object) {
   const response = await fetch("/api/seo/workflow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -93,13 +86,13 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
     <h4>验收要求</h4><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul>
     <h4>前置任务</h4>{task.dependencies.length ? <ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "本周范围外，需读取前置回执"}</li>; })}</ul> : <p className={styles.muted}>未登记任务依赖。</p>}
     <h4>关键词研究</h4>{task.research ? <><p>月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p><p>{task.research.intent}</p>{task.research.exceptionReason ? <p>例外理由：{task.research.exceptionReason}</p> : null}<WorkflowEvidence evidence={task.research.evidence} /></> : <p className={styles.muted}>{task.kind === "technical" ? "技术与数据任务不要求主关键词；按验收要求执行。" : "研究证据待补，不能视为合格制作输入。"}</p>}
-    <h4>交付证据</h4><WorkflowEvidence evidence={task.evidence} />
+    <WorkflowEvidence heading="交付证据" evidence={task.evidence} />
     {task.approval ? <p className={styles.muted}>历史任务审核：{task.approval.approvedBy} · {displayTime(task.approval.approvedAt)} · 版本 {task.approval.contentVersion}。此记录不作为当前页面发布授权。</p> : null}
     {pageDelivery || approvals.some(approval => approval.items.some(item => item.taskId === task.id)) ? <h4>页面交付</h4> : null}
     {approvals.filter(approval => approval.items.some(item => item.taskId === task.id)).map(approval => <p key={approval.id}><Link href={`/approvals?approvalId=${encodeURIComponent(approval.id)}`}>{approval.title} →</Link></p>)}
     {pageDelivery ? <PageDeliveryActions key={`${task.id}:${task.version}`} task={task} approvals={approvals} publications={publications} mutate={mutateWorkflow} onSaved={onSaved} /> : null}
     {optimizations.filter(row => row.taskId === task.id).map(row => <OptimizationHistory key={row.id} optimization={row} />)}
-    <p className={styles.muted}>最近记录 {displayTime(task.updatedAt)} · 任务 {task.id}</p>
+    <p className={styles.muted}>最近记录 {displayTime(task.updatedAt)}</p>
   </div>;
 }
 
@@ -228,13 +221,18 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const [country] = useSeoCountry();
   const params = useSearchParams();
   const router = useRouter();
-  const week = params.get("week") ?? "current", site = params.get("site") ?? "all", business = params.get("business") ?? "all", language = params.get("language") ?? "all", status = params.get("status") ?? "all", tab = view;
+  const isTaskList = view === "tasks";
+  const week = (isTaskList ? null : params.get("week")) ?? "current";
+  const site = (isTaskList ? null : params.get("site")) ?? "all";
+  const business = (isTaskList ? null : params.get("business")) ?? "all";
+  const language = (isTaskList ? null : params.get("language")) ?? "all";
+  const status = params.get("status") ?? "all", tab = view;
   const Container = embedded ? "section" : "main";
   const taskType = params.get("taskType") ?? "all";
   const title = workViews[view], detailedFilters = !["issues", "runs"].includes(view);
   const [query, setQuery] = useState(params.get("q") ?? ""), [monday] = useState(currentMonday);
   const filter = (key: string, value: string) => { const params = new URLSearchParams(location.search); if (value === "all") params.delete(key); else params.set(key, value); history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash); dispatchEvent(new PopStateEvent("popstate")); };
-  const result = useSeoRead<WorkflowSnapshot>(`/api/seo/workflow?week=${encodeURIComponent(week)}`);
+  const result = useSeoRead<WorkflowSnapshot>(isTaskList ? "/api/seo/workflow?allHistory=true" : `/api/seo/workflow?week=${encodeURIComponent(week)}`);
   const relatedTaskHistory = useSeoRead<WorkflowSnapshot>(view === "issues" ? "/api/seo/workflow?allHistory=true" : null);
   const data = result.data;
   const relatedTasks = [...(data?.tasks ?? []), ...(relatedTaskHistory.data?.tasks ?? [])];
@@ -242,9 +240,9 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const taskScope = data?.tasks.filter(task => matchesScope(task) && (business === "all" || task.business === business)) ?? [];
 
   const taskFilters = new URLSearchParams(params.toString());
-  taskFilters.set("week", week);
   if (query) taskFilters.set("q", query); else taskFilters.delete("q");
   const tasks = taskScope.filter(task => (taskType === "all" || task.kind === taskType) && (status === "all" || workTaskStatus(task, data) === status) && [task.title, task.keyword, task.pageUrl, task.owner].some(value => value?.toLowerCase().includes(query.toLowerCase())));
+  tasks.sort((a, b) => b.weekStart.localeCompare(a.weekStart));
   const scopedIds = new Set(taskScope.map(task => task.id));
   const publications = data?.publications.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
   const optimizations = data?.optimizations.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
@@ -281,28 +279,21 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     {!embedded ? <div className={workspace.titleRow}>
       <h1 className={workspace.title}>{title}</h1>
       <div className={styles.toolbarActions}>
-        {view === "tasks" ? <Link className={styles.secondary} href={"/deliveries?" + new URLSearchParams({ week, site, business, language, country })}>发布记录</Link> : null}
-        {view === "deliveries" ? <Link className={styles.secondary} href={"/work?" + new URLSearchParams({ week, site, business, language, country })}>返回工作任务</Link> : null}
+        {isTaskList ? <Link className={styles.secondary} href={country === "all" ? "/deliveries" : `/deliveries?country=${country}`}>发布记录</Link> : null}
+        {view === "deliveries" ? <Link className={styles.secondary} href={country === "all" ? "/work" : `/work?country=${country}`}>返回工作任务</Link> : null}
         <button type="button" className={styles.secondary} onClick={result.retry}><RefreshCw size={14} aria-hidden="true" />刷新</button>
       </div>
     </div> : null}
-    {!embedded ? <><div className={styles.filters}>
+    {!embedded && !isTaskList ? <div className={styles.filters}>
       <UiSelect aria-label="工作周" value={week} onChange={value => filter("week", value)} options={[{ value: "current", label: "本周" }, { value: "next", label: "下周" }, { value: shiftDay(monday, -7), label: "上周" }, ...(!["current", "next", shiftDay(monday, -7)].includes(week) ? [{ value: week, label: week }] : [])]} />
       <UiSelect aria-label="工作站点" value={site} onChange={value => filter("site", value)} options={[{ value: "all", label: "全部五站" }, ...sites]} />
       {detailedFilters ? <><UiSelect aria-label="业务线筛选" value={business} onChange={value => filter("business", value)} options={[{ value: "all", label: "全部业务" }, { value: "API", label: "API" }, { value: "GPU", label: "GPU" }, { value: "CLUSTER", label: "集群" }]} />
       <UiSelect aria-label="页面语言筛选" value={language} onChange={value => filter("language", value)} options={[{ value: "all", label: "全部语言" }, ...languages]} /></> : null}
-    </div></> : null}
+    </div> : null}
     {view === "runs" ? <SeoAutomationSchedule /> : null}
     {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div> : !data ? <p className={styles.empty} role="status">正在读取{title}…</p> : <>
       {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
-      {view === "tasks" ? <>
-        <section className={styles.summary} aria-label="任务进度摘要">
-          <div><span>已登记</span><strong>{taskScope.length}</strong></div>
-          <div><span>任务待审</span><strong>{taskScope.filter(row => row.status === "review_pending").length}</strong></div>
-          <div><span>受阻或失败</span><strong>{taskScope.filter(row => ["blocked", "failed"].includes(row.status)).length}</strong></div>
-          <div><Link href="/approvals">跨周待审批 →</Link><strong>{numberText(data.summary.pendingApprovals)} <small>单 · {numberText(data.summary.pendingApprovalItems)} 个页面版本</small></strong></div>
-        </section>
-      </> : view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
+      {view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
         {["open", "investigating", "blocked", "resolved"].map(status => <div key={status}><span>{stateLabel(status)}</span><strong>{issueScope.filter(issue => issue.status === status).length}</strong></div>)}
       </section> : view === "deliveries" ? <section className={`${styles.summary} ${styles.summaryPair}`} aria-label="发布验收摘要">
         <div><span>已验收源文 / 翻译</span><strong>{verified.filter(row => row.kind === "source_blog").length}<em> / {verified.filter(row => ["translation", "backfill_translation"].includes(row.kind)).length}</em></strong><small>只统计正式链接验收成功</small></div>
@@ -314,7 +305,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }, { value: "technical", label: "技术修复" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
           {tasks.length ? <div className={styles.records}>{tasks.map(task => <Link
             className={styles.taskLink} href={workTaskHref(task, taskFilters)} id={`task-${task.id}`} key={task.id} prefetch={false}>
-            <span><strong>{task.title}</strong><small>{task.keyword ?? "不适用关键词"} · {siteName(task.siteDomain)} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</small></span>
+            <span><strong>{task.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><span>{task.keyword ?? "不适用关键词"} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</span></small></span>
             <span className={styles.taskMeta}><WorkflowStatus status={workTaskStatus(task, data)} /><small>{task.dueAt.slice(0, 10)} · {task.owner}</small></span>
             <ChevronRight size={16} aria-hidden="true" />
           </Link>)}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}

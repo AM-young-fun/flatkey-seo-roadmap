@@ -7,7 +7,7 @@ import { dashboardStore } from "@/lib/dashboard-client";
 export type OptimizedKeywordPage = OptimizedPageMonitorResponse["pages"][number];
 const endpoint = "/api/rankings/monitor";
 
-export function useOptimizedPageCapture() {
+export function useOptimizedPageCapture(enabled = true) {
   const [data, setData] = useState<OptimizedPageMonitorResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null), [error, setError] = useState<string | null>(null);
   const actionLock = useRef(false), pollLock = useRef(false);
@@ -24,12 +24,13 @@ export function useOptimizedPageCapture() {
     catch (failure) { setError(failure instanceof Error ? failure.message : "优化页面读取失败"); }
   }, [read]);
   useEffect(() => {
+    if (!enabled) return;
     void refresh();
     const refreshVisible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", refreshVisible);
     const timer = window.setInterval(refreshVisible, 60_000);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshVisible); };
-  }, [refresh]);
+  }, [enabled, refresh]);
   const activeRunId = data?.activeRunId;
   useEffect(() => {
     if (!activeRunId) return;
