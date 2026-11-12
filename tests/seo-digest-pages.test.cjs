@@ -99,3 +99,21 @@ test("group summary selects one module highlight and keeps full module rankings 
  assert.match(report.detailText,/issue-marker-6/);assert.match(report.detailText,/分模块 Top 3/);
  assert.match(report.text,/待核实/);assert.match(report.text,/数据基础/);assert.ok(Buffer.byteLength(report.text)<4500);
 });
+
+
+test("compact module comparison names its own dates when site totals use a newer window", () => {
+ const report=buildSeoDigest({date:'2026-11-12',now:new Date('2026-11-12T04:00:00Z'),notificationCompact:true,
+  observations:['2026-11-08','2026-11-09'].map((date,i)=>({site:'flatkey.ai',date,source:'GSC',timezone:'America/Los_Angeles',observedAt:'2026-11-11T08:00:00Z',complete:true,scope:'google-web',clicks:i?254:95,impressions:1000})),
+  pageObservations:[gs('2026-11-07',[[url(''),8]]),gs('2026-11-08',[[url(''),19]])],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing'});
+ assert.match(report.text,/Google 点击[^\n]*95→254/);
+ assert.match(report.text,/首页及其他功能页[^\n]*点击 8→19 · 2026-11-07→2026-11-08/);
+ assert.match(report.text,/数据：GSC 2026-11-08—2026-11-09/);
+ assert.ok(Buffer.byteLength(report.text)<4500);
+});
+
+test("compact module fallback names the available source date without inventing a baseline", () => {
+ const report=buildSeoDigest({date:'2026-11-11',now,notificationCompact:true,observations:[],
+  pageObservations:[ga('2026-11-10',[['flatkey.ai','/compute',5]])],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing'});
+ assert.match(report.text,/GPU[^\n]*自然会话 5（基线待补） · 2026-11-10/);
+ assert.doesNotMatch(report.text,/2026-11-09→2026-11-10/);
+});

@@ -386,7 +386,9 @@ export function buildSeoDigest(input: DigestInput) {
       if (winner && ranking) {
         const name = new URL(winner.page.url).pathname;
         const change = winner.page.previous === null ? `${winner.page.value}（基线待补）` : `${winner.page.previous}→${winner.page.value}`;
-        highlights.push(`${link(winner.module + " · " + name.slice(0, 64), winner.page.url)} ${ranking.source === "GSC" ? "点击" : "自然会话"} ${change}`);
+        const comparisonDates = winner.page.previousDate && winner.page.previous !== null
+          ? `${winner.page.previousDate}→${ranking.date}` : ranking.date ?? "日期待更新";
+        highlights.push(`${link(winner.module + " · " + name.slice(0, 64), winner.page.url)} ${ranking.source === "GSC" ? "点击" : "自然会话"} ${change} · ${comparisonDates}`);
         if (ranking.date) recordDates(ranking.source, [ranking.date]);
       } else if (input.effects[0]) {
         const effect = input.effects[0];
