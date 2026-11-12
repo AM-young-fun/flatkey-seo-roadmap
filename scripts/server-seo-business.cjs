@@ -12,11 +12,42 @@ const { fetchGa4ApiCohorts } = require("../src/lib/services/ga4-api-cohorts.ts")
 const { matureCohortWindows, cohortCoverageStart } = require("../src/lib/seo-api-cohorts.ts");
 const { resolveCohortCollectionGate, collectOptionalApiCohorts } = require("./seo-cohort-capability.cjs");
 const { resolveRegistrationCollectionGate } = require("./seo-registration-capability.cjs");
-const { businessAnalyticsSchema, businessAnalyticsId } = require("../src/lib/seo-business-analytics.ts");
+const { businessAnalyticsSchema, businessAnalyticsId, flatkeyRegistrationCount } = require("../src/lib/seo-business-analytics.ts");
 const { organicReportWindows } = require("../src/lib/seo-organic-period.ts");
-const { shiftDay, propertyToday } = require("../src/lib/seo-date-range.ts");
+const { shiftDay, propertyToday, validRange } = require("../src/lib/seo-date-range.ts");
 const { enrichGithubReferrals } = require("../src/lib/services/ga4-github-referrals.ts");
 const { githubChannelSchema, githubChannelId } = require("../src/lib/seo-github-channel.ts");
+
+const businessOrigin = "https://flatkey-seo-roadmap.vercel.app";
+async function platformRead(route) {
+  const response = await fetch(businessOrigin + route, {
+    redirect: "error", cache: "no-store", signal: AbortSignal.timeout(60000),
+    headers: { authorization: "Bearer " + process.env.SEO_IMPORT_TOKEN },
+  });
+  if (!response.ok) throw Error("business_read_" + response.status);
+  return response.json();
+}
+
+function reportWindows(last) {
+  const days = Array.from({ length: 4 }, (_, index) => shiftDay(last, -index));
+  const latestThursday = shiftDay(last, -((new Date(last + "T00:00:00Z").getUTCDay() + 3) % 7));
+  return [...days.map(day => ({ start: day, end: day })),
+    ...[latestThursday, shiftDay(latestThursday, -7)].map(end => ({ start: shiftDay(end, -6), end }))];
+}
+
+async function archivedReportWindows(last) {
+  const groups = await Promise.all(["daily", "weekly"].map(async kind => {
+    const { dates } = await platformRead("/api/seo/digest?" + new URLSearchParams({ saved: "1", archive: "1", kind }));
+    if (!Array.isArray(dates)) throw Error("business_report_archive_invalid");
+    return dates.flatMap(date => {
+      if (typeof date !== "string" || !validRange({ start: date, end: date })) return [];
+      const end = shiftDay(date, -1);
+      if (end > last || end < shiftDay(last, -89)) return [];
+      return [{ start: kind === "daily" ? end : shiftDay(date, -7), end }];
+    });
+  }));
+  return groups.flat();
+}
 
 async function run() {
   const importResults = process.argv.includes("--import");
@@ -28,11 +59,23 @@ async function run() {
   const coverageStart = cohortCoverageStart(process.env.GA4_COHORT_COVERAGE_START);
   const cohortGate = await resolveCohortCollectionGate({ coverageStart, importing: importResults, token: process.env.SEO_IMPORT_TOKEN, range: reportingWindows[0] });
   const windows = [...new Map([...reportingWindows, ...(cohortGate.enabled ? matureCohortWindows(new Date(), coverageStart) : [])].map(row => [row.start + ":" + row.end, row])).values()];
-  let fetched = 0, imported = 0;
-  const failures = [];
+  const queryKey = ({ start, end, country, scope }) => [start, end, country, scope].join(":");
+  const queries = new Map();
   for (const range of windows) for (const country of ["all", "US", "JP", "BR", "ES"]) for (const scope of ["all-channels", "session-organic-search"]) {
+    const query = { ...range, country, scope };
+    queries.set(queryKey(query), query);
+  }
+  const reportRanges = reportWindows(last);
+  if (importResults && process.argv.includes("--backfill-reports")) reportRanges.push(...await archivedReportWindows(last));
+  for (const range of reportRanges) {
+    const query = { ...range, country: "all", scope: "all-channels" };
+    if (!queries.has(queryKey(query))) queries.set(queryKey(query), query);
+  }
+  let fetched = 0, imported = 0;
+  const failures = [], registrations = [];
+  for (const query of queries.values()) {
+    const { start, end, country, scope } = query;
     try {
-      const query = { ...range, country, scope };
       const record = await collectOptionalApiCohorts(await fetchGa4Business(query, new Date(), { registrationCompatibility: registrationGate.enabled }), query, cohortGate, fetchGa4ApiCohorts);
       record.engagement = await fetchGa4Engagement(query);
       if (scope === "all-channels") record.journeys = await Promise.all([fetchGa4Journey(query, "gpu"), fetchGa4Journey(query, "api")]);
@@ -42,8 +85,12 @@ async function run() {
       if (!response.ok) throw Error("business_import_" + response.status);
       const receipt = await response.json();
       if (receipt.stored !== true || receipt.id !== businessAnalyticsId(businessAnalyticsSchema.parse(receipt.record))) throw Error("business_readback_failed");
+      if (country === "all" && scope === "all-channels") {
+        const { users } = flatkeyRegistrationCount([receipt.record], start, end);
+        registrations.push({ start, end, available: users !== null, reasons: receipt.record.reasons });
+      }
       imported++;
-    } catch (error) { failures.push({ ...range, country, scope, error: error.code || (/^business_[a-z_0-9]+$/.test(error.message) ? error.message : "collection_failed") }); }
+    } catch (error) { failures.push({ ...query, error: error.code || (/^business_[a-z_0-9]+$/.test(error.message) ? error.message : "collection_failed") }); }
   }
   const githubReferrals = { enriched: 0, imported: 0, unavailable: 0, errors: [] };
   // Existing GitHub archives supply only the repository observations; Google is
@@ -65,7 +112,15 @@ async function run() {
       githubReferrals.imported++;
     }
   } catch (error) { githubReferrals.errors.push(/^github_[a-z_0-9]+$/.test(error.message) ? error.message : "github_collection_failed"); }
-  console.log(JSON.stringify({ kind: "ga4-business", mode: importResults ? "import" : "read_only", fetched, imported, failures, windows, githubReferrals, cohortGate, registrationGate }));
+  if (importResults && process.argv.includes("--backfill-reports")) {
+    const weeklyEnd = reportWindows(last).find(range => range.start !== range.end).end;
+    for (const [kind, date] of [["daily", shiftDay(last, 1)], ["weekly", shiftDay(weeklyEnd, 1)]]) {
+      const { report } = await platformRead("/api/seo/digest?" + new URLSearchParams({ saved: "1", archive: "1", kind, date }));
+      console.log(JSON.stringify({ kind: "registration-report-readback", reportKind: kind, date,
+        savedReport: !!report, registrationAvailable: typeof report?.flatkeyRegistrations?.users === "number" }));
+    }
+  }
+  console.log(JSON.stringify({ kind: "ga4-business", mode: importResults ? "import" : "read_only", fetched, imported, failures, windows, registrations, githubReferrals, cohortGate, registrationGate }));
   if (failures.length) process.exitCode = 1;
   if (githubReferrals.errors.length) process.exitCode = 1;
 }

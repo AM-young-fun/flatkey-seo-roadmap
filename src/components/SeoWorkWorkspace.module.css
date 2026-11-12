@@ -15,16 +15,11 @@
 .listNote { margin:14px 0 0; color:#64748b; font-size:12px; }
 .listNote summary { cursor:pointer; width:fit-content; }
 .listNote p { margin:8px 0 0; }
-.plan { margin-top:16px; border:1px solid #e5e9f0; border-radius:8px; background:#fff; }
-.plan > summary { display:flex; align-items:center; gap:10px; padding:12px 16px; cursor:pointer; list-style:none; font-size:13px; font-weight:600; }
-.plan > summary::-webkit-details-marker { display:none; }
-.plan > summary > span:first-of-type { flex:1; }
-.plan > summary::before,.record > summary::before { content:""; flex:none; width:6px; height:6px; margin-right:3px; border:solid #64748b; border-width:0 1.5px 1.5px 0; transform:rotate(-45deg); transition:transform .15s; }
-.plan[open] > summary::before,.record[open] > summary::before { transform:rotate(45deg); }
+.record > summary::before { content:""; flex:none; width:6px; height:6px; margin-right:3px; border:solid #64748b; border-width:0 1.5px 1.5px 0; transform:rotate(-45deg); transition:transform .15s; }
+.record[open] > summary::before { transform:rotate(45deg); }
 .sectionHeading { display:flex; align-items:center; flex-wrap:wrap; gap:12px; justify-content:space-between; }
 .sectionHeading h2 { font-size:15px; font-weight:650; margin:0; }
 .sectionHeading a { font-size:13px; }
-.gaps { background:#fff8ea; color:#87652c; padding:12px 12px 12px 32px; border-radius:6px; }
 .taskFilters { display:flex; gap:8px; margin:12px 0 10px; }
 .taskFilters > input { flex:1; min-width:0; }
 .taskFilters :global(.uiSelect) { min-width:160px; }
@@ -92,7 +87,7 @@
 .formGrid label { display:flex; flex-direction:column; gap:7px; font-size:12px; color:#62718a; }
 .spanAll { grid-column:1/-1; }
 .footer { display:flex; justify-content:space-between; gap:20px; color:#9aa3b1; font-size:11px; border-top:1px solid #edf0f5; margin-top:32px; padding-top:18px; }
-.taskFilters input:focus-visible,.formGrid input:focus-visible,.formGrid textarea:focus-visible,.reviewForm input:focus-visible,.record summary:focus-visible,.plan summary:focus-visible,.listNote summary:focus-visible,.primary:focus-visible,.secondary:focus-visible { outline:2px solid var(--ui-primary); outline-offset:3px; }
+.taskFilters input:focus-visible,.formGrid input:focus-visible,.formGrid textarea:focus-visible,.reviewForm input:focus-visible,.record summary:focus-visible,.listNote summary:focus-visible,.primary:focus-visible,.secondary:focus-visible { outline:2px solid var(--ui-primary); outline-offset:3px; }
 @media(max-width:800px) { .summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:560px) { .filters { display:grid; grid-template-columns:repeat(2,1fr); } .filters :global(.uiSelect) { min-width:0; } .summary > div { padding:16px 13px; } .summary strong { font-size:22px; } .summary small { font-size:10px; } .record > summary { gap:10px; padding:15px 12px; align-items:flex-start; } .record > summary::before { margin-top:7px; } .taskMeta { max-width:90px; } .detail { padding:16px; } .listPanel { padding:12px; } .metadata,.formGrid { grid-template-columns:1fr; } .taskFilters { flex-wrap:wrap; } .taskFilters input { flex-basis:100%; } .taskFilters :global(.uiSelect) { width:100%; } .reviewForm { padding:14px; } .footer { flex-wrap:wrap; } }
 

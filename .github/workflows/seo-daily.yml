@@ -31,7 +31,7 @@ on:
         type: boolean
         default: false
       business_only:
-        description: Only query and archive GA4 business events/funnels; skip inventory and traffic backfill
+        description: Only archive GA4 business metrics and backfill saved report registration windows
         type: boolean
         default: false
       lookback_days:
@@ -132,7 +132,7 @@ jobs:
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
           # Set only after the full production event/identity rollout is verified.
           GA4_COHORT_COVERAGE_START: ${{ vars.GA4_COHORT_COVERAGE_START }}
-        run: node scripts/server-seo-business.cjs --import
+        run: node scripts/server-seo-business.cjs --import ${{ inputs.business_only && '--backfill-reports' || '' }}
       - name: Enforce collection health
         if: always()
         env:

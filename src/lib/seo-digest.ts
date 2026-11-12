@@ -1,4 +1,4 @@
-import { businessDigestLines, latestBusinessPeriod, type BusinessAnalytics } from "./seo-business-analytics";
+import { businessDigestLines, flatkeyRegistrationCount, latestBusinessPeriod, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubComparable, githubDigestLines, PROMPT_REPOSITORIES, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
 import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
@@ -6,8 +6,7 @@ import { technicalQaSummary, type TechnicalQaReport } from "./seo-technical-qa-r
 import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { compareOrganicPeriods, type OrganicPeriod } from "./seo-organic-period";
-import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
@@ -46,7 +45,6 @@ export type DigestInput = {
   issues: string[]; runNotes: string[]; rankingNotes?: string[]; nextPlanUrl?: string; nextPlanStatus?: "draft" | "reviewed" | "bootstrap";
   publicationCoverage: "verified" | "missing" | "partial";
   optimizationCoverage: "verified" | "missing" | "partial";
-  periods?: OrganicPeriod[];
   reviewWorkflow?: Pick<WorkflowSnapshot, "approvals" | "tasks" | "publications" | "historicalImports">;
   historicalImports?: { id: string; recordedAt: string; sourceRunId: string; originals: number; translations: number; liveVerified: number; artifactOnly: number; unknownFirstVerification: number; pendingEvidence: number; pendingRevisions: number }[];
 };
@@ -195,7 +193,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
         if (["blocked", "failed"].includes(task.status) || task.kind !== "technical" && ["planned", "researching"].includes(task.status)) continue;
         const baseline = baselines.get(approvalPageKey(item));
         if (baseline && (item.operation !== "update" || item.baseContentVersion !== baseline.contentVersion)) continue;
-        const preview = safeLink(item.previewUrl);
+        const preview = item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
         // A ticket-level screenshot only identifies a page when the ticket has one item.
         const screenshot = reviewScreenshot(item.evidence) ?? (approval.items.length === 1 ? reviewScreenshot(approval.evidence) : null);
         const summary = escaped(item.changeSummary ?? "").trim();
@@ -355,9 +353,6 @@ export function buildSeoDigest(input: DigestInput) {
   for (const site of SEO_SITES) {
     lines.push(`• ${site}：自然会话 ${metricText(comparableMetric(input.observations, site, "sessions", input.date, "all", window.kind))}`);
     lines.push(`  Google 点击 ${metricText(comparableMetric(input.observations, site, "clicks", input.date, "all", window.kind))}；曝光 ${metricText(comparableMetric(input.observations, site, "impressions", input.date, "all", window.kind))}`);
-    const period = site === "flatkey.ai" && window.kind === "weekly" ? compareOrganicPeriods(input.periods ?? [], input.date) : null;
-    const registrationText = period ? `${period.previous.registrations}→${period.current.registrations}（各区间独立去重；${period.previous.start}—${period.previous.end} → ${period.current.start}—${period.current.end}，${period.current.timezone}${period.current.end < window.trafficEnd ? "；周数据未齐，只比相同星期与天数" : ""}）` : metricText(comparableMetric(input.observations, site, "registrations", input.date, "all", window.kind));
-    lines.push(`  ${site === "flatkey.ai" ? "可归属注册" : "注册"} ${site === "flatkey.ai" ? registrationText : "事件未核实，保留为空"}`);
   }
   for (const ranking of pagePerformance) {
     const metric = ranking.source === "GSC" ? "Google 点击" : "自然搜索访问（会话）";
@@ -378,7 +373,9 @@ export function buildSeoDigest(input: DigestInput) {
     if (ranking.gaps.length) lines.push(`覆盖缺口：${ranking.gaps.map(escaped).join("；")}。`);
     lines.push("仅比较同来源、同站点、同日期口径；不同日期和未完成/截断数据未混排。");
   }
-  lines.push("", ...businessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd));
+  const flatkeyRegistrations = flatkeyRegistrationCount(input.businessObservations ?? [], window.trafficStart, window.trafficEnd);
+  const [businessHeading, ...businessLines] = businessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd, false);
+  lines.push("", businessHeading, `• Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（全渠道区间去重）`, ...businessLines);
   lines.push("", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, window.kind === "weekly", now));
   lines.push("", "Flatkey 四国分项（四国合计不等于全站）");
   for (const country of ["US", "JP", "BR", "ES"] as const) {
@@ -391,8 +388,6 @@ export function buildSeoDigest(input: DigestInput) {
   for (const [i, row] of input.priorities.slice(0, window.kind === "weekly" ? 8 : 3).entries()) lines.push(`${i + 1}. ${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""} · ${escaped(row.reason)} · ${escaped(row.action)}`);
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
-  const registrationCompatibility = input.observations.some(row => row.registrationMetric === "sign_up_or_legacy_distinct_users") ? "可归属注册兼容 sign_up 与 sign_up_success，同查询去重；旧无域名事件未计入，0不代表实际无人注册。日报按日、周报按整个区间去重。" : null;
-  if (registrationCompatibility) lines.splice(lines.length - 2, 0, registrationCompatibility);
   const detailText = lines.join("\n");
   if (input.notificationCompact) {
     const weekly = window.kind === "weekly";
@@ -497,6 +492,7 @@ export function buildSeoDigest(input: DigestInput) {
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
+    flatkeyRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };
 }
 export type SeoDigest = ReturnType<typeof buildSeoDigest>;

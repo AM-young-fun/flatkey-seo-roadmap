@@ -15,7 +15,6 @@ import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { shiftWorkflowDay, workflowWeek } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
-import { organicPeriodSchema } from "@/lib/seo-organic-period";
 import { digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { loadSerpTasks } from "./serp-results";
 
@@ -38,19 +37,17 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     loadWorkflowSnapshot({ week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, false),
     prisma.seoAnalyticsDay.findMany({ where: { date: { gte: start, lte: window.trafficEnd } }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(window.workStart), lt: new Date(Math.min(now.getTime(), Date.parse(window.workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
-    prisma.seoReportVersion.findMany({ where: { kind: "ORGANIC_PERIOD", periodStart: { gte: new Date(start), lte: new Date(window.trafficEnd) } }, orderBy: { createdAt: "desc" }, take: 100, select: { payload: true } }),
     loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
     loadBusinessAnalytics(window.trafficStart, window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
   ]);
-  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "区间去重人数", "排名回执", "GA4业务归档", "GitHub渠道归档"][index]}读取失败，相关项保留缺失。`] : []);
+  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, "database");
   const nextWeek = reads[1].status === "fulfilled" ? reads[1].value : workflowSnapshot([], { week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, "database");
   const analytics = reads[2].status === "fulfilled" ? reads[2].value : [];
   const collectors = reads[3].status === "fulfilled" ? reads[3].value : [];
   const observations: DigestObservation[] = [];
   const pageObservations: AnalyticsObservation[] = [];
-  const periods = reads[4].status === "fulfilled" ? reads[4].value.flatMap(({ payload }) => { const parsed = organicPeriodSchema.safeParse(payload); return parsed.success ? [parsed.data] : []; }) : [];
   for (const { payload } of analytics) {
     const parsed = analyticsObservationSchema.safeParse(payload);
     if (!parsed.success) { issues.push("存在未通过结构校验的历史数据，已排除。"); continue; }
@@ -94,15 +91,15 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   });
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
-    date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring, technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), periods, notificationCompact: true,
-    businessObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
-    githubObservations: reads[7].status === "fulfilled" ? reads[7].value : [],
+    date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring, technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
+    businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
+    githubObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
     reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,
     historicalImports: workflow.historicalImports.map(archive => ({ id: archive.id, recordedAt: archive.recordedAt, sourceRunId: archive.sourceRunId,
       originals: archive.publications.filter(page => page.kind === "source_blog").length, translations: archive.publications.filter(page => page.kind === "translation").length,
       liveVerified: archive.publications.filter(page => page.verificationState === "live_verified").length, artifactOnly: archive.publications.filter(page => page.verificationState === "artifact_verified").length,
       unknownFirstVerification: archive.publications.filter(page => !page.firstVerifiedAt).length, pendingEvidence: archive.auditBacklog.pending, pendingRevisions: archive.pendingRevisions.count })),
-    rankingNotes: reads[5].status === "fulfilled" ? digestRankingNotes(reads[5].value, window.workStart, window.workEnd) : [],
+    rankingNotes: reads[4].status === "fulfilled" ? digestRankingNotes(reads[4].value, window.workStart, window.workEnd) : [],
     effects: workflow.optimizations.flatMap(row => row.observations.filter(observation => Date.parse(observation.checkedAt) >= startStamp && Date.parse(observation.checkedAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(observation => digestOptimizationEffect(row, observation))),
     priorities, issues: [...new Set([...issues, ...workflow.issues.filter(issue => issue.status !== "resolved" && Date.parse(issue.firstSeenAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(issue => `${issue.siteDomain} · ${issue.title} · ${issue.nextAction}`)])],
     runNotes: [...runs.map(run => `${run.stage} · ${run.status} · ${run.completedItems}/${run.checkedItems} · ${run.failureReason ?? run.nextAction} · 来源日期 ${Object.entries(run.sourceDates).map(([source, day]) => `${source}:${day ?? "未知"}`).join("，")}`), ...collectors.map(run => `${run.kind} · ${run.status} · ${run.detail ?? "采集回执已归档"}`)],

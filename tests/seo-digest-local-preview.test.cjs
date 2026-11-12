@@ -16,16 +16,16 @@ function preview(extra) {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-test("local archived preview masks legacy synthetic registration zero without dropping scoped sessions", () => {
+test("local archived preview keeps scoped sessions without substituting an organic registration zero", () => {
   const text = preview({});
-  assert.match(text, /可归属注册 待更新/); assert.doesNotMatch(text, /可归属注册 0→0/);
+  assert.match(text, /Flatkey 注册人数 待更新/); assert.doesNotMatch(text, /可归属注册/);
   assert.match(text, /123456→123456/);
 });
-test("local archived preview retains an explicitly reported registration zero and browser-export zero", () => {
-  assert.match(preview({ registrationEvidence: "reported_daily_row" }), /可归属注册 0→0/);
-  assert.match(preview({ source: "browser-export" }), /可归属注册 0→0/);
+test("local archived preview does not use verified organic or browser-export zeros as the Flatkey total", () => {
+  assert.match(preview({ registrationEvidence: "reported_daily_row" }), /Flatkey 注册人数 待更新/);
+  assert.match(preview({ source: "browser-export" }), /Flatkey 注册人数 待更新/);
 });
 test("local archived preview does not present unscoped main-property totals", () => {
   const text = preview({ hostScope: undefined, registrationEvidence: "reported_daily_row" });
-  assert.doesNotMatch(text, /123456/); assert.match(text, /可归属注册 待更新/);
+  assert.doesNotMatch(text, /123456/); assert.match(text, /Flatkey 注册人数 待更新/);
 });

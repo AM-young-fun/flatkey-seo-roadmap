@@ -3,7 +3,9 @@ import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
-import { beijingDay, digestDateSchema, digestKindSchema } from "@/lib/seo-digest";
+import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
+import { flatkeyRegistrationCount } from "@/lib/seo-business-analytics";
+import { loadBusinessAnalytics } from "@/lib/services/seo-business-analytics";
 import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, saveSeoDigest } from "@/lib/services/seo-digest";
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
 import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
@@ -71,7 +73,13 @@ export async function GET(request: Request) {
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { payload: true },
       });
-      return Response.json({ report: saved?.payload ?? null, dates }, { headers });
+      const report = saved?.payload as unknown as SeoDigest | undefined;
+      if (archive && report && report.flatkeyRegistrations?.users == null) {
+        const { trafficStart, trafficEnd } = digestWindow(selected, kind);
+        const observations = await loadBusinessAnalytics(trafficStart, trafficEnd).catch(() => []);
+        return Response.json({ report: { ...report, flatkeyRegistrations: flatkeyRegistrationCount(observations, trafficStart, trafficEnd) }, dates }, { headers });
+      }
+      return Response.json({ report: report ?? null, dates }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? beijingDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }

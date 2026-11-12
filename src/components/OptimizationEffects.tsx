@@ -145,21 +145,23 @@ export function OptimizationEffects() {
   const [country] = useSeoCountry();
   const [site, setSite] = useState("all"), [query, setQuery] = useState("");
   const selected = params.get("publication");
+  const selectedPage = params.get("page");
+  const detail = selected || selectedPage;
   const pages = result.data?.pages ?? [];
-  const active = selected ? pages.find(page => page.versions.some(version => version.id === selected)) : undefined;
-  const version = active?.versions.find(item => item.id === selected);
+  const active = selected ? pages.find(page => page.versions.some(version => version.id === selected)) : pages.find(page => page.url === selectedPage);
+  const version = selected ? active?.versions.find(item => item.id === selected) : active?.versions[0];
   const search = query.trim().toLowerCase();
   const filtered = pages.filter(page => (site === "all" || page.site === site) &&
     (page.title.toLowerCase().includes(search) || page.url.toLowerCase().includes(search)));
   return <div className={effects.workspace}>
     <div className={effects.header}><h1>优化效果</h1><div className={styles.toolbarActions}>
-      {selected ? <Link className={styles.secondary} href={baseHref(country)}>返回优化页面列表</Link> : null}
+      {detail ? <Link className={styles.secondary} href={baseHref(country)}>返回优化页面列表</Link> : null}
       <button type="button" className={styles.secondary} onClick={result.retry}><RefreshCw size={14} aria-hidden="true" />刷新</button>
     </div></div>
     {result.error ? <p className={effects.panel} role="alert">{result.error}</p>
       : !result.data ? <p className={effects.panel} role="status">正在读取已优化页面…</p> : <>
         {result.data.partial ? <p className={effects.panel} role="status">部分优化记录暂时无法读取。</p> : null}
-        {active && version ? <PageEffectDetail page={active} version={version} country={country} /> : selected
+        {active && version ? <PageEffectDetail page={active} version={version} country={country} /> : detail
           ? <p className={effects.panel}>找不到这条优化记录。</p> : <section className={effects.panel} aria-labelledby="optimized-pages-title">
             <div className={effects.listHeading}><h2 id="optimized-pages-title">已优化页面</h2><span>{filtered.length} 个页面</span></div>
             <div className={effects.filters}>

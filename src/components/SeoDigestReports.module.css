@@ -42,23 +42,10 @@
   color: var(--ui-primary);
   font-weight: 650;
 }
-.archive, .archiveControls { display: flex; align-items: center; gap: 8px; }
-.archive { max-width: 100%; }
-.archive label { color: #52647b; white-space: nowrap; }
-.archiveControls { min-width: 0; }
-.archiveControls select {
-  min-width: 0;
-  height: var(--ui-control-height, 36px);
-  padding: 0 9px;
-  border: 1px solid var(--ui-border, #dce4ef);
-  border-radius: 6px;
-  background: #fff;
-  color: #17243b;
-  font: inherit;
-}
-.archiveControls :is(a, button) { flex: none; min-width: 34px; padding: 0 8px; }
-.archiveControls :is(select, button):disabled { opacity: .5; cursor: default; }
-.periods a:focus-visible, .controls :is(a, select, button):focus-visible, .tableScroll:focus-visible {
+.archive { display: flex; align-items: center; gap: 12px; max-width: 100%; }
+.archive label { display: inline-flex; align-items: center; gap: 7px; color: #52647b; font-size: 13px; white-space: nowrap; }
+.archive .dateSelect { width: 268px; max-width: 100%; }
+.periods a:focus-visible, .tableScroll:focus-visible {
   outline: 2px solid var(--ui-primary);
   outline-offset: 2px;
 }
@@ -78,16 +65,18 @@
 .workspace .reportHeader h2 { margin: 0; font-size: 20px; line-height: 1.35; }
 .reportHeader p { margin: 5px 0 0; color: #52647b; font-size: 12px; }
 .badge { flex: none; padding: 3px 9px; border-radius: 6px; background: #eef4ff; color: #244e9c; font-size: 12px; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 0; }
 .metrics > div { padding: 14px 16px; }
 .metrics dt { color: #52647b; font-size: 13px; }
 .metrics dd { margin: 4px 0 0; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.metrics small { color: #52647b; }
 .sections { display: grid; gap: 12px; min-width: 0; }
 .section { padding: 16px 20px; min-width: 0; }
 .section h3 { margin: 0 0 10px; font-size: 16px; color: #152943; }
 .section p { margin: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
 .note { padding: 4px 0; color: #44556b; }
-.item { padding: 8px 0; border-top: 1px solid #edf1f6; }
+.item { padding: 12px 0; border-top: 1px solid #edf1f6; }
+.item p { max-inline-size: 78ch; }
 .item p + p { margin-top: 3px; color: #53647a; }
 .tableScroll { overflow-x: auto; }
 .comparison { width: 100%; min-width: 590px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -102,11 +91,25 @@
 .comparison .delta[data-tone="decrease"] { color: #a13530; background: #fdf0ef; }
 .comparison small { display: block; color: #52647b; margin-top: 2px; font-size: 11px; }
 .comparisonDates span { display: block; white-space: nowrap; }
+.allApprovals { display: inline-block; margin-top: 12px; }
+.issueList { margin: 0; padding-left: 20px; max-inline-size: 78ch; color: #334155; }
+.issueList li { padding: 4px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.optimization { display: grid; gap: 6px; border-top: 1px solid #edf1f6; padding-top: 12px; }
+.optimization .optimizationMeta { font-size: 12px; color: #52647b; }
+.optimizationSummary { max-inline-size: 78ch; }
+.optimizationMetrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-width: 630px; margin: 4px 0; }
+.optimizationMetrics > div { border: 1px solid #edf1f6; border-radius: 6px; padding: 8px; }
+.optimizationMetrics dt { font-size: 12px; color: #52647b; }
+.optimizationMetrics dd { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .workspace { padding-top: 18px; }
   .controls { padding: 10px 12px; }
   .archive { flex-wrap: wrap; }
-  .archiveControls { max-width: 100%; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reportHeader, .section { padding: 14px; }
 }
+
+.pageToggle { display: block; margin-top: 5px; padding: 0; border: 0; background: none; color: #225bb0; font: inherit; font-size: 12px; cursor: pointer; }
+.pageToggle:hover { text-decoration: underline; }
+.pageMetric { background: #f7f9fc; }
+.pageMetric th:first-child { max-width: 270px; padding-left: 18px; overflow-wrap: anywhere; }

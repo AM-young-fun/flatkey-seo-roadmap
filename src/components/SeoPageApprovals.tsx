@@ -1,7 +1,7 @@
 "use client";
 
 import { workTaskHref } from "@/lib/seo-workspace-routes";
-import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman, reviewPreviewUrl } from "@/lib/seo-workflow";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -128,12 +128,13 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefre
       {approval.items.map((item, index) => {
         const task = tasks.find(task => task.id === item.taskId);
         const mismatch = Boolean(task?.pageUrl === item.pageUrl && task?.language === item.language && task?.contentVersion && task.contentVersion !== item.contentVersion);
-        const preview = safeUrl(item.previewUrl), draft = safeUrl(item.draftUrl);
+        const preview = item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
+        const draft = safeUrl(item.draftUrl);
         return <section key={item.id} className={review.itemDetail} aria-label={`审批页面 ${index + 1}`}>
           <div className={styles.sectionHeading}><h3>{item.operation === "new" ? "新增页面" : "修改页面"} · {item.language}</h3><ApprovalBadge status={approvalItemNeedsHuman(item, tasks) ? itemStates[index] : "automatic_history"} /></div>
-          <a className={review.targetUrl} href={item.pageUrl} target="_blank" rel="noreferrer">{item.pageUrl} ↗</a>
+          <a className={review.targetUrl} href={item.pageUrl} target="_blank" rel="noreferrer">正式页 · {item.pageUrl} ↗</a>
           <div className={review.actions}>
-            {preview ? <a href={preview} target="_blank" rel="noreferrer">打开测试页面 <ExternalLink size={13} aria-hidden="true" /></a> : <span className={styles.muted}>未提供测试链接</span>}
+            {preview ? <a href={preview} target="_blank" rel="noreferrer">打开测试预览 <ExternalLink size={13} aria-hidden="true" /></a> : <span className={styles.muted}>测试预览待补齐</span>}
             {draft ? <a href={draft} target="_blank" rel="noreferrer">打开稿件 <ExternalLink size={13} aria-hidden="true" /></a> : null}
             <ScreenshotLinks items={item.evidence} />
           </div>
