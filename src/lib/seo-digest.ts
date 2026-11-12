@@ -256,14 +256,18 @@ export function buildSeoDigest(input: DigestInput) {
   const originals = publications.filter(row => row.kind === "source"), translations = publications.filter(row => row.kind === "translation");
   const backfills = publications.filter(row => row.kind === "backfill_translation"), landingPages = publications.filter(row => row.kind === "landing"), clusterPages = publications.filter(row => row.kind === "cluster");
   const optimizations = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url)).map(row => [row.url, row])).values()];
+  const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "") => {
+    const count = `${value}${unit ? " " + unit : ""}`;
+    return coverage === "verified" ? count : value > 0 ? `至少 ${count}（已核实）` : "待核实";
+  };
   const review = input.reviewWorkflow ? digestReviewQueue(input.reviewWorkflow, now) : null;
   const title = `Flatkey SEO ${window.kind === "weekly" ? "周报" : "日报"}｜${input.date}`;
   const lines = [title, "", `工作统计：${window.workStart.slice(0, 16).replace("T", " ")} — ${window.workEnd.slice(0, 16).replace("T", " ")}（北京时间，结束时刻不含）；确认截止 ${now.toISOString()}。`, "",
     `${review ? `待审核 ${review.tasks} 项（${review.tickets} 张审批单，${review.pages.length} 个页面版本） · 待补材料 ${review.materialCount} 项` : "待审核 待更新 · 待补材料 待更新"} · ${link("SEO 平台审批", approvalsUrl)}`, "",
     ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
-    `新增博客 ${input.publicationCoverage === "missing" ? "待核实" : originals.length + " 篇"}；新内容上线语言页 ${input.publicationCoverage === "missing" ? "待核实" : `${originals.length + translations.length}（其中译文 ${translations.length}）`}；旧文补译 ${input.publicationCoverage === "missing" ? "待核实" : backfills.length}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
-    `落地页/工具页 ${input.publicationCoverage === "missing" ? "待核实" : landingPages.length}，集群交付 ${input.publicationCoverage === "missing" ? "待核实" : clusterPages.length}（仅统计已上线验收）。`,
-    `${window.kind === "weekly" ? "本周" : "今日"}优化 ${input.optimizationCoverage === "missing" ? "待核实" : optimizations.length + " 个页面"}${input.optimizationCoverage === "partial" ? "（台账覆盖不全）" : ""}。`];
+    `新增博客 ${amount(originals.length, input.publicationCoverage, "篇")}；新内容上线语言页 ${amount(originals.length + translations.length, input.publicationCoverage)}（其中译文 ${amount(translations.length, input.publicationCoverage)}）；旧文补译 ${amount(backfills.length, input.publicationCoverage)}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
+    `落地页/工具页 ${amount(landingPages.length, input.publicationCoverage)}，集群交付 ${amount(clusterPages.length, input.publicationCoverage)}（仅统计已上线验收）。`,
+    `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面")}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
   const notification: string[] = [];
   lines.push("", "待审批页面（截至报告生成，含往期未处理）");
   if (!review) lines.push("• 审批台账读取失败或尚未接通，待更新。");
@@ -346,7 +350,6 @@ export function buildSeoDigest(input: DigestInput) {
   const detailText = lines.join("\n");
   if (input.notificationCompact) {
     const weekly = window.kind === "weekly";
-    const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit: string) => coverage === "missing" || coverage === "partial" && value === 0 ? "待核实" : `${value} ${unit}${coverage === "partial" ? "（已核实）" : ""}`;
     notification.push(title, ...(weekly ? [`${window.trafficStart}—${window.trafficEnd}`] : []), "",
       `**${weekly ? "本周" : "今日"}上线**`,
       `${link("博客", SEO_PLATFORM + executionViewRoutes.deliveries)} ${amount(originals.length, input.publicationCoverage, "篇")} · 落地页 ${amount(landingPages.length, input.publicationCoverage, "页")} · 集群 ${amount(clusterPages.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")}`,

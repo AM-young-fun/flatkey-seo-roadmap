@@ -14,7 +14,7 @@ export function SeoApiCohorts({ cohorts, range, periods, onRangeSelect, collecti
       return <article key={kind} className={styles.cohort} aria-label={cohortDefinitions[kind].label}>
         <div className={styles.cohortHeading}><strong>{cohortDefinitions[kind].label}</strong><span>{cohort ? cohortStatusLabels[cohort.status] : collectionPresent ? "未启用" : "待采集"}</span></div>
         <div className={styles.cohortRate}>{ready && cohort.rate !== null ? `${(cohort.rate * 100).toFixed(1)}%` : "—"}</div>
-        <p className={styles.note}>{ready ? `${cohort.convertedUsers} / ${cohort.registeredUsers} 名可观测注册用户` : cohort?.status === "unconfigured" ? "全节点上线核验后设置观察起点" : cohort?.status === "no_users" ? "本区间无可观测注册用户，不计算比率" : cohort?.status === "insufficient_coverage" ? `完整覆盖从 ${cohort.firstEligibleRegistrationDay} 起` : !cohort ? collectionPresent ? "生产版本与观察起点待确认" : "该注册时段尚无统计结果" : cohort?.status === "immature" ? "等待完整观察窗口与 48 小时处理缓冲" : "数据待核验，不推算转化率"}</p>
+        <p className={styles.note}>{ready ? `${cohort.convertedUsers} / ${cohort.registeredUsers} 名可观测注册用户` : cohort?.status === "unconfigured" ? "观察起点与身份覆盖待核验" : cohort?.status === "no_users" ? "本区间无可观测注册用户，不计算比率" : cohort?.status === "insufficient_coverage" ? `完整覆盖从 ${cohort.firstEligibleRegistrationDay} 起` : !cohort ? collectionPresent ? "观察起点与身份覆盖待核验" : "该注册时段尚无统计结果" : cohort?.status === "immature" ? "等待完整观察窗口与 48 小时处理缓冲" : "数据待核验，不推算转化率"}</p>
         {cohort && <p className={styles.note}>观察至 {cohort.observationEnd} · {cohort.timezone}</p>}
       </article>;
     })}</div>

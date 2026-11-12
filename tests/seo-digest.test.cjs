@@ -261,3 +261,32 @@ test("partial zero delivery coverage is pending verification instead of a crypti
  const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:"partial",optimizationCoverage:"partial"});
  assert.doesNotMatch(report.text,/0\+/);assert.doesNotMatch(report.text,/待核实 [篇页]/);assert.match(report.text,/落地页 待核实/);
 });
+
+test("actual verified ES optimization stays visible when the overall execution coverage is missing",()=>{
+ const fixture=require("./fixtures/seo-digest-verified-es-optimization-20261112.json");
+ const report=buildSeoDigest({...base(fixture.date),now:new Date(fixture.now),notificationCompact:true,
+  publications:fixture.publications,optimizations:fixture.optimizations,
+  publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
+ assert.deepEqual(report.counts,fixture.expectedCounts);
+ assert.match(report.text,/优化 至少 1 页（已核实）/);
+ assert.match(report.text,/博客.*待核实 · 落地页 待核实 · 集群 待核实/);
+ assert.match(report.detailText,/今日优化 至少 1 个页面（已核实），台账覆盖待补/);
+ assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
+ assert.doesNotMatch(report.text,/优化 待核实/);
+});
+
+test("incomplete coverage reports verified lower bounds and keeps unknown zero distinct from a verified zero",()=>{
+ const publication={id:"source",title:"Verified source",url:"https://flatkey.ai/blog/source",kind:"source",publishedAt:"2026-11-10T12:00:00+08:00",verifiedAt:"2026-11-10T12:01:00+08:00",recordedAt:"2026-11-10T12:02:00+08:00"};
+ const optimization={id:"change",url:publication.url,keyword:"gpu server",changes:"title",verifiedAt:publication.verifiedAt,recordedAt:publication.recordedAt,baselineId:"baseline"};
+ for(const coverage of ["missing","partial"]){
+  const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage,publications:[publication],optimizations:[optimization]});
+  assert.match(report.text,/博客.*至少 1 篇（已核实）/);assert.match(report.text,/优化 至少 1 页（已核实）/);
+  assert.match(report.detailText,/新增博客 至少 1 篇（已核实）/);
+  assert.match(report.text,/落地页 待核实 · 集群 待核实/);
+  const unknown=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage});
+  assert.match(unknown.text,/优化 待核实/);assert.match(unknown.detailText,/新增博客 待核实/);
+  assert.doesNotMatch(unknown.text,/0 [篇页]|至少 0/);
+ }
+ const complete=buildSeoDigest({...base(),notificationCompact:true});
+ assert.match(complete.text,/博客.*0 篇/);assert.match(complete.text,/优化 0 页/);assert.doesNotMatch(complete.text,/至少/);
+});

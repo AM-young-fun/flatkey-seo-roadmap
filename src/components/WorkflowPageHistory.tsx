@@ -20,7 +20,7 @@ export function WorkflowPageHistory({ pageUrl, country }: { pageUrl: string; cou
       {publications.length ? <details><summary>发布与正式页面验收</summary>{publications.map(record => <div key={record.id}><p>{shanghaiStamp(record.publishedAt)} · 版本 {record.contentVersion} · <WorkflowStatus status={record.status} /></p><p>验收时间：{record.verifiedAt ? shanghaiStamp(record.verifiedAt) : "尚未验收"}</p><WorkflowEvidence evidence={record.evidence} /></div>)}</details> : null}
       {optimizations.map(record => <OptimizationHistory optimization={record} key={record.id} />)}
       {issues.length ? <details><summary>技术、语言和索引问题证据</summary>{issues.map(issue => <div key={issue.id}><p>{issue.title} · <WorkflowStatus status={issue.status} /></p><p>{issue.impact}</p><p>下一步：{issue.nextAction}</p><WorkflowEvidence evidence={issue.evidence} />{issue.resolvedAt ? <WorkflowEvidence evidence={issue.resolutionEvidence} /> : null}</div>)}</details> : <p className={styles.muted}>尚无该页面的索引检查证据。线上访问成功不能证明 Google 已收录当前版本。</p>}
-      <p className={styles.muted}>激活定义为首次成功获得模型响应或生成结果；已核实的业务指标以对应来源记录为准，未接入时保留空值。</p>
+      <p className={styles.muted}>API 激活指首次成功获得模型响应或生成结果；GPU 统计成功租赁。业务指标以已核实来源记录为准，未接入时保留空值。</p>
     </>}
   </section>;
 }

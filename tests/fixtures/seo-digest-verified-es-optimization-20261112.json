@@ -1,0 +1,36 @@
+{
+  "scope": "Verified delivery slice from actual production readbacks; not a complete DigestInput or analytics replay.",
+  "source": {
+    "report": "digest-readonly-after.json",
+    "workflow": "post-apply-matching-records.json",
+    "readAt": "2026-11-12T05:19:46.782Z"
+  },
+  "expectedCounts": {
+    "originals": 0,
+    "translations": 0,
+    "backfillTranslations": 0,
+    "landingPages": 0,
+    "clusterPages": 0,
+    "optimizedPages": 1
+  },
+  "coverage": {
+    "publications": "partial",
+    "optimizations": "missing",
+    "approvals": "verified"
+  },
+  "beforeOptimizationText": "优化 待核实",
+  "date": "2026-11-12",
+  "now": "2026-11-12T05:19:46.782Z",
+  "publications": [],
+  "optimizations": [
+    {
+      "id": "change-es-gpu-server-64a2a0a4",
+      "url": "https://flatkey.ai/es/blog/gpu-server",
+      "keyword": "servidor gpu",
+      "changes": "更新标题、摘要和开头，增加购买/租赁/API选择对比、需求清单及GPU租赁引导；原URL和技术内容保留。",
+      "verifiedAt": "2026-11-12T05:12:31.650478Z",
+      "recordedAt": "2026-11-12T05:15:49.968Z",
+      "baselineId": "opt-es-gpu-server-es-20261112:baseline"
+    }
+  ]
+}
