@@ -2,7 +2,7 @@ import { z } from "zod";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { businessCountrySchema, businessScopeSchema, latestBusinessPeriod } from "@/lib/seo-business-analytics";
-import { loadBusinessAnalytics, saveBusinessAnalytics } from "@/lib/services/seo-business-analytics";
+import { loadBusinessAnalytics, loadRecentMatureCohortPeriods, saveBusinessAnalytics } from "@/lib/services/seo-business-analytics";
 import { isDatabaseConfigured } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,10 @@ export async function GET(request: Request) {
     const country = businessCountrySchema.parse(params.get("country") ?? "all"), scope = businessScopeSchema.parse(params.get("scope") ?? "session-organic-search");
     if (analyticsLocalPreview(request) && !isDatabaseConfigured()) return Response.json({ record: null, status: "unavailable", message: "本地未接业务归档；GA4上线收数待核验。" }, { headers });
     const rows = await loadBusinessAnalytics(start, end), record = latestBusinessPeriod(rows, start, end, country, scope);
-    return Response.json({ record, status: record ? record.complete ? "ready" : "partial" : "missing" }, { headers });
+    // These are links to existing verified archives, not extra live GA4 queries
+    // or replacement data for the user's selected registration dates.
+    const cohortPeriods = await loadRecentMatureCohortPeriods(country, scope);
+    return Response.json({ record, cohortPeriods, capabilities: { apiCohorts: 1 }, status: record ? record.complete ? "ready" : "partial" : "missing" }, { headers });
   } catch (error) { return Response.json({ message: "业务数据暂不可读或日期无效" }, { status: error instanceof z.ZodError ? 400 : 503, headers }); }
 }
 export async function POST(request: Request) {

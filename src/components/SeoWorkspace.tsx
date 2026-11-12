@@ -46,7 +46,7 @@ export function SeoWorkspace({ view = "pages" }: { view?: "pages" }) {
       <UiSelect className={styles.category} aria-label="页面分类" value={category} onChange={value => filter("category", value)}
         options={[...PAGE_CATEGORIES, ...linkedCategories.filter(([id]) => id === category)].map(([value, label]) => ({ value, label }))} />
     } />
-    <SeoBusinessAnalytics range={context.range} />
+    <SeoBusinessAnalytics range={context.range} onCohortRangeSelect={range => context.update(range, null)} />
     <details className={styles.pageSupplement} open={panel === "optimizations"} onToggle={event => { const open = event.currentTarget.open; if (open !== (panel === "optimizations")) filter("panel", open ? "optimizations" : ""); }}>
       <summary>优化基线与复盘</summary>
       {panel === "optimizations" ? <SeoWorkWorkspace view="optimizations" embedded /> : null}

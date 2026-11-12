@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 
 import { journeySchema, engagementSchema } from "./seo-business-journeys";
 import { businessEventLabels } from "./seo-business-events";
+import { apiCohortSchema, cohortKinds } from "./seo-api-cohorts";
 export { businessEventLabels } from "./seo-business-events";
 export const businessEventSchema = z.enum(Object.keys(businessEventLabels) as [keyof typeof businessEventLabels, ...(keyof typeof businessEventLabels)[]]);
 export const businessScopeSchema = z.enum(["all-channels", "session-organic-search"]);
@@ -14,6 +15,7 @@ export const businessAnalyticsSchema = z.object({
   country: businessCountrySchema, scope: businessScopeSchema, observedAt: z.iso.datetime(),
   distinctOverWholePeriod: z.literal(true), complete: z.boolean(), reasons: z.array(z.string().max(500)).max(30),
   journeys: z.array(journeySchema).max(2).optional(), engagement: engagementSchema.optional(),
+  apiCohorts: z.array(apiCohortSchema).length(2).optional(),
   rows: z.array(z.object({ event: businessEventSchema, events: z.number().int().nonnegative(), users: z.number().int().nonnegative() }).strict()).max(11),
 }).strict().superRefine((row, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: "custom", message });
@@ -22,16 +24,32 @@ export const businessAnalyticsSchema = z.object({
   if (new Set(row.rows.map(value => value.event)).size !== row.rows.length) issue("事件重复");
   if (row.journeys && (row.scope !== "all-channels" || new Set(row.journeys.map(value => value.business)).size !== row.journeys.length)) issue("漏斗需独立全渠道口径且业务不可重复");
   if (row.complete && row.reasons.length) issue("有质量缺口不能标完整");
+  if (row.apiCohorts && (new Set(row.apiCohorts.map(value => value.kind)).size !== 2 || row.apiCohorts.some(value => value.registrationStart !== row.start || value.registrationEnd !== row.end || value.registrationCountry !== row.country || value.registrationScope !== row.scope || value.observedAt !== row.observedAt))) issue("cohort 必须绑定相同注册区间、来源、国家与采集时点");
 });
 export type BusinessAnalytics = z.infer<typeof businessAnalyticsSchema>;
 export const businessAnalyticsId = (row: BusinessAnalytics) => `ga4-business:${createHash("sha256").update(JSON.stringify(row)).digest("hex")}`;
+
+/** Navigation only: never substitute a different registration window into a card. */
+export function recentMatureCohortPeriods(rows: BusinessAnalytics[], country: BusinessAnalytics["country"], scope: BusinessAnalytics["scope"]) {
+  const seen = new Set<string>();
+  const latest = rows.filter(row => row.country === country && row.scope === scope).sort((a, b) => b.observedAt.localeCompare(a.observedAt)).filter(row => {
+    const key = row.start + ":" + row.end;
+    if (seen.has(key)) return false;
+    seen.add(key); return row.hostScope === GA4_HOST_SCOPE;
+  });
+  return cohortKinds.flatMap(kind => {
+    const cohort = latest.flatMap(row => row.apiCohorts ?? []).filter(row => row.kind === kind && ["ready", "no_users"].includes(row.status))
+      .sort((a, b) => b.registrationEnd.localeCompare(a.registrationEnd) || b.observedAt.localeCompare(a.observedAt))[0];
+    return cohort ? [{ kind, start: cohort.registrationStart, end: cohort.registrationEnd, observationEnd: cohort.observationEnd }] : [];
+  });
+}
 
 /** No daily-user summation or conversion rates inferred from unjoined event totals. */
 export function latestBusinessPeriod(rows: BusinessAnalytics[], start: string, end: string, country: BusinessAnalytics["country"], scope: BusinessAnalytics["scope"]) {
   const row = rows.filter(row => row.start === start && row.end === end && row.country === country && row.scope === scope)
     .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0] ?? null;
   if (!row || row.hostScope === GA4_HOST_SCOPE) return row;
-  return { ...row, complete: false, reasons: [GA4_HOST_UNVERIFIED], rows: [], journeys: undefined, engagement: undefined };
+  return { ...row, complete: false, reasons: [GA4_HOST_UNVERIFIED], rows: [], journeys: undefined, engagement: undefined, apiCohorts: undefined };
 }
 
 export function businessDigestLines(rows: BusinessAnalytics[], start: string, end: string) {

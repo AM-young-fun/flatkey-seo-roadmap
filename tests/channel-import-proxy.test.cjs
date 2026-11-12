@@ -5,7 +5,7 @@ Module._load=function(name,...rest){
  if(name==='@/lib/auth')return {AUTH_COOKIE_NAME:'session',isAuthEnabled:()=>true,isValidAuthToken:async()=>false};
  if(name.includes('services/import-tokens'))return {authenticateImportToken:async req=>req.headers.get('authorization')==='Bearer fixture'};
  if(name.includes('seo-analytics-access'))return {authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>false,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
- if(name.includes('services/seo-business-analytics'))return {loadBusinessAnalytics:async()=>[],saveBusinessAnalytics:async input=>require('../src/lib/seo-business-analytics.ts').businessAnalyticsSchema.parse(input)};
+ if(name.includes('services/seo-business-analytics'))return {loadBusinessAnalytics:async()=>[],loadRecentMatureCohortPeriods:async()=>[],saveBusinessAnalytics:async input=>require('../src/lib/seo-business-analytics.ts').businessAnalyticsSchema.parse(input)};
  if(name.includes('services/seo-github-channel'))return {loadGithubChannels:async()=>[],saveGithubChannel:async input=>require('../src/lib/seo-github-channel.ts').githubChannelSchema.parse(input)};
  return name==='server-only'?{}:load.call(this,name,...rest);
 };
