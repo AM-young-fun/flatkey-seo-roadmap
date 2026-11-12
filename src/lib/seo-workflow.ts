@@ -106,11 +106,23 @@ export const workflowApprovalItemSchema = z.object({
   if (item.operation === "new" && item.baseContentVersion) ctx.addIssue({ code: "custom", message: "新增页面不能冒用旧版本基线" });
   if (item.baseContentVersion === item.contentVersion) ctx.addIssue({ code: "custom", message: "改稿必须使用新的内容版本" });
 });
+export function reviewPreviewUrl(value: string | null | undefined, pageUrl?: string | null) {
+  try {
+    const url = new URL(value ?? "");
+    const hostname = url.hostname.replace(/^www\./, "");
+    const targetHost = pageUrl ? new URL(pageUrl).hostname.replace(/^www\./, "") : null;
+    if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash ||
+        !hostname.includes(".") || /^[\d.]+$/.test(hostname) || hostname.endsWith(".local") ||
+        hostname === targetHost || WORKFLOW_SITES.some(domain => domain === hostname) ||
+        ["console.flatkey.ai", "router.flatkey.ai"].includes(hostname)) return null;
+    return url.href;
+  } catch { return null; }
+}
+
 export function approvalReviewReadiness(item: z.infer<typeof workflowApprovalItemSchema>) {
   const missing: string[] = [];
   const safe = (value: string | null | undefined) => { try { const url = new URL(value ?? ""); return url.protocol === "https:" && !url.username && !url.password ? url : null; } catch { return null; } };
-  const preview = safe(item.previewUrl);
-  if (!preview || preview.origin === safe(item.pageUrl)?.origin) missing.push("独立测试环境链接");
+  if (!reviewPreviewUrl(item.previewUrl, item.pageUrl)) missing.push("独立测试环境链接");
   if (item.previewContentVersion !== item.contentVersion) missing.push("与稿件一致的测试部署版本");
   const sameVersion = (row: typeof item.evidence[number]) => !row.url?.startsWith("https://flatkey-seo-roadmap.vercel.app/api/seo/review-assets/") || row.label.endsWith(` · ${item.contentVersion}`);
   if (!item.evidence.some(row => safe(row.url) && sameVersion(row) && /桌面|desktop/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("桌面截图链接");

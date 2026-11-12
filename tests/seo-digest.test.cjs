@@ -161,10 +161,15 @@ test("missing source is not zero while an actual reported zero remains valid", (
  assert.match(result.reason, /未齐/);
  assert.equal(comparableMetric([], "flatkey.ai", "sessions", "2026-11-10").current, null);
 });
-test("daily digest keeps new GA4 behavior and conversion tracking pending verification alongside reported registrations", () => {
+test("daily digest uses the Flatkey all-channel registration count rather than SEO-attributed users", () => {
  const observations = [ga("2026-11-08", 10, { registrations: 2 }), ga("2026-11-09", 12, { registrations: 3 })];
- const report = buildSeoDigest({ ...base(), observations });
- assert.match(report.text, /注册 2→3/);
+ const record = { siteDomain: "flatkey.ai", hostScope: "production-hosts-v1", scope: "all-channels", country: "all",
+   start: "2026-11-09", end: "2026-11-09", observedAt: "2026-11-10T10:00:00Z", complete: true, reasons: [],
+   rows: [{ event: "sign_up", users: 12, events: 14 }] };
+ const report = buildSeoDigest({ ...base(), observations, businessObservations: [record] });
+ assert.deepEqual(report.flatkeyRegistrations, { start: "2026-11-09", end: "2026-11-09", users: 12 });
+ assert.match(report.text, /Flatkey 注册人数 12 人/);
+ assert.doesNotMatch(report.text, /注册 2→3/);
  assert.match(report.text, /GA4 行为与转化/);
  assert.match(report.text, /尚无同区间回执，待更新/);
  assert.match(report.text, /全渠道不能当成自然搜索效果/);

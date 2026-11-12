@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { approvalReviewReadiness, pageBelongsToSite, workflowCodeSourceSchema, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowPublication, type WorkflowTask } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, pageBelongsToSite, reviewPreviewUrl, workflowCodeSourceSchema, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowPublication, type WorkflowTask } from "@/lib/seo-workflow";
 import styles from "./SeoWorkWorkspace.module.css";
 
 type Props = {
@@ -11,17 +11,6 @@ type Props = {
   mutate: (body: object) => Promise<{ record: unknown }>;
   onSaved: () => void;
 };
-
-function previewLink(value: string, site: string) {
-  const url = new URL(value);
-  if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash ||
-      url.hostname === site || url.hostname === "www." + site ||
-      url.hostname === "localhost" || !url.hostname.includes(".") ||
-      /^[\d.]+$/.test(url.hostname) || url.hostname.endsWith(".local")) {
-    throw new Error("请输入独立测试环境的 HTTPS 地址。");
-  }
-  return url.toString();
-}
 
 export function PageDeliveryActions({ task, approvals, publications, mutate, onSaved }: Props) {
   const taskHref = new URL("/work?" + new URLSearchParams({ week: task.weekStart }), "https://flatkey-seo-roadmap.vercel.app");
@@ -36,12 +25,18 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [pageUrl, setPageUrl] = useState(task.pageUrl ?? "");
-  const [preview, setPreview] = useState(task.artifactUrl ?? "");
+  const [preview, setPreview] = useState(reviewPreviewUrl(task.artifactUrl, task.pageUrl) ?? "");
   const [contentVersion, setContentVersion] = useState(task.contentVersion ?? "");
   const [repository, setRepository] = useState(task.codeSource?.repository ?? (task.siteDomain === "flatkey.ai" ? "solvea-plg/flatkey" : ""));
   const [branch, setBranch] = useState(task.codeSource?.branch ?? "");
   const [showBrief, setShowBrief] = useState(false);
-  const taskPreview = task.evidence.some(entry => entry.url === task.artifactUrl && entry.label === "测试预览 · " + task.contentVersion);
+  const taskPreview = task.evidence.some(entry => entry.url === task.artifactUrl && entry.label === "测试预览 · " + task.contentVersion)
+    ? reviewPreviewUrl(task.artifactUrl, task.pageUrl) : null;
+  const submittedPreview = taskApprovals.find(({ approval, item }) =>
+    item.pageUrl === task.pageUrl && item.contentVersion === task.contentVersion && item.previewContentVersion === item.contentVersion &&
+    workflowApprovalEffectiveItemStatus(approval, item.id, approvals) !== "superseded" &&
+    reviewPreviewUrl(item.previewUrl, item.pageUrl))?.item.previewUrl;
+  const reviewPreview = taskPreview ?? submittedPreview;
   const brief = [
     "请在本地 Codex 中处理 Flatkey SEO 页面任务 " + task.id,
     "平台任务 " + taskHref,
@@ -65,7 +60,8 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
     setBusy(true);
     setMessage("");
     try {
-      const url = previewLink(preview.trim(), task.siteDomain);
+      const url = reviewPreviewUrl(preview.trim(), task.pageUrl);
+      if (!url) throw new Error("请输入独立测试环境的 HTTPS 地址。");
       const target = pageUrl.trim();
       if (!pageBelongsToSite(target, task.siteDomain) || (task.kind !== "landing" && task.pageUrl && target !== task.pageUrl)) throw new Error("请使用任务对应的正式页面地址。");
       const parsedSource = workflowCodeSourceSchema.safeParse({ repository, branch, commitSha: contentVersion });
@@ -93,7 +89,8 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
       {!receipt && !["published", "verified", "observing", "blocked", "failed"].includes(task.status) ? <button type="button" className={styles.secondary} onClick={() => setEditing(true)}>回填测试预览</button> : null}
     </div>
     {showBrief ? <textarea aria-label="本地 Codex 任务说明" rows={8} value={brief} readOnly /> : null}
-    {taskPreview && task.artifactUrl ? <p><a href={task.artifactUrl} target="_blank" rel="noreferrer">打开测试预览 ↗</a></p> : null}
+    {reviewPreview ? <p><a href={reviewPreview} target="_blank" rel="noreferrer">打开测试预览 ↗</a></p>
+      : !receipt && (task.status === "review_pending" || taskApprovals.length > 0) ? <p className={styles.muted}>测试预览待补齐</p> : null}
     {receipt ? <p role="status">{receipt.status === "verified" ? "正式页已核验" : "发布待核验"} · {receipt.contentVersion}</p> : null}
     {task.codeSource ? <p>工作分支 <a href={`https://github.com/${task.codeSource.repository}/tree/${encodeURIComponent(task.codeSource.branch)}`} target="_blank" rel="noreferrer">{task.codeSource.branch} ↗</a> · <code>{task.codeSource.commitSha.slice(0, 12)}</code></p> : null}
     {task.codeSource && task.branchObservation && task.branchObservation.headSha !== task.codeSource.commitSha ? <p className={styles.warning}>

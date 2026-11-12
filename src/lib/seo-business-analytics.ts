@@ -53,7 +53,12 @@ export function latestBusinessPeriod(rows: BusinessAnalytics[], start: string, e
   return { ...row, complete: false, reasons: [GA4_HOST_UNVERIFIED], rows: [], journeys: undefined, engagement: undefined, apiCohorts: undefined };
 }
 
-export function businessDigestLines(rows: BusinessAnalytics[], start: string, end: string) {
+export function flatkeyRegistrationCount(rows: BusinessAnalytics[], start: string, end: string) {
+  const period = latestBusinessPeriod(rows, start, end, "all", "all-channels");
+  return { start, end, users: period?.complete ? period.rows.find(row => row.event === "sign_up")?.users ?? null : null };
+}
+
+export function businessDigestLines(rows: BusinessAnalytics[], start: string, end: string, includeRegistration = true) {
   const lines = ["GA4 行为与转化"];
   for (const scope of ["session-organic-search", "all-channels"] as const) {
     const row = latestBusinessPeriod(rows, start, end, "all", scope);
@@ -61,6 +66,7 @@ export function businessDigestLines(rows: BusinessAnalytics[], start: string, en
     if (!row) { lines.push(`• ${label}：${start}—${end} 尚无同区间回执，待更新。`); continue; }
     lines.push(`• ${label}：${row.start}—${row.end} · ${row.timezone} · ${row.complete ? "查询完整" : "部分数据"} · 采集 ${row.observedAt}`);
     for (const event of ["gpu_rental_success", "first_model_success", "first_payment_completed", "sign_up"] as const) {
+      if (event === "sign_up" && !includeRegistration) continue;
       const value = row.rows.find(item => item.event === event);
       lines.push(`  ${businessEventLabels[event]}：${value ? `${value.events} 次 / 区间去重 ${value.users} 人` : "未观测到，埋点上线及收数待核验"}`);
     }

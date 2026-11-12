@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
-import { approvalReviewReadiness, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
-import type { WorkflowSnapshot, WorkflowTask, WorkflowPlan, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
+import type { WorkflowSnapshot, WorkflowTask, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
 import { WorkflowEvidence } from "./WorkflowEvidence";
 import { PageHeader } from "./PageHeader";
@@ -46,29 +46,6 @@ async function mutateWorkflow(body: object) {
   return result;
 }
 
-function PlanApproval({ plan, onSaved }: { plan: WorkflowPlan; onSaved: () => void }) {
-  const [reviewer, setReviewer] = useState(""), [checked, setChecked] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!checked || !reviewer.trim()) return;
-    setBusy(true); setMessage("");
-    try {
-      const now = new Date().toISOString();
-      const { version, updatedAt: _updatedAt, recordedAt: _recordedAt, ...record } = plan;
-      await mutateWorkflow({ requestId: crypto.randomUUID(), action: "save_plan", expectedVersion: version, record: { ...record, status: "reviewed", reviewedAt: now, reviewedBy: reviewer.trim(), evidence: [...record.evidence, { label: "工作台周计划核对", artifact: `plan:${plan.id}:record:${version}`, observedAt: now }] } });
-      setMessage("周计划已定稿。每次页面新增或修改仍需单独的页面审批。"); setChecked(false); onSaved();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "审核记录未保存。"); }
-    finally { setBusy(false); }
-  }
-  return <form className={styles.reviewForm} onSubmit={event => void submit(event)}>
-    <p>定稿前请核对每项关键词、国家、交付日、证据及缺口理由。周计划定稿不代替页面审批。</p>
-    <label>审核人<input required maxLength={200} value={reviewer} onChange={event => setReviewer(event.target.value)} disabled={busy} /></label>
-    <label className={styles.checkbox}><input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} disabled={busy} />我已核对上述周计划全部事项，确认可以继续研究和制作。</label>
-    <button type="submit" className={styles.primary} disabled={busy || !checked || !reviewer.trim()}>{busy ? "保存中…" : "确认周计划"}</button>
-    {message ? <p role="status">{message}</p> : null}
-  </form>;
-}
-
 function TaskDetail({ task, tasks, approvals, publications, optimizations, onSaved }: { task: WorkflowTask; tasks: WorkflowTask[]; approvals: WorkflowApproval[]; publications: WorkflowPublication[]; optimizations: WorkflowOptimization[]; onSaved: () => void }) {
   const pageDelivery = task.kind === "technical" ? task.channel !== "github" && task.channel !== "product"
     : ["landing", "optimization", "cluster"].includes(task.kind) && (task.changeScope === "search_intent" || task.pageType !== "blog" && !/\/blog(?:\/|$)/.test(task.pageUrl ?? ""));
@@ -79,7 +56,7 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
       <div><dt>负责人 / 交付日</dt><dd>{task.owner} / {displayTime(task.dueAt)}</dd></div>
       <div><dt>内容版本</dt><dd>{task.contentVersion ?? "尚未制作"}</dd></div>
     </dl>
-    {task.pageUrl ? <p><a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a> · <Link href={pageHref(task.pageUrl, task.country)}>页面效果</Link></p> : <p className={styles.muted}>目标页面尚未确定。</p>}
+    {task.pageUrl ? <p>正式页 · <a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a> · <Link href={pageHref(task.pageUrl, task.country)}>已上线页面数据</Link></p> : <p className={styles.muted}>目标页面尚未确定。</p>}
     <h4>下一步</h4><p>{task.nextAction || "待执行人补充"}</p>
     {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />{task.failureReason}</p> : null}
     {task.fallbackReason ? <p className={styles.warning}>本次例外：{task.fallbackReason}</p> : null}
@@ -209,6 +186,27 @@ function workTaskStatus(task: WorkflowTask, data?: WorkflowSnapshot | null) {
   return task.status;
 }
 
+function multilingualReviews(data: WorkflowSnapshot | null) {
+  const byTask = new Map<string, { approval: WorkflowApproval; languages: string[] }>();
+  if (!data) return byTask;
+  const tasks = new Map(data.tasks.map(task => [task.id, task]));
+  for (const approval of data.approvals ?? []) {
+    if (approval.status === "draft") continue;
+    const pending = approval.items.flatMap(item => {
+      const task = tasks.get(item.taskId);
+      return task?.siteDomain === approval.siteDomain && task.pageUrl === item.pageUrl && task.contentVersion === item.contentVersion &&
+        !automaticTaskPolicy(task, item.pageUrl) && workflowApprovalEffectiveItemStatus(approval, item.id, data.approvals) === "pending"
+        ? [{ item, pageType: task.pageType }] : [];
+    });
+    const languages = [...new Set(pending.map(({ item }) => item.language))];
+    if (languages.length < 2 || new Set(pending.map(({ item, pageType }) => `${pageType}:${item.operation}`)).size !== 1) continue;
+    for (const { item } of pending) {
+      if (!byTask.has(item.taskId)) byTask.set(item.taskId, { approval, languages });
+    }
+  }
+  return byTask;
+}
+
 const workViews = {
   tasks: "工作任务",
   deliveries: "发布记录",
@@ -241,8 +239,17 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
 
   const taskFilters = new URLSearchParams(params.toString());
   if (query) taskFilters.set("q", query); else taskFilters.delete("q");
-  const tasks = taskScope.filter(task => (taskType === "all" || task.kind === taskType) && (status === "all" || workTaskStatus(task, data) === status) && [task.title, task.keyword, task.pageUrl, task.owner].some(value => value?.toLowerCase().includes(query.toLowerCase())));
+  const reviews = multilingualReviews(isTaskList ? data : null);
+  const tasks = taskScope.filter(task => (taskType === "all" || task.kind === taskType) && (status === "all" || workTaskStatus(task, data) === status) && [task.title, task.keyword, task.pageUrl, task.owner, reviews.get(task.id)?.approval.title].some(value => value?.toLowerCase().includes(query.toLowerCase())));
   tasks.sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  const listedReviews = new Set<string>();
+  const taskRows = tasks.filter(task => {
+    const review = reviews.get(task.id);
+    if (!review) return true;
+    if (listedReviews.has(review.approval.id)) return false;
+    listedReviews.add(review.approval.id);
+    return true;
+  });
   const scopedIds = new Set(taskScope.map(task => task.id));
   const publications = data?.publications.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
   const optimizations = data?.optimizations.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
@@ -272,7 +279,6 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const siteTaskIds = new Set(data?.tasks.filter(task => site === "all" || task.siteDomain === site).map(task => task.id));
   const runs = data?.runs.filter(record => site === "all" || record.taskIds.some(id => siteTaskIds.has(id))) ?? [];
   const verified = publications.filter(record => record.status === "verified");
-  const plan = data?.plan;
   const chosenWeek = data?.weekStart ?? (week === "next" ? shiftDay(monday, 7) : /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : monday);
   return <Container className={embedded ? styles.embedded : workspace.shell}>
     {!embedded ? <PageHeader active={view === "tasks" ? "work" : view} /> : null}
@@ -299,32 +305,24 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
         <div><span>已验收源文 / 翻译</span><strong>{verified.filter(row => row.kind === "source_blog").length}<em> / {verified.filter(row => ["translation", "backfill_translation"].includes(row.kind)).length}</em></strong><small>只统计正式链接验收成功</small></div>
         <div><span>已验收落地页 / 优化页</span><strong>{new Set(verified.filter(row => row.kind === "landing").map(row => row.pageUrl)).size}<em> / {new Set(verified.filter(row => row.kind === "optimization").map(row => row.pageUrl)).size}</em></strong><small>同一页面去重，修改版本保留</small></div>
       </section> : null}
-      {tab === "tasks" ? <>
-        <section className={styles.listPanel} aria-labelledby="work-list-title">
-          <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2><span className={styles.count}>{tasks.length} 项</span></div>
-          <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }, { value: "technical", label: "技术修复" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
-          {tasks.length ? <div className={styles.records}>{tasks.map(task => <Link
-            className={styles.taskLink} href={workTaskHref(task, taskFilters)} id={`task-${task.id}`} key={task.id} prefetch={false}>
-            <span><strong>{task.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><span>{task.keyword ?? "不适用关键词"} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</span></small></span>
-            <span className={styles.taskMeta}><WorkflowStatus status={workTaskStatus(task, data)} /><small>{task.dueAt.slice(0, 10)} · {task.owner}</small></span>
+      {tab === "tasks" ? <section className={styles.listPanel} aria-labelledby="work-list-title">
+        <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2><span className={styles.count}>{taskRows.length} 项</span></div>
+        <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }, { value: "technical", label: "技术修复" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
+        {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
+          const review = reviews.get(task.id);
+          if (review) return <Link className={styles.taskLink} href={`/approvals?approvalId=${encodeURIComponent(review.approval.id)}`} key={review.approval.id} prefetch={false}>
+            <span><strong>{review.approval.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><span>{review.languages.length} 个语言 · {review.languages.join("、")}</span></small></span>
+            <span className={styles.taskMeta}><WorkflowStatus status="review_pending" /></span>
             <ChevronRight size={16} aria-hidden="true" />
-          </Link>)}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}
-        </section>
-        <details className={styles.plan}>
-          <summary><span>{plan?.title ?? "周计划"}</span>{plan ? <WorkflowStatus status={plan.status} /> : <span className={styles.muted}>尚未入库</span>}</summary>
-          <div className={styles.detail}>
-            <p>{plan && !("cadence" in plan.targets) ? `历史计划 · 落地页 ${plan.targets.landing} · 博客源文 ${plan.targets.apiBlogs + plan.targets.gpuBlogs} · 优化 ${plan.targets.optimizedPages}` : "四国每国 5 个源文关键词 · 每周 3 个落地页关键词 · 每天优化 2 篇博客"}</p>
-            <p className={styles.muted}>周四 14:00 准备候选证据，周五 16:30 定稿下周。周末继续当前周计划。</p>
-            {plan ? <>
-              <p>{plan.notes}</p>
-              {plan.gaps.length ? <ul className={styles.gaps}>{plan.gaps.map((gap, index) => <li key={index}>{({ landing: "落地页", apiBlogs: "API 源文", gpuBlogs: "GPU 源文", optimizedPages: "优化页", blogEn: "英文源文", blogJa: "日文源文", blogPt: "巴葡源文", blogEs: "西语源文", evidence: "证据", other: "其他" }[gap.category])}缺口 {gap.count}：{gap.reason}</li>)}</ul> : null}
-              <p>负责人 {plan.owner} · 整理于 {displayTime(plan.preparedAt)}{plan.reviewedAt ? ` · ${plan.reviewedBy} 定稿于 ${displayTime(plan.reviewedAt)}` : ""}</p>
-              <WorkflowEvidence evidence={plan.evidence} />
-              {plan.status === "draft" ? <PlanApproval key={`${plan.id}:${plan.version}`} plan={plan} onSaved={result.retry} /> : null}
-            </> : <p className={styles.muted}>候选和证据待补齐。</p>}
-          </div>
-        </details>
-      </> : null}
+          </Link>;
+          return <Link
+          className={styles.taskLink} href={workTaskHref(task, taskFilters)} id={`task-${task.id}`} key={task.id} prefetch={false}>
+          <span><strong>{task.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><span>{task.keyword ?? "不适用关键词"} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</span></small></span>
+          <span className={styles.taskMeta}><WorkflowStatus status={workTaskStatus(task, data)} /><small>{task.dueAt.slice(0, 10)} · {task.owner}</small></span>
+          <ChevronRight size={16} aria-hidden="true" />
+          </Link>;
+        })}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}
+      </section> : null}
       {tab === "deliveries" ? <section aria-label="正式页面发布验收"><p className={styles.muted}>发布成功和验收成功分别保留。翻译、历史补译和源文单独统计；Sitemap 首次发现不计为发布。</p>{publications.length ? publications.map(record => <details key={record.id} className={styles.record}><summary><span><strong>{record.title}</strong><small>{publicationKinds[record.kind]} · {siteName(record.siteDomain)} · {record.language}</small></span><WorkflowStatus status={record.status} /></summary><div className={styles.detail}><a href={record.pageUrl} target="_blank" rel="noreferrer">{record.pageUrl} ↗</a><p>发布 {displayTime(record.publishedAt)} · 验收 {displayTime(record.verifiedAt)} · 版本 {record.contentVersion}</p><p>目标词：{record.keyword ?? "未核实"} · {record.country ? markets[record.country] : "未指定目标市场"}</p>{record.failureReason ? <p className={styles.warning}>{record.failureReason}</p> : null}{record.liveCheck ? <p><CheckCircle2 size={14} /> 正式内容、canonical、语言与链接已核对。此检查不等于 Google 已收录。</p> : <p className={styles.muted}>尚无正式页验收记录。</p>}<WorkflowEvidence evidence={record.evidence} />{record.approvalId ? <p><Link href={`/approvals?approvalId=${encodeURIComponent(record.approvalId)}`}>查看此次发布审批 →</Link></p> : <p className={styles.muted}>历史发布尚无本次规则的审批关联，不作为新发布授权。</p>}<Link href={pageHref(record.pageUrl, record.country)}>进入页面效果 →</Link></div></details>) : <p className={styles.empty}>尚无此范围的发布回执。</p>}{(data.historicalImports ?? []).filter(archive => site === "all" || archive.siteDomain === site).map(archive => <HistoricalDeliveries key={archive.id} archive={archive} country={country} language={language} business={business} />)}</section> : null}
       {tab === "optimizations" ? <section aria-label="优化版本与观察窗口">{optimizations.length ? optimizations.map(row => <OptimizationHistory key={row.id} optimization={row} />) : <p className={styles.empty}>尚无此范围的优化记录。先保存优化前基线，审核稿、上线回执和后续观察会关联到同一页面。</p>}</section> : null}
       {tab === "issues" ? <section className={styles.listPanel} aria-labelledby="issue-list-title">
@@ -338,7 +336,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       </section> : null}
       {tab === "runs" ? <section aria-label="运行回执"><div className={styles.sectionHeading}><h2>阶段运行与来源日期</h2></div><p className={styles.muted}>以下为实际执行回执。任务排期、开始运行和成功完成是不同状态；未关联具体站点任务的全局回执在“全部五站”中查看。</p>{runs.length ? runs.map(run => <details key={run.id} className={styles.record}><summary><span><strong>{stageNames[run.stage] ?? run.stage}</strong><small>{displayTime(run.scheduledFor)} · {run.owner}</small></span><WorkflowStatus status={run.status} /></summary><div className={styles.detail}><p><Clock3 size={14} />开始 {displayTime(run.startedAt)} · 完成 {displayTime(run.completedAt)}</p><p>完成 {run.completedItems} / 核查 {run.checkedItems} 项 · 覆盖 {({ full: "完整", partial: "部分", unknown: "未核实" }[run.coverage])} · 费用 {run.costMicros == null ? "未提供" : `$${(run.costMicros / 1e6).toFixed(4)}`}</p>{run.failureReason ? <p className={styles.warning}>{run.failureReason}</p> : null}<p>下一步：{run.nextAction || "无待办记录"}</p><h4>来源截至日期</h4>{Object.keys(run.sourceDates).length ? <dl className={styles.metadata}>{Object.entries(run.sourceDates).map(([source, date]) => <div key={source}><dt>{source}</dt><dd>{date ?? "待更新"}</dd></div>)}</dl> : <p className={styles.muted}>该回执尚未提供来源日期。</p>}<WorkflowEvidence evidence={run.evidence} /><p className={styles.muted}>输入版本 {run.inputVersion} · 回执 {run.id}</p></div></details>) : <p className={styles.empty}>此范围尚无阶段执行回执，不能据定时配置判断已完成。</p>}</section> : null}
     </>}
-    {!embedded && data ? <p className={styles.footer}>读取于 {displayTime(data.generatedAt)} · <a href="https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz" target="_blank" rel="noreferrer">数据基础 ↗</a></p> : null}
+    {!embedded && !isTaskList && data ? <p className={styles.footer}>读取于 {displayTime(data.generatedAt)} · <a href="https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz" target="_blank" rel="noreferrer">数据基础 ↗</a></p> : null}
   </Container>;
 }
 
