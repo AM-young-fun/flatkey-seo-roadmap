@@ -62,13 +62,14 @@ export function SessionSeoReport({ range, comparison = null, expanded = false, s
         <strong>{numberText(total)}</strong>
         <p>{data ? changes[key] : error ? "读取失败" : "正在读取…"}</p>
         {data && measured < days ? <small>{measured ? "部分数据" : "待采集"} · {measured}/{days} 天有记录</small> : null}
+        {data && key === "registrations" && measured === 0 ? <small>未取得可归属注册记录，暂不计为 0。</small> : null}
       </article>;
     })}</div>
     {showSourceSummary ? <div className={styles.sourceSummary} aria-label="流量数据日期与覆盖">
       {data ? <SeoAnalyticsStatus name="GA4 自然搜索" source={foldSourceReason ? { ...data.ga4, reason: null } : data.ga4} /> : <p>{error ? "数据来源暂时无法读取，数值保持未知。" : "正在读取实际数据日期与采集状态…"}</p>}
     </div> : null}
     {showTrend ? <section className={styles.trend} aria-label="每日趋势"><div className={styles.heading}><Heading>每日趋势</Heading><div className={styles.switcher} aria-label="趋势指标"><button type="button" aria-pressed={metric === 'sessions'} onClick={() => setMetric('sessions')}>访问次数</button><button type="button" aria-pressed={metric === 'registrations'} onClick={() => setMetric('registrations')}>可归属注册</button></div></div>
-      {data && stats[metric].measured > 0 ? <SessionChart points={data.daily} metric={metric} /> : <div className={styles.empty}>{data ? "所选区间暂无记录，请选择其他日期。" : error ? "暂时无法显示趋势" : "正在读取每日趋势…"}</div>}
+      {data && stats[metric].measured > 0 ? <SessionChart points={data.daily} metric={metric} /> : <div className={styles.empty}>{data ? metric === "registrations" ? "所选区间的注册数据待核实，暂不绘制零值曲线。" : "所选区间暂无记录，请选择其他日期。" : error ? "暂时无法显示趋势" : "正在读取每日趋势…"}</div>}
     </section> : null}
     {comparison ? <p className={styles.comparison}>对比 {comparison.start === comparison.end ? comparison.start : `${comparison.start} — ${comparison.end}`}{previous.error ? <> · 读取失败 <button type="button" onClick={previous.retry}>重试</button></> : null}</p> : null}
     {expanded && data ? <section className={styles.records}><h2>日期明细</h2><SessionDaysTable points={data.daily} /></section> : null}

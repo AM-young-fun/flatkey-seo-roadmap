@@ -145,7 +145,8 @@ async function run() {
             if (sessions === null && registrations === null) return;
             const old = saved.get(recordKey({ ...base, kind: "ga4-site" }) + ":" + day.date);
             if (old?.complete && (!flatkey || old.hostScope === report.hostScope && old.hostScope) && day.date < shiftDay(range.end, -13)) return;
-            await save({ ...base, ...(flatkey ? { registrationMetric: report.registrationMetric } : {}), kind: "ga4-site", date: day.date, sessions, registrations, complete: sessions !== null && registrations !== null });
+            await save({ ...base, ...(flatkey ? { registrationMetric: report.registrationMetric,
+              ...(report.quality.siteRegistrations.complete && day.registrationEvidence ? { registrationEvidence: day.registrationEvidence } : {}) } : {}), kind: "ga4-site", date: day.date, sessions, registrations, complete: sessions !== null && registrations !== null });
             sourceDates++;
           });
           {

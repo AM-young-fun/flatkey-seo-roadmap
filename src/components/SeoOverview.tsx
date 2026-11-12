@@ -1,13 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PageHeader } from "./PageHeader";
 import { SessionSeoReport } from "./SessionSeoReport";
 import { SeoDateControl, useSeoRange } from "./SeoDateControl";
 import { RankingTrend } from "./RankingTrend";
 import { KeywordNetwork } from "./KeywordNetwork";
-import { BusinessMeasurementStatus } from "./BusinessMeasurementStatus";
 import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS } from "@/lib/seo";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
@@ -32,7 +30,6 @@ export function SeoOverview() {
     dispatchEvent(new PopStateEvent("popstate"));
   };
   const moduleLabel = OVERVIEW_PAGE_MODULES.find(([key]) => key === module)![1];
-  const countryQuery = country === "all" ? "" : `?country=${country}`;
   return <main className={workspace.shell}>
     <PageHeader active="overview" />
     <div className={styles.content}>
@@ -48,8 +45,8 @@ export function SeoOverview() {
             </div>
             <SeoDateControl value={context} />
           </div>
-          {module === "all" ? <SessionSeoReport range={context.range} comparison={context.comparison} compact showSourceSummary detailsLabel="数据口径与日期明细" />
-            : <ModuleSeoReport range={context.range} comparison={context.comparison} module={module} country={country} />}
+          {module === "all" ? <SessionSeoReport range={context.range} comparison={context.comparison} compact showSourceSummary showDetails={false} />
+            : <ModuleSeoReport range={context.range} comparison={context.comparison} module={module} country={country} showDetails={false} />}
         </section>
         <div className={styles.rankings}>
           <RankingTrend region={country} module={module} />
@@ -58,12 +55,6 @@ export function SeoOverview() {
       <div className={styles.network}>
         <KeywordNetwork region={country} module={module} />
       </div>
-      <nav className={styles.relatedLinks} aria-label="总览后续操作">
-        <Link href={"/opportunities" + countryQuery}>选择关键词</Link>
-        <Link href={"/pages" + countryQuery}>查看页面效果与优化</Link>
-        <Link href="/approvals">查看待审批页面</Link>
-      </nav>
-      <BusinessMeasurementStatus compact />
     </div>
   </main>;
 }

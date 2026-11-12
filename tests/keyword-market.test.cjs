@@ -34,7 +34,20 @@ test("Japanese script is recognized without source metadata and unknown Latin te
 
 
 
-const { keywordGraphKeywords, keywordGraphVolume, keywordGraphSize } = require("../src/lib/keyword-graph-data.ts");
+const { keywordGraphKeywords, keywordGraphVolume, keywordGraphSize, keywordGraphRank } = require("../src/lib/keyword-graph-data.ts");
+const { displayBucket } = require("../src/lib/rank-display.ts");
+test("graph filters use the same country-specific verified rank and band boundaries as dot colors", () => {
+  for (const [value, expected] of [[1,"TOP_10"],[10,"TOP_10"],[11,"TOP_30"],[30,"TOP_30"],[31,"TOP_50"],[50,"TOP_50"],[51,"TOP_100"],[100,"TOP_100"],[101,"NOT_FOUND"],[0,"NOT_FOUND"]]) {
+    const row = keyword("a", "gpu", { latestRanks: { US: rank(value), JP: rank(2) } });
+    assert.equal(displayBucket(keywordGraphRank(row, "US")?.rank).key, expected);
+    assert.equal(displayBucket(keywordGraphRank(row, "all")?.rank).key, "TOP_10");
+  }
+  for (const invalid of [null, {...rank(2),source:"gsc"}, {...rank(2),rankStatus:"failed"}, {...rank(2),rankStatus:"queued"}]) {
+    const row = keyword("a", "gpu", { latestRanks: { US: invalid, JP: rank(20) } });
+    assert.equal(displayBucket(keywordGraphRank(row, "US")?.rank).key, "NOT_FOUND");
+    assert.equal(displayBucket(keywordGraphRank(row, "all")?.rank).key, "TOP_30");
+  }
+});
 test("circular graph preserves country filtering, deduplicates market demand and keeps regional ranks separate", () => {
   const en = keyword("en", "model api", {sourceLanguages:["en"],parentIds:[],parentId:null,marketVolumes:{US:200,JP:null,ES:null,BR:null},latestRanks:{US:rank(20),JP:rank(1),ES:null,BR:null}});
   const copy = {...en,id:"copy",siteDomain:"rackrate.org"};

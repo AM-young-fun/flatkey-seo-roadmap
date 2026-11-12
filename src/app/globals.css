@@ -879,10 +879,29 @@ h2 {
   color: #8694a9;
   margin-bottom: 8px;
 }
-.rankLegend span {
+.rankLegend button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.rankLegend button:hover {
+  background: #f1f5f9;
+}
+.rankLegend button[aria-pressed="true"] {
+  background: #eef2ff;
+  border-color: #a5b4fc;
+  color: #334155;
+}
+.rankLegend button:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
 }
 .keywordGraph,
 .emptyGraph,

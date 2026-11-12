@@ -192,3 +192,16 @@ test("shared-property legacy totals are withheld; exact page hosts exclude stagi
  const view=analyticsView(range,["https://flatkey.ai/gpu","https://staging-console.flatkey.ai/gpu"],records);
  assert.equal(view.daily[0].sessions,null);assert.match(view.ga4.reason,/正式域名/);assert.equal(view.pages[0].ga4.sessions,3);assert.equal(view.pages[1].ga4,null);
 });
+
+test("historical API-filled signup zeros are unknown, while evidenced zeros, positives and browser exports survive",()=>{
+ const unknown={...day(range.start,10,0),source:"google-api",registrationMetric:"sign_up_or_legacy_distinct_users"};
+ const current={...day(range.end,5,0),source:"google-api",registrationEvidence:"reported_daily_row"};
+ const raw=JSON.stringify(unknown);
+ const view=analyticsView(range,[],[unknown,current]);
+ assert.deepEqual(view.daily,[{date:range.start,sessions:10,registrations:null},{date:range.end,sessions:5,registrations:0}]);
+ assert.equal(view.ga4.sessionsStatus,"ready");assert.equal(view.ga4.registrationsStatus,"partial");
+ assert.equal(JSON.stringify(unknown),raw,"read projection must not erase original evidence");
+ assert.equal(analyticsView(range,[],[{...unknown,registrations:3}]).daily[0].registrations,3);
+ assert.equal(analyticsView(range,[],[{...unknown,source:"browser-export"}]).daily[0].registrations,0);
+ assert.equal(analyticsObservationSchema.safeParse({...current,registrations:null,complete:false}).success,false);
+});

@@ -3,6 +3,13 @@ import { REGION_CODES, type SearchRegionCode } from "./seo";
 import { groupKeywordDetails, scopeKeywordDetails, keywordDetailCountryRanks } from "./keyword-details-group";
 import { keywordMarketVolume } from "./keyword-market";
 
+export function keywordGraphRank(keyword: DashboardKeyword, region: "all" | SearchRegionCode) {
+  const regions = region === "all" ? REGION_CODES : [region];
+  return regions.map(code => keyword.latestRanks[code])
+    .filter(value => value?.source === "dataforseo_serp" && value.rankStatus === "ranked" && value.rank != null && value.rank >= 1 && value.rank <= 100)
+    .sort((a, b) => a!.rank! - b!.rank!)[0];
+}
+
 export function keywordGraphVolume(keyword: DashboardKeyword, region: "all" | SearchRegionCode) {
   const regions = region === "all" ? REGION_CODES : [region];
   const values = regions.flatMap(code => {

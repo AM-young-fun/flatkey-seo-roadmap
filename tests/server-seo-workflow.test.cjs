@@ -63,3 +63,15 @@ test("period-only repair skips unrelated collection and all message transports",
  for(const id of ["inventory","analytics","business"])assert.match(steps.find(s=>s.id===id).if,/!inputs\.periods_only/);
  assert.match(steps.find(s=>s.name==='Enforce collection health').run,/if \[ "\$PERIODS_ONLY" = true \]/);
 });
+
+test("collection health exits nonzero for every required failed stage, including inventory before successful later stages",()=>{
+ const {spawnSync}=require("node:child_process");
+ const script=workflow.jobs.collect.steps.find(step=>step.name==="Enforce collection health").run;
+ const run=(overrides={})=>spawnSync("bash",["-e","-c",script],{env:{PATH:process.env.PATH,PERIODS_ONLY:"false",BUSINESS_ONLY:"false",INVENTORY_OUTCOME:"success",ANALYTICS_OUTCOME:"success",PERIODS_OUTCOME:"success",BUSINESS_OUTCOME:"success",...overrides}}).status;
+ assert.equal(run(),0);
+ for(const key of ["INVENTORY_OUTCOME","ANALYTICS_OUTCOME","PERIODS_OUTCOME","BUSINESS_OUTCOME"]) assert.notEqual(run({[key]:"failure"}),0,key);
+ assert.equal(run({PERIODS_ONLY:"true",INVENTORY_OUTCOME:"skipped",ANALYTICS_OUTCOME:"skipped",BUSINESS_OUTCOME:"skipped"}),0);
+ assert.notEqual(run({PERIODS_ONLY:"true",PERIODS_OUTCOME:"failure"}),0);
+ assert.equal(run({BUSINESS_ONLY:"true",INVENTORY_OUTCOME:"skipped",ANALYTICS_OUTCOME:"skipped"}),0);
+ assert.notEqual(run({BUSINESS_ONLY:"true",BUSINESS_OUTCOME:"failure"}),0);
+});

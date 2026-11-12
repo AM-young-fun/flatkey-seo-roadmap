@@ -167,3 +167,25 @@ test("missing summary headers with any nonempty or contradictory row evidence st
  useMockGoogle(t,()=>({rows:[],dimensionHeaders:undefined,metricHeaders:undefined,rowCount:3,metadata:{timeZone:"America/Los_Angeles"}}));
  await assert.rejects(fetchGa4OrganicPeriod({start:"2025-10-20",end:"2025-10-26"}),/报表字段/);
 });
+
+// Date rows, unlike a successful HTTP request, are evidence for an observed zero.
+test("daily registrations distinguish missing rows, explicit zero, and observed positives", async t => {
+  useMockGoogle(t, query => {
+    const registration = query.metrics.some(x => x.name === "totalUsers");
+    const page = query.dimensions.some(x => x.name === "landingPage");
+    return { rows: registration ? [[["20251020"], [0, 0]], [["20251022"], [2, 3]]] : page ? [] : [[["20251020"], [19]]], metadata: { timeZone: "America/Los_Angeles" } };
+  });
+  const report = await fetchGa4Organic({ start: "2025-10-20", end: "2025-10-22" });
+  assert.deepEqual(report.daily.map(({date,registrations,registrationEvidence}) => ({date,registrations,registrationEvidence})), [
+    { date:"2025-10-20", registrations:0, registrationEvidence:"reported_daily_row" },
+    { date:"2025-10-21", registrations:null, registrationEvidence:"missing_daily_row" },
+    { date:"2025-10-22", registrations:2, registrationEvidence:"reported_daily_row" },
+  ]);
+});
+test("a clean empty daily registration response never becomes a week of fake zeros", async t => {
+  useMockGoogle(t, query => ({ rows: query.metrics.some(x=>x.name==='totalUsers') || query.dimensions.some(x=>x.name==='landingPage') ? [] : [[["20251020"],[12]]], metadata:{timeZone:"America/Los_Angeles"} }));
+  const report = await fetchGa4Organic({start:"2025-10-20",end:"2025-10-26"});
+  assert.equal(report.daily.length,7);
+  assert.ok(report.daily.every(row=>row.registrations===null && row.registrationEvents===null && row.registrationEvidence==="missing_daily_row"));
+  assert.equal(report.daily[0].sessions,12);
+});

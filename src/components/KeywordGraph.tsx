@@ -3,7 +3,7 @@ import type * as echarts from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { DashboardKeyword } from "@/lib/types";
 import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { keywordGraphVolume, keywordGraphSize } from "@/lib/keyword-graph-data";
+import { keywordGraphVolume, keywordGraphSize, keywordGraphRank } from "@/lib/keyword-graph-data";
 import { keywordGraphDimensions, keywordGraphViewport, type KeywordGraphViewport } from "@/lib/keyword-graph-viewport";
 import {
   displayBucket,
@@ -59,7 +59,7 @@ export function KeywordGraph({
       const volume = keywordGraphVolume(keyword, region);
       const dotSize = keywordGraphSize(volume.value, maximum, keywords.length);
       const regions = region === "all" ? REGION_CODES : [region];
-      const rank = regions.map(code=>keyword.latestRanks[code]).filter(value=>value?.source === "dataforseo_serp" && value.rankStatus === "ranked" && value.rank != null && value.rank >= 1 && value.rank <= 100).sort((a,b)=>a!.rank!-b!.rank!)[0];
+      const rank = keywordGraphRank(keyword, region);
       return {
         id: keyword.id,
         name: keyword.text,

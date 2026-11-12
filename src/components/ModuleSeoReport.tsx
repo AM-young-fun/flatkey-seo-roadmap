@@ -12,7 +12,7 @@ import moduleStyles from "./ModuleSeoReport.module.css";
 
 const metrics = [["sessions", "自然搜索入口会话"], ["clicks", "Google 点击"], ["impressions", "Google 曝光"]] as const;
 type Metric = typeof metrics[number][0];
-export function ModuleSeoReport({ range, comparison, module, country }: { range: DateRange; comparison: DateRange | null; module: OverviewPageModule; country: SeoCountry }) {
+export function ModuleSeoReport({ range, comparison, module, country, showDetails = true }: { range: DateRange; comparison: DateRange | null; module: OverviewPageModule; country: SeoCountry; showDetails?: boolean }) {
   const current = useSeoRead<ModuleAnalytics>(`${analyticsUrl(range, [], country)}&module=${module}`);
   const prior = useSeoRead<ModuleAnalytics>(comparison ? `${analyticsUrl(comparison, [], country)}&module=${module}` : null);
   const data = current.data?.scope === "module-organic-search" && current.data.module === module ? current.data : null;
@@ -48,13 +48,13 @@ export function ModuleSeoReport({ range, comparison, module, country }: { range:
     <div className={styles.sourceSummary}><p>GA4 截至 {data?.ga4Through ?? "待采集"} · GSC 截至 {data?.gscThrough ?? "待采集"}</p></div>
     <section className={styles.trend}><div className={`${styles.heading} ${moduleStyles.heading}`}><h3>每日趋势</h3><div className={`${styles.switcher} ${moduleStyles.switcher}`}>{metrics.map(([key, name]) => <button key={key} type="button" aria-pressed={metric === key} onClick={() => setMetric(key)}>{name.replace("自然搜索", "")}</button>)}</div></div>
       <div ref={target} className={styles.plot} role="img" aria-label={`${label}每日趋势`} />
-      {chartError ? <p>图表暂不可用，可展开日期明细。</p> : null}
+      {chartError ? <p>图表暂不可用，请刷新重试。</p> : null}
     </section>
     {comparison ? <p className={styles.comparison}>对比 {comparison.start} — {comparison.end}{prior.error ? " · 对比期读取失败" : ""}</p> : null}
-    <details className={styles.disclosure}><summary>数据口径与日期明细</summary><div className={styles.explanation}>
+    {showDetails ? <details className={styles.disclosure}><summary>数据口径与日期明细</summary><div className={styles.explanation}>
       <p>按实际着陆页所属模块统计自然搜索入口会话；同一会话只属于一个入口。未核实 hostname 的旧记录不分配，缺失保留「—」。模块注册人数尚无去重归因数据。</p>
       <p>点击、曝光为该模块已返回的 GSC 页面记录合计；同次搜索可能包含多个页面，因此曝光不等于站点去重曝光。锚点变体的原始记录各计一次，不复制对应 GA4 会话。暂定或缺日数据不计算环比。GA4 日期按属性时区 America/Los_Angeles，GSC 按太平洋时间。</p>
       <div className={styles.table}><table><thead><tr><th>日期</th>{metrics.map(([key, name]) => <th key={key}>{name}</th>)}</tr></thead><tbody>{[...(data?.daily ?? [])].reverse().map(day => <tr key={day.date}><th>{day.date}{!day.searchComplete ? " · GSC 待完整" : ""}</th>{metrics.map(([key]) => <td key={key}>{numberText(day[key])}</td>)}</tr>)}</tbody></table></div>
-    </div></details>
+    </div></details> : null}
   </section>;
 }

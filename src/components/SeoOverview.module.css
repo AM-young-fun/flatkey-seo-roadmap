@@ -127,20 +127,6 @@
   gap: 6px;
 }
 
-.relatedLinks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-}
-
-.relatedLinks a {
-  color: var(--ui-primary);
-}
-
-.content > aside {
-  margin: 0;
-}
-
 @media (max-width: 600px) {
   .content { padding-top: 18px; }
   .content, .trends { gap: 12px; }

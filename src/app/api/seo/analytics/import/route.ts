@@ -40,7 +40,11 @@ export async function POST(request: Request) {
       const kind = analyticsStorageKind(row.kind, row.country, site);
       const key = `${kind}:${row.date}`;
       const saved = latest.get(key)?.row;
-      if (!saved || row.complete && !saved.complete || row.complete === saved.complete && Date.parse(row.observedAt) > Date.parse(saved.observedAt)) {
+      const losesRegistrationEvidence = saved?.kind === "ga4-site" && saved.registrationEvidence && row.kind === "ga4-site" && !row.registrationEvidence;
+      const correctsLegacyZero = saved?.kind === "ga4-site" && row.kind === "ga4-site" && saved.source === "google-api" && row.source === "google-api"
+        && saved.property === "541304395" && row.hostScope === "production-hosts-v1" && saved.registrations === 0 && !saved.registrationEvidence
+        && row.registrationEvidence === "missing_daily_row" && Date.parse(row.observedAt) > Date.parse(saved.observedAt);
+      if (!losesRegistrationEvidence && (!saved || correctsLegacyZero || row.complete && !saved.complete || row.complete === saved.complete && Date.parse(row.observedAt) > Date.parse(saved.observedAt))) {
         latest.set(key, { kind, row });
       }
     }
@@ -55,15 +59,26 @@ export async function POST(request: Request) {
       ORDER BY item."kind", item."date"
       ON CONFLICT ("kind", "date") DO UPDATE SET
         "observedAt" = EXCLUDED."observedAt", "complete" = EXCLUDED."complete", "payload" = EXCLUDED."payload"
-      WHERE (EXCLUDED."payload"->>'hostScope' = 'production-hosts-v1'
+      WHERE ("SeoAnalyticsDay"."payload"->>'registrationEvidence' IS NULL
+          OR EXCLUDED."payload"->>'registrationEvidence' IS NOT NULL)
+        AND ((EXCLUDED."payload"->>'hostScope' = 'production-hosts-v1'
           AND "SeoAnalyticsDay"."payload"->>'hostScope' IS DISTINCT FROM 'production-hosts-v1'
+          AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
+        OR (EXCLUDED."kind" LIKE 'ga4-site%' AND EXCLUDED."payload"->>'property' = '541304395'
+          AND EXCLUDED."payload"->>'hostScope' = 'production-hosts-v1'
+          AND EXCLUDED."payload"->>'source' = 'google-api'
+          AND "SeoAnalyticsDay"."payload"->>'source' = 'google-api'
+          AND "SeoAnalyticsDay"."payload"->>'registrations' = '0'
+          AND "SeoAnalyticsDay"."payload"->>'registrationEvidence' IS DISTINCT FROM 'reported_daily_row'
+          AND EXCLUDED."payload"->>'registrationEvidence' = 'missing_daily_row'
+          AND EXCLUDED."payload"->>'registrations' IS NULL
           AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
         OR (("SeoAnalyticsDay"."payload"->>'hostScope' IS DISTINCT FROM 'production-hosts-v1'
           OR EXCLUDED."payload"->>'hostScope' = 'production-hosts-v1') AND ((EXCLUDED."complete" AND NOT "SeoAnalyticsDay"."complete")
         OR (EXCLUDED."complete" = "SeoAnalyticsDay"."complete" AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt")
         OR (EXCLUDED."kind" LIKE 'ga4-pages%' AND EXCLUDED."observedAt" > "SeoAnalyticsDay"."observedAt"
           AND EXCLUDED."payload"->>'hostnameDimension' = 'hostName'
-          AND "SeoAnalyticsDay"."payload"->>'hostnameDimension' IS DISTINCT FROM 'hostName')))
+          AND "SeoAnalyticsDay"."payload"->>'hostnameDimension' IS DISTINCT FROM 'hostName'))))
     `;
     if (batch) return Response.json({ stored, received: records.length }, { headers });
     const row = records[0].payload;

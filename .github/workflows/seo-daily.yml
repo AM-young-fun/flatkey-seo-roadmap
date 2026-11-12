@@ -148,7 +148,8 @@ jobs:
           elif [ "$BUSINESS_ONLY" = true ]; then
             test "$BUSINESS_OUTCOME" = success
           else
-            test "$INVENTORY_OUTCOME" = success && test "$ANALYTICS_OUTCOME" = success
+            test "$INVENTORY_OUTCOME" = success
+            test "$ANALYTICS_OUTCOME" = success
             test "$PERIODS_OUTCOME" != failure
             test "$BUSINESS_OUTCOME" != failure
           fi

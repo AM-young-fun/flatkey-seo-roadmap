@@ -32,7 +32,7 @@ const gscPage = z.string().url().max(2048).refine(value => {
   } catch { return false; }
 }, "页面必须属于五站已登记属性");
 export const analyticsObservationSchema = z.discriminatedUnion("kind", [
-  z.object({ ...ga4, ...sessions, registrationMetric: z.enum(["sign_up_success", "sign_up_or_legacy_distinct_users"]).optional(), property: z.union([ga4.property, clusterGa4Property]), kind: z.literal("ga4-site") }).strict(),
+  z.object({ ...ga4, ...sessions, registrationMetric: z.enum(["sign_up_success", "sign_up_or_legacy_distinct_users"]).optional(), registrationEvidence: z.enum(["reported_daily_row", "missing_daily_row"]).optional(), property: z.union([ga4.property, clusterGa4Property]), kind: z.literal("ga4-site") }).strict(),
   z.object({ ...base, ...gscMetrics, kind: z.literal("gsc-site"), property: anyGscProperty }).strict(),
   z.object({ ...ga4, property: ga4Property, kind: z.literal("ga4-pages"), sessionsComplete: z.boolean().optional(), hostnameDimension: z.literal("hostName").optional(),
     registrationMissingReason: z.string().max(300).optional(),
@@ -45,6 +45,10 @@ export const analyticsObservationSchema = z.discriminatedUnion("kind", [
 ]).superRefine((record, ctx) => {
   if (record.kind === "ga4-site" && (record.complete !== (record.sessions !== null && record.registrations !== null) || record.sessions === null && record.registrations === null)) {
     ctx.addIssue({ code: "custom", message: "站点日数据的完成标记与指标不一致" });
+  }
+  if (record.kind === "ga4-site" && (record.registrationEvidence === "reported_daily_row" && record.registrations === null
+    || record.registrationEvidence === "missing_daily_row" && record.registrations !== null)) {
+    ctx.addIssue({ code: "custom", message: "注册行证据与实际注册值不一致" });
   }
   if (record.kind !== "ga4-site" && record.kind !== "gsc-site") {
     const keys = record.kind === "ga4-pages" ? record.rows.map(row => JSON.stringify([row.hostname ?? null, row.path]))
@@ -118,6 +122,12 @@ export function scopedAnalytics(observations: AnalyticsObservation[]): Analytics
   return observations.flatMap((row): AnalyticsObservation[] => {
     if (row.property !== "541304395") return [row];
     if (row.kind === "ga4-site" && row.hostScope !== GA4_HOST_SCOPE) return [];
+    // The previous API collector synthesized 0 for absent date rows. Keep the
+    // archive intact, but require explicit returned-row evidence for these zeros.
+    // Browser exports and positive observed counts are not blanket-redacted.
+    if (row.kind === "ga4-site" && row.source === "google-api" && row.registrations === 0 && !row.registrationEvidence) {
+      return [{ ...row, registrations: null, complete: false }];
+    }
     if (row.kind === "ga4-pages") return [{ ...row, rows: row.rows.filter(page => !page.hostname || isFlatkeyEntryHost(page.hostname)) }];
     return [row];
   });
@@ -153,7 +163,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
     ...range,
     scope: "session-organic-search" as const,
     registrationMetric: site.length && site.every(row => row.registrationMetric === "sign_up_or_legacy_distinct_users") ? "sign_up_or_legacy_distinct_users" as const : "sign_up_success" as const,
-    ga4: { ...status(ga4Reports, dates.length, observations.some(row => row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) ? GA4_HOST_UNVERIFIED : "缺失不计为零；旧数据无 hostname 不分配。逐页注册的跨域入口归因尚未核实，独立保留站点注册。"),
+    ga4: { ...status(ga4Reports, dates.length, observations.some(row => row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) ? GA4_HOST_UNVERIFIED : "缺失不计为零。注册未返回当日记录时保持未知；历史事件缺少正式域名或来源时无法归属。逐页注册的跨域入口归因尚未核实。"),
       sessionsStatus: status(ga4SessionReports, dates.length, "部分入口会话尚未取得可核实报表").status,
       registrationsStatus: status(ga4Reports, dates.length, "注册归因待核实").status },
     gsc: status(gsPages, dates.length, "仅显示已取得的 GSC 网页搜索数据；延迟、导出上限及未返回页面保留缺失。"),

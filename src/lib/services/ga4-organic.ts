@@ -20,6 +20,7 @@ export type Ga4OrganicDay = {
   /** Distinct users matching canonical OR legacy signup in one query, never summed by event. */
   registrations: number | null;
   registrationEvents: number | null;
+  registrationEvidence?: "reported_daily_row" | "missing_daily_row";
 };
 export type Ga4OrganicPage = Ga4OrganicDay & { path: string; hostname: string };
 export type Ga4ReportQuality = { complete: boolean; reasons: string[] };
@@ -226,7 +227,10 @@ async function coreReport(
   return {
     values,
     quality,
-    count: (key: string, index = 0) => values.get(key)?.[index] ?? (quality.complete ? 0 : null),
+    // Missing signup rows cannot establish zero: older server events can lack
+    // hostname/source attribution and therefore be excluded by the query.
+    // An explicit returned row with value 0 remains a measured zero.
+    count: (key: string, index = 0) => values.get(key)?.[index] ?? (quality.complete && !registration ? 0 : null),
   };
 }
 
@@ -249,7 +253,8 @@ export async function fetchGa4Organic(range: DateRange, country?: SearchRegionCo
     quality: { complete: false, reasons: ["landing_host_attribution_unverified"] } };
   const daily: Ga4OrganicDay[] = [];
   for (let date = range.start; date <= range.end; date = shiftDay(date, 1)) {
-    daily.push({ date, sessions: siteSessions.count(date), registrations: siteRegistrations.count(date), registrationEvents: siteRegistrations.count(date, 1) });
+    daily.push({ date, sessions: siteSessions.count(date), registrations: siteRegistrations.count(date), registrationEvents: siteRegistrations.count(date, 1),
+      ...(siteRegistrations.quality.complete ? { registrationEvidence: siteRegistrations.values.has(date) ? "reported_daily_row" as const : "missing_daily_row" as const } : {}) });
   }
   const pages = [...new Set([...pageSessions.values.keys(), ...pageRegistrations.values.keys()])].sort().map(key => ({
     date: key.slice(0, 10),
