@@ -1,4 +1,6 @@
 import { after, NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { prisma } from "@/lib/prisma";
 import { displayViewSpec } from "@/lib/services/display-views";
 import { rebuildDisplaySnapshot } from "@/lib/services/display-snapshots";
@@ -6,9 +8,29 @@ import { normalizeKeywordText } from "@/lib/keyword-relevance";
 import { REGION_CODES } from "@/lib/seo";
 import type { DashboardKeyword } from "@/lib/types";
 import type { KeywordOkrItem } from "@/lib/keyword-okr";
+import { analyticsLocalPreview } from "@/lib/seo-analytics-access";
+import { keywordDetailBestPosition, type KeywordCountryScope, type KeywordDetailGroup } from "@/lib/keyword-details-group";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+type StoredMember = DashboardKeyword & {
+  _okr?: KeywordOkrItem; _pageKey?: string; _search?: string;
+  _countryScopes?: string[]; _crossCountryScopes?: string[]; _optimized?: boolean;
+};
+type StoredGroup = Omit<KeywordDetailGroup, "members"> & { members: StoredMember[] };
+function keywordPagePayload(groups: StoredGroup[], total: number, page: number, generatedAt: string | Date, pending: boolean) {
+  const members = groups.flatMap(group => group.members);
+  const keywords = members.map(({ _okr, _pageKey, _search, _countryScopes, _crossCountryScopes, _optimized, ...row }) => {
+    void _okr; void _pageKey; void _search; void _countryScopes; void _crossCountryScopes; void _optimized;
+    return row;
+  });
+  return {
+    keywords, okr: { initialized: true, keywords: members.flatMap(member => member._okr ? [member._okr] : []), tasks: [] },
+    total, page, pageSize: 10, usingDemoData: false, topics: [], regions: REGION_CODES, latestRun: null, targetDomain: null,
+    displaySnapshot: { generatedAt, pending }, order: "ranked-first-alphabetical",
+  };
+}
+
 export async function GET(request: Request) {
   const started = performance.now(), p = new URL(request.url).searchParams;
   const country = p.get("country") ?? "all", site = p.get("site") ?? "all", pool = p.get("pool") ?? "FORMAL", view = p.get("rank") ?? "FORMAL", mapping = p.get("pageStatus") ?? "ALL";
@@ -17,9 +39,30 @@ export async function GET(request: Request) {
   if (!["0","1"].includes(crossLanguage) || !["all",...REGION_CODES].includes(country) || !["all","flatkey.ai","rackrate.org","modelfit.cc"].includes(site) || !["FORMAL","RESEARCH"].includes(pool)
     || !["FORMAL","EVIDENCE","TOP_10","TOP_30","TOP_50","TOP_100","UNRANKED"].includes(view) || !["ALL","MONITORABLE","PAGE_BUILD","PAGE_EXPAND","PAGE_OPTIMIZED"].includes(mapping)
     || !["all","FLATKEY_API","CLOUD_GPU"].includes(business) || !Number.isSafeInteger(page) || page < 1 || page > 100000 || q.length > 300) return NextResponse.json({message:"筛选参数无效"},{status:400});
+  if (analyticsLocalPreview(request)) {
+    try {
+      const archive = JSON.parse(await readFile(join(process.cwd(), ".local/preview-keyword-rows.json"), "utf8")) as { generatedAt: string; groups: StoredGroup[] };
+      const rankBounds: Record<string, [number, number]> = { EVIDENCE: [1, 100], TOP_10: [1, 10], TOP_30: [11, 30], TOP_50: [31, 50], TOP_100: [51, 100] };
+      const pageTags: Record<string, string> = { MONITORABLE: "MATCHED", PAGE_BUILD: "BUILD", PAGE_EXPAND: "EXPAND" };
+      const groups = (pool === "FORMAL" ? archive.groups : []).flatMap(group => {
+        const members = group.members.filter(member => (site === "all" || member.siteDomain === site)
+          && (business === "all" || member.businessCategory === business)
+          && (country === "all" || member._countryScopes?.includes(country) || crossLanguage === "1" && member._crossCountryScopes?.includes(country)));
+        if (!members.length || q && !members.some(member => member._search?.includes(q))) return [];
+        if (mapping !== "ALL" && !members.some(member => mapping === "PAGE_OPTIMIZED" ? member._optimized : member._pageKey === pageTags[mapping])) return [];
+        const position = keywordDetailBestPosition({ ...group, members }, country as KeywordCountryScope);
+        const bounds = rankBounds[view];
+        if (bounds && (position == null || position < bounds[0] || position > bounds[1]) || view === "UNRANKED" && position !== null) return [];
+        return [{ ...group, members, position }];
+      }).sort((a, b) => Number(a.position == null) - Number(b.position == null) || a.text.toLowerCase().localeCompare(b.text.toLowerCase(), "en") || a.id.localeCompare(b.id));
+      return NextResponse.json(keywordPagePayload(groups.slice((page - 1) * 10, page * 10), groups.length, page, archive.generatedAt, false),
+        { headers: { "Cache-Control": "private, no-store" } });
+    } catch {
+      return NextResponse.json({ message: "本地关键词快照尚未准备" }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+    }
+  }
   const spec = displayViewSpec(new URLSearchParams({view:"dashboard",includeResearch:pool === "RESEARCH" ? "1" : "0"}));
-  type StoredMember = DashboardKeyword & {_okr?:KeywordOkrItem;_pageKey?:string;_search?:string};
-  type PageRow = {total:number; groups:Array<{id:string;text:string;members:StoredMember[]}>;builtAt:Date;stale:boolean};
+  type PageRow = {total:number; groups:StoredGroup[];builtAt:Date;stale:boolean};
   const read = () => prisma.$queryRaw<PageRow[]>`
     WITH saved AS (SELECT "keywordRows", "builtAt", revision > "builtRevision" AS stale FROM "DisplaySnapshot" WHERE key = ${spec.key} AND "keywordRows" IS NOT NULL),
     scoped AS (SELECT g->>'id' AS id, g->>'text' AS text, m.members
@@ -43,10 +86,7 @@ export async function GET(request: Request) {
     if (!result) {await rebuildDisplaySnapshot(spec);result = (await read())[0];}
     if (!result) return NextResponse.json({message:"词库汇总正在准备，请稍后重试"},{status:503,headers:{"Retry-After":"5"}});
     if(result.stale) after(async () => {try{await rebuildDisplaySnapshot(spec);}catch{console.error("Keyword display refresh failed");}});
-    const members = result.groups.flatMap(group => group.members), okr = members.flatMap(member => member._okr ? [member._okr] : []);
-    const keywords = members.map(member => {const {_okr,_pageKey,_search,...row}=member;void _okr;void _pageKey;void _search;return row;});
-    const payload = {keywords,okr:{initialized:true,keywords:okr,tasks:[]},total:result.total,page,pageSize:10,usingDemoData:false,topics:[],regions:REGION_CODES,latestRun:null,targetDomain:null,
-      displaySnapshot:{generatedAt:result.builtAt.toISOString(),pending:result.stale},order:"ranked-first-alphabetical"};
+    const payload = keywordPagePayload(result.groups, result.total, page, result.builtAt.toISOString(), result.stale);
     const timing = performance.now()-started;
     return NextResponse.json(p.get("profile") === "1" ? {durationMs:timing,payloadBytes:Buffer.byteLength(JSON.stringify(payload)),returnedKeywords:result.groups.length,total:result.total,storage:"persisted-paginated"} : payload,
       {headers:{"Cache-Control":"private, no-store","Server-Timing":`keyword-page;dur=${timing.toFixed(1)}`}});

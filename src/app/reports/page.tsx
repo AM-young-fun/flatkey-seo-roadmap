@@ -1,6 +1,6 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
-import { PublishedPageTraffic } from "@/components/PublishedPageTraffic";
 import { SeoDigestReports } from "@/components/SeoDigestReports";
 import workspace from "@/components/SeoWorkspace.module.css";
 
@@ -8,10 +8,17 @@ export const metadata = { title: "日／周效果总结 · Flatkey SEO" };
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
+  if (params.view === "published") {
+    const query = new URLSearchParams();
+    for (const key of ["publication", "country"]) {
+      if (typeof params[key] === "string") query.set(key, params[key]);
+    }
+    redirect(query.size ? `/optimization-effects?${query}` : "/optimization-effects");
+  }
   return <main className={workspace.shell}>
     <Suspense fallback={<p role="status">正在读取日／周效果总结…</p>}>
       <PageHeader active="reports" />
-      {params.view === "published" ? <div className={workspace.pageSection}><PublishedPageTraffic /></div> : <SeoDigestReports />}
+      <SeoDigestReports />
     </Suspense>
   </main>;
 }

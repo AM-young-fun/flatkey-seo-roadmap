@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ChartNoAxesCombined, Clock3, ChevronDown, CircleCheck, ExternalLink, KeyRound, LayoutDashboard, ListTodo, Search, Settings2 } from "lucide-react";
+import { ArrowUpRight, ChartNoAxesCombined, Clock3, ChevronDown, CircleCheck, ExternalLink, KeyRound, LayoutDashboard, ListTodo, Search, Settings2, TrendingUp } from "lucide-react";
 import { usePreviewMode } from "./PreviewMode";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache } from "@/lib/client-read-cache";
@@ -16,12 +16,13 @@ const workspaceLinks = [
   ["work", "/work", "工作任务", ListTodo],
   ["opportunities", "/opportunities", "关键词目标", Search],
   ["reports", "/reports", "日周效果", ChartNoAxesCombined],
+  ["optimization-effects", "/optimization-effects", "优化效果", TrendingUp],
   ["automations", "/automations", "定时任务", Clock3],
 ] as const;
 const GA4_REALTIME_URL = "https://analytics.google.com/analytics/web/#/a248149353p541304395/realtime/overview";
 
 export function PageHeader({ active }: {
-  active: "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports";
+  active: "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports" | "optimization-effects";
 }) {
   const preview = usePreviewMode();
   const [country, setCountry] = useSeoCountry();

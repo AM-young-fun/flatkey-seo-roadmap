@@ -127,6 +127,8 @@
 .taskLink:focus-visible { outline:2px solid var(--ui-primary); outline-offset:2px; }
 .taskLink strong { display:block; overflow-wrap:anywhere; }
 .taskLink small { display:block; margin-top:4px; color:#64748b; font-size:12px; }
+.taskLink .taskContext { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; overflow-wrap:anywhere; }
+.siteTag { display:inline-flex; align-items:center; padding:2px 7px; border-radius:4px; background:#edf3ff; color:#28559c; font-size:11px; font-weight:600; white-space:nowrap; }
 .taskLink > svg { color:#64748b; }
 @media(max-width:600px) {
   .taskLink { grid-template-columns:minmax(0,1fr) auto; gap:8px; }

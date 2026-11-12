@@ -2039,7 +2039,7 @@ a:focus-visible {
 .keywordSearchRow .searchField input { font-size:13px; }
 .keywordFilterReset { display:inline-flex; align-items:center; gap:7px; flex-shrink:0; padding:10px 2px 10px 12px; border:0; background:transparent; color:#72839b; font-size:12px; }
 .keywordFilterReset:hover { color:#2563eb; }
-.keywordFilterGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; }
+.keywordFilterGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
 .keywordFilterGrid .originSelectField { align-items:stretch; flex-direction:column; gap:8px; font-size:11px; color:#8491a5; }
 .keywordFilterGrid .originSelect { width:100%; height:40px; }
 .keywordExtraFilters { border-top:1px solid #eef1f6; margin-top:20px; padding:12px 0; font-size:11px; color:#8594a9; }
@@ -2105,8 +2105,7 @@ a:focus-visible {
 @media(max-width:1150px) { .overviewVisualGrid { gap:12px; grid-template-columns:1fr 1fr 1.35fr; } .overviewVisualCard { padding:16px 14px; } .countryChartHead,.countryBarRow { grid-template-columns:76px minmax(55px,1fr) 54px; gap:8px; } .countryBarValue { gap:5px; } }
 @media(max-width:900px) { .overviewVisualGrid { grid-template-columns:1fr 1fr; } .countryVisualCard { grid-column:1/-1; } .countryChartHead,.countryBarRow { grid-template-columns:110px 1fr 90px; } .countryBarChart { gap:16px; } .countryVisualCard .visualChartFootnote { margin-top:20px; } }
 @media(max-width:520px) { .visualSerpOverview { padding:20px 14px 16px; } .overviewVisualGrid { gap:10px; } .overviewVisualCard { padding:14px 10px; } .summaryRing { width:130px; height:130px; margin:12px auto; } .summaryRing strong { font-size:25px; } .visualChartLegend > div { flex-wrap:wrap; } .visualChartLegend small { min-width:32px; } .visualRankLegend { gap:9px 10px; font-size:10px; } .countryVisualCard { padding:16px; } .countryChartHead,.countryBarRow { grid-template-columns:84px minmax(60px,1fr) 54px; gap:8px; } .fourMarketBadge { display:none; } }
-@media(max-width:1000px) { .keywordFilterGrid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } }
-@media(max-width:600px) { .keywordFilterPanel { padding:16px; } .keywordFilterGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } .keywordSearchRow { gap:8px; margin-bottom:16px; } .keywordFilterReset { font-size:0; padding:10px; } .keywordFilterReset svg { width:17px; height:17px; } .keywordResultBar { align-items:flex-start; } .keywordResultBar p { flex-wrap:wrap; } .keywordResultBar p span { flex-basis:100%; border:0; padding:0; margin:0; } }
+@media(max-width:600px) { .keywordFilterPanel { padding:16px; } .keywordFilterGrid { gap:12px; } .keywordSearchRow { gap:8px; margin-bottom:16px; } .keywordFilterReset { font-size:0; padding:10px; } .keywordFilterReset svg { width:17px; height:17px; } .keywordResultBar { align-items:flex-start; } .keywordResultBar p { flex-wrap:wrap; } .keywordResultBar p span { flex-basis:100%; border:0; padding:0; margin:0; } }
 
 /* Compact weekly comparisons: aligned counts and bars, without extra controls. */
 .keywordComparisonSummary { display:flex; gap:48px; padding:4px 0 24px; }

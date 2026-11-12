@@ -7,7 +7,7 @@ require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, file);
 
-const { optimizationEffect } = require("../src/lib/seo-page-effects.ts");
+const { optimizationEffect, optimizationWeekComparison } = require("../src/lib/seo-page-effects.ts");
 const { pageOptimizationPriorities } = require("../src/lib/seo-page-priority.ts");
 const { buildSeoDigest } = require("../src/lib/seo-digest.ts");
 
@@ -31,6 +31,7 @@ test("uses the last complete day before launch and latest same-country, same-pro
   assert.equal(effect.latest.ctr, 0.05);
   assert.equal(effect.series.find(point => point.date === "2026-11-18").clicks, null);
   assert.equal(effect.series.find(point => point.date === "2026-11-14").clicks, 80);
+  assert.equal(effect.series.find(point => point.date === "2026-11-14").position, 8);
 });
 
 test("a reported zero stays zero, a missing page stays null, and the chart can mark the launch date", () => {
@@ -39,7 +40,25 @@ test("a reported zero stays zero, a missing page stays null, and the chart can m
   assert.equal(effect.before.ctr, null);
   assert.equal(effect.latest, null);
   assert.equal(effect.status, "waiting");
-  assert.deepEqual(effect.series.at(-1), { date: "2026-11-14", clicks: null, impressions: null, ctr: null });
+  assert.deepEqual(effect.series.at(-1), { date: "2026-11-14", clicks: null, impressions: null, ctr: null, position: null });
+});
+
+test("partial optimization windows compare matching weekdays and weight CTR by impressions", () => {
+  const days = [
+    { date: "2026-11-06", value: 0, weight: 90 },
+    { date: "2026-11-07", value: 0.2, weight: 10 },
+    { date: "2026-11-10", value: 0.8, weight: 50 },
+    { date: "2026-11-12", value: 0.9, weight: 90 },
+    { date: "2026-11-13", value: 0.1, weight: 20 },
+    { date: "2026-11-14", value: 0.3, weight: 80 },
+    { date: "2026-11-17", value: null, weight: null },
+  ];
+  assert.deepEqual(optimizationWeekComparison(days, "2026-11-12"), {
+    beforeValue: 0.02, afterValue: 0.26, paired: 2, beforeDays: 2, afterDays: 2,
+  });
+  assert.deepEqual(optimizationWeekComparison(days.slice(0, 1), "2026-11-12"), {
+    beforeValue: 0, afterValue: null, paired: 0, beforeDays: 1, afterDays: 0,
+  });
 });
 
 test("multiple comparable signals produce high priority; a verified recent edit moves the page to observation", () => {
@@ -67,6 +86,6 @@ test("daily and weekly report variants agree with the two points and show CTR ch
       effects: [], optimizationMonitoring: [row], priorities: [], issues: [], runNotes: [], publicationCoverage: "verified", optimizationCoverage: "verified" });
     assert.match(report.text, /2026-11-13 → 2026-11-17 · 点击 3 → 5 · 曝光 100 → 100 · CTR 3.00% → 5.00%/);
     assert.match(report.detailText, /CTR 3.00% → 5.00%（\+2 个百分点）/);
-    assert.match(report.detailText, /view=published&publication=published-es/);
+    assert.match(report.detailText, /optimization-effects\?publication=published-es&country=ES/);
   }
 });

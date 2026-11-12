@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
@@ -28,36 +28,52 @@ export async function GET(request: Request) {
   if (!await auth(request) && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
   try {
     const params = new URL(request.url).searchParams;
-    const date = digestDateSchema.parse(params.get("date") ?? beijingDay());
+    const archive = params.get("saved") === "1" && params.get("archive") === "1";
+    const rawDate = params.get("date");
+    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? beijingDay());
     const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
-    if (kind === "weekly" && new Date(date + "T00:00:00Z").getUTCDay() !== 5) return Response.json({ message: "周报日期必须是北京时间周五" }, { status: 400, headers });
+    if (date && kind === "weekly" && new Date(date + "T00:00:00Z").getUTCDay() !== 5) return Response.json({ message: "周报日期必须是北京时间周五" }, { status: 400, headers });
     if (params.get("saved") === "1") {
       const explicitId = params.get("reportId");
       if (explicitId) reportId.parse(explicitId);
+      const requestedDate = date ?? explicitId?.split(":")[1] ?? null;
       const preview = process.env.SEO_DIGEST_PREVIEW_DIR;
       if (preview && isAbsolute(preview) && analyticsLocalPreview(request)) {
-        const saved = await readFile(join(preview, `${date}.${kind}.json`), "utf8").catch((error: NodeJS.ErrnoException) => {
+        const suffix = `.${kind}.json`;
+        const dates = archive ? (await readdir(preview))
+          .filter(name => name.endsWith(suffix))
+          .map(name => name.slice(0, -suffix.length))
+          .filter(value => digestDateSchema.safeParse(value).success)
+          .sort().reverse() : undefined;
+        const selected = requestedDate ?? dates?.[0];
+        const saved = selected ? await readFile(join(preview, `${selected}.${kind}.json`), "utf8").catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return null;
           throw error;
-        });
+        }) : null;
         const report = saved ? JSON.parse(saved).report : null;
-        return Response.json({ report: report?.date === date && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null }, { headers });
+        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates }, { headers });
       }
+      const scope = { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", payload: { path: ["kind"], equals: kind } };
+      const dates = archive ? (await prisma.seoReportVersion.groupBy({
+        by: ["periodStart"],
+        where: scope,
+        orderBy: { periodStart: "desc" },
+      })).map(row => row.periodStart.toISOString().slice(0, 10)) : undefined;
+      const selected = requestedDate ?? dates?.[0];
+      if (!selected) return Response.json({ report: null, dates }, { headers });
       const delivery = explicitId ? null : await prisma.seoDigestDelivery.findUnique({
-        where: { id: `seo-digest-delivery:${kind}:${date}` }, select: { status: true, reportId: true },
+        where: { id: `seo-digest-delivery:${kind}:${selected}` }, select: { status: true, reportId: true },
       });
       const exact = explicitId ?? (delivery?.status === "DELIVERED" ? delivery.reportId : null);
       const saved = await prisma.seoReportVersion.findFirst({
-        where: { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", periodStart: new Date(date),
-          ...(exact ? { id: exact } : {}),
-          payload: { path: ["kind"], equals: kind },
+        where: { ...scope, periodStart: new Date(selected), ...(exact ? { id: exact } : {}),
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { payload: true },
       });
-      return Response.json({ report: saved?.payload ?? null }, { headers });
+      return Response.json({ report: saved?.payload ?? null, dates }, { headers });
     }
-    return Response.json({ report: await generateSeoDigest(date, new Date(), kind) }, { headers });
+    return Response.json({ report: await generateSeoDigest(date ?? beijingDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }
 }
 export async function POST(request: Request) {
