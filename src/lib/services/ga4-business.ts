@@ -6,6 +6,17 @@ import { businessAnalyticsSchema, businessEventLabels, type BusinessAnalytics } 
 type Query = Pick<BusinessAnalytics, "start" | "end" | "country" | "scope">;
 const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value, caseSensitive: true } } });
 
+function registrationHostFilter(query: Query) {
+  const productionHosts = ga4HostFilter(FLATKEY_BUSINESS_HOSTS);
+  if (query.scope !== "all-channels" || query.country !== "all") return productionHosts;
+  // The legacy server event does not attach a page URL. Its verified Flatkey
+  // production stream identifies it without broadening any traffic attribution.
+  return { orGroup: { expressions: [productionHosts, { andGroup: { expressions: [
+    exact("eventName", "sign_up_success"), exact("streamId", "15056169010"),
+    { filter: { fieldName: "hostName", emptyFilter: {} } },
+  ] } }] } };
+}
+
 export async function fetchGa4Business(query: Query, now = new Date(), options: { registrationCompatibility?: boolean } = {}): Promise<BusinessAnalytics> {
   const token = process.env.SEO_GA4_ACCESS_TOKEN?.trim() || await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
   const filters: unknown[] = [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), { filter: { fieldName: "eventName", inListFilter: { values: Object.keys(businessEventLabels).filter(name => !options.registrationCompatibility || name !== "sign_up"), caseSensitive: true } } }];
@@ -37,7 +48,7 @@ export async function fetchGa4Business(query: Query, now = new Date(), options: 
         method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000),
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ dateRanges: [{ startDate: query.start, endDate: query.end }], metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
-          dimensionFilter: { andGroup: { expressions: [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), ga4RegistrationFilter(),
+          dimensionFilter: { andGroup: { expressions: [registrationHostFilter(query), ga4RegistrationFilter(),
             ...(query.country === "all" ? [] : [exact("countryId", query.country)]),
             ...(query.scope === "all-channels" ? [] : [exact("sessionDefaultChannelGroup", "Organic Search")])] } }, limit: "1" }),
       });

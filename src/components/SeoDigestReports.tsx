@@ -209,8 +209,10 @@ function ReportSections({ text, rankings }: { text: string; rankings: SeoDigest[
     if (section.title.startsWith("GitHub 提示词渠道")) return <section className={reportStyles.section} key={index}>
       <h3>GitHub 提示词渠道</h3><GithubComparison lines={section.lines} />
     </section>;
+    const business = section.title.startsWith("GA4 行为与转化");
     const lines = section.lines.filter(line => !line.startsWith("可归属注册") &&
-      !(section.title.startsWith("GA4 行为与转化") && /^\s*(注册成功[：:]|• Flatkey 注册人数)/.test(line)));
+      !(business && /^\s*(注册成功[：:]|• Flatkey 注册人数)/.test(line)));
+    if (business && !lines.some(line => /\d+\s*(次|人|秒)/.test(line))) return null;
     return <section className={reportStyles.section} key={index}>
       <h3>{section.title}</h3>{changes ? <ReportComparisons title={section.title} groups={changes} rankings={section.title.startsWith("五站") ? rankings : undefined} /> : items(lines)}
     </section>;

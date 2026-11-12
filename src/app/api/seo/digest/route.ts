@@ -74,10 +74,12 @@ export async function GET(request: Request) {
         select: { payload: true },
       });
       const report = saved?.payload as unknown as SeoDigest | undefined;
-      if (archive && report && report.flatkeyRegistrations?.users == null) {
+      if (archive && report) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const observations = await loadBusinessAnalytics(trafficStart, trafficEnd).catch(() => []);
-        return Response.json({ report: { ...report, flatkeyRegistrations: flatkeyRegistrationCount(observations, trafficStart, trafficEnd) }, dates }, { headers });
+        const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);
+        const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
+        return Response.json({ report: { ...report, flatkeyRegistrations }, dates }, { headers });
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }

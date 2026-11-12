@@ -28,6 +28,19 @@ test('registration aliases use a single dimensionless user query, retaining exac
  assert.equal(row.registrationMetric,'sign_up_or_legacy_distinct_users'); assert.equal(row.complete,true);
 });
 
+test('Flatkey total includes legacy registrations with a missing hostname only on the verified stream', async t => {
+ process.env.SEO_GA4_ACCESS_TOKEN='fixture-only';
+ const bodies=[];
+ t.mock.method(globalThis,'fetch',async(url,init)=>{bodies.push(JSON.parse(init.body));return Response.json(bodies.length===1?base():registration());});
+ const row=await fetchGa4Business({...query,country:'all',scope:'all-channels'},now,{registrationCompatibility:true});
+ const [hosts, aliases] = bodies[1].dimensionFilter.andGroup.expressions;
+ assert.equal(bodies[1].dimensions,undefined);
+ assert.deepEqual(aliases.filter.inListFilter.values,['sign_up','sign_up_success']);
+ assert.deepEqual(hosts.orGroup.expressions[1].andGroup.expressions.map(({filter})=>[filter.fieldName,filter.stringFilter?.value ?? filter.emptyFilter]),
+   [['eventName','sign_up_success'],['streamId','15056169010'],['hostName',{}]]);
+ assert.equal(row.rows.find(value=>value.event==='sign_up').users,2);
+});
+
 test('failed, empty or restricted registration replies never become false zero registrations', async t => {
  process.env.SEO_GA4_ACCESS_TOKEN='fixture-only'; let registrationResponse, n=0;
  t.mock.method(globalThis,'fetch',async()=>++n%2===1?Response.json(base()):registrationResponse);
