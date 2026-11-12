@@ -7,7 +7,8 @@ export function metricStats(points: Day[], key: keyof Day) {
 }
 export function changeText(current: ReturnType<typeof metricStats>, previous: ReturnType<typeof metricStats> | null, comparison: DateRange | null) {
   if (!comparison) return "";
-  if (current.total === null || !previous || previous.total === null || current.measured < current.days || previous.measured < previous.days) return "数据未齐，暂不比较";
+  if (current.total === null || current.measured < current.days) return "数据未齐，暂不比较";
+  if (!previous || previous.total === null || previous.measured < previous.days) return "对比期数据未齐";
   const unequal = current.days !== previous.days;
   const a = unequal ? current.total / current.days : current.total, b = unequal ? previous.total / previous.days : previous.total;
   const unit = unequal ? "日均" : "";

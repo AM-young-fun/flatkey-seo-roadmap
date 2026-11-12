@@ -67,6 +67,6 @@ test("daily and weekly report variants agree with the two points and show CTR ch
       effects: [], optimizationMonitoring: [row], priorities: [], issues: [], runNotes: [], publicationCoverage: "verified", optimizationCoverage: "verified" });
     assert.match(report.text, /2026-11-13 → 2026-11-17 · 点击 3 → 5 · 曝光 100 → 100 · CTR 3.00% → 5.00%/);
     assert.match(report.detailText, /CTR 3.00% → 5.00%（\+2 个百分点）/);
-    assert.match(report.detailText, /panel=published-traffic&publication=published-es/);
+    assert.match(report.detailText, /view=published&publication=published-es/);
   }
 });

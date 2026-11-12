@@ -14,7 +14,7 @@ import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
 import { overviewModule } from "@/lib/seo-overview-scope";
 const trafficDisplayVersion = "organic-search-weekly-v6";
 const dashboardDisplayVersion = "keyword-market-demand-targets-v3";
-const trendsDisplayVersion = "current-target-modules-v1";
+const trendsDisplayVersion = "current-target-modules-v2";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";

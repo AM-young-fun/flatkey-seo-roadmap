@@ -45,7 +45,7 @@ export function SeoOverview() {
             </div>
             <SeoDateControl value={context} />
           </div>
-          {module === "all" ? <SessionSeoReport range={context.range} comparison={context.comparison} compact showSourceSummary showDetails={false} />
+          {module === "all" ? <SessionSeoReport range={context.range} comparison={context.comparison} compact showDetails={false} showComparisonDate={false} />
             : <ModuleSeoReport range={context.range} comparison={context.comparison} module={module} country={country} showDetails={false} />}
         </section>
         <div className={styles.rankings}>

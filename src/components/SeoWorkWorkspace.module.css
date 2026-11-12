@@ -1,8 +1,6 @@
-.filters { display:flex; flex-wrap:wrap; gap:10px; }
+.filters { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
 .filters :global(.uiSelect) { min-width:128px; }
 .toolbarActions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-.period { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0 16px; color:#64748b; font-size:12px; font-variant-numeric:tabular-nums; }
-.period span { margin-left:4px; }
 .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 16px; }
 .summary > div { display:grid; align-content:start; gap:8px; min-width:0; padding:14px 16px; border:1px solid #e5e9f0; border-radius:8px; background:#fff; }
 .summary span,.summary a { color:#64748b; font-size:12px; }
@@ -87,8 +85,10 @@
 .reviewForm > label:not(.checkbox) { display:flex; flex-direction:column; gap:5px; max-width:300px; margin:16px 0; }
 .checkbox { display:flex; align-items:flex-start; gap:8px; margin:16px 0; line-height:1.6; font-size:13px; }
 .checkbox input { margin-top:4px; }
-.newTask { margin:0 0 16px; border:1px solid #e5e9f0; background:#fff; border-radius:8px; padding:16px; font-size:13px; }
-.newTask h2 { scroll-margin-top:24px; }
+.goalForm { max-width:760px; margin:0 0 16px; border:1px solid #e5e9f0; background:#fff; border-radius:8px; padding:clamp(14px, 3vw, 24px); font-size:13px; }
+.goalForm .formGrid { margin-top:0; }
+.goalForm > p { margin:14px 0 0; }
+.goalActions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
 .formGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 20px; margin-top:22px; }
 .formGrid label { display:flex; flex-direction:column; gap:7px; font-size:12px; color:#62718a; }
 .spanAll { grid-column:1/-1; }
@@ -98,15 +98,8 @@
 @media(max-width:560px) { .filters { display:grid; grid-template-columns:repeat(2,1fr); } .filters :global(.uiSelect) { min-width:0; } .summary > div { padding:16px 13px; } .summary strong { font-size:22px; } .summary small { font-size:10px; } .record > summary { gap:10px; padding:15px 12px; align-items:flex-start; } .record > summary::before { margin-top:7px; } .taskMeta { max-width:90px; } .detail { padding:16px; } .listPanel { padding:12px; } .metadata,.formGrid { grid-template-columns:1fr; } .taskFilters { flex-wrap:wrap; } .taskFilters input { flex-basis:100%; } .taskFilters :global(.uiSelect) { width:100%; } .reviewForm { padding:14px; } .footer { flex-wrap:wrap; } }
 
 .embedded { min-width:0; }
-.support { margin:12px 0 16px; border:1px solid #e3e8ef; border-radius:8px; background:#fff; }
-.supportActions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 15px; }
-.supportActions button[aria-expanded=true] { color:var(--ui-primary); border-color:var(--ui-primary); }
-.supportContent { padding:18px; border-top:1px solid #edf0f4; min-width:0; }
 @media(max-width:560px) { .supportActions { padding:10px; } .supportContent { padding:12px; } }
 
-.workTabs { display:flex; flex-wrap:wrap; gap:16px; border-bottom:1px solid #e2e8f0; margin:0 0 16px; }
-.workTabs a { padding:10px 2px; color:#526176; text-decoration:none; border-bottom:2px solid transparent; }
-.workTabs a[aria-current=page] { color:var(--ui-primary); font-weight:600; border-bottom-color:var(--ui-primary); }
 .reportDetail p { margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .reportSpace { height:10px; }
 
@@ -118,3 +111,26 @@
 .toolbar { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; margin-block: .75rem; }
 
 .toolbar button[aria-pressed="true"] { border-color: var(--ui-primary); color: var(--ui-primary); }
+
+.taskLink {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:12px;
+  padding:13px 14px;
+  border:1px solid #e5e9f0;
+  border-radius:8px;
+  color:#17243b;
+  text-decoration:none;
+}
+.taskLink:hover { border-color:#a8bfff; background:#f8faff; color:#17243b; }
+.taskLink + .taskLink { margin-top:8px; }
+.taskLink:focus-visible { outline:2px solid var(--ui-primary); outline-offset:2px; }
+.taskLink strong { display:block; overflow-wrap:anywhere; }
+.taskLink small { display:block; margin-top:4px; color:#64748b; font-size:12px; }
+.taskLink > svg { color:#64748b; }
+@media(max-width:600px) {
+  .taskLink { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+  .taskLink .taskMeta { grid-row:2; justify-self:start; text-align:left; }
+  .taskLink > svg { grid-column:2; grid-row:1 / 3; }
+}

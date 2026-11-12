@@ -6,10 +6,10 @@ import type { SeoCountry } from "./seo";
 
 export const OVERVIEW_PAGE_MODULES = [
   ["all", "全部页面模块"], ["other", "首页及其他功能页"], ["prompts", "Prompt"],
-  ["blog", "博客"], ["models", "模型"], ["gpu", "GPU"], ["unknown", "尚未归属模块"],
+  ["blog", "博客"], ["models", "模型"], ["gpu", "GPU"],
 ] as const;
 export type OverviewPageModule = typeof OVERVIEW_PAGE_MODULES[number][0];
-type KnownModule = Exclude<OverviewPageModule, "all" | "unknown">;
+type KnownModule = Exclude<OverviewPageModule, "all">;
 const sites = ["flatkey.ai", "rackrate.org", "modelfit.cc", "mochichatbot.com", "jev-llm.com"];
 const staging = new Set(["staging-website.flatkey.ai", "staging-console.flatkey.ai", "staging-router.flatkey.ai"]);
 
@@ -34,20 +34,23 @@ export function overviewPageModule(value: string): KnownModule | null {
 }
 
 export function overviewModule(value: string | null): OverviewPageModule {
+  if (value === "unknown") return "other";
   return OVERVIEW_PAGE_MODULES.find(([id]) => id === value)?.[0] ?? "all";
 }
 
-/** Filter site-specific members before text deduplication: another site's rank/volume must not leak into a module. */
+export function overviewTargetModules(urls: readonly string[] = []): Set<KnownModule> {
+  const modules = new Set<KnownModule>();
+  for (const url of urls) {
+    const module = overviewPageModule(url);
+    if (module) modules.add(module);
+  }
+  if (!modules.size) modules.add("other");
+  return modules;
+}
+
+/** Filter site-specific members before text deduplication to preserve their rank and volume. */
 export function overviewKeywordScope(input: DashboardKeyword[], country: SeoCountry, module: OverviewPageModule, crossLanguage = false) {
-  const rows = input.filter(keyword => keywordMatchesCountry(keyword, country, crossLanguage)).map(keyword => ({
-    keyword, modules: new Set((keyword.targetUrls ?? []).flatMap(url => {
-      const value = overviewPageModule(url);
-      return value ? [value] : [];
-    })),
-  }));
-  const scoped = rows.filter(row => module === "all" || (module === "unknown" ? !row.modules.size : row.modules.has(module)));
-  return {
-    keywords: keywordGraphKeywords(scoped.map(row => row.keyword), country, crossLanguage),
-    unknownCount: keywordGraphKeywords(rows.filter(row => !row.modules.size).map(row => row.keyword), country, crossLanguage).length,
-  };
+  const scoped = input.filter(keyword => keywordMatchesCountry(keyword, country, crossLanguage)
+    && (module === "all" || overviewTargetModules(keyword.targetUrls).has(module)));
+  return { keywords: keywordGraphKeywords(scoped, country, crossLanguage) };
 }

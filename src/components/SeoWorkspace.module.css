@@ -1,5 +1,6 @@
 .shell { width:min(1120px,calc(100% - 64px)); margin:0 auto; padding-bottom:56px; color:#17243b; }
 .titleRow { display:flex; justify-content:space-between; gap:14px; align-items:center; margin:24px 0 16px; }
+.pageSection { padding-top:24px; }
 .title { font-size:24px; font-weight:650; letter-spacing:-.5px; line-height:1.35; margin:0; }
 .category { width:156px; flex-shrink:0; }
 .pageSupplement { margin-top:12px; padding:12px 16px; background:#fff; border:1px solid #e5e9f0; border-radius:8px; }

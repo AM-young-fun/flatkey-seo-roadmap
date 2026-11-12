@@ -26,7 +26,7 @@ function isTrendResult(data: MultiRegionTrendResult) {
 
 export function RankingTrend({region = "all", module = "all"}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule}) {
   const [range, setRange] = useState(() => serpTrendRange());
-  const key = `serp-markets-v5:current-target-modules-v1:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
+  const key = `serp-markets-v5:current-target-modules-v2:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
   const moduleLabel = OVERVIEW_PAGE_MODULES.find(([value]) => value === module)?.[1];
   const [result, setResult] = useState<(MultiRegionTrendResult & { key: string }) | null>(() => {
     const saved = trendResults.get(key);
@@ -103,11 +103,17 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
           ...rankBuckets.map((bucket, index) => `第 ${bucket.range} 名：${point.counts[index] ?? "—"} 词`),
           `实际采集：${captureTime(point)}`].join("\n");
       } },
-      grid: { left: 48, right: 25, top: 34, bottom: 42 },
-      xAxis: { type: "category", data: dates, boundaryGap: true, axisLabel: { formatter: (value: string) => (byPeriod.get(value)?.periodLabel ?? value).replace("年", "年\n"), color: "#8795a9" }, axisLine: { lineStyle: { color: "#e5eaf2" } } },
-      yAxis: { type: "value", minInterval: 1, name: "关键词数", axisLabel: { color: "#8795a9" }, splitLine: { lineStyle: { color: "#eef2f7" } } },
-      series: [{ name: SERIES, type: "line", lineStyle: { width: 2 }, symbol: "circle", showSymbol: true,
-        symbolSize: dates.length === 1 ? 9 : 6, label: { show: dates.length === 1, position: "top" },
+      grid: { left: 44, right: 12, top: 24, bottom: 32 },
+      xAxis: { type: "category", data: dates, boundaryGap: true, axisTick: { show: false },
+        axisLabel: { hideOverlap: true, formatter: (value: string) => {
+          const label = byPeriod.get(value)?.periodLabel ?? value;
+          return dates.every(key => key.slice(0, 4) === dates[0].slice(0, 4)) ? label.replace(/^\d{4}年/, "") : label;
+        }, color: "#64748b" }, axisLine: { lineStyle: { color: "#e2e8f0" } } },
+      yAxis: { type: "value", min: 0, minInterval: 1, splitNumber: 4, axisLabel: { color: "#64748b" },
+        splitLine: { lineStyle: { color: "#e9eef5", type: "dashed" } } },
+      series: [{ name: SERIES, type: "line", lineStyle: { width: 2.5 }, areaStyle: { opacity: 0.07 },
+        symbol: "emptyCircle", showSymbol: true, symbolSize: 7,
+        label: { show: dates.length <= 4, position: "top", color: "#334155", fontWeight: 600 }, labelLayout: { hideOverlap: true },
         data: [...byPeriod.values()].map(point => point.ranked) }],
     };
     void import("@/lib/charts").then(({ init }) => {
@@ -118,14 +124,23 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [validPoints, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>上榜关键词数趋势</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · {moduleLabel} · 按排名采集期统计进入前 100 的词</p></div></div>
+    <div className="dailyHeading"><div><h2>上榜关键词数趋势</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · {moduleLabel}</p></div></div>
     {module !== "all" ? <p className="chartNote">按当前登记目标页筛选历史实测；不代表当时的模块归属。</p> : null}
     {latest ? <>
-      <p className="inventoryTrendTotal">{latest.periodLabel ?? latest.date} · 进入前 100 <strong>{latest.ranked.toLocaleString()}</strong> 词</p>
-      <p className="chartNote">实际采集：{captureTime(latest)} · 本期已查 {captured(latest).toLocaleString()} / {latest.total.toLocaleString()} 词</p>
+      <div className="inventoryTrendSummary">
+        <div className="inventoryTrendTotal">
+          <span>进入前 100</span>
+          <strong>{latest.ranked.toLocaleString()}</strong>
+        </div>
+        <div className="inventoryTrendPeriod">
+          <strong>{latest.periodLabel ?? latest.date}</strong>
+          <span title={captureTime(latest)}>已查 {captured(latest).toLocaleString()} / {latest.total.toLocaleString()} 词</span>
+        </div>
+      </div>
       <dl className="trendRankCounts" aria-label="最新一期各排名区间词数">
         {rankBuckets.map((bucket, index) => <div key={bucket.key}>
-          <dt>第 {bucket.range} 名</dt><dd>{latest.counts[index]?.toLocaleString() ?? "—"}</dd>
+          <dt><i style={{ backgroundColor: bucket.color }} aria-hidden="true" />{bucket.range} 名</dt>
+          <dd>{latest.counts[index]?.toLocaleString() ?? "—"}</dd>
         </div>)}
       </dl>
     </> : null}

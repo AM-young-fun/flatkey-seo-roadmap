@@ -46,10 +46,11 @@ export function KeywordGoals() {
     finally { setBusy(false); }
   }
   const language = workflowContentLanguage(input.siteDomain, input.country, input.language);
-  return <><PageHeader active="opportunities" /><main className={workspace.shell}>
-    <div className={workspace.titleRow}><h1 className={workspace.title}>关键词目标</h1></div>
+  return <main className={workspace.shell}>
+    <PageHeader active="opportunities" />
+    <div className={workspace.titleRow}><h1 className={workspace.title}>新建关键词目标</h1><Link className={styles.secondary} href="/opportunities">返回关键词列表</Link></div>
     <p className={workspace.description}>填写目标后加入工作任务。有目标页面则优化现有页面，没有则搭建关键词页面。</p>
-    <form className={styles.newTask} onSubmit={event => void save(event)}>
+    <form className={styles.goalForm} onSubmit={event => void save(event)}>
       <div className={styles.formGrid}>
         <label>站点<UiSelect aria-label="目标站点" value={input.siteDomain} onChange={value => change("siteDomain", value as KeywordGoalInput["siteDomain"])} options={WORKFLOW_SITES.map(value => ({ value, label: value }))} /></label>
         <label>目标国家<UiSelect aria-label="目标国家" value={input.country} onChange={value => change("country", value as KeywordGoalInput["country"])} options={Object.entries(marketLabels).map(([value, label]) => ({ value, label }))} /></label>
@@ -62,10 +63,9 @@ export function KeywordGoals() {
         <label className={styles.spanAll}>目标与要求（可选）<textarea rows={3} maxLength={1000} value={input.goal} onChange={event => change("goal", event.target.value)} /></label>
       </div>
       <p className={styles.muted}>将创建：{input.pageUrl.trim() ? "页面优化" : "关键词页面搭建"}</p>
-      <div className={styles.toolbarActions}><button className={styles.primary} disabled={busy || !history.data} type="submit">{busy ? "保存中…" : "保存目标并加入工作任务"}</button>{saved ? <Link className={styles.secondary} href={keywordGoalTaskHref(saved)}>查看工作任务 →</Link> : null}</div>
+      <div className={styles.goalActions}><button className={styles.primary} disabled={busy || !history.data} type="submit">{busy ? "保存中…" : "保存目标并加入工作任务"}</button>{saved ? <Link className={styles.secondary} href={keywordGoalTaskHref(saved)}>查看工作任务 →</Link> : null}</div>
       {message ? <p role="status">{message}</p> : null}
       {history.error ? <p role="alert">{history.error} <button className={styles.secondary} type="button" onClick={history.retry}>重新读取</button></p> : !history.data ? <p className={styles.muted}>正在核对已有任务…</p> : null}
     </form>
-    <p className={workspace.relatedLinks}><Link href="/opportunities?view=analysis">查看已有关键词、排名与页面数据 →</Link></p>
-  </main></>;
+  </main>;
 }

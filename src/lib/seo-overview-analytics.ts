@@ -9,7 +9,7 @@ export type ModuleAnalytics = DateRange & {
 };
 const matches = (url: string, module: OverviewPageModule) => {
   const value = overviewPageModule(url);
-  return module === "all" || (module === "unknown" ? value === null : value === module);
+  return module === "all" || value === module;
 };
 
 /** One GA4 session has one landing page. Never duplicate it for GSC URL fragments. */

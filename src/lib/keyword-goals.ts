@@ -1,3 +1,4 @@
+import { workTaskHref } from "./seo-workspace-routes";
 import { workflowTaskSchema, workflowWeek, workflowContentLanguage, WORKFLOW_MARKETS, type WorkflowLanguage, type WorkflowTask } from "./seo-workflow";
 
 export type KeywordGoalInput = {
@@ -27,5 +28,5 @@ export function matchingKeywordGoal(tasks: WorkflowTask[], candidate: ReturnType
 }
 
 export function keywordGoalTaskHref(task: Pick<WorkflowTask, "id" | "weekStart" | "kind">) {
-  return `/work?${new URLSearchParams({ week: task.weekStart, taskType: task.kind === "optimization" ? "optimization" : "landing" })}#task-${encodeURIComponent(task.id)}`;
+  return workTaskHref(task, new URLSearchParams({ taskType: task.kind === "optimization" ? "optimization" : "landing" }));
 }

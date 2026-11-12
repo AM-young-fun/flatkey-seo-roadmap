@@ -81,16 +81,15 @@
   font-size: 13px;
 }
 
-.rankings :global(.inventoryTrendTotal) {
-  margin: 0;
-}
-
-.rankings :global(.trendRankCounts) {
-  margin: 12px 0 4px;
+.rankings :global(.trendPanel) {
+  display: flex;
+  flex-direction: column;
 }
 
 .rankings :global(.rankingTrend) {
-  height: 212px;
+  flex: 1 0 208px;
+  min-height: 208px;
+  height: auto;
 }
 
 .network :global(.overviewGrid) {
@@ -113,12 +112,6 @@
 .network :global(.loadingState) {
   height: clamp(340px, 70vw, 560px);
   min-height: 0;
-}
-
-.network :global(.graphPanel summary) {
-  width: fit-content;
-  color: var(--ui-primary);
-  cursor: pointer;
 }
 
 .network :global(.graphPanel label) {

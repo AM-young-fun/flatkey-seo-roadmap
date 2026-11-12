@@ -3,7 +3,7 @@ import { buildRankingEvidence, latestQueryEvidence, type RankingObservationRow }
 import { REGION_CODES, type SearchRegionCode } from "./seo";
 import { aggregateSerpRegionResults, buildSerpKeywordResults, serpTaskPeriod, summarizeSerpMovements, summarizeSerpResults, type SerpKeywordResult, type SerpTaskRead, type SerpTrendCohort, type SerpRunScope } from "./serp-results";
 import type { SerpTarget } from "./serp-targets";
-import { overviewPageModule, type OverviewPageModule } from "./seo-overview-scope";
+import { overviewTargetModules, type OverviewPageModule } from "./seo-overview-scope";
 
 export const EARLIEST_TREND_DATE = "2026-10-08";
 
@@ -52,13 +52,12 @@ export type TrendModuleTarget = Pick<SerpTarget, "siteDomain" | "keywordId"> & {
 /** Current registered target pages classify saved members; captured result URLs never do. */
 export function trendModuleTargets<T extends TrendModuleTarget>(targets: T[], module: OverviewPageModule, currentTargets: TrendModuleTarget[] = targets): T[] {
   if (module === "all") return targets;
-  const assignments = new Map(currentTargets.map(target => [`${target.siteDomain}:${target.keywordId}`, new Set((target.targetUrls ?? []).flatMap(url => {
-    const value = overviewPageModule(url);
-    return value ? [value] : [];
-  }))]));
+  const assignments = new Map(currentTargets.map(target => [
+    target.siteDomain + ":" + target.keywordId, overviewTargetModules(target.targetUrls),
+  ]));
   return targets.filter(target => {
-    const modules = assignments.get(`${target.siteDomain}:${target.keywordId}`);
-    return module === "unknown" ? !modules?.size : modules?.has(module) === true;
+    const modules = assignments.get(target.siteDomain + ":" + target.keywordId);
+    return modules ? modules.has(module) : module === "other";
   });
 }
 

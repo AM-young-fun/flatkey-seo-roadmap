@@ -1,6 +1,8 @@
-import { redirect } from "next/navigation";
-import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
+import { Suspense } from "react";
+import { SeoWorkWorkspace } from "@/components/SeoWorkWorkspace";
 
-export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
-  redirect(workspaceRedirectHref("/work?panel=deliveries", await searchParams));
+export const metadata = { title: "发布记录 · Flatkey SEO" };
+
+export default function Page() {
+  return <Suspense fallback={<p role="status">正在读取发布记录…</p>}><SeoWorkWorkspace view="deliveries" /></Suspense>;
 }

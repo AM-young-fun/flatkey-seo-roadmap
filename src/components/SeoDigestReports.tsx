@@ -83,7 +83,7 @@ export function SeoDigestReports() {
     coverage === "verified" ? numberText(count) : count > 0 ? "至少 " + numberText(count) : "待核实";
   const route = (period: typeof kind, selected: string) => "/reports?" + new URLSearchParams({ period, date: period === "weekly" ? friday(selected) : selected });
   return <>
-    <div className={styles.sectionHeading}><h1>日／周效果总结</h1><button type="button" className={styles.secondary} onClick={result.retry}>刷新</button></div>
+    <div className={styles.sectionHeading}><h1>日／周效果总结</h1><div className={styles.toolbarActions}><Link className={styles.secondary} href="/reports?view=published">上线效果</Link><button type="button" className={styles.secondary} onClick={result.retry}>刷新</button></div></div>
     <nav className={styles.workTabs} aria-label="报告周期">
       <Link href={route("daily", date)} aria-current={kind === "daily" ? "page" : undefined}>日报</Link>
       <Link href={route("weekly", date)} aria-current={kind === "weekly" ? "page" : undefined}>周报</Link>
