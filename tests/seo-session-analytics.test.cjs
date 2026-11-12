@@ -190,7 +190,7 @@ test("shared-property legacy totals are withheld; exact page hosts exclude stagi
  {hostname:"staging-console.flatkey.ai",path:"/gpu",sessions:99,registrations:null},
  {hostname:"mochichatbot.com",path:"/",sessions:88,registrations:null}]}];
  const view=analyticsView(range,["https://flatkey.ai/gpu","https://staging-console.flatkey.ai/gpu"],records);
- assert.equal(view.daily[0].sessions,null);assert.match(view.ga4.reason,/正式域名/);assert.equal(view.pages[0].ga4.sessions,3);assert.equal(view.pages[1].ga4,null);
+ assert.equal(view.daily[0].sessions,null);assert.match(view.ga4.reason,/无生产域名归属的旧汇总已排除/);assert.equal(view.pages[0].ga4.sessions,3);assert.equal(view.pages[1].ga4,null);
 });
 
 test("historical API-filled signup zeros are unknown, while evidenced zeros, positives and browser exports survive",()=>{

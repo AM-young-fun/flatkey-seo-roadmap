@@ -74,6 +74,6 @@ test("engagement verifies standard duration independently of missing custom acti
 
 test("legacy shared-property business totals are hidden without production hostname provenance",()=>{
  const legacy=fixture({hostScope:undefined});const row=latestBusinessPeriod([legacy],legacy.start,legacy.end,"all",legacy.scope);
- assert.equal(row.complete,false);assert.deepEqual(row.rows,[]);assert.match(row.reasons[0],/正式域名/);
+ assert.equal(row.complete,false);assert.deepEqual(row.rows,[]);assert.match(row.reasons[0],/无生产域名归属的旧汇总已排除/);
  assert.doesNotMatch(businessDigestLines([legacy],legacy.start,legacy.end).join("\n"),/12 次/);
 });
