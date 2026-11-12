@@ -128,8 +128,8 @@ test("workflow probe receives only existing Google read credentials; main produc
   assert.doesNotMatch(script, /loadEnvConfig|prisma|saveBusinessAnalytics|parseApiCohortResponse/);
 });
 
-test("Vercel prevents automatic main and exact probe branch deployment while retaining other branch defaults", () => {
+test("Vercel restores authorized main deployment while keeping the exact diagnostic branch disabled", () => {
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../vercel.json"), "utf8"));
-  assert.deepEqual(config.git.deploymentEnabled, { main: false, "codex/ga4-registration-cohorts-20261111": false });
+  assert.deepEqual(config.git.deploymentEnabled, { main: true, "codex/ga4-registration-cohorts-20261111": false });
   assert.deepEqual(config.regions, ["sin1"]); assert.equal(config.crons.length, 1);
 });

@@ -1,7 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
-      "main": false,
+      "main": true,
       "codex/ga4-registration-cohorts-20261111": false
     }
   },
