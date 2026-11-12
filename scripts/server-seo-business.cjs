@@ -7,7 +7,7 @@ Module._resolveFilename = function(name, parent, ...rest) { return resolve.call(
 Module._load = function(name, ...rest) { return name === "server-only" ? {} : load.call(this, name, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { fetchGa4Journey, fetchGa4Engagement } = require("../src/lib/services/ga4-journeys.ts");
-const { fetchGa4Business } = require("../src/lib/services/ga4-business.ts");
+const { fetchGa4Business, fetchGa4RegistrationDays } = require("../src/lib/services/ga4-business.ts");
 const { fetchGa4ApiCohorts } = require("../src/lib/services/ga4-api-cohorts.ts");
 const { matureCohortWindows, cohortCoverageStart } = require("../src/lib/seo-api-cohorts.ts");
 const { resolveCohortCollectionGate, collectOptionalApiCohorts } = require("./seo-cohort-capability.cjs");
@@ -112,6 +112,32 @@ async function run() {
       githubReferrals.imported++;
     }
   } catch (error) { githubReferrals.errors.push(/^github_[a-z_0-9]+$/.test(error.message) ? error.message : "github_collection_failed"); }
+  const dailyRegistrations = [];
+  if (importResults) {
+    // The manual run also covers the previous 90-day comparison window.
+    const range = { start: shiftDay(last, process.argv.includes("--backfill-reports") ? -179 : -6), end: last };
+    for (const country of ["all", "US", "JP", "BR", "ES"]) {
+      try {
+        const record = await fetchGa4RegistrationDays({ ...range, country });
+        const response = await fetch(businessOrigin + "/api/seo/registrations", {
+          method: "POST", redirect: "error", signal: AbortSignal.timeout(60000),
+          headers: { "content-type": "application/json", authorization: "Bearer " + process.env.SEO_IMPORT_TOKEN },
+          body: JSON.stringify(record),
+        });
+        if (!response.ok) throw Error("business_registration_import_" + response.status);
+        const receipt = await response.json();
+        const dates = new Map((receipt.record?.days ?? []).map(day => [day.date, day.users]));
+        if (!receipt.stored || receipt.record?.country !== country || receipt.record?.observedAt !== record.observedAt ||
+          dates.size !== record.days.length || record.days.some(day => dates.get(day.date) !== day.users)) {
+          throw Error("business_registration_readback_failed");
+        }
+        dailyRegistrations.push({ country, ...range, recordedDays: record.days.length });
+      } catch (error) {
+        failures.push({ ...range, country, scope: "registration-days", error: error.status ? "ga4_http_" + error.status :
+          error.code || (/^business_[a-z_0-9]+$/.test(error.message) ? error.message : "collection_failed") });
+      }
+    }
+  }
   if (importResults && process.argv.includes("--backfill-reports")) {
     const weeklyEnd = reportWindows(last).find(range => range.start !== range.end).end;
     for (const [kind, date] of [["daily", shiftDay(last, 1)], ["weekly", shiftDay(weeklyEnd, 1)]]) {
@@ -120,7 +146,7 @@ async function run() {
         savedReport: !!report, registrationAvailable: typeof report?.flatkeyRegistrations?.users === "number" }));
     }
   }
-  console.log(JSON.stringify({ kind: "ga4-business", mode: importResults ? "import" : "read_only", fetched, imported, failures, windows, registrations, githubReferrals, cohortGate, registrationGate }));
+  console.log(JSON.stringify({ kind: "ga4-business", mode: importResults ? "import" : "read_only", fetched, imported, failures, windows, registrations, dailyRegistrations, githubReferrals, cohortGate, registrationGate }));
   if (failures.length) process.exitCode = 1;
   if (githubReferrals.errors.length) process.exitCode = 1;
 }
