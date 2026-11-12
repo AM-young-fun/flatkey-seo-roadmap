@@ -3,7 +3,7 @@
 const fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
 require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
 const {buildSeoDigest,digestWindow,digestOptimizationEffect}=require('../src/lib/seo-digest.ts');
-const {analyticsObservationSchema}=require('../src/lib/seo-analytics.ts');
+const {analyticsObservationSchema,scopedAnalytics}=require('../src/lib/seo-analytics.ts');
 const {githubChannelSchema}=require('../src/lib/seo-github-channel.ts');
 const {clusterDomainForProperty,CLUSTER_SITES}=require('../src/lib/seo-cluster-sites.ts');
 async function run(){
@@ -11,7 +11,7 @@ async function run(){
  if(!args['analytics-dir']||!args.workflow||!args.out)throw Error('source_paths_required');
  const workflow=JSON.parse(fs.readFileSync(args.workflow,'utf8'));if(!Array.isArray(workflow.tasks)||!Array.isArray(workflow.approvals)||!workflow.generatedAt)throw Error('workflow_snapshot_required');
  const observations=[],pageObservations=[];let excluded=0;
- for(const name of fs.readdirSync(args['analytics-dir'])){if(!name.endsWith('.json'))continue;const parsed=analyticsObservationSchema.safeParse(JSON.parse(fs.readFileSync(path.join(args['analytics-dir'],name),'utf8')));if(!parsed.success){excluded++;continue;}const row=parsed.data;if(row.date>window.trafficEnd||Date.parse(row.observedAt)>now.getTime())continue;
+ for(const name of fs.readdirSync(args['analytics-dir'])){if(!name.endsWith('.json'))continue;const parsed=analyticsObservationSchema.safeParse(JSON.parse(fs.readFileSync(path.join(args['analytics-dir'],name),'utf8')));if(!parsed.success){excluded++;continue;}const row=scopedAnalytics([parsed.data])[0];if(!row)continue;if(row.date>window.trafficEnd||Date.parse(row.observedAt)>now.getTime())continue;
   const site=clusterDomainForProperty(row.property)??'flatkey.ai';
   if(row.kind==='ga4-pages'||row.kind==='gsc-pages')pageObservations.push(row);
   if(row.kind==='ga4-site')observations.push({site,country:row.country,date:row.date,source:'GA4',timezone:CLUSTER_SITES.find(s=>s.domain===site)?.ga4TimeZone??'America/Los_Angeles',observedAt:row.observedAt,complete:row.sessions!==null,scope:'session-organic-search',sessions:row.sessions,registrations:row.complete?row.registrations:null});

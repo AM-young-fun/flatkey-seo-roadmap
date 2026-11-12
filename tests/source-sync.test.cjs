@@ -31,6 +31,16 @@ const db = {
     const before = structuredClone(state);
     try { return await callback(db); } catch (error) { state = before; throw error; } finally { release(); }
   },
+  $queryRaw: async (_sql, sourceId, keys) => {
+    if (state.failPreview) throw state.failPreview;
+    if (state.invalidPreview) return [{}];
+    const rowKeys = JSON.parse(keys);
+    return [{ siteActive: true,
+      sourceRows: state.sourceRows.filter(row => row.sourceId === sourceId && rowKeys.includes(row.rowKey)).map(({ observedAt, ...row }) => ({ ...row, observedAtMs: observedAt?.getTime() ?? null })),
+      keywords: structuredClone(state.keywords),
+      links: state.links.map(({ curatedAt, ...row }) => ({ ...structuredClone(row), curatedAtMs: curatedAt?.getTime() ?? null })),
+    }];
+  },
   $executeRaw: async () => 0,
   seoSite: { findUnique: async () => ({ active: true }) },
   keywordSourceRow: {
@@ -49,7 +59,7 @@ const db = {
     createMany: async ({ data }) => { write(); state.keywords.push(...structuredClone(data)); },
   },
   siteKeyword: {
-    findMany: async ({ where }) => state.links.filter(row => row.siteDomain === where.siteDomain && where.keywordId.in.includes(row.keywordId)).map(row => structuredClone(row)),
+    findMany: async ({ where, select }) => state.links.filter(row => row.siteDomain === where.siteDomain && where.keywordId.in.includes(row.keywordId)).map(row => Object.fromEntries(Object.keys(select).map(key => [key, structuredClone(row[key])]))),
     createMany: async ({ data }) => { write(); state.links.push(...data.map(row => membership(row.keywordId, row))); },
     updateMany: async ({ where, data }) => {
       const row = state.links.find(row => row.siteDomain === where.siteDomain && row.keywordId === where.keywordId && row.active === where.active && row.pool === where.pool
@@ -359,4 +369,46 @@ test("optimization source dates persist through older collectors and preserve so
   await syncKeywordSources({ ...corrected, collectedAt: "2026-10-21T02:00:00Z" });
   assert.equal(state.sourceRows[0].snapshot.optimizedAt, "2026-10-13");
   assert.equal(sourceSyncSchema.safeParse({ ...corrected, rows: [{ ...corrected.rows[0], optimizedAt: "2026-02-30" }] }).success, false);
+});
+
+
+test("preview avoids interactive transactions; malformed/failed snapshots fail closed with safe diagnostics", async () => {
+  const originalTransaction = db.$transaction;
+  db.$transaction = async () => { throw Error("preview must not start transaction"); };
+  try {
+    const result = await syncKeywordSources(payload([row("en:read-only")], { action: "preview" }));
+    assert.equal(result.imported, 1);
+    assert.equal(state.dataWrites, 0);
+    state.invalidPreview = true;
+    await assert.rejects(syncKeywordSources(payload([row("en:read-only")], { action: "preview" })), /SOURCE_PREVIEW_SNAPSHOT_INVALID/);
+    state.invalidPreview = false;
+    const sensitive = Object.assign(new Error("Transaction API error postgres://secret.invalid SQL payload"), { code: "P2028", meta: { error: "Unable to start a transaction in the given time." } });
+    state.failPreview = sensitive;
+    const response = await POST(new Request("http://localhost/api/keywords/source-sync", { method: "POST", headers: { authorization: "Bearer fictional-source-sync-token", "content-type": "application/json" }, body: JSON.stringify(payload([row("en:read-only")], { action: "preview" })) }));
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.code, "P2028");
+    assert.equal(body.diagnostic.stage, "preview_snapshot");
+    assert.equal(body.diagnostic.reason, "TRANSACTION_ACQUIRE_TIMEOUT");
+    assert.equal(typeof body.diagnostic.elapsedMs, "number");
+    assert.doesNotMatch(JSON.stringify(body), /secret|postgres|SQL payload|read-only/);
+  } finally { db.$transaction = originalTransaction; }
+});
+
+test("transaction acquisition and expiry diagnostics use distinct fixed labels", async () => {
+  const { sourceSyncTrace, sourceSyncFailure } = require("../src/lib/source-sync-diagnostics.ts");
+  for (const [message, expected] of [
+    ["Unable to start a transaction in the given time.", "TRANSACTION_ACQUIRE_TIMEOUT"],
+    ["Transaction already closed: expired transaction", "TRANSACTION_EXPIRED"],
+    ["Transaction not found", "TRANSACTION_NOT_FOUND"],
+    ["Transaction already closed", "TRANSACTION_CLOSED"],
+    ["canceling statement due to lock timeout", "LOCK_TIMEOUT"],
+    ["arbitrary provider message", "UNCLASSIFIED"],
+  ]) {
+    const error = Object.assign(new Error("safe outer"), { meta: { error: message } });
+    const trace = sourceSyncTrace("transaction_acquire"); trace.capture(error);
+    assert.equal(sourceSyncFailure(error).reason, expected);
+    assert.equal(sourceSyncFailure(error).stage, "transaction_acquire");
+    assert.equal(Object.hasOwn(sourceSyncFailure(error), "message"), false);
+  }
 });

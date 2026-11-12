@@ -6,6 +6,7 @@ import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { databaseErrorCode } from "@/lib/database-read";
+import { sourceSyncFailure } from "@/lib/source-sync-diagnostics";
 import { sourceSyncSchema } from "@/lib/source-sync";
 import { syncKeywordSources } from "@/lib/services/source-sync";
 import { loadSourceSyncHealth } from "@/lib/services/source-sync-health";
@@ -53,7 +54,8 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     const code = databaseErrorCode(error);
-    console.error("Keyword source sync failed", code);
-    return NextResponse.json({ message: "协作表增量保存失败，请保持原请求重试", code }, { status: 503, headers });
+    const diagnostic = sourceSyncFailure(error);
+    console.error("Keyword source sync failed", { code, ...diagnostic });
+    return NextResponse.json({ message: "协作表同步未能完成，请保留原请求并核对已保存状态", code, ...(diagnostic ? { diagnostic } : {}) }, { status: 503, headers });
   }
 }
