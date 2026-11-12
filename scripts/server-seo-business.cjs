@@ -11,6 +11,7 @@ const { fetchGa4Business } = require("../src/lib/services/ga4-business.ts");
 const { fetchGa4ApiCohorts } = require("../src/lib/services/ga4-api-cohorts.ts");
 const { matureCohortWindows, cohortCoverageStart } = require("../src/lib/seo-api-cohorts.ts");
 const { resolveCohortCollectionGate, collectOptionalApiCohorts } = require("./seo-cohort-capability.cjs");
+const { resolveRegistrationCollectionGate } = require("./seo-registration-capability.cjs");
 const { businessAnalyticsSchema, businessAnalyticsId } = require("../src/lib/seo-business-analytics.ts");
 const { organicReportWindows } = require("../src/lib/seo-organic-period.ts");
 const { shiftDay, propertyToday } = require("../src/lib/seo-date-range.ts");
@@ -23,6 +24,7 @@ async function run() {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
   const last = shiftDay(propertyToday("America/Los_Angeles"), -1);
   const reportingWindows = [{ start: last, end: last }, { start: shiftDay(last, -6), end: last }, ...organicReportWindows(today, last)];
+  const registrationGate = await resolveRegistrationCollectionGate({ importing: importResults, token: process.env.SEO_IMPORT_TOKEN, range: reportingWindows[0] });
   const coverageStart = cohortCoverageStart(process.env.GA4_COHORT_COVERAGE_START);
   const cohortGate = await resolveCohortCollectionGate({ coverageStart, importing: importResults, token: process.env.SEO_IMPORT_TOKEN, range: reportingWindows[0] });
   const windows = [...new Map([...reportingWindows, ...(cohortGate.enabled ? matureCohortWindows(new Date(), coverageStart) : [])].map(row => [row.start + ":" + row.end, row])).values()];
@@ -31,7 +33,7 @@ async function run() {
   for (const range of windows) for (const country of ["all", "US", "JP", "BR", "ES"]) for (const scope of ["all-channels", "session-organic-search"]) {
     try {
       const query = { ...range, country, scope };
-      const record = await collectOptionalApiCohorts(await fetchGa4Business(query), query, cohortGate, fetchGa4ApiCohorts);
+      const record = await collectOptionalApiCohorts(await fetchGa4Business(query, new Date(), { registrationCompatibility: registrationGate.enabled }), query, cohortGate, fetchGa4ApiCohorts);
       record.engagement = await fetchGa4Engagement(query);
       if (scope === "all-channels") record.journeys = await Promise.all([fetchGa4Journey(query, "gpu"), fetchGa4Journey(query, "api")]);
       businessAnalyticsSchema.parse(record); fetched++;
@@ -63,7 +65,7 @@ async function run() {
       githubReferrals.imported++;
     }
   } catch (error) { githubReferrals.errors.push(/^github_[a-z_0-9]+$/.test(error.message) ? error.message : "github_collection_failed"); }
-  console.log(JSON.stringify({ kind: "ga4-business", mode: importResults ? "import" : "read_only", fetched, imported, failures, windows, githubReferrals, cohortGate }));
+  console.log(JSON.stringify({ kind: "ga4-business", mode: importResults ? "import" : "read_only", fetched, imported, failures, windows, githubReferrals, cohortGate, registrationGate }));
   if (failures.length) process.exitCode = 1;
   if (githubReferrals.errors.length) process.exitCode = 1;
 }

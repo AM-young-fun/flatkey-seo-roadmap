@@ -7,4 +7,6 @@ export const ga4HostFilter = (hosts: readonly string[]) => ({ filter: { fieldNam
 export const isFlatkeyEntryHost = (host: string | null | undefined) => FLATKEY_ENTRY_HOSTS.some(value => value === host?.toLowerCase());
 
 export const GA4_REGISTRATION_METRIC = "sign_up_or_legacy_distinct_users" as const;
-export const ga4RegistrationFilter = () => ({ filter: { fieldName: "eventName", inListFilter: { values: ["sign_up", "sign_up_success"], caseSensitive: true } } });
+export const GA4_REGISTRATION_EVENTS = ["sign_up", "sign_up_success"] as const;
+export const ga4RegistrationFilter = () => ({ filter: { fieldName: "eventName", inListFilter: { values: [...GA4_REGISTRATION_EVENTS], caseSensitive: true } } });
+export const ga4RegistrationFunnelFilter = () => ({ orGroup: { expressions: GA4_REGISTRATION_EVENTS.map(eventName => ({ funnelEventFilter: { eventName } })) } });

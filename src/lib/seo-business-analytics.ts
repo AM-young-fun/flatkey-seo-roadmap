@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "./ga4-host-scope";
+import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED, GA4_REGISTRATION_METRIC } from "./ga4-host-scope";
 import { createHash } from "node:crypto";
 
 import { journeySchema, engagementSchema } from "./seo-business-journeys";
@@ -13,6 +13,7 @@ export const businessAnalyticsSchema = z.object({
   hostScope: z.literal("production-hosts-v1").optional(), version: z.literal(1), siteDomain: z.literal("flatkey.ai"), propertyId: z.literal("541304395"),
   source: z.literal("google-api"), start: z.iso.date(), end: z.iso.date(), timezone: z.literal("America/Los_Angeles"),
   country: businessCountrySchema, scope: businessScopeSchema, observedAt: z.iso.datetime(),
+  registrationMetric: z.literal(GA4_REGISTRATION_METRIC).optional(),
   distinctOverWholePeriod: z.literal(true), complete: z.boolean(), reasons: z.array(z.string().max(500)).max(30),
   journeys: z.array(journeySchema).max(2).optional(), engagement: engagementSchema.optional(),
   apiCohorts: z.array(apiCohortSchema).length(2).optional(),

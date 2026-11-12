@@ -47,12 +47,12 @@ test("DST property-midnight and elapsed-second horizon never mature one hour ear
   assert.equal(at.matureAt,"2026-03-18T07:00:00.000Z");
 });
 
-test("two independent closed funnels constrain canonical registration only, including exact country and organic source",()=>{
+test("two independent closed funnels constrain compatible registration aliases, including exact country and organic source",()=>{
   const requests=plans().map(plan=>apiCohortRequest(query,plan));
   for(const [i,request] of requests.entries()) {
     assert.equal(request.funnel.isOpenFunnel,false);assert.equal(request.funnel.steps.length,2);
     const [first,second]=request.funnel.steps;
-    assert.deepEqual(first.filterExpression.andGroup.expressions[0],{funnelEventFilter:{eventName:"sign_up"}});
+    assert.deepEqual(first.filterExpression.andGroup.expressions[0],{orGroup:{expressions:[{funnelEventFilter:{eventName:"sign_up"}},{funnelEventFilter:{eventName:"sign_up_success"}}]}});
     assert.deepEqual(first.filterExpression.andGroup.expressions[1].funnelFieldFilter.inListFilter.values,["20261001","20261002","20261003","20261004","20261005","20261006","20261007"]);
     assert.match(JSON.stringify(first),/Organic Search/);assert.match(JSON.stringify(first),/countryId/);
     assert.doesNotMatch(JSON.stringify(second),/Organic Search|countryId|date|lifetime_first_known/);

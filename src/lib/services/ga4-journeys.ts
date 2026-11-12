@@ -1,5 +1,5 @@
 import "server-only";
-import { FLATKEY_BUSINESS_HOSTS, ga4HostFilter } from "../ga4-host-scope";
+import { FLATKEY_BUSINESS_HOSTS, ga4HostFilter, ga4RegistrationFunnelFilter } from "../ga4-host-scope";
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
 import { journeyLabels, journeySchema, engagementSchema, type BusinessJourney, type BusinessEngagement } from "../seo-business-journeys";
 import type { BusinessAnalytics } from "../seo-business-analytics";
@@ -20,7 +20,7 @@ async function request(endpoint: string, token: string, body?: unknown) {
 }
 export function funnelRequest(query: Query, business: "gpu" | "api") {
   if (query.scope !== "all-channels") throw new GoogleReadError("invalid_response", "漏斗为全渠道同用户口径");
-  const filters = business === "gpu" ? [event("page_view", { business: "gpu" }), event("flow_step", { flow: "gpu_rental", step: "start" }), event("gpu_rental_success")] : [event("sign_up"), event("first_model_success", { business: "api" }), event("first_payment_completed", { business: "api" })];
+  const filters = business === "gpu" ? [event("page_view", { business: "gpu" }), event("flow_step", { flow: "gpu_rental", step: "start" }), event("gpu_rental_success")] : [ga4RegistrationFunnelFilter(), event("first_model_success", { business: "api" }), event("first_payment_completed", { business: "api" })];
   return { dateRanges: [{ startDate: query.start, endDate: query.end }], funnel: { isOpenFunnel: false,
     steps: filters.map((filterExpression, i) => ({ name: journeyLabels[business][i], filterExpression, isDirectlyFollowedBy: false, ...(i ? { withinDurationFromPriorStep: business === "gpu" ? "86400s" : i === 1 ? "604800s" : "2592000s" } : {}) })) },
     dimensionFilter: { andGroup: { expressions: [ga4HostFilter(FLATKEY_BUSINESS_HOSTS), ...(query.country === "all" ? [] : [exact("countryId", query.country)])] } } };

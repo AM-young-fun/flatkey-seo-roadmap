@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     // These are links to existing verified archives, not extra live GA4 queries
     // or replacement data for the user's selected registration dates.
     const cohortPeriods = await loadRecentMatureCohortPeriods(country, scope);
-    return Response.json({ record, cohortPeriods, capabilities: { apiCohorts: 1 }, status: record ? record.complete ? "ready" : "partial" : "missing" }, { headers });
+    return Response.json({ record, cohortPeriods, capabilities: { apiCohorts: 1, registrationCompatibility: 1 }, status: record ? record.complete ? "ready" : "partial" : "missing" }, { headers });
   } catch (error) { return Response.json({ message: "业务数据暂不可读或日期无效" }, { status: error instanceof z.ZodError ? 400 : 503, headers }); }
 }
 export async function POST(request: Request) {

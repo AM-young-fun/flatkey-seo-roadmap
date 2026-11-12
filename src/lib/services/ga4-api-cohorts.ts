@@ -1,6 +1,6 @@
 import "server-only";
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
-import { FLATKEY_BUSINESS_HOSTS, ga4HostFilter } from "../ga4-host-scope";
+import { FLATKEY_BUSINESS_HOSTS, ga4HostFilter, ga4RegistrationFunnelFilter } from "../ga4-host-scope";
 import { apiCohortSchema, cohortDefinitions, cohortKinds, COHORT_TIMEZONE, planApiCohort, type ApiCohort, type CohortKind, type CohortQuery } from "../seo-api-cohorts";
 import { shiftDay } from "../seo-date-range";
 
@@ -15,7 +15,7 @@ export function apiCohortRequest(query: CohortQuery, plan: ApiCohort) {
     dateRanges: [{ startDate: query.start, endDate: plan.observationEnd }],
     funnel: { isOpenFunnel: false, steps: [
       { name: "Registration", isDirectlyFollowedBy: false, filterExpression: { andGroup: { expressions: [
-        { funnelEventFilter: { eventName: "sign_up" } },
+        ga4RegistrationFunnelFilter(),
         { funnelFieldFilter: { fieldName: "date", inListFilter: { values: dates, caseSensitive: true } } },
         ...(query.country === "all" ? [] : [exact("countryId", query.country)]),
         ...(query.scope === "all-channels" ? [] : [exact("sessionDefaultChannelGroup", "Organic Search")]),
