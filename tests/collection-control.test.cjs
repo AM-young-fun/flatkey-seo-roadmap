@@ -71,6 +71,15 @@ test("insufficient balance, emergency stop, and paused schedule all block collec
   await assert.rejects(mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken }), /紧急暂停/);
   assert.equal(paidCalls, 0);
 });
+test("schedule-only quote targets a future slot and cannot authorize a manual paid run", async () => {
+  const preview = await mutateCollectionControl({ action: "previewSchedule", futureOnly: true });
+  assert.ok(Date.parse(preview.dueAt) > Date.now());
+  await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
+  assert.equal(config.nextDueAt.toISOString(), preview.dueAt);
+  await assert.rejects(mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken }), /不能立即执行/);
+  assert.equal(paidCalls, 0);
+});
+
 test("new discoveries exceeding approved cap pause SERP instead of silently raising it", async () => {
   const preview = await previewCollectionSchedule();
   await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });

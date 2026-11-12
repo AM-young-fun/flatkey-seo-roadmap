@@ -18,7 +18,7 @@ const fingerprint = (value: string) => createHash("sha256").update(value).digest
 const claimsSchema = z.object({ purpose: z.literal("SEO_SCHEDULE_V1"), periodKey: z.string(), cohortHash: z.string().regex(/^[a-f0-9]{64}$/),
   connectionVersion: z.number().int().positive(), connectionHash: z.string().regex(/^[a-f0-9]{64}$/), revision: z.number().int().nonnegative(),
   maxRunCostMicros: z.number().int().positive().max(200_000_000), maxMonthCostMicros: z.number().int().positive().max(800_000_000),
-  issuedAt: z.number().int().positive(), expiresAt: z.number().int().positive() }).strict();
+  futureOnly: z.literal(true).optional(), issuedAt: z.number().int().positive(), expiresAt: z.number().int().positive() }).strict();
 function externalAccess() { if (envBool("DISABLE_EXTERNAL_FETCH")) throw new ImportRequestError("外部请求已由服务端紧急暂停", 409); }
 function claims(token: string) {
   const parsed = claimsSchema.safeParse(verifyDataForSeoPreview(token));
@@ -83,7 +83,7 @@ async function recoverUnverifiedBalance(
   });
 }
 
-export async function previewCollectionSchedule(): Promise<CollectionSchedulePreview> {
+export async function previewCollectionSchedule(futureOnly?: true): Promise<CollectionSchedulePreview> {
   const [connection, config, cohort, spent] = await Promise.all([account(), prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), loadSerpMonitoringCohort(),
     prisma.serpMonitorRun.aggregate({ where: { createdAt: { gte: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)) } }, _sum: { reservedCostMicros: true } })]);
   const quote = quoteSerpTargets(cohort.targets, SERP_MARKETS);
@@ -91,11 +91,12 @@ export async function previewCollectionSchedule(): Promise<CollectionSchedulePre
   let period = config?.nextDueAt ? serpPeriod(config.nextDueAt) : new Date() < new Date("2026-10-20T02:30:00Z") ? serpPeriodFromKey("2026-10-20") : serpPeriod();
   const existing = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: period.key, scope: "SCHEDULED" } } });
   if (existing && ["COMPLETED", "PARTIAL", "FAILED"].includes(existing.status)) period = serpPeriodFromKey(nextSerpPeriodKey(period.key));
+  if (futureOnly) while (Date.parse(period.dueAt) <= Date.now()) period = serpPeriodFromKey(nextSerpPeriodKey(period.key));
   const discovery = keywordCyclePlan(new Date(), period.key), balanceMicros = await balance(connection);
   if (balanceMicros < quote.maxCostMicros + discovery.maxDiscoveryCostMicros + 20_000) throw new ImportRequestError("余额不足以覆盖本轮预算，未提交付费抓取", 409);
   const issuedAt = Date.now(), maxMonthCostMicros = quote.maxCostMicros * 3 + (spent._sum.reservedCostMicros ?? 0);
   const previewToken = signDataForSeoPreview({ purpose: "SEO_SCHEDULE_V1", periodKey: period.key, cohortHash: cohort.hash, connectionVersion: connection.connectionVersion,
-    connectionHash: fingerprint(connection.encryptedCredentials), revision: config?.revision ?? 0, maxRunCostMicros: quote.maxCostMicros, maxMonthCostMicros, issuedAt, expiresAt: issuedAt + TTL });
+    connectionHash: fingerprint(connection.encryptedCredentials), ...(futureOnly ? { futureOnly } : {}), revision: config?.revision ?? 0, maxRunCostMicros: quote.maxCostMicros, maxMonthCostMicros, issuedAt, expiresAt: issuedAt + TTL });
   return { action: "previewSchedule", periodKey: period.key, periodLabel: period.label, dueAt: period.dueAt, keywordCount: quote.keywordQueryCount, queryCount: quote.queryCount, discoveryJobs: discovery.jobs.length,
     serpMaxCostMicros: quote.maxCostMicros, discoveryMaxCostMicros: discovery.maxDiscoveryCostMicros, totalMaxCostMicros: quote.maxCostMicros + discovery.maxDiscoveryCostMicros,
     maxMonthSerpCostMicros: maxMonthCostMicros, balanceMicros, checkedAt: new Date(issuedAt).toISOString(), previewToken };
@@ -104,7 +105,7 @@ export async function previewCollectionSchedule(): Promise<CollectionSchedulePre
 export async function mutateCollectionControl(input: CollectionControlMutation) {
   if (input.action === "inspectDiscovery") return inspectDiscoveryRun(input.requestId);
   if (input.action === "replayDiscovery") return replayDiscoveryRun(input.requestId);
-  if (input.action === "previewSchedule") return previewCollectionSchedule();
+  if (input.action === "previewSchedule") return previewCollectionSchedule(input.futureOnly);
   if (input.action === "pauseSchedule") {
     await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
@@ -117,6 +118,7 @@ export async function mutateCollectionControl(input: CollectionControlMutation) 
   const connection = await account();
   if (connection.connectionVersion !== approved.connectionVersion || fingerprint(connection.encryptedCredentials) !== approved.connectionHash) throw new ImportRequestError("API连接已变化，请重新预览", 409);
   if (input.action === "enableSchedule") {
+    if (approved.futureOnly && Date.parse(serpPeriodFromKey(approved.periodKey).dueAt) <= Date.now()) throw new ImportRequestError("原计划时段已过去，请重新预览", 409);
     const cohort = await loadSerpMonitoringCohort();
     if (cohort.hash !== approved.cohortHash) throw new ImportRequestError("关键词范围已变化，请重新预览费用", 409);
     await prisma.$transaction(async tx => {
@@ -131,8 +133,9 @@ export async function mutateCollectionControl(input: CollectionControlMutation) 
       await tx.serpMonitorConfig.upsert({ where: { id: SERP_CONFIG_ID }, create: { id: SERP_CONFIG_ID, ...data, revision: 1 }, update: { ...data, revision: { increment: 1 } } });
       await tx.dataForSeoConnection.update({ where: { siteDomain: "flatkey.ai" }, data: { scheduleEnabled: true } });
     });
-    return { action: input.action, enabled: true, message: "已开启隔周周一晚24:00（周二00:00）自动更新；开启开关本身不执行抓取。" };
+    return { action: input.action, enabled: true, message: "已开启隔周周四 08:00 自动更新。开启开关本身不提交抓取。" };
   }
+  if (approved.futureOnly) throw new ImportRequestError("定时费用预览仅允许开启计划，不能立即执行", 409);
   return runCollectionCycle(approved);
 }
 

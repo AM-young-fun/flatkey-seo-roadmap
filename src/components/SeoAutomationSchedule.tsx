@@ -1,12 +1,50 @@
 "use client";
 
+import { useState } from "react";
+import type { CollectionControlMutation, CollectionSchedulePreview } from "@/lib/collection-control";
 import { RefreshCw } from "lucide-react";
 import type { OperationsStatus } from "@/lib/operations";
 import { automationDate, automationSchedulerLabels, readonlyAutomationPlans, type ReadonlyAutomationPlan } from "@/lib/seo-automation-schedule";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoAutomationSchedule.module.css";
 
-function SchedulePlans({ plans }: { plans: ReadonlyAutomationPlan[] }) {
+const dollars = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(micros / 1e6);
+
+function PaidSchedule({ onEnabled }: { onEnabled: () => void }) {
+  const [quote, setQuote] = useState<CollectionSchedulePreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  async function submit(action: CollectionControlMutation) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/operations", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "暂时无法读取付费计划");
+      if (action.action === "previewSchedule") {
+        if (result.action !== "previewSchedule" || !result.previewToken) throw new Error("费用预览不完整");
+        setQuote(result);
+      } else {
+        setQuote(null);
+        setMessage(result.message);
+        onEnabled();
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "付费计划暂不可用"); }
+    finally { setBusy(false); }
+  }
+  return <div className={styles.paidControl}>
+    {quote ? <>
+      <p>本轮上限 <strong>{dollars(quote.totalMaxCostMicros)}</strong> · {quote.keywordCount} 个关键词 · {quote.queryCount} 次排名查询 · {quote.discoveryJobs} 项新词发现</p>
+      <p className={styles.note}>计划时间 {automationDate(quote.dueAt)} · 排名月度上限 {dollars(quote.maxMonthSerpCostMicros)} · 新词每轮上限 {dollars(quote.discoveryMaxCostMicros)}</p>
+      <div className={styles.paidActions}><button type="button" className={styles.refresh} disabled={busy} onClick={() => void submit({ action: "enableSchedule", previewToken: quote.previewToken })}>仅开启自动付费</button><button type="button" className={styles.refresh} disabled={busy} onClick={() => setQuote(null)}>取消</button></div>
+    </> : <button type="button" className={styles.refresh} disabled={busy} onClick={() => void submit({ action: "previewSchedule", futureOnly: true })}>查看费用与开启</button>}
+    {message ? <p role="status">{message}</p> : null}
+  </div>;
+}
+
+function SchedulePlans({ plans, enableRankings }: { plans: ReadonlyAutomationPlan[]; enableRankings?: () => void }) {
   if (!plans.length) return <p className={styles.note}>此来源暂未提供计划，不能判断为已停用或任务数为零。</p>;
   return <div className={styles.plans}>{plans.map(plan => <details key={plan.id} className={styles.plan}>
     <summary>
@@ -21,11 +59,12 @@ function SchedulePlans({ plans }: { plans: ReadonlyAutomationPlan[] }) {
         ? <p className={styles.note}>当前配置暂停，不安排下一次自动执行；上方时间仅表示原定周期。</p>
         : <p>按配置推算的下个时段：<strong>{automationDate(plan.nextConfiguredAt)}</strong>。实际是否开始，以执行回执为准。</p>}
       {plan.currentExecution ? <p>已落库的本期进度：{plan.currentExecution}</p> : null}
+      {plan.id === "rankings" && enableRankings ? <PaidSchedule onEnabled={enableRankings} /> : null}
     </div>
   </details>)}</div>;
 }
 
-/** Read-only metadata view. It does not change schedules or invoke a collector. */
+/** Server and desktop schedules with a separate, previewed DataForSEO opt-in. */
 export function SeoAutomationSchedule() {
   const { data, error, retry } = useSeoRead<OperationsStatus>("/api/operations");
   const plans = data ? readonlyAutomationPlans(data) : [];
@@ -51,7 +90,7 @@ export function SeoAutomationSchedule() {
           <div className={styles.groupHeading}><h3 id="server-automation-title">服务器采集任务</h3><span>状态读取于 {automationDate(data.checkedAt)}</span></div>
           <p className={styles.note}>GA4 / GSC 由 GitHub Actions 采集；DataForSEO 由项目服务器检查及续跑。它们独立于电脑上的 Codex。读取时间不是配置修改时间，也不是最近采集完成时间。</p>
           {data.controls.emergencyStopped ? <p className={styles.warning}>外部付费采集处于紧急停止状态；本页不会恢复或提交查询。</p> : null}
-          <SchedulePlans plans={serverPlans} />
+          <SchedulePlans plans={serverPlans} enableRankings={!data.controls.enabled && !data.controls.emergencyStopped ? retry : undefined} />
           <div className={styles.heartbeat}>
             <h4>DataForSEO 服务器调度检查</h4>
             <p>{data.scheduler.configured ? data.scheduler.cadence : "调度认证尚未配置"} · {automationSchedulerLabels[data.scheduler.state] ?? "检查状态未核实"}</p>

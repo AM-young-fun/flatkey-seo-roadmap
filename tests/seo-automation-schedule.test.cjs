@@ -41,7 +41,7 @@ test("paused paid queries have no advertised next execution; resumed and emergen
   assert.equal(automationDate(null), "未核实"); assert.equal(automationDate("invalid"), "未核实");
 });
 
-test("readonly schedule renders real configuration source separately from success receipts without paid controls", () => {
+test("schedule renders real configuration source separately from success receipts with opt-in fee preview", () => {
   response = { ...response, data: makeStatus(), error: null };
   const html = render();
   assert.match(html, /电脑上的 Codex 任务/); assert.match(html, /服务器采集任务/);
@@ -50,7 +50,8 @@ test("readonly schedule renders real configuration source separately from succes
   assert.match(html, /当前配置暂停，不安排下一次自动执行/);
   assert.match(html, /尚无已保存的采集或调度回执/);
   assert.doesNotMatch(html, /2026\/12\/03|FREQ=|BYHOUR=|<input|<select|<form|role="switch"|开启并执行|账号|API Key/);
-  assert.equal((html.match(/<button/g) ?? []).length, 1, "refresh is the only operation");
+  assert.equal((html.match(/<button/g) ?? []).length, 2);
+  assert.match(html, /查看费用与开启/);
 });
 
 test("failed reads do not fall back to a static enabled snapshot or fabricated zero runs", () => {

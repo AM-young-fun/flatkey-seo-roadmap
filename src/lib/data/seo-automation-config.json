@@ -2,23 +2,6 @@
   "verifiedAt": "2026-11-12T07:27:04.660597+00:00",
   "tasks": [
     {
-      "id": "10-30-seo",
-      "name": "SEO 09:00 三表校验与平台同步",
-      "kind": "cron",
-      "status": "PAUSED",
-      "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1794468033066,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap"
-      ]
-    },
-    {
       "id": "automation",
       "name": "SEO 周四16:30 下周计划定稿待确认",
       "kind": "cron",

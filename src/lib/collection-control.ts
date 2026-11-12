@@ -3,7 +3,7 @@ import { z } from "zod";
 export const collectionControlSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("inspectDiscovery"), requestId: z.string().regex(/^discovery-\d{4}-\d{2}-\d{2}-(flatkey-ai|modelfit-cc|rackrate-org)-(US|JP|ES|BR)$/) }).strict(),
   z.object({ action: z.literal("replayDiscovery"), requestId: z.string().regex(/^discovery-\d{4}-\d{2}-\d{2}-(flatkey-ai|modelfit-cc|rackrate-org)-(US|JP|ES|BR)$/) }).strict(),
-  z.object({ action: z.literal("previewSchedule") }).strict(),
+  z.object({ action: z.literal("previewSchedule"), futureOnly: z.literal(true).optional() }).strict(),
   z.object({ action: z.literal("pauseSchedule") }).strict(),
   z.object({ action: z.literal("enableSchedule"), previewToken: z.string().min(20).max(5000) }).strict(),
   z.object({ action: z.literal("runCycle"), previewToken: z.string().min(20).max(5000) }).strict(),

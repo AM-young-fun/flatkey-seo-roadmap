@@ -479,14 +479,16 @@ export function buildSeoDigest(input: DigestInput) {
       .sort((a, b) => Math.abs(b.latest!.clicks - b.before!.clicks) - Math.abs(a.latest!.clicks - a.before!.clicks))[0] ?? rows[0];
     const priority = input.priorities[0];
     const heading = window.kind === "weekly" ? `**Flatkey SEO 周报｜${window.workStart.slice(0, 10)}—${window.trafficEnd}**` : `**${title}**`;
-    notification.splice(0, notification.length, heading,
-      `交付 · 新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
-      "优化监控 · " + optimizationMonitorSummary(rows),
-      ...(window.kind === "daily" && input.technicalQa !== undefined ? ["SEO 技术质检 · " + technicalQaSummary(input.technicalQa)] : []),
+    const mainClicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, "all", window.kind);
+    notification.splice(0, notification.length, heading, "", "**交付与审批**",
+      `新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
+      "", "**自然搜索**", "Flatkey Google 点击 " + shortMetric(mainClicks),
+      "", "**优化效果**", optimizationMonitorSummary(rows),
       focus ? `重点效果 · ${link(focus.title, optimizationPlotUrl(focus))} · ${focus.country} · ${optimizationMetrics(focus, false)} · ${effectStatusLabel[focus.status]}`
         : "重点效果 · 暂无已核验的优化版本可跟踪。",
-      `${window.kind === "weekly" ? "下周重点" : "下一步"} · ${priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
-      link("数据基础", SEO_DATA_HUB));
+      ...(window.kind === "daily" && input.technicalQa !== undefined ? ["", "**SEO 技术质检**", technicalQaSummary(input.technicalQa)] : []),
+      "", `**${window.kind === "weekly" ? "下周重点" : "下一步"}**`, `${priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
+      "", link("数据基础", SEO_DATA_HUB));
   }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");

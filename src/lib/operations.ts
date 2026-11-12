@@ -62,7 +62,6 @@ export function nextAutomationTime(rule: string, now: Date, status: string): str
 }
 
 const automationNotes: Record<string, string> = {
-  "10-30-seo": "旧协作表同步已暂停。关键词与 TopicMap 在平台维护和下载。",
   "flatkey-5": "按已确认的周计划制作源博客，Flatkey 四国每国每周最多 5 个关键词，GPU 为主、API 为辅。真实博客和译文按质量门槛自动发布。",
   "automation": "周四定稿下周一至周日的本国关键词、落地页、源文和旧页/集群事项；周五10点周报引用定稿版本。缺证据不凑数。",
   "seo-09-30": "研究结果保存到平台的关键词和 TopicMap；搜索量 ≥10、KD＜30 优先。目标已有承接页时进入页面优化，无承接页时进入关键词页面搭建。",
@@ -94,7 +93,6 @@ export function automationCadence(rule: string): string {
 }
 export const automationConfigurationVerifiedAt = automationConfig.verifiedAt;
 const automationDependencies: Record<string, string[]> = {
-  "10-30-seo": [],
   "seo-09-30": ["平台关键词与 TopicMap", "国家与语言对应"],
   "flatkey-5": ["已审核周计划", "当地关键词证据", "CMS 发布回执"],
   "seo-13-30": ["旧页基线", "可核实内容证据", "非博客逐页版本审批"],
