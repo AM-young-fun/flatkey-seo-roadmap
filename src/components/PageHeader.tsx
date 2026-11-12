@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ChartNoAxesCombined, CheckSquare2, Clock3, ChevronDown, CircleCheck, ExternalLink, FileSearch, KeyRound, LayoutDashboard, ListTodo, Search, Settings2, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, ChartNoAxesCombined, Clock3, ChevronDown, CircleCheck, ExternalLink, KeyRound, LayoutDashboard, ListTodo, Search, Settings2 } from "lucide-react";
 import { usePreviewMode } from "./PreviewMode";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache } from "@/lib/client-read-cache";
@@ -14,24 +14,22 @@ import { REGIONS, REGION_CODES } from "@/lib/seo";
 const workspaceLinks = [
   ["overview", "/", "总览", LayoutDashboard],
   ["work", "/work", "工作任务", ListTodo],
-  ["opportunities", "/opportunities", "关键词选题", Search],
-  ["pages", "/pages", "页面优化", FileSearch],
-  ["approvals", "/approvals", "页面审批", CheckSquare2],
-  ["issues", "/issues", "问题处理", TriangleAlert],
+  ["opportunities", "/opportunities", "关键词目标", Search],
+  ["reports", "/reports", "日周效果", ChartNoAxesCombined],
   ["automations", "/automations", "定时任务", Clock3],
 ] as const;
 const GA4_REALTIME_URL = "https://analytics.google.com/analytics/web/#/a248149353p541304395/realtime/overview";
 
 export function PageHeader({ active }: {
-  active: "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations";
+  active: "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports";
 }) {
   const preview = usePreviewMode();
   const [country, setCountry] = useSeoCountry();
   const [query, setQuery] = useState("");
   const header = useRef<HTMLElement>(null);
-  const activeWork = ["traffic", "records", "deliveries", "runs", "manage"].includes(active) ? "work"
+  const activeWork = ["traffic", "records", "deliveries", "runs", "manage", "pages", "clusters", "optimizations", "issues", "approvals"].includes(active) ? "work"
     : ["keywords", "rankings"].includes(active) ? "opportunities"
-    : ["clusters", "optimizations"].includes(active) ? "pages" : active;
+    : active;
   useEffect(() => {
     const read = () => {
       const current = new URLSearchParams(location.search), next = new URLSearchParams();
