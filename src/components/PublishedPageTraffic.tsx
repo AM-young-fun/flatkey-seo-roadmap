@@ -1,5 +1,6 @@
 "use client";
 
+import { workTaskHref } from "@/lib/seo-workspace-routes";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -38,7 +39,7 @@ function PublicationTrend({ record }: { record: WorkflowPublication }) {
     : effect.first.date === effect.latest?.date ? "已取得上线后第一日数据" : "对比上线后首次与最新完整数据";
   const value = (key: typeof searchMetrics[number], datum: number | null | undefined) => key === "ctr" ? formatCtr(datum) : numberText(datum);
   return <section className={styles.listPanel} aria-label="上线效果与自然搜索流量">
-    <div className={styles.sectionHeading}><h2>{record.title}</h2><Link href={"/work?" + new URLSearchParams({ week: record.weekStart }) + "#task-" + record.taskId}>查看任务</Link></div>
+    <div className={styles.sectionHeading}><h2>{record.title}</h2><Link href={workTaskHref({ id: record.taskId, weekStart: record.weekStart })}>查看任务</Link></div>
     <p><a href={record.pageUrl} target="_blank" rel="noreferrer">{record.pageUrl} ↗</a></p>
     <p className={styles.muted}>上线于 {shanghaiStamp(record.publishedAt)}（北京时间） · {record.country ?? "全部国家"} · GSC 网页搜索 · 全设备</p>
     {result.error ? <p role="alert">{result.error} <button type="button" className={styles.secondary} onClick={result.retry}>重试</button></p> : !effect ? <p role="status">正在读取 GSC 数据…</p> : <>
@@ -71,7 +72,7 @@ export function PublishedPageTraffic() {
     .filter(row => row.publishedAt.slice(0, 10) >= cutoff), [result.data, cutoff]);
   const active = records.find(row => row.id === selected) ?? records[0];
   return <>
-    <div className={styles.sectionHeading}><h1>上线效果</h1><button type="button" className={styles.secondary} onClick={result.retry}>刷新页面列表</button></div>
+    <div className={styles.sectionHeading}><h1>上线效果</h1><div className={styles.toolbarActions}><Link className={styles.secondary} href="/reports">返回日／周效果</Link><button type="button" className={styles.secondary} onClick={result.retry}>刷新页面列表</button></div></div>
     {result.error ? <p role="alert">{result.error}</p> : !result.data ? <p role="status">正在读取上线页面…</p> : active ? <>
       <label>已核验页面（最近 90 天）<UiSelect aria-label="选择已核验页面" value={active.id} onChange={setSelected} options={records.map(row => ({ value: row.id, label: row.title + " · " + (row.country ?? row.language) }))} /></label>
       <PublicationTrend key={active.id} record={active} />

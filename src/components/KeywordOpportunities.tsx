@@ -161,7 +161,7 @@ export function KeywordOpportunities() {
         <h1>关键词选题</h1>
         <p>Flatkey · {marketLabel}</p>
       </div>
-      <a href="#keyword-evidence">选题依据与关键词操作</a>
+      <Link href="/opportunities">返回关键词列表</Link>
     </div>
     <section className={styles.results} aria-label="关键词选题列表">
       <div className={styles.toolbar}>
@@ -271,7 +271,7 @@ export function KeywordOpportunities() {
         })}</div> : null}
         <p className={styles.note}>效果窗口从优化次日开始，只查看已结束日，并与优化前等长区间对比。页面效果可查看实际访问、注册和 GSC 点击；排名沿用既有采集记录，未开启额外付费抓取。</p>
       </details>
-      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><Link href={"/work?" + new URLSearchParams({ new: "1", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span role="status">{message}</span></div>
+      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><Link href={"/opportunities?" + new URLSearchParams({ view: "new", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span role="status">{message}</span></div>
     </section> : null}
     </Modal>
   </main>;

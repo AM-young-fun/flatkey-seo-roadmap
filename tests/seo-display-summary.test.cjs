@@ -6,7 +6,7 @@ const stats=(...values)=>metricStats(values.map(sessions=>({sessions,registratio
 test('missing days suppress comparison; a measured zero stays zero',()=>{
  assert.equal(stats(null).total,null); assert.equal(stats(0).total,0);
  assert.equal(changeText(stats(100,null),stats(50,50),range),'数据未齐，暂不比较');
- assert.equal(changeText(stats(100,100),stats(50,null),range),'数据未齐，暂不比较');
+ assert.equal(changeText(stats(100,100),stats(50,null),range),'对比期数据未齐');
 });
 test('equal periods compare totals while unequal periods compare daily averages',()=>{
  assert.equal(changeText(stats(1164),stats(1100),range),'比对比期多 5.8%');

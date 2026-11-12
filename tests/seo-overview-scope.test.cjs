@@ -21,14 +21,13 @@ test("country language filtering remains real and cross-language does not bypass
  assert.deepEqual(overviewKeywordScope([en,ja,other],"JP","models").keywords.map(row=>row.text),["モデル API"]);
  assert.equal(overviewKeywordScope([en,ja,other],"US","models",true).keywords.length,2);
 });
-test("unregistered or unusable URLs stay unknown and rank URL or keyword title never invents a module",()=>{
+test("unregistered or unusable target URLs appear under other without guessing from titles or rank URLs",()=>{
  const rows=[keyword("no-target",{text:"GPU blog model prompt",targetUrls:undefined,latestRanks:{US:{...rank(1),url:"https://flatkey.ai/compute"}}}),
   keyword("invalid",{targetUrls:["/compute","javascript:alert(1)"]}),keyword("foreign",{targetUrls:["https://not-ours.example/compute"]}),
   keyword("staging",{targetUrls:["https://staging-website.flatkey.ai/compute"]}),keyword("registered-other",{targetUrls:["https://flatkey.ai/llm-cost-calculator"]})];
- assert.equal(overviewKeywordScope(rows,"US","unknown").keywords.length,4);
- assert.equal(overviewKeywordScope(rows,"US","other").keywords.length,1);
+ assert.equal(overviewKeywordScope(rows,"US","other").keywords.length,5);
  assert.equal(overviewKeywordScope(rows,"US","gpu").keywords.length,0);
- assert.equal(overviewKeywordScope(rows,"US","all").unknownCount,4);
+ assert.equal(overviewModule("unknown"),"other");
  assert.equal(overviewKeywordScope(rows,"US","all").keywords.length,5);
 });
 test("multi-target keyword can belong to several modules without duplicate nodes or dangling parent relations",()=>{

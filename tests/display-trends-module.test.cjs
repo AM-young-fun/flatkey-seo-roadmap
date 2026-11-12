@@ -15,8 +15,8 @@ test("persisted trend identity includes the actual module and builder receives t
   trendCalls = [];
   const all = displayViewSpec(params("all")), blog = displayViewSpec(params("blog")), gpu = displayViewSpec(params("gpu"));
   assert.equal(new Set([all.key, blog.key, gpu.key]).size, 3);
-  assert.ok(blog.key.endsWith(":blog:current-target-modules-v1"));
-  assert.ok(gpu.key.endsWith(":gpu:current-target-modules-v1"));
+  assert.ok(blog.key.endsWith(":blog:current-target-modules-v2"));
+  assert.ok(gpu.key.endsWith(":gpu:current-target-modules-v2"));
   const result = await gpu.build(); assert.equal(result.value.moduleScope.module, "gpu");
   assert.deepEqual(trendCalls[0], { site: "all", range: { start: "2026-10-08", end: "2026-10-16" }, module: "gpu" });
 });

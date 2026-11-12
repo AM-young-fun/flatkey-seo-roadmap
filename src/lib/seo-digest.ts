@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { compareOrganicPeriods, type OrganicPeriod } from "./seo-organic-period";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
-import { executionViewRoutes } from "./seo-workspace-routes";
+import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
 export const SEO_REPORT_GROUP = "cid7d5au0J8RAKDDxMR+VNh1w==";
@@ -230,7 +230,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   const materials = [];
   for (const task of tasks.values()) {
     if (task.status !== "review_pending" || automaticTaskPolicy(task)) continue;
-    const taskUrl = `${SEO_PLATFORM}${executionViewRoutes.tasks}?week=${task.weekStart}#task-${encodeURIComponent(task.id)}`;
+    const taskUrl = SEO_PLATFORM + workTaskHref(task);
     if (pageApprovalKinds.has(task.kind)) {
       const revision = revisions.get(task.id);
       if (revision) materials.push({ id: task.id, title: task.title, url: approvalUrl(revision), reason: "需按审批意见修改或补充材料" });
@@ -269,7 +269,7 @@ function optimizationMonitorSummary(rows: OptimizationReportRow[]) {
   return `跟踪 ${rows.length} 页 · 两点齐全 ${rows.length - waiting} 页 · 待数据 ${waiting} 页 · 观察中 ${observing} 页 · 需复查 ${review} 页`;
 }
 
-const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/work?" + new URLSearchParams({ panel: "published-traffic", publication: row.id });
+const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/reports?" + new URLSearchParams({ view: "published", publication: row.id });
 
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();
@@ -346,7 +346,7 @@ export function buildSeoDigest(input: DigestInput) {
       lines.push(`• 巡检时间 ${qa.scheduledFor} · 覆盖 ${{ full: "完整", partial: "部分", unknown: "未核实" }[qa.coverage]}`);
       if (qa.failure) lines.push("• 缺口 · " + escaped(qa.failure));
       for (const issue of qa.issues) lines.push(`• ${issue.priority} ${link(issue.title, issue.url ?? SEO_PLATFORM + "/work")} · ${escaped(issue.nextAction)}`);
-      for (const approval of qa.approvals) lines.push(`• ${link(approval.title, SEO_PLATFORM + "/work?panel=approvals&approvalId=" + encodeURIComponent(approval.id))} · ${approval.status}`);
+      for (const approval of qa.approvals) lines.push(`• ${link(approval.title, SEO_PLATFORM + "/approvals?approvalId=" + encodeURIComponent(approval.id))} · ${approval.status}`);
       if (Object.keys(qa.sourceDates).length) lines.push("• 来源日期 · " + Object.entries(qa.sourceDates).map(([key, value]) => `${escaped(key)} ${value ?? "待更新"}`).join(" · "));
       if (qa.nextAction) lines.push("• 下一步 · " + escaped(qa.nextAction));
     }

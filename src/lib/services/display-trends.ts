@@ -9,7 +9,7 @@ import type { SerpTrendCohort } from "@/lib/serp-results";
 export async function loadModuleTrendCohorts(cohorts: SerpTrendCohort[], module: OverviewPageModule) {
   if (module === "all" || !cohorts.length) return cohorts;
   // Include inactive rows if still registered: today's eligibility must not
-  // rewrite a historical cohort. Deleted/missing mappings belong to unknown.
+  // rewrite a historical cohort. Deleted or missing mappings fall under other.
   const members = cohorts.flatMap(cohort => cohort.targets);
   if (!members.length) return cohorts;
   const current = await prisma.siteKeyword.findMany({

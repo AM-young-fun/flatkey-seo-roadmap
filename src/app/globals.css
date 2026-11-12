@@ -485,6 +485,10 @@ h2 {
   min-width: 1180px;
 }
 
+.keywordTableCompact :where(.ant-table-container table) {
+  min-width: 0;
+}
+
 .keywordTable :where(.ant-table-thead > tr > th) {
   color: var(--muted);
   font-size: 12px;
@@ -1799,12 +1803,16 @@ a:focus-visible {
 
 .trafficMetricNote { color:var(--muted); font-size:12px; line-height:1.7; min-height:40px; margin:8px 0 16px; }
 
-.inventoryTrendTotal { margin:0 0 20px; color:#70819a; font-size:13px; line-height:1.8; }
-.inventoryTrendTotal strong { color:#19283f; font-size:20px; margin:0 4px; }
-.trendRankCounts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 16px; margin:0 0 16px; }
-.trendRankCounts dt { color:#697789; font-size:12px; }
-.trendRankCounts dd { margin:2px 0 0; color:#253349; font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
-@media(max-width:480px) { .trendRankCounts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.inventoryTrendSummary { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:10px 16px; margin:0 0 12px; }
+.inventoryTrendTotal,.inventoryTrendPeriod { display:grid; gap:3px; color:#64748b; font-size:12px; }
+.inventoryTrendTotal strong { color:#17243b; font-size:32px; line-height:1; letter-spacing:-.02em; }
+.inventoryTrendPeriod { text-align:right; }
+.inventoryTrendPeriod strong { color:#334155; font-size:13px; font-weight:600; }
+.trendRankCounts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 76px),1fr)); gap:1px; margin:0 0 12px; border:1px solid #e5e9f0; border-radius:6px; overflow:hidden; background:#e5e9f0; }
+.trendRankCounts > div { min-width:0; padding:8px 10px; background:#f8fafc; }
+.trendRankCounts dt { display:flex; flex-wrap:wrap; align-items:center; gap:5px; color:#52647c; font-size:11px; }
+.trendRankCounts dt i { width:7px; height:7px; border-radius:50%; flex:none; }
+.trendRankCounts dd { margin:2px 0 0; color:#253349; font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
 
 /* Summary first, full-width keyword network below. */
 .cacheNotice { margin:16px 0; color:#738298; font-size:12px; }
@@ -2031,7 +2039,7 @@ a:focus-visible {
 .keywordSearchRow .searchField input { font-size:13px; }
 .keywordFilterReset { display:inline-flex; align-items:center; gap:7px; flex-shrink:0; padding:10px 2px 10px 12px; border:0; background:transparent; color:#72839b; font-size:12px; }
 .keywordFilterReset:hover { color:#2563eb; }
-.keywordFilterGrid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:18px; }
+.keywordFilterGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; }
 .keywordFilterGrid .originSelectField { align-items:stretch; flex-direction:column; gap:8px; font-size:11px; color:#8491a5; }
 .keywordFilterGrid .originSelect { width:100%; height:40px; }
 .keywordExtraFilters { border-top:1px solid #eef1f6; margin-top:20px; padding:12px 0; font-size:11px; color:#8594a9; }

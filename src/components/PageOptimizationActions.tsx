@@ -1,5 +1,6 @@
 "use client";
 
+import { workTaskHref } from "@/lib/seo-workspace-routes";
 import Link from "next/link";
 import { useState } from "react";
 import { REGIONS, REGION_CODES, type SeoCountry } from "@/lib/seo";
@@ -27,7 +28,7 @@ export function PageOptimizationActions({ pageUrl, site, country }: { pageUrl: s
     </form>
     {result.error ? <p role="alert">已有任务读取失败：{result.error} <button type="button" onClick={result.retry}>重试</button></p> : !result.data ? <p className={styles.note}>正在核对已有优化任务…</p> : tasks.length ? <details className={styles.approvalActions}><summary>已有优化任务 · {tasks.length} 项</summary><div className={styles.approvalAction}>
       <label>已有优化任务<UiSelect aria-label="选择已有优化任务" value={task?.id ?? ""} onChange={setTaskId} options={[{ value: "", label: "选择已登记的优化任务" }, ...tasks.map(row => ({ value: row.id, label: `${row.keyword ?? row.title} · ${row.country ? REGIONS[row.country].label : "未指定国家"} · ${row.weekStart}` }))]} /></label>
-      {task ? <Link href={`/work?week=${task.weekStart}#task-${task.id}`}>查看任务</Link> : null}
+      {task ? <Link href={workTaskHref(task)}>查看任务</Link> : null}
     </div></details> : null}
   </section>;
 }

@@ -139,10 +139,10 @@ test("module filtering runs before cross-site text deduplication and cannot borr
   assert.equal(models.points[0].ranked, 1); assert.equal(models.points[0].total, 2);
 });
 
-test("deleted and invalid current mappings stay unknown and never fall back to historical target pages", async () => {
+test("deleted and invalid current mappings fall under other and never fall back to historical target pages", async () => {
   currentTargets = [{ ...target("deepseek"), targetUrls: ["https://foreign.example/gpu"] }];
-  const unknown = await (await GET(request("&module=unknown"))).json();
-  assert.equal(unknown.points[0].total, 2); assert.equal(unknown.points[0].ranked, 1);
+  const other = await (await GET(request("&module=other"))).json();
+  assert.equal(other.points[0].total, 2); assert.equal(other.points[0].ranked, 1);
   const all = await (await GET(request())).json();
   assert.equal(all.points[0].total, 2); assert.equal(all.points[0].ranked, 1);
   assert.equal(calls.filter(call => call[0] === "module-targets").length, 1, "unfiltered read remains independent of current registry");
@@ -164,6 +164,6 @@ test("pure module scopes preserve period membership and allow multiple registere
   assert.equal(scopeTrendCohorts(saved, current, "gpu")[0].targets.length, 1);
   assert.equal(scopeTrendCohorts(saved, current, "all"), saved);
   assert.equal(scopeTrendCohorts(saved, current, "models")[0].targets.length, 0);
-  assert.deepEqual(trendModuleTargets(saved[0].targets, "unknown", []), saved[0].targets);
+  assert.deepEqual(trendModuleTargets(saved[0].targets, "other", []), saved[0].targets);
   assert.equal(saved[0].targets.length, 1, "new current targets never enter earlier frozen periods");
 });

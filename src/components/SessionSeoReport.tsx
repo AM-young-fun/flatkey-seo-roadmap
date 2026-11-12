@@ -34,8 +34,8 @@ function SessionChart({ points, metric }: { points: SessionDay[]; metric: Metric
   }, [points,metric,label]);
   return <><div ref={element} className={styles.plot} role="img" aria-label={`${label}每日趋势`} />{error ? <p>趋势图暂时无法显示，可展开日期明细查看。</p> : null}</>;
 }
-export function SessionSeoReport({ range, comparison = null, expanded = false, summary = false, footer, children, detailsLabel = "统计说明", showDetails = true, showTrend = true, showSourceSummary = false, compact = false }: {
-  range: DateRange; comparison?: DateRange | null; expanded?: boolean; summary?: boolean; footer?: ReactNode; children?: ReactNode; detailsLabel?: string; showDetails?: boolean; showTrend?: boolean; showSourceSummary?: boolean; compact?: boolean;
+export function SessionSeoReport({ range, comparison = null, expanded = false, summary = false, footer, children, detailsLabel = "统计说明", showDetails = true, showTrend = true, showComparisonDate = true, showSourceSummary = false, compact = false }: {
+  range: DateRange; comparison?: DateRange | null; expanded?: boolean; summary?: boolean; footer?: ReactNode; children?: ReactNode; detailsLabel?: string; showDetails?: boolean; showTrend?: boolean; showComparisonDate?: boolean; showSourceSummary?: boolean; compact?: boolean;
 }) {
   const [country] = useSeoCountry();
   const current = useSeoRead<SeoAnalytics>(analyticsUrl(range, [], country));
@@ -71,7 +71,7 @@ export function SessionSeoReport({ range, comparison = null, expanded = false, s
     {showTrend ? <section className={styles.trend} aria-label="每日趋势"><div className={styles.heading}><Heading>每日趋势</Heading><div className={styles.switcher} aria-label="趋势指标"><button type="button" aria-pressed={metric === 'sessions'} onClick={() => setMetric('sessions')}>访问次数</button><button type="button" aria-pressed={metric === 'registrations'} onClick={() => setMetric('registrations')}>可归属注册</button></div></div>
       {data && stats[metric].measured > 0 ? <SessionChart points={data.daily} metric={metric} /> : <div className={styles.empty}>{data ? metric === "registrations" ? "所选区间的注册数据待核实，暂不绘制零值曲线。" : "所选区间暂无记录，请选择其他日期。" : error ? "暂时无法显示趋势" : "正在读取每日趋势…"}</div>}
     </section> : null}
-    {comparison ? <p className={styles.comparison}>对比 {comparison.start === comparison.end ? comparison.start : `${comparison.start} — ${comparison.end}`}{previous.error ? <> · 读取失败 <button type="button" onClick={previous.retry}>重试</button></> : null}</p> : null}
+    {showComparisonDate && comparison ? <p className={styles.comparison}>对比 {comparison.start === comparison.end ? comparison.start : `${comparison.start} — ${comparison.end}`}{previous.error ? <> · 读取失败 <button type="button" onClick={previous.retry}>重试</button></> : null}</p> : null}
     {expanded && data ? <section className={styles.records}><h2>日期明细</h2><SessionDaysTable points={data.daily} /></section> : null}
     {footer || showDetails ? <div className={styles.footer}>{footer}{showDetails ? <details className={styles.disclosure}><summary>{detailsLabel}</summary><div className={styles.explanation}>
       <p>访问按当次自然搜索会话计次；注册统计{data?.registrationMetric === "sign_up_or_legacy_distinct_users" ? "这些会话中触发规范 sign_up 或历史 sign_up_success 的用户并集，同一次查询去重，不把事件次数相加" : "这些会话中触发历史 sign_up_success 的用户（兼容新事件的归档待刷新）"}，每日去重后累加为区间注册人次。仅计正式域名可归属事件；旧事件缺少域名时未计入，0不代表业务实际无人注册。</p><p>按 GA4 属性时区 America/Los_Angeles 划分日期。缺失数据以「—」显示，核实为零的记录显示 0。缺日时不显示涨跌百分比，等长周期比较合计，不等长周期比较日均。</p>

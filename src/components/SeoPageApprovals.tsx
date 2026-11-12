@@ -1,5 +1,6 @@
 "use client";
 
+import { workTaskHref } from "@/lib/seo-workspace-routes";
 import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
 import Link from "next/link";
 import Image from "next/image";
@@ -19,7 +20,7 @@ type ApprovalInput = Omit<WorkflowApproval, "version" | "updatedAt" | "recordedA
 const labels: Record<string, string> = { automatic_history: "免审历史", draft: "草稿", pending: "待审批", partially_reviewed: "逐项处理", approved: "已批准", rejected: "已拒绝", changes_requested: "要求修改", withdrawn: "已撤回", superseded: "已被新单替换" };
 const siteLabels: Record<string, string> = { "flatkey.ai": "Flatkey", "jev-llm.com": "JEV LLM", "mochichatbot.com": "MochiChatbot", "modelfit.cc": "ModelFit", "rackrate.org": "RackRate" };
 const stamp = (value: string | null) => value ? shanghaiStamp(value) : "尚未提交";
-const href = (id: string) => `/work?panel=approvals&approvalId=${encodeURIComponent(id)}`;
+const href = (id: string) => `/approvals?approvalId=${encodeURIComponent(id)}`;
 const safeUrl = (value: string | null | undefined) => { try { const url = new URL(value ?? ""); return url.protocol === "https:" && !url.username && !url.password ? url.toString() : null; } catch { return null; } };
 const recordInput = (approval: WorkflowApproval): ApprovalInput => {
   const { version: _version, updatedAt: _updatedAt, recordedAt: _recordedAt, submittedRecordedAt: _submittedRecordedAt, decisions, ...record } = approval;
@@ -153,7 +154,7 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefre
             {item.reviewContent ? <><h4>{item.reviewFormat === "diff" ? "完整变更 Diff" : "完整审稿内容"} · {item.reviewContent.length.toLocaleString("zh-CN")} 字符</h4><pre>{item.reviewContent}</pre></> : <p className={styles.muted}>请在测试页面或稿件中核对版本。若无法访问，可要求修改。</p>}
           </details>
           <details className={review.content}><summary>关联任务、页面效果与证据</summary>
-            <p>关联任务 {task ? <Link href={`/work?week=${task.weekStart}#task-${task.id}`}>{task.title}</Link> : item.taskId} · <Link href={"/pages?" + new URLSearchParams({ site: approval.siteDomain, pageUrl: item.pageUrl })}>页面效果</Link></p>
+            <p>关联任务 {task ? <Link href={workTaskHref(task)}>{task.title}</Link> : item.taskId} · <Link href={"/pages?" + new URLSearchParams({ site: approval.siteDomain, pageUrl: item.pageUrl })}>页面效果</Link></p>
             <Evidence items={item.evidence} />
           </details>
         </section>;

@@ -7,10 +7,10 @@ const ts = require("typescript");
 const file = path.resolve(__dirname, "../src/lib/seo-workspace-routes.ts");
 const compiled = new Module(file, module);
 compiled._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-const { workspaceRedirectHref, executionViewRoutes } = compiled.exports;
+const { workspaceRedirectHref, executionViewRoutes, workTaskHref, workTaskListHref } = compiled.exports;
 
 test("legacy execution views return to their actionable workspace", () => {
-  assert.equal(executionViewRoutes.deliveries, "/work?panel=deliveries");
+  assert.equal(executionViewRoutes.deliveries, "/deliveries");
   assert.equal(executionViewRoutes.runs, "/automations");
   assert.equal(executionViewRoutes.optimizations, "/pages?panel=optimizations");
   assert.equal(executionViewRoutes.approvals, "/approvals");
@@ -51,4 +51,13 @@ test("empty redirects have no dangling query; approval deep links preserve the t
   assert.equal(url.pathname, "/approvals");
   assert.equal(url.searchParams.get("approvalId"), "approval-v2");
   assert.equal(url.searchParams.get("country"), "ES");
+});
+
+test("task detail uses its recorded week and restores the list period and filters", () => {
+  const detail = new URL(workTaskHref({ id: "task:es", weekStart: "2026-11-09" },
+    new URLSearchParams({ week: "current", taskType: "optimization", q: "servidor gpu" })), "https://test.invalid");
+  assert.equal(detail.pathname, "/work/task%3Aes");
+  assert.equal(detail.searchParams.get("week"), "2026-11-09");
+  const list = workTaskListHref(Object.fromEntries(detail.searchParams));
+  assert.equal(list, "/work?week=current&taskType=optimization&q=servidor+gpu");
 });

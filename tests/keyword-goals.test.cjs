@@ -25,7 +25,7 @@ test('navigation has only requested five work areas and legacy analysis deep lin
  const source=fs.readFileSync(require.resolve('../src/components/PageHeader.tsx'),'utf8');const nav=source.slice(source.indexOf('const workspaceLinks'),source.indexOf('] as const;'));
  for(const label of ['总览','工作任务','关键词目标','日周效果','定时任务'])assert.ok(nav.includes(label));
  for(const label of ['页面优化','页面审批','问题处理'])assert.ok(!nav.includes(label));
- const route=fs.readFileSync(require.resolve('../src/app/opportunities/page.tsx'),'utf8');assert.match(route,/params\.details/);assert.match(route,/KeywordGoals/);assert.match(route,/KeywordOpportunities/);
+ const route=fs.readFileSync(require.resolve('../src/app/opportunities/page.tsx'),'utf8');assert.match(route,/params\.details/);assert.match(route,/params\.view === "new".*KeywordGoals/);assert.match(route,/return <KeywordDetails/);
 });
 
 test("cluster content follows verified site languages independently of the reporting country",()=>{
