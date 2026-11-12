@@ -1,10 +1,12 @@
 "use client";
 
+import { groupApprovalPages, pendingTaskApproval } from "@/lib/seo-approval-display";
+import { ReviewChangeSummary } from "./SeoPageApprovals";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
-import { approvalReviewReadiness, automaticTaskPolicy, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
 import type { WorkflowSnapshot, WorkflowTask, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
 import { WorkflowEvidence } from "./WorkflowEvidence";
@@ -187,21 +189,22 @@ function workTaskStatus(task: WorkflowTask, data?: WorkflowSnapshot | null) {
 }
 
 function multilingualReviews(data: WorkflowSnapshot | null) {
-  const byTask = new Map<string, { approval: WorkflowApproval; languages: string[] }>();
+  const byTask = new Map<string, { approval: WorkflowApproval; languages: string[]; key: string }>();
   if (!data) return byTask;
   const tasks = new Map(data.tasks.map(task => [task.id, task]));
   for (const approval of data.approvals ?? []) {
     if (approval.status === "draft") continue;
-    const pending = approval.items.flatMap(item => {
+    const pending = approval.items.filter(item => {
       const task = tasks.get(item.taskId);
-      return task?.siteDomain === approval.siteDomain && task.pageUrl === item.pageUrl && task.contentVersion === item.contentVersion &&
-        !automaticTaskPolicy(task, item.pageUrl) && workflowApprovalEffectiveItemStatus(approval, item.id, data.approvals) === "pending"
-        ? [{ item, pageType: task.pageType }] : [];
+      return task?.siteDomain === approval.siteDomain && task.pageUrl === item.pageUrl && task.contentVersion === item.contentVersion
+        && approvalItemNeedsHuman(item, [task]) && workflowApprovalEffectiveItemStatus(approval, item.id, data.approvals) === "pending";
     });
-    const languages = [...new Set(pending.map(({ item }) => item.language))];
-    if (languages.length < 2 || new Set(pending.map(({ item, pageType }) => `${pageType}:${item.operation}`)).size !== 1) continue;
-    for (const { item } of pending) {
-      if (!byTask.has(item.taskId)) byTask.set(item.taskId, { approval, languages });
+    for (const group of groupApprovalPages(pending)) {
+      const languages = [...new Set(group.items.map(item => item.language))];
+      if (languages.length < 2) continue;
+      for (const item of group.items) {
+        if (!byTask.has(item.taskId)) byTask.set(item.taskId, { approval, languages, key: approval.id + ":" + group.key });
+      }
     }
   }
   return byTask;
@@ -246,8 +249,8 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const taskRows = tasks.filter(task => {
     const review = reviews.get(task.id);
     if (!review) return true;
-    if (listedReviews.has(review.approval.id)) return false;
-    listedReviews.add(review.approval.id);
+    if (listedReviews.has(review.key)) return false;
+    listedReviews.add(review.key);
     return true;
   });
   const scopedIds = new Set(taskScope.map(task => task.id));
@@ -310,7 +313,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
         <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }, { value: "technical", label: "技术修复" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
         {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
           const review = reviews.get(task.id);
-          if (review) return <Link className={styles.taskLink} href={`/approvals?approvalId=${encodeURIComponent(review.approval.id)}`} key={review.approval.id} prefetch={false}>
+          if (review) return <Link className={styles.taskLink} href={`/approvals?approvalId=${encodeURIComponent(review.approval.id)}`} key={review.key} prefetch={false}>
             <span><strong>{review.approval.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><span>{review.languages.length} 个语言 · {review.languages.join("、")}</span></small></span>
             <span className={styles.taskMeta}><WorkflowStatus status="review_pending" /></span>
             <ChevronRight size={16} aria-hidden="true" />
@@ -343,6 +346,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
 export function WorkTaskPage({ taskId, week, listHref }: { taskId: string; week: string; listHref: string }) {
   const result = useSeoRead<WorkflowSnapshot>(`/api/seo/workflow?week=${encodeURIComponent(week)}`);
   const task = result.data?.tasks.find(record => record.id === taskId);
+  const pendingReview = task ? pendingTaskApproval(task, result.data?.approvals ?? []) : null;
   return <main className={workspace.shell}>
     <PageHeader active="work" />
     <div className={workspace.titleRow}>
@@ -354,10 +358,14 @@ export function WorkTaskPage({ taskId, week, listHref }: { taskId: string; week:
       : <article className={styles.listPanel}>
         <div className={styles.sectionHeading}>
           <h1 className={workspace.title}>{task.title}</h1>
-          <WorkflowStatus status={workTaskStatus(task, result.data)} />
+          <div className={styles.toolbarActions}>
+            <WorkflowStatus status={workTaskStatus(task, result.data)} />
+            {pendingReview ? <Link className={styles.primary} href={"/approvals?" + new URLSearchParams({ approvalId: pendingReview.approval.id, taskId: task.id, review: "1" })}>审核任务</Link> : null}
+          </div>
         </div>
-        <TaskDetail task={task} tasks={result.data.tasks} approvals={result.data.approvals ?? []}
-          publications={result.data.publications} optimizations={result.data.optimizations} onSaved={result.retry} />
+        {pendingReview ? <div className={styles.detail}><ReviewChangeSummary item={pendingReview.item} /></div>
+          : <TaskDetail task={task} tasks={result.data.tasks} approvals={result.data.approvals ?? []}
+              publications={result.data.publications} optimizations={result.data.optimizations} onSaved={result.retry} />}
       </article>}
   </main>;
 }

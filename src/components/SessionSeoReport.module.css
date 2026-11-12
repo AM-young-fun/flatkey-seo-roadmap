@@ -74,3 +74,26 @@
   .compact .plot { height: 155px; }
   .compact .footer { margin-top: 8px; padding-top: 7px; }
 }
+
+.valueSkeleton, .captionSkeleton {
+  display: block;
+  border-radius: 5px;
+  background: #e6edf5;
+  animation: session-loading 1.5s ease-in-out infinite alternate;
+}
+.valueSkeleton { width: 92px; height: 40px; margin: 7px 0; }
+.captionSkeleton { width: min(110px, 65%); height: 10px; margin-top: 8px; }
+.compact .valueSkeleton { width: 68px; height: 28px; margin: 4px 0; }
+.plotSkeleton { padding: 14px 12px 22px 36px; }
+.plotGrid {
+  display: block;
+  height: 100%;
+  border-left: 1px solid #e4ebf3;
+  border-bottom: 1px solid #e4ebf3;
+  background: repeating-linear-gradient(to bottom, #e9eff6 0 1px, transparent 1px 25%), linear-gradient(#f9fbfd, #fff);
+  animation: session-loading 1.5s ease-in-out infinite alternate;
+}
+@keyframes session-loading { to { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) {
+  .valueSkeleton, .captionSkeleton, .plotGrid { animation: none; }
+}
