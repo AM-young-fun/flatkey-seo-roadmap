@@ -21,7 +21,7 @@ const labels: Record<string, string> = { automatic_history: "免审历史", draf
 const languages = ["en", "ja", "pt-BR", "es-ES", "zh", "fr", "de", "it", "ru", "vi", "ko"];
 const siteLabels: Record<string, string> = { "flatkey.ai": "Flatkey", "jev-llm.com": "JEV LLM", "mochichatbot.com": "MochiChatbot", "modelfit.cc": "ModelFit", "rackrate.org": "RackRate" };
 const stamp = (value: string | null) => value ? shanghaiStamp(value) : "尚未提交";
-const href = (id: string) => `/approvals?approvalId=${encodeURIComponent(id)}`;
+const href = (id: string) => `/work?panel=approvals&approvalId=${encodeURIComponent(id)}`;
 const safeUrl = (value: string | null | undefined) => { try { const url = new URL(value ?? ""); return url.protocol === "https:" && !url.username && !url.password ? url.toString() : null; } catch { return null; } };
 const recordInput = (approval: WorkflowApproval): ApprovalInput => {
   const { version: _version, updatedAt: _updatedAt, recordedAt: _recordedAt, submittedRecordedAt: _submittedRecordedAt, decisions, ...record } = approval;
@@ -104,12 +104,13 @@ function WriteError({ error, conflict, onRefresh }: { error: string; conflict: b
   return error ? <div className={styles.warning} role="alert"><div><p>{error}</p>{conflict ? <><p>该记录已变更。当前操作未覆盖他人的决定；请刷新并重新核对最新内容。</p><button type="button" className={styles.secondary} onClick={onRefresh}>读取最新审批记录</button></> : null}</div></div> : null;
 }
 
-function emptyItem(task?: WorkflowTask): EditItem {
-  return { id: `item-${crypto.randomUUID()}`, taskId: task?.id ?? "", operation: task?.kind === "optimization" ? "update" : "new", pageUrl: task?.pageUrl ?? "", language: task?.language ?? "en", contentVersion: task?.contentVersion ?? "", baseContentVersion: null, changeSummary: "", beforeSummary: null, afterSummary: "", draftUrl: task?.artifactUrl ?? null, previewUrl: null, previewContentVersion: null, reviewContent: null, reviewFormat: "markdown", beforeContent: null, evidence: [], evidenceUrl: "", evidenceArtifact: "", desktopScreenshot: "", mobileScreenshot: "" };
+function emptyItem(task?: WorkflowTask, usePreview = false): EditItem {
+  const preview = usePreview && task?.evidence.some(row => row.url === task.artifactUrl && row.label === "测试预览 · " + task.contentVersion) ? task.artifactUrl : null;
+  return { id: `item-${crypto.randomUUID()}`, taskId: task?.id ?? "", operation: task?.kind === "optimization" ? "update" : "new", pageUrl: task?.pageUrl ?? "", language: task?.language ?? "en", contentVersion: task?.contentVersion ?? "", baseContentVersion: null, changeSummary: "", beforeSummary: null, afterSummary: "", draftUrl: task?.artifactUrl ?? null, previewUrl: preview, previewContentVersion: preview ? task?.contentVersion ?? null : null, reviewContent: null, reviewFormat: "markdown", beforeContent: null, evidence: [], evidenceUrl: "", evidenceArtifact: "", desktopScreenshot: "", mobileScreenshot: "" };
 }
 
-function ApprovalEditor({ weekStart, tasks, allApprovals, initialTask, original, revision, onSaved, onCancel, onRefresh }: {
-  weekStart: string; tasks: WorkflowTask[]; allApprovals: WorkflowApproval[]; initialTask?: WorkflowTask; original?: WorkflowApproval; revision?: WorkflowApproval;
+function ApprovalEditor({ weekStart, tasks, allApprovals, initialTask, fromPreview, original, revision, onSaved, onCancel, onRefresh }: {
+  weekStart: string; tasks: WorkflowTask[]; allApprovals: WorkflowApproval[]; initialTask?: WorkflowTask; fromPreview: boolean; original?: WorkflowApproval; revision?: WorkflowApproval;
   onSaved: (record: WorkflowApproval) => void; onCancel: () => void; onRefresh: () => void;
 }) {
   const source = original ?? revision;
@@ -118,7 +119,7 @@ function ApprovalEditor({ weekStart, tasks, allApprovals, initialTask, original,
   const [id] = useState(() => original?.id ?? `approval-${crypto.randomUUID()}`);
   const [title, setTitle] = useState(source?.title ?? (initialTask ? `页面审批 · ${initialTask.title}` : ""));
   const [site, setSite] = useState(source?.siteDomain ?? initialTask?.siteDomain ?? "flatkey.ai"), [requestedBy, setRequestedBy] = useState(original?.requestedBy ?? "");
-  const [items, setItems] = useState<EditItem[]>(() => source ? source.items.map(item => ({ ...item, id: original ? item.id : `item-${crypto.randomUUID()}`, evidenceUrl: "", evidenceArtifact: "", desktopScreenshot: "", mobileScreenshot: "" })) : [emptyItem(initialTask)]);
+  const [items, setItems] = useState<EditItem[]>(() => source ? source.items.map(item => ({ ...item, id: original ? item.id : `item-${crypto.randomUUID()}`, evidenceUrl: "", evidenceArtifact: "", desktopScreenshot: "", mobileScreenshot: "" })) : [emptyItem(initialTask, fromPreview)]);
   const [confirmed, setConfirmed] = useState(false), [localError, setLocalError] = useState("");
   const write = useApprovalWrite();
   const availableTasks = tasks.filter(task => task.siteDomain === site);
@@ -324,7 +325,7 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
         <div><span>待审批单 · 全部工作周</span><strong>{numberText(data.summary.pendingApprovals)}</strong></div>
         <div><span>待审页面版本</span><strong>{numberText(data.summary.pendingApprovalItems)}</strong></div>
       </section>
-      {editor ? editUnavailable ? <p className={styles.warning}>该草稿已由其他人提交，不能再编辑。请查看最新审批单；如内容有变化，请另建审批单。<button type="button" className={styles.secondary} onClick={closeEditor}>关闭旧草稿</button></p> : <ApprovalEditor key={`${editor.id}:${editingRecord?.version ?? 0}`} weekStart={data.tasks.find(task => task.id === initialTaskId)?.weekStart ?? weekStart} tasks={data.tasks} allApprovals={approvals} initialTask={data.tasks.find(task => task.id === initialTaskId)} original={editor.mode === "edit" ? editingRecord : undefined} revision={editor.mode === "revise" ? editor.record : undefined} onSaved={saved} onCancel={closeEditor} onRefresh={refresh} /> : null}
+      {editor ? editUnavailable ? <p className={styles.warning}>该草稿已由其他人提交，不能再编辑。请查看最新审批单；如内容有变化，请另建审批单。<button type="button" className={styles.secondary} onClick={closeEditor}>关闭旧草稿</button></p> : <ApprovalEditor key={`${editor.id}:${editingRecord?.version ?? 0}`} weekStart={data.tasks.find(task => task.id === initialTaskId)?.weekStart ?? weekStart} tasks={data.tasks} allApprovals={approvals} initialTask={data.tasks.find(task => task.id === initialTaskId)} fromPreview={params.get("fromPreview") === "1"} original={editor.mode === "edit" ? editingRecord : undefined} revision={editor.mode === "revise" ? editor.record : undefined} onSaved={saved} onCancel={closeEditor} onRefresh={refresh} /> : null}
       <section className={styles.listPanel} aria-labelledby="approval-list-title">
         <div className={styles.sectionHeading}><h2 id="approval-list-title">审批记录</h2><span className={styles.count}>{shown.length} 单</span></div>
         <div className={review.filters}><UiSelect aria-label="审批状态筛选" value={scope} onChange={setScope} options={[{ value: "pending", label: "待审批（跨周）" }, { value: "all", label: "全部审批记录" }, ...["draft", "partially_reviewed", "approved", "changes_requested", "rejected", "withdrawn", "superseded"].map(value => ({ value, label: labels[value] }))]} /><UiSelect aria-label="审批站点筛选" value={site} onChange={setSite} options={[{ value: "all", label: "全部五站" }, ...WORKFLOW_SITES.map(value => ({ value, label: siteLabels[value] }))]} /><input aria-label="搜索审批单" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索标题、URL、版本或提交人" /></div>

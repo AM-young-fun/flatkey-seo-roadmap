@@ -42,7 +42,7 @@ function readState(result: ReturnType<typeof useSeoRead<SeoAnalytics>>) {
   return { data, byUrl: new Map(data?.pages.map(page => [page.url, page])), error: result.error ?? (result.data && !data ? "数据口径不匹配，请重试" : null) };
 }
 
-function PageChart({ points, metric, label }: { points: PageDay[]; metric: Metric; label?: string }) {
+export function PageChart({ points, metric, label }: { points: PageDay[]; metric: Metric; label?: string }) {
   const element = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {

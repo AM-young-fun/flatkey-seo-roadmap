@@ -103,3 +103,7 @@
 .supportActions button[aria-expanded=true] { color:var(--ui-primary); border-color:var(--ui-primary); }
 .supportContent { padding:18px; border-top:1px solid #edf0f4; min-width:0; }
 @media(max-width:560px) { .supportActions { padding:10px; } .supportContent { padding:12px; } }
+
+.workTabs { display:flex; gap:16px; border-bottom:1px solid #e2e8f0; margin:0 0 16px; }
+.workTabs a { padding:10px 2px; color:#526176; text-decoration:none; border-bottom:2px solid transparent; }
+.workTabs a[aria-current=page] { color:var(--ui-primary); font-weight:600; border-bottom-color:var(--ui-primary); }

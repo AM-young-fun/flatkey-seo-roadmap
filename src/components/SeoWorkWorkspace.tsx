@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CalendarDays, CheckCircle2, CircleAlert, Clock3, ExternalLink, Plus, RefreshCw } from "lucide-react";
-import type { WorkflowSnapshot, WorkflowTask, WorkflowPlan, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
+import type { WorkflowSnapshot, WorkflowTask, WorkflowPlan, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
+import { WorkTabs } from "./WorkTabs";
+import { PageDeliveryActions } from "./PageDeliveryActions";
 import { PageHeader } from "./PageHeader";
 import { SeoAutomationSchedule } from "./SeoAutomationSchedule";
 import { WorkTrafficEvidence } from "./WorkTrafficEvidence";
@@ -18,7 +21,7 @@ const sites = [{ value: "flatkey.ai", label: "Flatkey" }, { value: "jev-llm.com"
 const languages = [{ value: "en", label: "英语" }, { value: "ja", label: "日语" }, { value: "pt-BR", label: "巴西葡语" }, { value: "es-ES", label: "西班牙语" }];
 const marketLanguage = { US: "en", JP: "ja", BR: "pt-BR", ES: "es-ES" } as const;
 const markets = { US: "美国", JP: "日本", BR: "巴西", ES: "西班牙" };
-const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审核", approved: "已审核", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "草案", reviewed: "已定稿", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
+const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审核", approved: "待负责人发布", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "草案", reviewed: "已定稿", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
 const taskKinds: Record<string, string> = { blog: "博客", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", technical: "技术修复", research: "关键词研究", promotion: "推广与内链", review: "复盘" };
 const pageTypes: Record<string, string> = { blog: "博客", landing: "落地页", tool: "工具", comparison: "比较页", tutorial: "教程", pricing: "价格页", integration: "接入页", technical: "技术项", other: "其他" };
 const publicationKinds: Record<string, string> = { source_blog: "源文", translation: "翻译", backfill_translation: "历史补译", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", prompt: "提示词" };
@@ -75,7 +78,8 @@ function PlanApproval({ plan, onSaved }: { plan: WorkflowPlan; onSaved: () => vo
   </form>;
 }
 
-function TaskDetail({ task, tasks, approvals }: { task: WorkflowTask; tasks: WorkflowTask[]; approvals: WorkflowApproval[] }) {
+function TaskDetail({ task, tasks, approvals, publications, optimizations, onSaved }: { task: WorkflowTask; tasks: WorkflowTask[]; approvals: WorkflowApproval[]; publications: WorkflowPublication[]; optimizations: WorkflowOptimization[]; onSaved: () => void }) {
+  const pageDelivery = ["landing", "optimization", "cluster"].includes(task.kind) && task.pageType !== "blog" && !/\/blog(?:\/|$)/.test(task.pageUrl ?? "");
   return <div className={styles.detail}>
     <dl className={styles.metadata}>
       <div><dt>任务类型 / 页面类型</dt><dd>{taskKinds[task.kind]} / {pageTypes[task.pageType]}</dd></div>
@@ -92,9 +96,10 @@ function TaskDetail({ task, tasks, approvals }: { task: WorkflowTask; tasks: Wor
     <h4>关键词研究</h4>{task.research ? <><p>月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p><p>{task.research.intent}</p>{task.research.exceptionReason ? <p>例外理由：{task.research.exceptionReason}</p> : null}<WorkflowEvidence evidence={task.research.evidence} /></> : <p className={styles.muted}>{task.kind === "technical" ? "技术与数据任务不要求主关键词；按验收要求执行。" : "研究证据待补，不能视为合格制作输入。"}</p>}
     <h4>交付证据</h4><WorkflowEvidence evidence={task.evidence} />
     {task.approval ? <p className={styles.muted}>历史任务审核：{task.approval.approvedBy} · {displayTime(task.approval.approvedAt)} · 版本 {task.approval.contentVersion}。此记录不作为当前页面发布授权。</p> : null}
-    <h4>页面审批</h4><p className={styles.muted}>每个新增或修改页面、每种语言都需具体版本审批；包括新博客和译文。内容变化后须重新提交。</p>
-    {approvals.filter(approval => approval.items.some(item => item.taskId === task.id)).map(approval => <p key={approval.id}><Link href={`/approvals?approvalId=${encodeURIComponent(approval.id)}`}>{approval.title} →</Link></p>)}
-    <Link href={`/approvals?newApproval=1&taskId=${encodeURIComponent(task.id)}`} className={styles.secondary}>准备页面审批单</Link>
+    {pageDelivery || approvals.some(approval => approval.items.some(item => item.taskId === task.id)) ? <h4>页面交付</h4> : null}
+    {approvals.filter(approval => approval.items.some(item => item.taskId === task.id)).map(approval => <p key={approval.id}><Link href={`/work?panel=approvals&approvalId=${encodeURIComponent(approval.id)}`}>{approval.title} →</Link></p>)}
+    {pageDelivery ? <PageDeliveryActions key={`${task.id}:${task.version}`} task={task} approvals={approvals} publications={publications} mutate={mutateWorkflow} onSaved={onSaved} /> : task.kind === "technical" ? <Link href={`/work?panel=approvals&newApproval=1&taskId=${encodeURIComponent(task.id)}`} className={styles.secondary}>准备页面审批单</Link> : null}
+    {optimizations.filter(row => row.taskId === task.id).map(row => <OptimizationHistory key={row.id} optimization={row} />)}
     <p className={styles.muted}>最近记录 {displayTime(task.updatedAt)} · 任务 {task.id}</p>
   </div>;
 }
@@ -267,6 +272,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const week = params.get("week") ?? "current", site = params.get("site") ?? "all", business = params.get("business") ?? "all", language = params.get("language") ?? "all", status = params.get("status") ?? "all", tab = view;
   const Container = embedded ? "section" : "main";
   const panel = params.get("panel");
+  const taskType = params.get("taskType") ?? "all";
   const title = workViews[view], detailedFilters = !["issues", "runs"].includes(view);
   const [query, setQuery] = useState(""), [monday] = useState(currentMonday);
   const [taskEditor, setTaskEditor] = useState(params.get("new") === "1");
@@ -280,7 +286,15 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const relatedTasks = [...(data?.tasks ?? []), ...(relatedTaskHistory.data?.tasks ?? [])];
   const matchesScope = (record: { siteDomain: string; country?: string | null; language?: string | null }) => (site === "all" || record.siteDomain === site) && (country === "all" || record.country === country) && (language === "all" || record.language === language);
   const taskScope = data?.tasks.filter(task => matchesScope(task) && (business === "all" || task.business === business)) ?? [];
-  const tasks = taskScope.filter(task => (status === "all" || task.status === status) && [task.title, task.keyword, task.pageUrl, task.owner].some(value => value?.toLowerCase().includes(query.toLowerCase())));
+  const taskStatus = (task: WorkflowTask) => {
+    const publication = data?.publications.find(row => row.taskId === task.id && row.contentVersion === task.contentVersion && ["published", "verified"].includes(row.status));
+    if (task.status === "observing" || publication) return task.status === "observing" ? task.status : publication!.status;
+    const approvals = data?.approvals ?? [];
+    if (approvals.some(approval => approval.items.some(item => item.taskId === task.id && item.contentVersion === task.contentVersion &&
+        approvalReviewReadiness(item).ready && workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "approved"))) return "approved";
+    return task.status;
+  };
+  const tasks = taskScope.filter(task => (taskType === "all" || task.kind === taskType) && (status === "all" || taskStatus(task) === status) && [task.title, task.keyword, task.pageUrl, task.owner].some(value => value?.toLowerCase().includes(query.toLowerCase())));
   const scopedIds = new Set(taskScope.map(task => task.id));
   const publications = data?.publications.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
   const optimizations = data?.optimizations.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
@@ -316,6 +330,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
         {view === "tasks" ? <button ref={newTaskButton} type="button" className={styles.primary} aria-expanded={taskEditor && Boolean(data)} aria-controls={data ? "new-work-task" : undefined} disabled={!data} onClick={() => setTaskEditor(open => !open)}><Plus size={14} aria-hidden="true" />新建任务</button> : null}
       </div>
     </div> : null}
+    {!embedded && view === "tasks" ? <WorkTabs active="tasks" /> : null}
     {!embedded ? <><div className={styles.filters}>
       <UiSelect aria-label="工作周" value={week} onChange={value => filter("week", value)} options={[{ value: "current", label: "本周" }, { value: "next", label: "下周" }, { value: shiftDay(monday, -7), label: "上周" }, ...(!["current", "next", shiftDay(monday, -7)].includes(week) ? [{ value: week, label: week }] : [])]} />
       <UiSelect aria-label="工作站点" value={site} onChange={value => filter("site", value)} options={[{ value: "all", label: "全部五站" }, ...sites]} />
@@ -331,7 +346,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           <div><span>已登记</span><strong>{taskScope.length}</strong></div>
           <div><span>任务待审</span><strong>{taskScope.filter(row => row.status === "review_pending").length}</strong></div>
           <div><span>受阻或失败</span><strong>{taskScope.filter(row => ["blocked", "failed"].includes(row.status)).length}</strong></div>
-          <div><Link href="/approvals">跨周待审批 →</Link><strong>{numberText(data.summary.pendingApprovals)} <small>单 · {numberText(data.summary.pendingApprovalItems)} 个页面版本</small></strong></div>
+          <div><Link href="/work?panel=approvals">跨周待审批 →</Link><strong>{numberText(data.summary.pendingApprovals)} <small>单 · {numberText(data.summary.pendingApprovalItems)} 个页面版本</small></strong></div>
         </section>
       </> : view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
         {["open", "investigating", "blocked", "resolved"].map(status => <div key={status}><span>{stateLabel(status)}</span><strong>{issueScope.filter(issue => issue.status === status).length}</strong></div>)}
@@ -343,8 +358,8 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
         <NewTask weekStart={chosenWeek} open={taskEditor} onClose={() => { setTaskEditor(false); newTaskButton.current?.focus(); }} onSaved={result.retry} />
         <section className={styles.listPanel} aria-labelledby="work-list-title">
           <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2><span className={styles.count}>{tasks.length} 项</span></div>
-          <div className={styles.taskFilters}><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
-          {tasks.length ? <div className={styles.records}>{tasks.map(task => <details className={styles.record} id={`task-${task.id}`} key={task.id}><summary><span><strong>{task.title}</strong><small>{task.keyword ?? "不适用关键词"} · {siteName(task.siteDomain)} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</small></span><span className={styles.taskMeta}><WorkflowStatus status={task.status} /><small>{task.dueAt.slice(0, 10)} · {task.owner}</small></span></summary><TaskDetail task={task} tasks={data.tasks} approvals={data.approvals ?? []} /></details>)}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}
+          <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
+          {tasks.length ? <div className={styles.records}>{tasks.map(task => <details className={styles.record} id={`task-${task.id}`} key={task.id}><summary><span><strong>{task.title}</strong><small>{task.keyword ?? "不适用关键词"} · {siteName(task.siteDomain)} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</small></span><span className={styles.taskMeta}><WorkflowStatus status={taskStatus(task)} /><small>{task.dueAt.slice(0, 10)} · {task.owner}</small></span></summary><TaskDetail task={task} tasks={data.tasks} approvals={data.approvals ?? []} publications={data.publications} optimizations={data.optimizations} onSaved={result.retry} /></details>)}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}
         </section>
         <details className={styles.plan}>
           <summary><span>{plan?.title ?? "周计划"}</span>{plan ? <WorkflowStatus status={plan.status} /> : <span className={styles.muted}>尚未入库</span>}</summary>
@@ -375,7 +390,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       {tab === "runs" ? <section aria-label="运行回执"><div className={styles.sectionHeading}><h2>阶段运行与来源日期</h2></div><p className={styles.muted}>以下为实际执行回执。任务排期、开始运行和成功完成是不同状态；未关联具体站点任务的全局回执在“全部五站”中查看。</p>{runs.length ? runs.map(run => <details key={run.id} className={styles.record}><summary><span><strong>{stageNames[run.stage] ?? run.stage}</strong><small>{displayTime(run.scheduledFor)} · {run.owner}</small></span><WorkflowStatus status={run.status} /></summary><div className={styles.detail}><p><Clock3 size={14} />开始 {displayTime(run.startedAt)} · 完成 {displayTime(run.completedAt)}</p><p>完成 {run.completedItems} / 核查 {run.checkedItems} 项 · 覆盖 {({ full: "完整", partial: "部分", unknown: "未核实" }[run.coverage])} · 费用 {run.costMicros == null ? "未提供" : `$${(run.costMicros / 1e6).toFixed(4)}`}</p>{run.failureReason ? <p className={styles.warning}>{run.failureReason}</p> : null}<p>下一步：{run.nextAction || "无待办记录"}</p><h4>来源截至日期</h4>{Object.keys(run.sourceDates).length ? <dl className={styles.metadata}>{Object.entries(run.sourceDates).map(([source, date]) => <div key={source}><dt>{source}</dt><dd>{date ?? "待更新"}</dd></div>)}</dl> : <p className={styles.muted}>该回执尚未提供来源日期。</p>}<WorkflowEvidence evidence={run.evidence} /><p className={styles.muted}>输入版本 {run.inputVersion} · 回执 {run.id}</p></div></details>) : <p className={styles.empty}>此范围尚无阶段执行回执，不能据定时配置判断已完成。</p>}</section> : null}
     </>}
     {view === "tasks" && !embedded ? <section className={styles.support} aria-label="工作参考数据">
-      <div className={styles.supportActions}>{[["traffic", "流量效果"], ["deliveries", "发布记录"], ["runs", "定时任务与执行记录"]].map(([value, label]) => <button key={value} type="button" className={styles.secondary} aria-expanded={panel === value} aria-controls="work-support-content" onClick={() => filter("panel", panel === value ? "all" : value)}>{label}</button>)}</div>
+      <div className={styles.supportActions}>{[["deliveries", "发布记录"]].map(([value, label]) => <button key={value} type="button" className={styles.secondary} aria-expanded={panel === value} aria-controls="work-support-content" onClick={() => filter("panel", panel === value ? "all" : value)}>{label}</button>)}</div>
       {["traffic", "deliveries", "runs"].includes(panel ?? "") ? <div id="work-support-content" className={styles.supportContent}>{panel === "traffic" ? <WorkTrafficEvidence /> : <SeoWorkWorkspace view={panel as "deliveries" | "runs"} embedded />}</div> : null}
     </section> : null}
     {!embedded && data ? <p className={styles.footer}>读取于 {displayTime(data.generatedAt)} · <a href="https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz" target="_blank" rel="noreferrer">数据基础 ↗</a></p> : null}
