@@ -187,7 +187,7 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
   }
   const isTranslation = ["translation", "backfill_translation"].includes(value.kind);
   const expectedKind = isTranslation || value.kind === "source_blog" ? "blog" : value.kind;
-  if (task.kind !== expectedKind && !(task.kind === "technical" && ["optimization", "landing"].includes(value.kind))) reject("publication_kind_mismatch", "发布类型与任务不符；源文、落地页和优化不能混计");
+  if (task.kind !== expectedKind && !(task.kind === "technical" && ["optimization", "landing", "prompt"].includes(value.kind))) reject("publication_kind_mismatch", "发布类型与任务不符；源文、落地页和优化不能混计");
   const approvedItem = approvalRows(all).find(row => row.id === value.approvalId)?.items.find(item => item.id === value.approvalItemId);
   if (approvedItem?.operation !== (value.kind === "optimization" ? "update" : "new")) reject("publication_operation_mismatch", "新页面须按新增交付记录，修改旧页才按优化记录");
   if (!isTranslation && task.contentVersion !== value.contentVersion) reject("publication_version_mismatch", "发布版本不属于已批准内容");

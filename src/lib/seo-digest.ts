@@ -28,7 +28,7 @@ export type DigestObservation = {
   country?: "US" | "JP" | "BR" | "ES";
   sessions?: number | null; registrations?: number | null; clicks?: number | null; impressions?: number | null;
 };
-export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster"; verifiedAt: string; recordedAt: string; publishedAt: string };
+export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster" | "prompt"; verifiedAt: string; recordedAt: string; publishedAt: string };
 export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string };
 export type DigestInput = {
   notificationCompact?: boolean;

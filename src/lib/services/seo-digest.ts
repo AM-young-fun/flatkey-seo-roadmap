@@ -59,7 +59,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     if (row.kind === "gsc-site") observations.push({ site, country: row.country, date: row.date, source: "GSC", timezone: "America/Los_Angeles", observedAt: row.observedAt, complete: row.complete, scope: "google-web", clicks: row.clicks, impressions: row.impressions });
   }
   const verified = workflow.publications.filter(row => row.status === "verified" && row.verifiedAt && row.verificationRecordedAt);
-  const publications: DigestInput["publications"] = verified.filter(row => row.kind !== "optimization").map(row => ({ id: row.id, url: row.pageUrl, title: row.title, kind: row.kind === "source_blog" ? "source" : row.kind as "translation" | "backfill_translation" | "landing" | "cluster", verifiedAt: row.verifiedAt!, recordedAt: row.verificationRecordedAt!, publishedAt: row.publishedAt }));
+  const publications: DigestInput["publications"] = verified.filter(row => row.kind !== "optimization").map(row => ({ id: row.id, url: row.pageUrl, title: row.title, kind: row.kind === "source_blog" ? "source" : row.kind as "translation" | "backfill_translation" | "landing" | "cluster" | "prompt", verifiedAt: row.verifiedAt!, recordedAt: row.verificationRecordedAt!, publishedAt: row.publishedAt }));
   const optimizations: DigestInput["optimizations"] = workflow.optimizations.flatMap(row => row.changes.flatMap(change => {
     const publication = verified.find(p => p.id === change.publicationId);
     return publication ? [{ id: change.id, url: row.pageUrl, keyword: row.keyword, changes: change.description, verifiedAt: publication.verifiedAt!, recordedAt: publication.verificationRecordedAt!, baselineId: row.id + ":baseline" }] : [];

@@ -112,13 +112,14 @@ export const workflowPublicationSchema = z.object({
   id, taskId: id, approvalId: id, approvalItemId: id, weekStart: workflowWeekSchema, runId: id, siteDomain: site, pageUrl: httpsUrl,
   country: country.nullable(), language: z.string().trim().min(2).max(20), keyword: z.string().trim().min(1).max(300).nullable(),
   contentVersion: z.string().trim().min(1).max(200), title: z.string().trim().min(1).max(500),
-  kind: z.enum(["source_blog", "translation", "backfill_translation", "landing", "optimization", "cluster"]),
+  kind: z.enum(["source_blog", "translation", "backfill_translation", "landing", "optimization", "cluster", "prompt"]),
   sourcePublicationId: id.nullable(), publishedAt: stamp, verifiedAt: stamp.nullable(),
   status: z.enum(["published", "verified", "failed", "unknown"]), liveCheck: liveCheck.nullable(), evidence,
   failureReason: z.string().max(3000).nullable(),
 }).strict().superRefine((value, ctx) => {
   if (!pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
-  if (!["translation", "backfill_translation", "optimization", "landing"].includes(value.kind) && (!value.country || !value.keyword)) ctx.addIssue({ code: "custom", message: "源文及页面发布需要明确目标国家与本语言关键词" });
+  if (!["translation", "backfill_translation", "optimization", "landing", "prompt"].includes(value.kind) && (!value.country || !value.keyword)) ctx.addIssue({ code: "custom", message: "源文及页面发布需要明确目标国家与本语言关键词" });
+  if (value.kind === "prompt" && (value.siteDomain !== "flatkey.ai" || !/^https:\/\/flatkey\.ai\/(?:zh\/|es\/|fr\/|pt\/|ru\/|ja\/|vi\/|de\/|id\/)?prompts\/(?:image|video)\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.pageUrl))) ctx.addIssue({ code: "custom", message: "提示词发布只允许主站正式提示词详情页" });
   if (value.country && WORKFLOW_MARKETS[value.country] !== value.language) ctx.addIssue({ code: "custom", message: "发布目标国家与语言不一致；非目标市场译文须保留国家为空" });
   if (value.keyword && value.language !== "ja" && !value.language.startsWith("zh") && /[\u3400-\u9fff]/u.test(value.keyword)) ctx.addIssue({ code: "custom", message: "发布关键词必须使用对应页面语言" });
   if (value.status === "verified" && (!value.verifiedAt || !value.liveCheck || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "验收上线需要正式页验收与发布回执" });

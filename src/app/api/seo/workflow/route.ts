@@ -10,7 +10,8 @@ export async function GET(request: Request) {
     const week = params.get("week") ?? "current", pageUrl = params.get("pageUrl") ?? undefined;
     if (!["current", "next", "latest"].includes(week)) workflowWeekSchema.parse(week);
     if (pageUrl) { let valid = false; try { valid = WORKFLOW_SITES.some(site => pageBelongsToSite(pageUrl, site)); } catch { /* Invalid URL. */ } if (!valid) throw new WorkflowError("invalid_page", "请选择五站正式 HTTPS 页面", 400); }
-    return Response.json(await loadWorkflowSnapshot({ week, pageUrl, allHistory: params.get("allHistory") === "true" }, auth.localPreview), { headers: workflowHeaders });
+    const snapshot = await loadWorkflowSnapshot({ week, pageUrl, allHistory: params.get("allHistory") === "true" }, auth.localPreview);
+    return Response.json({ ...snapshot, capabilities: { promptPublication: 1 } }, { headers: workflowHeaders });
   } catch (error) { return workflowErrorResponse(error); }
 }
 export async function POST(request: Request) {
