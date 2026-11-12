@@ -1,6 +1,8 @@
 import { businessDigestLines, latestBusinessPeriod, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubComparable, githubDigestLines, PROMPT_REPOSITORIES, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
+import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
+import { technicalQaSummary, type TechnicalQaReport } from "./seo-technical-qa-report";
 import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -38,6 +40,8 @@ export type DigestInput = {
   githubObservations?: GithubChannel[];
   publications: DigestPublication[]; optimizations: DigestOptimization[];
   effects: { url: string; comparison: string; evidence: string; judgment: string }[];
+  optimizationMonitoring?: OptimizationReportRow[];
+  technicalQa?: TechnicalQaReport;
   priorities: { title: string; keyword?: string; country?: string; url?: string; reason: string; action: string }[];
   issues: string[]; runNotes: string[]; rankingNotes?: string[]; nextPlanUrl?: string; nextPlanStatus?: "draft" | "reviewed" | "bootstrap";
   publicationCoverage: "verified" | "missing" | "partial";
@@ -247,6 +251,26 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
     draftTickets: draftTickets.size, draftTasks: draftTasks.size, draftPages, draftMaterialCount: draftMaterials.size };
 }
 
+function optimizationMetrics(row: OptimizationReportRow, withDelta: boolean) {
+  const dates = `${row.before?.date ?? "待数据"} → ${row.latest?.date ?? "待数据"}`;
+  const pair = (key: "clicks" | "impressions" | "ctr") => {
+    const before = row.before?.[key], after = row.latest?.[key];
+    const value = (value: number | null | undefined) => key === "ctr" ? formatCtr(value) : value ?? "待数据";
+    const delta = !withDelta || before == null || after == null ? "" : `（${formatDelta((after - before) * (key === "ctr" ? 100 : 1))}${key === "ctr" ? " 个百分点" : ""}）`;
+    return `${value(before)} → ${value(after)}${delta}`;
+  };
+  return `${dates} · 点击 ${pair("clicks")} · 曝光 ${pair("impressions")} · CTR ${pair("ctr")}`;
+}
+
+function optimizationMonitorSummary(rows: OptimizationReportRow[]) {
+  const waiting = rows.filter(row => row.status === "waiting").length;
+  const observing = rows.filter(row => row.status === "observing").length;
+  const review = rows.filter(row => row.status === "updated" && row.latest!.clicks < row.before!.clicks && row.latest!.impressions < row.before!.impressions).length;
+  return `跟踪 ${rows.length} 页 · 两点齐全 ${rows.length - waiting} 页 · 待数据 ${waiting} 页 · 观察中 ${observing} 页 · 需复查 ${review} 页`;
+}
+
+const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/work?" + new URLSearchParams({ panel: "published-traffic", publication: row.id });
+
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();
   const pagePerformance = window.kind === "daily" ? digestTopPages(input.pageObservations ?? [], input.date, now) : [];
@@ -302,9 +326,31 @@ export function buildSeoDigest(input: DigestInput) {
     lines.push("", "历史交付归档（不计入当期新增）");
     for (const archive of archives.slice(0, 3)) lines.push(`• ${escaped(archive.sourceRunId)}：${archive.originals} 篇源文、${archive.translations} 个译文页；${archive.liveVerified} 页有线上复核时间，${archive.artifactOnly} 页仅有留档核对。${archive.unknownFirstVerification} 页首次验收时刻未知；保留 ${archive.pendingEvidence} 项待补证据、${archive.pendingRevisions} 份待审旧稿。`);
   }
-  lines.push("", "往期优化变化");
-  if (!input.effects.length) lines.push("• 暂无足够可比数据或明显变化，继续观察。");
-  for (const row of input.effects.slice(0, 5)) lines.push(`• ${link(row.url, row.url)} · ${escaped(row.comparison)} · ${escaped(row.evidence)} · ${escaped(row.judgment)}`);
+  if (input.optimizationMonitoring) {
+    lines.push("", "优化效果监控（GSC 网页搜索、全设备，日期按太平洋时间）", optimizationMonitorSummary(input.optimizationMonitoring));
+    if (!input.optimizationMonitoring.length) lines.push("• 暂无已核验的优化版本可跟踪。");
+    for (const row of input.optimizationMonitoring) {
+      const review = row.status === "updated" && row.latest!.clicks < row.before!.clicks && row.latest!.impressions < row.before!.impressions;
+      lines.push(`• ${link(row.title, row.url)} · ${row.country} · ${escaped(row.change)} · 上线 ${row.launchDay}`,
+        `  ${optimizationMetrics(row, true)} · ${review ? "需复查：点击和曝光均较基线下降，核查折线与排名" : effectStatusLabel[row.status] + " · " + row.reason} · ${link("查看折线", optimizationPlotUrl(row))}`);
+    }
+  } else {
+    lines.push("", "往期优化变化");
+    if (!input.effects.length) lines.push("• 暂无足够可比数据或明显变化，继续观察。");
+    for (const row of input.effects.slice(0, 5)) lines.push(`• ${link(row.url, row.url)} · ${escaped(row.comparison)} · ${escaped(row.evidence)} · ${escaped(row.judgment)}`);
+  }
+  if (window.kind === "daily" && input.technicalQa !== undefined) {
+    const qa = input.technicalQa;
+    lines.push("", "SEO 技术质检", technicalQaSummary(qa));
+    if (qa) {
+      lines.push(`• 巡检时间 ${qa.scheduledFor} · 覆盖 ${{ full: "完整", partial: "部分", unknown: "未核实" }[qa.coverage]}`);
+      if (qa.failure) lines.push("• 缺口 · " + escaped(qa.failure));
+      for (const issue of qa.issues) lines.push(`• ${issue.priority} ${link(issue.title, issue.url ?? SEO_PLATFORM + "/work")} · ${escaped(issue.nextAction)}`);
+      for (const approval of qa.approvals) lines.push(`• ${link(approval.title, SEO_PLATFORM + "/work?panel=approvals&approvalId=" + encodeURIComponent(approval.id))} · ${approval.status}`);
+      if (Object.keys(qa.sourceDates).length) lines.push("• 来源日期 · " + Object.entries(qa.sourceDates).map(([key, value]) => `${escaped(key)} ${value ?? "待更新"}`).join(" · "));
+      if (qa.nextAction) lines.push("• 下一步 · " + escaped(qa.nextAction));
+    }
+  }
   lines.push("", "五站自然搜索");
   for (const site of SEO_SITES) {
     lines.push(`• ${site}：自然会话 ${metricText(comparableMetric(input.observations, site, "sessions", input.date, "all", window.kind))}`);
@@ -426,6 +472,21 @@ export function buildSeoDigest(input: DigestInput) {
     const hasGaps = !review || input.publicationCoverage !== "verified" || input.optimizationCoverage !== "verified" || input.issues.length > 0 || input.runNotes.some(note => /partial|blocked|failed|失败|未测|429/i.test(note)) || pagePerformance.some(row => row.gaps.length) || referrals.some(row => row?.status !== "ok");
     const coverage = ["GSC", "GA4", "GitHub"].map(source => `${source} ${dates.get(source)?.size ? dateCoverage([...dates.get(source)!]) : "待更新"}`).join("；");
     notification.push("", `数据：${coverage}${hasGaps ? `；${link("缺数/异常见平台", SEO_PLATFORM + executionViewRoutes.issues)}` : ""}。`, "", `[数据基础](${SEO_DATA_HUB})`);
+  }
+  if (input.notificationCompact && input.optimizationMonitoring) {
+    const rows = input.optimizationMonitoring;
+    const focus = rows.filter(row => row.before && row.latest)
+      .sort((a, b) => Math.abs(b.latest!.clicks - b.before!.clicks) - Math.abs(a.latest!.clicks - a.before!.clicks))[0] ?? rows[0];
+    const priority = input.priorities[0];
+    const heading = window.kind === "weekly" ? `**Flatkey SEO 周报｜${window.workStart.slice(0, 10)}—${window.trafficEnd}**` : `**${title}**`;
+    notification.splice(0, notification.length, heading,
+      `交付 · 新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
+      "优化监控 · " + optimizationMonitorSummary(rows),
+      ...(window.kind === "daily" && input.technicalQa !== undefined ? ["SEO 技术质检 · " + technicalQaSummary(input.technicalQa)] : []),
+      focus ? `重点效果 · ${link(focus.title, optimizationPlotUrl(focus))} · ${focus.country} · ${optimizationMetrics(focus, false)} · ${effectStatusLabel[focus.status]}`
+        : "重点效果 · 暂无已核验的优化版本可跟踪。",
+      `${window.kind === "weekly" ? "下周重点" : "下一步"} · ${priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
+      link("数据基础", SEO_DATA_HUB));
   }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");

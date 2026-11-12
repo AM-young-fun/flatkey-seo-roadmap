@@ -1,8 +1,7 @@
-import { Suspense } from "react";
-import { SeoApprovalWorkspace } from "@/components/SeoApprovalWorkspace";
+import { redirect } from "next/navigation";
+import { workspaceRedirectHref, type WorkspaceSearchParams } from "@/lib/seo-workspace-routes";
 
-export const metadata = { title: "页面审批 · Flatkey SEO" };
-
-export default function Page() {
-  return <Suspense fallback={<p role="status">正在读取页面审批…</p>}><SeoApprovalWorkspace /></Suspense>;
+export default async function Page({ searchParams }: { searchParams: Promise<WorkspaceSearchParams> }) {
+  const { newApproval: _legacyEditor, fromPreview: _legacyPreview, ...params } = await searchParams;
+  redirect(workspaceRedirectHref("/work?panel=approvals", params));
 }

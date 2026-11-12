@@ -10,10 +10,11 @@ Module._load = function (name, parent, ...rest) {
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
 const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
 const { readonlyAutomationPlans, automationDate } = require("../src/lib/seo-automation-schedule.ts");
+const config = require("../src/lib/data/seo-automation-config.json");
 const { configuredAutomationPlans } = require("../src/lib/operations.ts");
 const { SeoAutomationSchedule } = require("../src/components/SeoAutomationSchedule.tsx");
 const makeStatus = () => ({
-  checkedAt: "2026-11-10T08:10:00Z", automationConfigurationVerifiedAt: "2026-11-10",
+  checkedAt: "2026-11-10T08:10:00Z", automationConfigurationVerifiedAt: config.verifiedAt,
   controls: { enabled: false, emergencyStopped: false, maxRunCostMicros: 0, maxMonthCostMicros: 0, discoveryMaxCostMicros: 0 },
   scheduler: { configured: true, cadence: "每5分钟检查及续跑任务", state: "UNCONFIRMED", lastStartedAt: null, lastCompletedAt: null },
   plans: [
@@ -44,7 +45,7 @@ test("readonly schedule renders real configuration source separately from succes
   response = { ...response, data: makeStatus(), error: null };
   const html = render();
   assert.match(html, /电脑上的 Codex 任务/); assert.match(html, /服务器采集任务/);
-  assert.match(html, /配置核对于 2026-11-10/); assert.match(html, /状态读取于/);
+  assert.ok(html.includes("配置核对于 " + config.verifiedAt)); assert.match(html, /状态读取于/);
   assert.match(html, /启用不等于已经执行成功/); assert.match(html, /自动付费未启用/);
   assert.match(html, /当前配置暂停，不安排下一次自动执行/);
   assert.match(html, /尚无已保存的采集或调度回执/);

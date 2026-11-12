@@ -1,6 +1,8 @@
+import { readFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
-import { authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
+import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { beijingDay, digestDateSchema, digestKindSchema } from "@/lib/seo-digest";
 import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, saveSeoDigest } from "@/lib/services/seo-digest";
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
@@ -9,9 +11,10 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
+const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
 const mutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("confirm_provider_rejection"), incidentId: z.literal("2026-11-11-dingtalk-1001") }).strict(),
-  z.object({ action: z.literal("read_saved"), reportId: z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/) }).strict(),
+  z.object({ action: z.literal("read_saved"), reportId }).strict(),
   z.object({ action: z.literal("delivery_status"), id: z.string().regex(/^seo-digest-delivery:(daily|weekly):\d{4}-\d{2}-\d{2}$/) }).strict(),
   z.object({ action: z.literal("prepare"), date: digestDateSchema, kind: digestKindSchema.default("daily") }).strict(),
   z.object({ action: z.literal("claim"), reportId: z.string().min(1).max(200), owner: z.string().min(1).max(200), transport: z.enum(["application-bot", "signed-webhook"]).optional(), messageFormat: z.literal("actionCard").optional() }).strict(),
@@ -24,9 +27,36 @@ function errorResponse(error: unknown) {
 export async function GET(request: Request) {
   if (!await auth(request) && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
   try {
-    const date = digestDateSchema.parse(new URL(request.url).searchParams.get("date") ?? beijingDay());
-    const kind = digestKindSchema.parse(new URL(request.url).searchParams.get("kind") ?? "daily");
+    const params = new URL(request.url).searchParams;
+    const date = digestDateSchema.parse(params.get("date") ?? beijingDay());
+    const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
     if (kind === "weekly" && new Date(date + "T00:00:00Z").getUTCDay() !== 5) return Response.json({ message: "周报日期必须是北京时间周五" }, { status: 400, headers });
+    if (params.get("saved") === "1") {
+      const explicitId = params.get("reportId");
+      if (explicitId) reportId.parse(explicitId);
+      const preview = process.env.SEO_DIGEST_PREVIEW_DIR;
+      if (preview && isAbsolute(preview) && analyticsLocalPreview(request)) {
+        const saved = await readFile(join(preview, `${date}.${kind}.json`), "utf8").catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        const report = saved ? JSON.parse(saved).report : null;
+        return Response.json({ report: report?.date === date && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null }, { headers });
+      }
+      const delivery = explicitId ? null : await prisma.seoDigestDelivery.findUnique({
+        where: { id: `seo-digest-delivery:${kind}:${date}` }, select: { status: true, reportId: true },
+      });
+      const exact = explicitId ?? (delivery?.status === "DELIVERED" ? delivery.reportId : null);
+      const saved = await prisma.seoReportVersion.findFirst({
+        where: { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", periodStart: new Date(date),
+          ...(exact ? { id: exact } : {}),
+          payload: { path: ["kind"], equals: kind },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { payload: true },
+      });
+      return Response.json({ report: saved?.payload ?? null }, { headers });
+    }
     return Response.json({ report: await generateSeoDigest(date, new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }
 }

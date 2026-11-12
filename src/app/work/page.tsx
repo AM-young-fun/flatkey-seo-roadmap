@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/PageHeader";
 import { WorkTabs } from "@/components/WorkTabs";
+import { PagePriorityWorkspace } from "@/components/PagePriorityWorkspace";
 import { PublishedPageTraffic } from "@/components/PublishedPageTraffic";
 import workspace from "@/components/SeoWorkspace.module.css";
 import { SeoApprovalWorkspace } from "@/components/SeoApprovalWorkspace";
@@ -16,11 +17,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   if (destination) {
     redirect(workspaceRedirectHref(destination, params));
   }
-  if (params.panel === "published-traffic") return <main className={workspace.shell}>
+  if (params.panel === "published-traffic" || params.panel === "priority") return <main className={workspace.shell}>
     <Suspense fallback={<p role="status">正在读取上线效果…</p>}>
       <PageHeader active="work" />
-      <WorkTabs active="traffic" />
-      <PublishedPageTraffic />
+      <WorkTabs active={params.panel === "priority" ? "priority" : "traffic"} />
+      {params.panel === "priority" ? <PagePriorityWorkspace /> : <PublishedPageTraffic />}
     </Suspense>
   </main>;
   return <Suspense fallback={<p role="status">正在读取工作任务…</p>}>{params.panel === "approvals" ? <SeoApprovalWorkspace /> : <SeoWorkWorkspace />}</Suspense>;

@@ -104,6 +104,17 @@
 .supportContent { padding:18px; border-top:1px solid #edf0f4; min-width:0; }
 @media(max-width:560px) { .supportActions { padding:10px; } .supportContent { padding:12px; } }
 
-.workTabs { display:flex; gap:16px; border-bottom:1px solid #e2e8f0; margin:0 0 16px; }
+.workTabs { display:flex; flex-wrap:wrap; gap:16px; border-bottom:1px solid #e2e8f0; margin:0 0 16px; }
 .workTabs a { padding:10px 2px; color:#526176; text-decoration:none; border-bottom:2px solid transparent; }
 .workTabs a[aria-current=page] { color:var(--ui-primary); font-weight:600; border-bottom-color:var(--ui-primary); }
+.reportDetail p { margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.reportSpace { height:10px; }
+
+.scrollTable { overflow-x: auto; }
+.scrollTable table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.scrollTable th, .scrollTable td { text-align: left; padding: .65rem; border-bottom: 1px solid var(--border, #e5e7eb); vertical-align: top; }
+.scrollTable th, .scrollTable td:nth-child(-n+4) { min-width: 5rem; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; margin-block: .75rem; }
+
+.toolbar button[aria-pressed="true"] { border-color: var(--ui-primary); color: var(--ui-primary); }

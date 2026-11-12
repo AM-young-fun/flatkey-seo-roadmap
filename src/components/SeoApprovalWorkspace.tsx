@@ -16,6 +16,6 @@ export function SeoApprovalWorkspace() {
   return <main className={workspace.shell}>
     <PageHeader active="work" />
     <WorkTabs active="approvals" />
-    <SeoPageApprovals key={`${params.get("newApproval") ?? ""}:${params.get("taskId") ?? ""}`} weekStart={weekStart} />
+    <SeoPageApprovals weekStart={weekStart} />
   </main>;
 }

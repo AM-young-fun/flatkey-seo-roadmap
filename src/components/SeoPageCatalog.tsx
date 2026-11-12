@@ -42,7 +42,11 @@ function readState(result: ReturnType<typeof useSeoRead<SeoAnalytics>>) {
   return { data, byUrl: new Map(data?.pages.map(page => [page.url, page])), error: result.error ?? (result.data && !data ? "数据口径不匹配，请重试" : null) };
 }
 
-export function PageChart({ points, metric, label }: { points: PageDay[]; metric: Metric; label?: string }) {
+type ChartMetric = Metric | "impressions" | "ctr";
+const chartLabels = { ...metricLabels, impressions: "Google 搜索曝光", ctr: "Google 搜索点击率" };
+export function PageChart({ points, metric, label, launchDay }: {
+  points: ({ date: string } & Partial<Record<ChartMetric, number | null>>)[]; metric: ChartMetric; label?: string; launchDay?: string;
+}) {
   const element = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -52,17 +56,17 @@ export function PageChart({ points, metric, label }: { points: PageDay[]; metric
     void import("@/lib/charts").then(({ init }) => {
       if (disposed) return;
       chart = init(target);
-      chart.setOption({ animation: false, color: ["#3473bd"], tooltip: { trigger: "axis", confine: true, renderMode: "richText" },
+      chart.setOption({ animation: false, color: ["#3473bd"], tooltip: { trigger: "axis", confine: true, renderMode: "richText", valueFormatter: (value: unknown) => typeof value === "number" && metric === "ctr" ? (value * 100).toFixed(2) + "%" : String(value ?? "—") },
         grid: { left: 42, right: 18, top: 20, bottom: 32 },
         xAxis: { type: "category", data: points.map(point => point.date), axisLabel: { hideOverlap: true, formatter: (date: string) => date.slice(5) }, axisTick: { show: false }, axisLine: { lineStyle: { color: "#e5e7eb" } } },
-        yAxis: { type: "value", min: 0, minInterval: 1, splitLine: { lineStyle: { color: "#eef0f3" } } },
-        series: [{ type: "line", name: metricLabels[metric], data: points.map(point => point[metric]), connectNulls: false, symbolSize: 5, lineStyle: { width: 2 } }],
+        yAxis: { type: "value", min: 0, ...(metric === "ctr" ? { axisLabel: { formatter: (value: number) => (value * 100).toLocaleString("zh-CN") + "%" } } : { minInterval: 1 }), splitLine: { lineStyle: { color: "#eef0f3" } } },
+        series: [{ type: "line", name: chartLabels[metric], data: points.map(point => point[metric] ?? null), connectNulls: false, symbolSize: 5, lineStyle: { width: 2 }, ...(launchDay && points.some(point => point.date === launchDay) ? { markLine: { silent: true, symbol: "none", label: { formatter: "上线" }, data: [{ xAxis: launchDay }] } } : {}) }],
       });
       setFailed(false); observer = new ResizeObserver(() => chart?.resize()); observer.observe(target);
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
-  }, [points, metric]);
-  return <><div ref={element} className={styles.chart} role="img" aria-label={label ?? `当前页面每日${metricLabels[metric]}趋势`} />{failed ? <p>图表暂时无法加载。</p> : null}</>;
+  }, [points, metric, launchDay]);
+  return <><div ref={element} className={styles.chart} role="img" aria-label={label ?? `当前页面每日${chartLabels[metric]}趋势`} />{failed ? <p>图表暂时无法加载。</p> : null}</>;
 }
 
 export function PageCatalog({ category, categoryLabel, range, comparison, categoryControl }: { category: string; categoryLabel: string; range: DateRange; comparison: DateRange | null; categoryControl?: ReactNode }) {

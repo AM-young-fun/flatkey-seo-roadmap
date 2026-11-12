@@ -1,8 +1,8 @@
-import { workflowTaskSchema, workflowWeek, WORKFLOW_MARKETS, type WorkflowTask } from "./seo-workflow";
+import { workflowTaskSchema, workflowWeek, workflowContentLanguage, WORKFLOW_MARKETS, type WorkflowLanguage, type WorkflowTask } from "./seo-workflow";
 
 export type KeywordGoalInput = {
   keyword: string; country: keyof typeof WORKFLOW_MARKETS; siteDomain: WorkflowTask["siteDomain"];
-  business: "GPU" | "API" | "CLUSTER"; pageUrl: string; owner: string; dueDate: string; goal: string;
+  language?: WorkflowLanguage; business: "GPU" | "API" | "CLUSTER"; pageUrl: string; owner: string; dueDate: string; goal: string;
 };
 
 export function keywordGoalTask(input: KeywordGoalInput, id: string) {
@@ -11,7 +11,7 @@ export function keywordGoalTask(input: KeywordGoalInput, id: string) {
   const kind = pageUrl ? "optimization" : "landing";
   return workflowTaskSchema.parse({
     id, weekStart: workflowWeek(new Date(dueAt)), title: `${kind === "optimization" ? "页面优化" : "关键词页面搭建"} · ${input.keyword.trim()}`,
-    siteDomain: input.siteDomain, kind, country: input.country, language: WORKFLOW_MARKETS[input.country], business: input.siteDomain === "flatkey.ai" ? input.business : "CLUSTER",
+    siteDomain: input.siteDomain, kind, country: input.country, language: workflowContentLanguage(input.siteDomain, input.country, input.language), business: input.siteDomain === "flatkey.ai" ? input.business : "CLUSTER",
     pageType: pageUrl && /\/blog(?:\/|$)/.test(new URL(pageUrl).pathname) ? "blog" : kind === "landing" ? "landing" : "other",
     keyword: input.keyword.trim(), pageUrl, owner: input.owner.trim(), dueAt, status: "planned", dependencies: [], evidence: [],
     nextAction: input.goal.trim() || "核对目标国家的搜索意图与现有页面，形成具体制作方案。",
@@ -21,7 +21,7 @@ export function keywordGoalTask(input: KeywordGoalInput, id: string) {
 
 export function matchingKeywordGoal(tasks: WorkflowTask[], candidate: ReturnType<typeof keywordGoalTask>) {
   const key = (value: string | null) => (value ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-  return tasks.find(task => task.siteDomain === candidate.siteDomain && task.country === candidate.country &&
+  return tasks.find(task => task.siteDomain === candidate.siteDomain && task.country === candidate.country && task.language === candidate.language &&
     key(task.keyword) === key(candidate.keyword) && task.pageUrl === candidate.pageUrl && task.kind === candidate.kind &&
     !["verified", "observing", "completed"].includes(task.status));
 }

@@ -4,6 +4,9 @@ import { readAnalyticsEvidence } from "@/lib/seo-analytics-files";
 import { prisma } from "@/lib/prisma";
 import { seoCountry } from "@/lib/seo";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
+import { optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
+import { pageOptimizationPriorities } from "@/lib/seo-page-priority";
+import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
 import { propertyToday } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
 import { overviewModuleAnalytics } from "@/lib/seo-overview-analytics";
@@ -22,12 +25,17 @@ export async function GET(request: Request) {
   const urls = [...new Set(search.getAll("url"))];
   const allPages = search.get("pages") === "all", pageDaily = search.get("pageDaily") === "1";
   const pageQueries = search.get("pageQueries") === "1";
+  const priority = search.get("priority") === "1";
+  const effectAt = search.get("effectAt");
   const requestedModule = search.get("module");
   const module = overviewModule(requestedModule);
   const requestedSite = search.get("site");
   const site = CLUSTER_SITES.find(entry => entry.domain === requestedSite);
   try {
     rangeDays(range);
+    if (priority && (urls.length || pageDaily || pageQueries || allPages || requestedModule || effectAt || country === "all")) throw new Error("无效优先级范围");
+    if (effectAt && (!pageDaily || !Number.isFinite(Date.parse(effectAt)) || Date.parse(effectAt) > Date.now()
+      || optimizationRange(effectAt, range.end).start !== range.start)) throw new Error("无效上线日期");
     // The cluster comparison uses one Beijing date range. Import still checks each source's timezone.
     if (range.end >= propertyToday(site ? "Asia/Shanghai" : undefined) || urls.length > 25 || !urls.every(value => {
       if (!safeAnalyticsUrl(value)) return false;
@@ -41,7 +49,7 @@ export async function GET(request: Request) {
     return Response.json({ message: "请选择已结束日期；一次最多366天和25个所选站点页面。" }, { status: 400, headers });
   }
   try {
-    const kinds = analyticsKinds.filter(kind => pageQueries === (kind === "gsc-page-queries"));
+    const kinds = priority ? ["gsc-pages" as const] : analyticsKinds.filter(kind => pageQueries === (kind === "gsc-page-queries"));
     const rows = analyticsLocalPreview(request)
       ? await readAnalyticsEvidence(range, country, site?.domain)
       : (await prisma.seoAnalyticsDay.findMany({
@@ -49,6 +57,10 @@ export async function GET(request: Request) {
         select: { payload: true },
       })).map(row => analyticsObservationSchema.parse(row.payload))
         .filter(row => clusterDomainForProperty(row.property) === site?.domain && (row.country ?? "all") === country);
+    if (priority) {
+      const workflow = await loadWorkflowSnapshot({ allHistory: true }, analyticsLocalPreview(request));
+      return Response.json(pageOptimizationPriorities(rows, workflow, site?.domain ?? "flatkey.ai", country, new Date()), { headers });
+    }
     if (requestedModule !== null) return Response.json({ ...overviewModuleAnalytics(range, module, rows), country, site: site?.domain ?? "flatkey.ai" }, { headers });
     if (site && !pageQueries && !urls.length && !allPages) {
       const view = analyticsView(range, [], rows);
@@ -61,7 +73,8 @@ export async function GET(request: Request) {
     }
     if (pageQueries) return Response.json({ ...pageQueryView(range, rows, urls[0]), country, site: site?.domain ?? "flatkey.ai" }, { headers });
     const view = { ...analyticsView(range, allPages ? observedPageUrls(rows) : urls, rows), country, site: site?.domain ?? "flatkey.ai" };
-    if (pageDaily) return Response.json({ ...view, pageDaily: pageDailyView(range, urls[0], rows) }, { headers });
+    if (pageDaily) return Response.json({ ...view, pageDaily: pageDailyView(range, urls[0], rows),
+      ...(effectAt ? { optimizationEffect: optimizationEffect({ url: urls[0], site: site?.domain ?? "flatkey.ai", country, publishedAt: effectAt, end: range.end, now: new Date(), observations: rows }) } : {}) }, { headers });
     if (allPages && search.get("landingDaily") === "1") {
       return Response.json({ ...view, landingDaily: landingTrafficDays(range, rows) }, { headers });
     }

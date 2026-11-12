@@ -27,3 +27,15 @@ test('navigation has only requested five work areas and legacy analysis deep lin
  for(const label of ['页面优化','页面审批','问题处理'])assert.ok(!nav.includes(label));
  const route=fs.readFileSync(require.resolve('../src/app/opportunities/page.tsx'),'utf8');assert.match(route,/params\.details/);assert.match(route,/KeywordGoals/);assert.match(route,/KeywordOpportunities/);
 });
+
+test("cluster content follows verified site languages independently of the reporting country",()=>{
+ const english=keywordGoalTask({...input,siteDomain:"rackrate.org",country:"ES",keyword:"gpu rental"}, "rackrate-es-en");
+ assert.equal(english.language,"en"); assert.equal(english.country,"ES");
+ const mochi=keywordGoalTask({...input,siteDomain:"mochichatbot.com",country:"JP",keyword:"AI チャット"}, "mochi-ja");
+ assert.equal(mochi.language,"ja");
+ const chinese=keywordGoalTask({...input,siteDomain:"mochichatbot.com",language:"zh-CN",keyword:"人工智能聊天"}, "mochi-zh");
+ assert.equal(chinese.language,"zh-CN");
+ const {workflowTaskSchema}=require("../src/lib/seo-workflow.ts");
+ assert.throws(()=>workflowTaskSchema.parse({...english,language:"es-ES"}));
+ assert.throws(()=>workflowTaskSchema.parse({...mochi,siteDomain:"flatkey.ai",language:"en"}));
+});

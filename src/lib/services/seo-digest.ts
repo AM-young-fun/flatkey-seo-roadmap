@@ -8,7 +8,9 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
-import { analyticsObservationSchema, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
+import { gscDate, gscPeriodEnd, OPTIMIZATION_BASELINE_DAYS, OPTIMIZATION_HISTORY_DAYS, optimizationReportRows, verifiedPagePublications } from "../seo-page-effects";
+import { technicalQaReport } from "../seo-technical-qa-report";
+import { analyticsObservationSchema, analyticsStorageKind, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { shiftWorkflowDay, workflowWeek } from "@/lib/seo-workflow";
@@ -28,6 +30,9 @@ async function requireReportingEnabled(transport: "application-bot" | "signed-we
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
   const window = digestWindow(date, kind);
   const start = shiftWorkflowDay(window.trafficStart, -15);
+  const monitoringAsOf = new Date(Math.min(now.getTime(), Date.parse(window.readyAfter)));
+  const monitoringEnd = [gscPeriodEnd(monitoringAsOf), window.trafficEnd].sort()[0];
+  const monitoringStart = shiftWorkflowDay(monitoringEnd, -(OPTIMIZATION_HISTORY_DAYS + OPTIMIZATION_BASELINE_DAYS + 2));
   const reads = await Promise.allSettled([
     loadWorkflowSnapshot({ week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, false),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, false),
@@ -76,8 +81,20 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     const completeDays = new Set(matches.filter(run => run.status === "completed" && run.coverage === "full").map(run => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(run.scheduledFor))));
     return completeDays.size >= expectedDays ? "verified" : "partial";
   };
+  const versionCutoff = new Date(Math.min(monitoringAsOf.getTime(), Date.parse(window.workEnd) - 1));
+  const monitoringKinds = [...new Set(verifiedPagePublications(workflow.publications, versionCutoff)
+    .filter(row => row.kind === "optimization" && gscDate(new Date(row.publishedAt)) >= shiftWorkflowDay(gscDate(monitoringAsOf), -OPTIMIZATION_HISTORY_DAYS))
+    .map(row => analyticsStorageKind("gsc-pages", row.country ?? "all", CLUSTER_SITES.find(site => site.domain === row.siteDomain)?.domain)))];
+  const monitoringArchive = monitoringKinds.length ? await prisma.seoAnalyticsDay.findMany({
+    where: { date: { gte: monitoringStart, lte: monitoringEnd }, kind: { in: monitoringKinds } }, select: { payload: true },
+  }).catch(() => { issues.push("优化监控 GSC 归档读取失败，相关页面保留待数据。"); return []; }) : [];
+  const monitorObservations = monitoringArchive.flatMap(({ payload }) => {
+    const parsed = analyticsObservationSchema.safeParse(payload);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
-    date, kind, now, observations, pageObservations, publications, optimizations, periods, notificationCompact: true,
+    date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring, technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), periods, notificationCompact: true,
     businessObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
     githubObservations: reads[7].status === "fulfilled" ? reads[7].value : [],
     reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,

@@ -17,8 +17,20 @@ const contentKinds = new Set(["blog", "landing", "optimization", "cluster"]);
 const beforePublication = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
 const productionStates = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
 
+function tasksUsingBranch(all: WorkflowStoredRow[], task: WorkflowTask) {
+  return all.some(({ kind, record }) => {
+    if (kind !== "task" || record.id === task.id) return false;
+    const other = record as WorkflowTask;
+    return other.codeSource?.repository.toLowerCase() === task.codeSource?.repository.toLowerCase() && other.codeSource?.branch === task.codeSource?.branch;
+  });
+}
+
 function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
   if (actor !== "human" && task.source === "human" && previous?.source !== "human") reject("human_task_source_required", "只有用户操作可创建明确人工目标，采集器不能伪造人工来源");
+  if (previous?.branchObservation && (!task.branchObservation || Date.parse(task.branchObservation.observedAt) < Date.parse(previous.branchObservation.observedAt))) reject("branch_observation_stale", "请保留最近一次分支核对结果");
+  if (previous?.codeSource && (!task.codeSource || previous.codeSource.repository !== task.codeSource.repository || previous.codeSource.branch !== task.codeSource.branch)) reject("page_branch_immutable", "同一页面任务沿用原工作分支");
+  if (task.codeSource && tasksUsingBranch(all, task)) reject("page_branch_in_use", "该分支已关联另一页面任务，请使用独立分支");
+  if (previous?.changeScope === "search_intent" && task.changeScope !== previous.changeScope) reject("intent_scope_immutable", "搜索意图整改需保留逐页审批");
   if (previous && (previous.channel === "product" || task.channel === "product") && previous.channel !== task.channel) reject("product_task_channel_immutable", "产品技术任务不能更换渠道；请新建独立任务");
   const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
   const lookup = new Map(tasks.map(row => [row.id, row])); lookup.set(task.id, task);
@@ -33,7 +45,7 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
     for (const dependency of task.dependencies) if (!["verified", "observing"].includes(lookup.get(dependency)!.status)) reject("dependency_incomplete", `前置任务尚未验收：${dependency}`);
   }
   if (previous && actor === "collector" && (previous.source === "human" || previous.approval?.kind === "explicit")) {
-    for (const key of ["title", "keyword", "keywordId", "country", "language", "business", "pageType", "pageUrl", "owner", "dueAt", "dependencies", "acceptanceCriteria", "contentVersion", "artifactUrl"] as const) {
+    for (const key of ["title", "keyword", "keywordId", "country", "language", "business", "pageType", "pageUrl", "owner", "dueAt", "dependencies", "acceptanceCriteria", "contentVersion", "artifactUrl", "codeSource"] as const) {
       if (!same(previous[key], task[key])) reject("human_field_conflict", `人工确认字段发生冲突：${key}；请保留双方版本供审核`);
     }
   }
@@ -65,26 +77,40 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   const tasks = plan.taskIds.map(id => all.find(row => row.kind === "task" && row.record.id === id)?.record as WorkflowTask | undefined);
   if (tasks.some(task => !task || task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
   if (plan.status !== "reviewed") return;
-  if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "新正式计划须明确 en14、ja7、pt-BR7、es-ES7 源文额度；旧计划仅保留历史读取");
+  const focused = "cadence" in plan.targets;
+  if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "正式计划须明确四国源文额度");
   const ready = tasks.filter((task): task is WorkflowTask => Boolean(task && !["planned", "researching", "blocked", "failed"].includes(task.status)));
+  const optimized = ready.filter(task => task.kind === "optimization" && task.pageUrl && (!focused || automaticTaskPolicy(task) === "auto_blog"));
+  if (focused) {
+    const perDay = new Map<string, Set<string>>();
+    for (const task of optimized) {
+      const day = new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
+      const pages = perDay.get(day) ?? new Set<string>();
+      pages.add(task.pageUrl!);
+      perDay.set(day, pages);
+    }
+    if ([...perDay.values()].some(pages => pages.size > 2)) reject("plan_daily_blog_optimization_quota", "每天最多安排2篇常规博客优化");
+  }
   const counts = {
     landing: ready.filter(task => task.kind === "landing" && task.siteDomain === "flatkey.ai").length,
     apiBlogs: ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai" && task.business === "API").length,
     gpuBlogs: ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai" && task.business === "GPU").length,
-    optimizedPages: new Set(ready.filter(task => task.kind === "optimization" && task.pageUrl).map(task => task.pageUrl)).size,
+    optimizedPages: new Set(optimized.map(task => task.pageUrl)).size,
   };
   const languageCategories = { en: "blogEn", ja: "blogJa", "pt-BR": "blogPt", "es-ES": "blogEs" } as const;
   const dailyQuota = { en: 2, ja: 1, "pt-BR": 1, "es-ES": 1 };
   const blogs = ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai");
   for (const language of Object.keys(languageCategories) as (keyof typeof languageCategories)[]) {
     const selected = blogs.filter(task => task.language === language);
+    if (focused && selected.length > plan.targets.blogLanguages[language]) reject("plan_weekly_language_quota", `${language} 每周最多安排5个源文关键词`);
     const gap = Math.max(0, plan.targets.blogLanguages[language] - selected.length);
     if (gap > plan.gaps.filter(row => row.category === languageCategories[language]).reduce((sum, row) => sum + row.count, 0)) reject("plan_language_gap_unrecorded", `${language} 还缺 ${gap} 篇源文；需登记国家语言缺口`);
     const days = new Map<string, number>();
     for (const task of selected) { const day = new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }); days.set(day, (days.get(day) ?? 0) + 1); }
-    if ([...days.values()].some(count => count > dailyQuota[language])) reject("plan_daily_language_quota", `${language} 单日源文不能超过 ${dailyQuota[language]} 篇；翻译另记`);
+    if (!focused && [...days.values()].some(count => count > dailyQuota[language])) reject("plan_daily_language_quota", `${language} 单日源文不能超过 ${dailyQuota[language]} 篇；翻译另记`);
   }
   for (const category of Object.keys(counts) as (keyof typeof counts)[]) {
+    if (focused && counts[category] > plan.targets[category]) reject("plan_weekly_quota", `${category} 超过周计划额度`);
     const gap = Math.max(0, plan.targets[category] - counts[category]);
     const recorded = plan.gaps.filter(row => row.category === category).reduce((sum, row) => sum + row.count, 0);
     if (gap > recorded) reject("plan_gap_unrecorded", `${category} 还缺 ${gap} 项；不能把空位或待研究关键词当作已排定产能`);
@@ -99,6 +125,7 @@ function checkApprovalItemContext(item: WorkflowApproval["items"][number], siteD
   if (!task || task.siteDomain !== siteDomain || !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind)) reject("approval_task_missing", "审批项必须关联同站点真实页面任务，历史归档不能提供发布授权");
   if (contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status)) reject("approval_task_not_ready", "先完成关键词研究并进入制作或待审阶段，再提交页面审批");
   const translation = task.kind === "blog" && item.language !== task.language;
+  if (!translation && (task.codeSource || item.codeSource) && (!same(task.codeSource, item.codeSource) || item.previewUrl !== task.artifactUrl)) reject("approval_branch_mismatch", "审批须绑定当前页面工作分支、提交和同版本测试链接");
   if (!translation && task.contentVersion !== item.contentVersion) reject("approval_task_version_mismatch", "审批稿件版本与当前任务不一致；请先保留新稿版本");
   if (!translation && task.language && task.language !== item.language || !translation && task.pageUrl && task.pageUrl !== item.pageUrl) reject("approval_task_page_mismatch", "审批页面或语言与任务不一致");
   const known = all.filter(row => row.kind === "publication" && row.record.id !== currentPublicationId).map(row => row.record as WorkflowPublication)

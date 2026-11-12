@@ -27,7 +27,7 @@ test('one shared ActionCard payload binds the real details button and every visi
  const report={title:'Flatkey SEO 日报',text:'已完成 1 项\n[数据基础](https://alidocs.dingtalk.com/i/nodes/example)'};
  const payload=actionCardPayload(report);
  assert.deepEqual(payload,{msgtype:'actionCard',actionCard:{title:report.title,text:report.text,btnOrientation:'0',singleTitle:'查看详情',singleURL:DETAIL_URL}});
- assert.equal(DETAIL_URL,'https://flatkey-seo-roadmap.vercel.app');
+ assert.equal(DETAIL_URL,'https://flatkey-seo-roadmap.vercel.app/reports');
  assert.notEqual(messageHash(payload),messageHash({...payload,actionCard:{...payload.actionCard,singleURL:DETAIL_URL+'/other'}}));
  assert.notEqual(messageHash(payload),messageHash(actionCardPayload({...report,text:report.text+' changed'})));
  const sender=fs.readFileSync(path.join(__dirname,'../scripts/server-seo-digest-send.cjs'),'utf8');

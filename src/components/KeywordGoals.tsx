@@ -7,11 +7,11 @@ import { UiSelect } from "./UiSelect";
 import { useSeoRead } from "./useSeoAnalytics";
 import { useSeoCountry } from "./useSeoCountry";
 import { keywordGoalTask, keywordGoalTaskHref, matchingKeywordGoal, type KeywordGoalInput } from "@/lib/keyword-goals";
-import { WORKFLOW_MARKETS, WORKFLOW_SITES, type WorkflowSnapshot, type WorkflowTask } from "@/lib/seo-workflow";
+import { WORKFLOW_MARKETS, WORKFLOW_SITES, WORKFLOW_LANGUAGE_LABELS, workflowContentLanguage, workflowContentLanguages, type WorkflowLanguage, type WorkflowSnapshot, type WorkflowTask } from "@/lib/seo-workflow";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoWorkWorkspace.module.css";
 
-const marketLabels = { US: "美国 · 英文", JP: "日本 · 日文", BR: "巴西 · 葡萄牙文", ES: "西班牙 · 西班牙文" };
+const marketLabels = { US: "美国", JP: "日本", BR: "巴西", ES: "西班牙" };
 export function KeywordGoals() {
   const history = useSeoRead<WorkflowSnapshot>("/api/seo/workflow?allHistory=true");
   const [country] = useSeoCountry();
@@ -45,14 +45,16 @@ export function KeywordGoals() {
     } catch (error) { setMessage(error instanceof Error && error.name === "ZodError" ? "请核对国家对应语言、站点页面地址和必填项。" : error instanceof Error ? error.message : "目标未保存。"); }
     finally { setBusy(false); }
   }
+  const language = workflowContentLanguage(input.siteDomain, input.country, input.language);
   return <><PageHeader active="opportunities" /><main className={workspace.shell}>
     <div className={workspace.titleRow}><h1 className={workspace.title}>关键词目标</h1></div>
     <p className={workspace.description}>填写目标后加入工作任务。有目标页面则优化现有页面，没有则搭建关键词页面。</p>
     <form className={styles.newTask} onSubmit={event => void save(event)}>
       <div className={styles.formGrid}>
         <label>站点<UiSelect aria-label="目标站点" value={input.siteDomain} onChange={value => change("siteDomain", value as KeywordGoalInput["siteDomain"])} options={WORKFLOW_SITES.map(value => ({ value, label: value }))} /></label>
-        <label>目标国家<UiSelect aria-label="目标国家与语言" value={input.country} onChange={value => change("country", value as KeywordGoalInput["country"])} options={Object.entries(marketLabels).map(([value, label]) => ({ value, label }))} /></label>
-        <label className={styles.spanAll}>关键词<input required maxLength={300} value={input.keyword} onChange={event => change("keyword", event.target.value)} placeholder="使用目标国家对应语言的关键词" /></label>
+        <label>目标国家<UiSelect aria-label="目标国家" value={input.country} onChange={value => change("country", value as KeywordGoalInput["country"])} options={Object.entries(marketLabels).map(([value, label]) => ({ value, label }))} /></label>
+        <label>内容语言<UiSelect aria-label="内容语言" value={language} onChange={value => change("language", value as WorkflowLanguage)} options={workflowContentLanguages(input.siteDomain, input.country).map(value => ({ value, label: WORKFLOW_LANGUAGE_LABELS[value] }))} /></label>
+        <label className={styles.spanAll}>关键词<input required maxLength={300} value={input.keyword} onChange={event => change("keyword", event.target.value)} placeholder={`输入${WORKFLOW_LANGUAGE_LABELS[language]}关键词`} /></label>
         <label className={styles.spanAll}>目标页面（没有则留空）<input type="url" value={input.pageUrl} onChange={event => change("pageUrl", event.target.value)} placeholder="https://flatkey.ai/…" /></label>
         <label>业务<UiSelect aria-label="关键词业务" value={input.siteDomain === "flatkey.ai" ? input.business : "CLUSTER"} onChange={value => change("business", value as KeywordGoalInput["business"])} options={input.siteDomain === "flatkey.ai" ? [{ value: "GPU", label: "GPU" }, { value: "API", label: "API" }] : [{ value: "CLUSTER", label: "集群" }]} /></label>
         <label>希望完成日期<input type="date" required value={input.dueDate} onChange={event => change("dueDate", event.target.value)} /></label>

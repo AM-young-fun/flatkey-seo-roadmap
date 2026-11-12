@@ -2,19 +2,45 @@ import { z } from "zod";
 
 export const WORKFLOW_SITES = ["flatkey.ai", "jev-llm.com", "mochichatbot.com", "modelfit.cc", "rackrate.org"] as const;
 export const WORKFLOW_MARKETS = { US: "en", JP: "ja", BR: "pt-BR", ES: "es-ES" } as const;
+export const WORKFLOW_SITE_LANGUAGES = {
+  "flatkey.ai": ["en", "ja", "pt-BR", "es-ES"],
+  "jev-llm.com": ["en"],
+  "mochichatbot.com": ["en", "ja", "pt-BR", "zh-CN"],
+  "modelfit.cc": ["en"],
+  "rackrate.org": ["en"],
+} as const;
+export type WorkflowLanguage = typeof WORKFLOW_SITE_LANGUAGES[keyof typeof WORKFLOW_SITE_LANGUAGES][number];
+export const WORKFLOW_LANGUAGE_LABELS: Record<WorkflowLanguage, string> = {
+  en: "英文", ja: "日文", "pt-BR": "巴西葡语", "es-ES": "西班牙文", "zh-CN": "简体中文",
+};
+export function workflowContentLanguages(domain: string, market: keyof typeof WORKFLOW_MARKETS): readonly WorkflowLanguage[] {
+  if (domain === "flatkey.ai") return [WORKFLOW_MARKETS[market]];
+  return WORKFLOW_SITE_LANGUAGES[domain as keyof typeof WORKFLOW_SITE_LANGUAGES] ?? [];
+}
+export function workflowContentLanguage(domain: string, market: keyof typeof WORKFLOW_MARKETS, preferred?: WorkflowLanguage) {
+  const options = workflowContentLanguages(domain, market);
+  return preferred && options.includes(preferred) ? preferred : options.includes(WORKFLOW_MARKETS[market]) ? WORKFLOW_MARKETS[market] : options[0];
+}
 export const WORKFLOW_STATUSES = ["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"] as const;
 const id = z.string().trim().min(1).max(160).regex(/^[a-zA-Z0-9_.:-]+$/);
 const stamp = z.iso.datetime({ offset: true });
 export const workflowWeekSchema = z.iso.date().refine(value => new Date(value + "T00:00:00Z").getUTCDay() === 1, "工作周从周一开始");
 const site = z.enum(WORKFLOW_SITES);
 const country = z.enum(["US", "JP", "BR", "ES"]);
-const language = z.enum(["en", "ja", "pt-BR", "es-ES"]);
+const language = z.enum(["en", "ja", "pt-BR", "es-ES", "zh-CN"]);
 const httpsUrl = z.url().max(3000).refine(value => { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; }, "需要 HTTPS 地址");
 export const workflowEvidenceSchema = z.object({ label: z.string().trim().min(1).max(300), url: httpsUrl.optional(), artifact: z.string().trim().min(1).max(2000).optional(), observedAt: stamp }).strict()
   .refine(value => Boolean(value.url || value.artifact), "证据需要来源链接或产物路径");
 const evidence = z.array(workflowEvidenceSchema).max(100);
 const approval = z.object({ kind: z.enum(["explicit", "standing_new_blog"]), approvedBy: z.string().trim().min(1).max(200), approvedAt: stamp, contentVersion: z.string().min(1).max(200), evidence: evidence.min(1) }).strict();
 const research = z.object({ volume: z.number().int().nonnegative().nullable(), kd: z.number().min(0).max(100).nullable(), businessValue: z.number().int().min(0).max(3).nullable(), exceptionReason: z.string().trim().max(2000).nullable(), intent: z.string().trim().max(2000), observedAt: stamp, evidence: evidence.min(1) }).strict();
+
+export const workflowCodeSourceSchema = z.object({
+  repository: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).max(200),
+  branch: z.string().trim().regex(/^[A-Za-z0-9_-]+(?:[./][A-Za-z0-9_-]+)*$/).max(180)
+    .refine(value => !/^(main|master|staging|production)$/i.test(value) && !value.endsWith(".lock"), "请选择该页面独立的工作分支"),
+  commitSha: z.string().trim().regex(/^[a-f0-9]{40}$/),
+}).strict();
 
 export const workflowTaskSchema = z.object({
   id, weekStart: workflowWeekSchema, title: z.string().trim().min(1).max(500), siteDomain: site,
@@ -23,6 +49,8 @@ export const workflowTaskSchema = z.object({
   country: country.nullable(), language: language.nullable(), business: z.enum(["API", "GPU", "CLUSTER"]),
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
   keyword: z.string().trim().min(1).max(300).nullable(), keywordId: z.string().trim().min(1).max(160).nullable().default(null), pageUrl: httpsUrl.nullable(),
+  changeScope: z.literal("search_intent").optional(), codeSource: workflowCodeSourceSchema.optional(),
+  branchObservation: z.object({ headSha: z.string().regex(/^[a-f0-9]{40}$/), observedAt: stamp }).strict().optional(),
   owner: z.string().trim().min(1).max(200), dueAt: stamp, status: z.enum(WORKFLOW_STATUSES),
   dependencies: z.array(id).max(100), evidence, nextAction: z.string().trim().max(3000),
   contentVersion: z.string().trim().max(200).nullable(), artifactUrl: httpsUrl.nullable().default(null),
@@ -31,7 +59,10 @@ export const workflowTaskSchema = z.object({
   source: z.enum(["human", "automation", "sheet"]), sourceRowId: z.string().max(500).nullable().default(null),
   fallbackReason: z.string().max(2000).nullable().default(null), failureReason: z.string().max(3000).nullable().default(null),
 }).strict().superRefine((value, ctx) => {
-  if (value.country && value.language && WORKFLOW_MARKETS[value.country] !== value.language) ctx.addIssue({ code: "custom", path: ["language"], message: "目标国家与页面语言不匹配" });
+  if (value.branchObservation && !value.codeSource) ctx.addIssue({ code: "custom", message: "分支检查须关联已登记的代码分支" });
+  if (value.codeSource && (value.contentVersion !== value.codeSource.commitSha || !value.artifactUrl || !value.pageUrl)) ctx.addIssue({ code: "custom", message: "代码分支必须绑定同一提交的测试地址和正式页面" });
+  if (value.changeScope && (value.kind !== "optimization" || !value.pageUrl || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "搜索意图整改须关联已有页面和发现证据" });
+  if (value.country && value.language && !workflowContentLanguages(value.siteDomain, value.country).includes(value.language)) ctx.addIssue({ code: "custom", path: ["language"], message: "语言与 Flatkey 目标市场或集群站已支持语言不匹配" });
   if (["blog", "landing", "optimization", "cluster"].includes(value.kind) && (!value.country || !value.language || !value.keyword)) ctx.addIssue({ code: "custom", message: "内容任务必须有明确国家、本语言关键词和语言" });
   if (value.channel === "github") {
     if (!value.pageUrl || !githubReviewBelongsToSite(value.pageUrl, value.siteDomain) || value.kind !== "technical") ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "GitHub任务只允许Flatkey两个自有提示词库的渠道审核，不计博客或落地页产量" });
@@ -40,15 +71,20 @@ export const workflowTaskSchema = z.object({
   } else if (value.pageUrl && !pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
   if (value.dependencies.includes(value.id) || new Set(value.dependencies).size !== value.dependencies.length) ctx.addIssue({ code: "custom", path: ["dependencies"], message: "依赖不能重复或指向自身" });
   if (new Date(value.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) < value.weekStart || new Date(value.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) > shiftWorkflowDay(value.weekStart, 6)) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "交付日须在对应周一至周日内" });
-  if (value.keyword && value.language !== "ja" && /[\u3400-\u9fff]/u.test(value.keyword)) ctx.addIssue({ code: "custom", path: ["keyword"], message: "英文、葡语和西语任务不能使用中文主词" });
+  if (value.keyword && value.language !== "ja" && value.language !== "zh-CN" && /[\u3400-\u9fff]/u.test(value.keyword)) ctx.addIssue({ code: "custom", path: ["keyword"], message: "英文、葡语和西语任务不能使用中文主词" });
   if (["blocked", "failed"].includes(value.status) && !value.failureReason) ctx.addIssue({ code: "custom", path: ["failureReason"], message: "阻塞或失败必须说明原因" });
 });
 export const workflowPlanSchema = z.object({
   id, weekStart: workflowWeekSchema, status: z.enum(["draft", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
-  targets: z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
-    blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict().optional(),
-  }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "API/GPU源文计划合计35篇，按关键词机会分配；翻译不占源文额度"),
+  targets: z.union([
+    z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
+      blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict().optional(),
+    }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "旧计划源文额度合计35篇"),
+    z.object({ cadence: z.literal("focused"), landing: z.literal(3), apiBlogs: z.number().int().min(0).max(20), gpuBlogs: z.number().int().min(0).max(20), optimizedPages: z.literal(14),
+      blogLanguages: z.object({ en: z.literal(5), ja: z.literal(5), "pt-BR": z.literal(5), "es-ES": z.literal(5) }).strict(),
+    }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 20, "四国源文每周合计20篇"),
+  ]),
   gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
   evidence, notes: z.string().max(5000),
 }).strict().superRefine((value, ctx) => {
@@ -59,10 +95,12 @@ export const WORKFLOW_APPROVAL_STATUSES = ["draft", "pending", "partially_review
 export const workflowApprovalItemSchema = z.object({
   id, taskId: id, operation: z.enum(["new", "update"]), pageUrl: httpsUrl,
   language: z.string().trim().min(2).max(20).regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/),
+  codeSource: workflowCodeSourceSchema.optional(),
   contentVersion: z.string().trim().min(1).max(200), baseContentVersion: z.string().trim().min(1).max(200).nullable(),
   changeSummary: z.string().trim().min(1).max(5000), beforeSummary: z.string().trim().min(1).max(5000).nullable(), afterSummary: z.string().trim().min(1).max(5000),
   draftUrl: httpsUrl.nullable(), previewUrl: httpsUrl.nullable(), previewContentVersion: z.string().trim().min(1).max(200).nullable().default(null), reviewContent: z.string().trim().min(1).max(120000).nullable().default(null), reviewFormat: z.enum(["markdown", "diff", "text"]).default("text"), beforeContent: z.string().max(120000).nullable().default(null), evidence: evidence.min(1),
 }).strict().superRefine((item, ctx) => {
+  if (item.codeSource && (item.contentVersion !== item.codeSource.commitSha || item.previewContentVersion !== item.codeSource.commitSha || !item.previewUrl)) ctx.addIssue({ code: "custom", message: "审批代码、稿件版本与测试版本必须对应同一个完整提交 SHA" });
   if (!item.draftUrl && !item.previewUrl && !item.reviewContent) ctx.addIssue({ code: "custom", message: "每项审批必须提供平台内可读稿件正文、完整差异或 HTTPS 稿件/预览链接" });
   if (item.operation === "update" && (!item.baseContentVersion || !item.beforeSummary)) ctx.addIssue({ code: "custom", message: "修改页面需保留改前版本和改前说明" });
   if (item.operation === "new" && item.baseContentVersion) ctx.addIssue({ code: "custom", message: "新增页面不能冒用旧版本基线" });
@@ -121,8 +159,8 @@ export function automaticPageRoute(pageUrl: string, siteDomain: string): "blog" 
   } catch { /* Unknown routes retain individual approval. */ }
   return null;
 }
-export function automaticTaskPolicy(task: Pick<WorkflowTask, "siteDomain" | "kind" | "pageType" | "pageUrl" | "channel"> | undefined, pageUrl = task?.pageUrl): "auto_blog" | "auto_prompt" | null {
-  if (!task || task.channel && task.channel !== "website" || !pageUrl) return null;
+export function automaticTaskPolicy(task: Pick<WorkflowTask, "siteDomain" | "kind" | "pageType" | "pageUrl" | "channel" | "changeScope"> | undefined, pageUrl = task?.pageUrl): "auto_blog" | "auto_prompt" | null {
+  if (!task || task.changeScope === "search_intent" || task.channel && task.channel !== "website" || !pageUrl) return null;
   const route = automaticPageRoute(pageUrl, task.siteDomain);
   if (route === "blog" && task.pageType === "blog" && ["blog", "optimization"].includes(task.kind)) return "auto_blog";
   if (route === "prompt" && task.kind === "technical" && task.pageType === "other") return "auto_prompt";
@@ -161,7 +199,7 @@ export const workflowPublicationSchema = z.object({
   if (!pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", path: ["pageUrl"], message: "页面不属于选定站点" });
   if (!["translation", "backfill_translation", "optimization", "landing", "prompt"].includes(value.kind) && (!value.country || !value.keyword)) ctx.addIssue({ code: "custom", message: "源文及页面发布需要明确目标国家与本语言关键词" });
   if (value.kind === "prompt" && (value.siteDomain !== "flatkey.ai" || !/^https:\/\/flatkey\.ai\/(?:zh\/|es\/|fr\/|pt\/|ru\/|ja\/|vi\/|de\/|id\/)?prompts\/(?:image|video)\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.pageUrl))) ctx.addIssue({ code: "custom", message: "提示词发布只允许主站正式提示词详情页" });
-  if (value.country && WORKFLOW_MARKETS[value.country] !== value.language) ctx.addIssue({ code: "custom", message: "发布目标国家与语言不一致；非目标市场译文须保留国家为空" });
+  if (value.country && !workflowContentLanguages(value.siteDomain, value.country).some(language => language === value.language)) ctx.addIssue({ code: "custom", message: "国家与语言不一致，或集群站尚未支持该发布语言" });
   if (value.keyword && value.language !== "ja" && !value.language.startsWith("zh") && /[\u3400-\u9fff]/u.test(value.keyword)) ctx.addIssue({ code: "custom", message: "发布关键词必须使用对应页面语言" });
   if (value.status === "verified" && (!value.verifiedAt || !value.liveCheck || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "验收上线需要正式页验收与发布回执" });
   if (value.verifiedAt && Date.parse(value.verifiedAt) < Date.parse(value.publishedAt)) ctx.addIssue({ code: "custom", message: "验收不能早于发布" });
@@ -213,7 +251,7 @@ export const workflowOptimizationSchema = z.object({
   changes: z.array(z.object({ id, contentVersion: z.string().min(1).max(200), description: z.string().min(1).max(5000), publicationId: id.nullable(), changedAt: stamp, evidence }).strict()).max(100),
   observations: z.array(z.object({ windowDays: z.enum(["7", "28", "56"]), checkedAt: stamp, status: z.enum(["observing", "improved", "needs_investigation", "insufficient_data"]), comparableDays: z.number().int().nonnegative(), note: z.string().min(1).max(5000), comparison: workflowOptimizationComparisonSchema.optional(), evidence }).strict()).max(100),
   evidence,
-}).strict().superRefine((value, ctx) => { if (!pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", message: "页面不属于选定站点" }); if (WORKFLOW_MARKETS[value.country] !== value.language || value.baseline.country !== value.country) ctx.addIssue({ code: "custom", message: "优化国家、语言和基线不一致" }); });
+}).strict().superRefine((value, ctx) => { if (!pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", message: "页面不属于选定站点" }); if (!workflowContentLanguages(value.siteDomain, value.country).includes(value.language) || value.baseline.country !== value.country) ctx.addIssue({ code: "custom", message: "优化国家、语言和基线不一致" }); });
 export const workflowIssueSchema = z.object({
   id, weekStart: workflowWeekSchema, siteDomain: site, pageUrl: httpsUrl.nullable(), title: z.string().min(1).max(500),
   category: z.enum(["technical", "indexing", "language", "content", "data", "business", "sync"]), priority: z.enum(["P0", "P1", "P2", "P3"]),
@@ -288,6 +326,24 @@ export const workflowApprovalCheckSchema = z.object({ approvalId: id, itemId: id
 export type WorkflowApprovalCheck = z.infer<typeof workflowApprovalCheckSchema>;
 export type WorkflowRecord = WorkflowApproval | WorkflowTask | WorkflowPlan | WorkflowPublication | WorkflowOptimization | WorkflowIssue | WorkflowRun | WorkflowHistoricalImport;
 export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; openIssues: number; lastRunAt: string | null }; };
+/** Only the reviewed code and test artifacts are eligible for a release preflight. */
+export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "tasks" | "approvals" | "publications">) {
+  const tasks = new Map(snapshot.tasks.map(task => [task.id, task]));
+  return snapshot.approvals.flatMap(approval => approval.items.flatMap(item => {
+    const task = tasks.get(item.taskId);
+    if (!task?.codeSource || !item.codeSource || task.siteDomain !== approval.siteDomain || ["blocked", "failed"].includes(task.status) ||
+        !["landing", "optimization", "cluster", "technical"].includes(task.kind) || task.channel === "github" ||
+        task.codeSource.repository !== item.codeSource.repository || task.codeSource.branch !== item.codeSource.branch ||
+        task.codeSource.commitSha !== item.codeSource.commitSha || task.contentVersion !== item.contentVersion ||
+        item.previewUrl !== task.artifactUrl || !approvalReviewReadiness(item).ready ||
+        workflowApprovalEffectiveItemStatus(approval, item.id, snapshot.approvals) !== "approved" ||
+        (task.branchObservation && task.branchObservation.headSha !== item.codeSource.commitSha) ||
+        snapshot.publications.some(row => row.taskId === task.id && row.contentVersion === item.contentVersion && ["published", "verified"].includes(row.status))) return [];
+    return [{ taskId: task.id, approvalId: approval.id, approvalItemId: item.id, approvalVersion: approval.version,
+      siteDomain: task.siteDomain, codeSource: item.codeSource, pageUrl: item.pageUrl, previewUrl: item.previewUrl }];
+  }));
+}
+
 export const workflowMutationSchema = z.object({ requestId: id, action: z.enum(["save_approval", "save_plan", "save_task", "save_issue", "save_optimization", "record_publication", "record_run", "record_historical_import"]), expectedVersion: z.number().int().nonnegative().default(0), claim: z.object({ runId: id, owner: z.string().min(1).max(200), fencingToken: z.number().int().positive() }).strict().optional(), record: z.unknown() }).strict();
 export const ACTION_KIND = { save_approval: "approval", save_plan: "plan", save_task: "task", save_issue: "issue", save_optimization: "optimization", record_publication: "publication", record_run: "run", record_historical_import: "historical_import" } as const;
 export const workflowClaimSchema = z.object({ action: z.enum(["claim", "renew", "complete"]), runId: id, stage: z.string().regex(/^[A-Z0-9_]+$/).max(100), scheduledFor: stamp, owner: z.string().min(1).max(200), fencingToken: z.number().int().positive().optional(), leaseSeconds: z.number().int().min(30).max(1800).default(600), status: z.enum(["completed", "partial", "blocked", "failed"]).optional(), evidence: evidence.default([]) }).strict();

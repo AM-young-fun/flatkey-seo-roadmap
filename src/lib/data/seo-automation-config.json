@@ -1,15 +1,15 @@
 {
-  "verifiedAt": "2026-11-11T10:47:06.333633+00:00",
+  "verifiedAt": "2026-11-12T07:27:04.660597+00:00",
   "tasks": [
     {
       "id": "10-30-seo",
       "name": "SEO 09:00 三表校验与平台同步",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391874001,
+      "updated_at": 1794468033066,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -26,7 +26,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=16;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391878411,
+      "updated_at": 1794468209967,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -37,13 +37,13 @@
     },
     {
       "id": "automation-2",
-      "name": "Prompt 10:30 素材采集与审批准备",
+      "name": "Prompt 10:30 素材核验与自动导入",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30",
       "model": "gpt-5.6-sol",
       "reasoning_effort": "high",
-      "updated_at": 1794391883205,
+      "updated_at": 1794467471753,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -54,13 +54,13 @@
     },
     {
       "id": "flatkey-5",
-      "name": "Flatkey SEO 11:00 四国5篇制稿与逐页审批",
+      "name": "Flatkey SEO 11:00 四国博客制作与自动发布",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=11;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391887074,
+      "updated_at": 1794468233757,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -77,7 +77,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=15;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391890772,
+      "updated_at": 1794468216036,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -88,13 +88,13 @@
     },
     {
       "id": "seo-09-30",
-      "name": "SEO 09:30 四国关键词研究与三表回写",
+      "name": "SEO 09:30 四国关键词研究与平台入库",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391894339,
+      "updated_at": 1794468189292,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -111,7 +111,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794393982274,
+      "updated_at": 1794468257859,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -128,7 +128,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391902325,
+      "updated_at": 1794468239878,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -145,7 +145,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=10;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794393971547,
+      "updated_at": 1794468383262,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -156,13 +156,13 @@
     },
     {
       "id": "seo-13-30",
-      "name": "SEO 13:30 旧页优化与版本审批",
+      "name": "SEO 13:30 旧页优化与博客自动更新",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=13;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391909540,
+      "updated_at": 1794468245911,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -179,7 +179,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=14;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391912682,
+      "updated_at": 1794468205471,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -196,7 +196,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=14;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391916755,
+      "updated_at": 1794468227455,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -213,7 +213,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391920346,
+      "updated_at": 1794468220674,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -224,13 +224,13 @@
     },
     {
       "id": "seo-16-00",
-      "name": "SEO 16:00 交付验收与页面持续监控",
+      "name": "SEO 16:00 审批发布与上线效果监控",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391924075,
+      "updated_at": 1794468319092,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -247,7 +247,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=17;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794393976402,
+      "updated_at": 1794468250710,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -264,7 +264,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=18;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794393967901,
+      "updated_at": 1794468390117,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -281,7 +281,7 @@
       "rrule": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794391934635,
+      "updated_at": 1794468264106,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
