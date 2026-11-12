@@ -55,7 +55,6 @@
 .evidence li { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:9px 0; }
 .evidence a { display:inline-flex; align-items:center; gap:4px; }
 .evidence small { color:#8c96a5; font-size:11px; }
-.evidence code { width:100%; font-size:11px; line-height:1.5; color:#61718a; padding:6px 8px; background:#f5f7fa; border-radius:4px; overflow-wrap:anywhere; }
 .timeline { border-left:1px solid #dce4ed; margin:16px 0 24px 8px; padding-left:24px; }
 .timeline li { padding:0 0 16px 6px; }
 .timeline strong { font-size:12px; font-weight:600; }

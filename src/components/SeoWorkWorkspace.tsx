@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { CheckCircle2, ChevronRight, CircleAlert, Clock3, ExternalLink, RefreshCw } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
 import { approvalReviewReadiness, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
 import type { WorkflowSnapshot, WorkflowTask, WorkflowPlan, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
+import { WorkflowEvidence } from "./WorkflowEvidence";
 import { PageHeader } from "./PageHeader";
 import { SeoAutomationSchedule } from "./SeoAutomationSchedule";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
@@ -32,19 +33,11 @@ const displayTime = (value: string | null | undefined) => value ? shanghaiStamp(
 const shiftDay = (day: string, offset: number) => new Date(Date.parse(day + "T00:00:00Z") + offset * 86_400_000).toISOString().slice(0, 10);
 const currentMonday = () => { const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date()); return shiftDay(today, -((new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7)); };
 const pageHref = (url: string, country: string | null) => "/pages?" + new URLSearchParams({ pageUrl: url, ...(country ? { country } : {}) });
-const safeWebUrl = (url: string | null | undefined) => { try { const parsed = new URL(url ?? ""); return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.toString() : null; } catch { return null; } };
 
 export function WorkflowStatus({ status }: { status: string }) {
   return <span className={styles.badge} data-state={status}>{stateLabel(status)}</span>;
 }
 
-export function WorkflowEvidence({ evidence }: { evidence: WorkflowTask["evidence"] }) {
-  if (!evidence.length) return <p className={styles.muted}>尚未提交证据。</p>;
-  return <ul className={styles.evidence}>{evidence.map((item, index) => <li key={index}>
-    {safeWebUrl(item.url) ? <a href={item.url} target="_blank" rel="noreferrer">{item.label} <ExternalLink size={12} aria-hidden="true" /></a> : <span>{item.label}</span>}
-    {item.artifact ? <code>{item.artifact}</code> : null}<small>{displayTime(item.observedAt)}</small>
-  </li>)}</ul>;
-}
 
 async function mutateWorkflow(body: object) {
   const response = await fetch("/api/seo/workflow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -93,13 +86,13 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
     <h4>验收要求</h4><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul>
     <h4>前置任务</h4>{task.dependencies.length ? <ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "本周范围外，需读取前置回执"}</li>; })}</ul> : <p className={styles.muted}>未登记任务依赖。</p>}
     <h4>关键词研究</h4>{task.research ? <><p>月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p><p>{task.research.intent}</p>{task.research.exceptionReason ? <p>例外理由：{task.research.exceptionReason}</p> : null}<WorkflowEvidence evidence={task.research.evidence} /></> : <p className={styles.muted}>{task.kind === "technical" ? "技术与数据任务不要求主关键词；按验收要求执行。" : "研究证据待补，不能视为合格制作输入。"}</p>}
-    <h4>交付证据</h4><WorkflowEvidence evidence={task.evidence} />
+    <WorkflowEvidence heading="交付证据" evidence={task.evidence} />
     {task.approval ? <p className={styles.muted}>历史任务审核：{task.approval.approvedBy} · {displayTime(task.approval.approvedAt)} · 版本 {task.approval.contentVersion}。此记录不作为当前页面发布授权。</p> : null}
     {pageDelivery || approvals.some(approval => approval.items.some(item => item.taskId === task.id)) ? <h4>页面交付</h4> : null}
     {approvals.filter(approval => approval.items.some(item => item.taskId === task.id)).map(approval => <p key={approval.id}><Link href={`/approvals?approvalId=${encodeURIComponent(approval.id)}`}>{approval.title} →</Link></p>)}
     {pageDelivery ? <PageDeliveryActions key={`${task.id}:${task.version}`} task={task} approvals={approvals} publications={publications} mutate={mutateWorkflow} onSaved={onSaved} /> : null}
     {optimizations.filter(row => row.taskId === task.id).map(row => <OptimizationHistory key={row.id} optimization={row} />)}
-    <p className={styles.muted}>最近记录 {displayTime(task.updatedAt)} · 任务 {task.id}</p>
+    <p className={styles.muted}>最近记录 {displayTime(task.updatedAt)}</p>
   </div>;
 }
 
