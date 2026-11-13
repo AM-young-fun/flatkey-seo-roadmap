@@ -59,10 +59,6 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
 }) {
   const ga4 = rankings.find(ranking => ranking.source === "GA4")?.flatkey;
   const gsc = rankings.find(ranking => ranking.source === "GSC")?.flatkey;
-  const dataDay = (period: typeof ga4) => period?.date
-    ? period.periodDays === 7 ? `${shiftDay(period.date, -6)}—${period.date}` : period.date : null;
-  const coverage = [["GA4", dataDay(ga4)], ["GSC", dataDay(gsc)]]
-    .filter(([, date]) => date).map(([source, date]) => `${source} ${date}`).join(" · ");
   const flatkeyTotals = groups?.find(group => group.name === "flatkey.ai");
   const metric = (group: typeof flatkeyTotals, label: string) => group?.metrics.find(row => row.label === label);
 
@@ -102,8 +98,6 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
         </tbody>
       </table>
     </div>
-    {coverage ? <p className={reportStyles.note}>Flatkey 模块数据日 {coverage}</p> : null}
-    <p className={reportStyles.note}>自然搜索注册目前只统计 Flatkey 全站；模块和集群站未接入此口径（—）。</p>
     {countries ? <ReportCountryShares groups={countries} /> : null}
   </section>;
 }
