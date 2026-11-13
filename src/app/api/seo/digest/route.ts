@@ -69,7 +69,8 @@ export async function GET(request: Request) {
       const delivery = explicitId ? null : await prisma.seoDigestDelivery.findUnique({
         where: { id: `seo-digest-delivery:${kind}:${selected}` }, select: { status: true, reportId: true },
       });
-      const exact = explicitId ?? (delivery?.status === "DELIVERED" ? delivery.reportId : null);
+      // The date view shows the latest archived refresh. An explicit reportId still opens the exact sent snapshot.
+      const exact = explicitId ?? (!archive && delivery?.status === "DELIVERED" ? delivery.reportId : null);
       const saved = await prisma.seoReportVersion.findFirst({
         where: { ...scope, periodStart: new Date(selected), ...(exact ? { id: exact } : {}),
         },
@@ -89,7 +90,8 @@ export async function GET(request: Request) {
         const [observations, recentPages, workPlan, github] = await Promise.all([
           loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
           loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
-          report.workPlan ? Promise.resolve(report.workPlan) : loadDigestWorkPlan(selected, kind).catch(() => undefined),
+          (kind === "weekly" && selected === beijingDay()) || !report.workPlan
+            ? loadDigestWorkPlan(selected, kind).catch(() => report.workPlan) : Promise.resolve(report.workPlan),
           loadGithubChannels(shiftDay(trafficStart, -7), trafficEnd).catch(() => []),
         ]);
         const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);

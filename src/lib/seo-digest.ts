@@ -37,7 +37,7 @@ export type DigestOptimization = { id: string; url: string; keyword: string; cha
 export type DigestWorkPlan = {
   weekStart: string;
   status: "draft" | "scheduled" | "reviewed" | "bootstrap";
-  tasks: { id: string; kind: "blog" | "landing" | "optimization"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; dueAt: string; status: string; action: string }[];
+  tasks: { id: string; kind: "blog" | "landing" | "optimization" | "cluster_work" | "research"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; dueAt: string; status: string; action: string }[];
 };
 
 export type DigestInput = {

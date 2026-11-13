@@ -255,7 +255,7 @@ function BusinessComparison({ lines }: { lines: string[] }) {
   </>;
 }
 
-const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "落地页关键词"]] as const;
+const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "落地页关键词"], ["research", "Flatkey 关键词研究"], ["cluster_work", "集群站任务"]] as const;
 const planStatuses: Record<string, string> = { planned: "待开始", researching: "研究中", ready: "待执行", drafting: "制作中",
   review_pending: "待审批", missing_materials: "待补测试材料", approved: "待发布", published: "已上线 · 待验收", verified: "已验收", observing: "已上线 · 监控中", blocked: "有阻塞", failed: "需处理" };
 function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
@@ -265,16 +265,18 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
       <p className={reportStyles.note}>{plan.weekStart} — {shiftDay(plan.weekStart, 6)} · {plan.tasks.length && (plan.status === "scheduled" || plan.status === "reviewed") ? "已排期" : plan.tasks.length ? "候选整理中" : "尚未排期"} · <Link href={`/work?week=${plan.weekStart}`}>查看工作任务</Link></p>
       {planKinds.map(([kind, label]) => {
         const tasks = plan.tasks.filter(task => task.kind === kind);
+        if ((kind === "cluster_work" || kind === "research") && !tasks.length) return null;
+        const pageTask = kind === "optimization" || kind === "cluster_work" || kind === "research";
         const completed = tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
         return <div className={reportStyles.planGroup} key={kind}>
           <h4>{label} <small>{weekly ? `${tasks.length} 项` : `已验收 ${completed} / ${tasks.length}`}</small></h4>
           {tasks.length ? <div className={reportStyles.tableScroll}>
             <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label={label}>
-              <thead><tr><th scope="col">{kind === "optimization" ? "页面" : "关键词"}</th><th scope="col">{kind === "optimization" ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>
+              <thead><tr><th scope="col">{pageTask ? "页面 / 任务" : "关键词"}</th><th scope="col">{pageTask ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>
               <tbody>{tasks.map(task => <tr key={task.id}>
-                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart })}>{kind === "optimization" ? task.title : task.keyword ?? "关键词待补"}</Link>
-                  {kind === "optimization" && task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</a></small> : null}</th>
-                <td>{kind === "optimization" ? task.keyword ?? "—" : task.title}</td>
+                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart })}>{pageTask ? task.title : task.keyword ?? "关键词待补"}</Link>
+                  {pageTask && task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</a></small> : null}</th>
+                <td>{pageTask ? task.keyword ?? "—" : task.title}</td>
                 <td>{[task.country, task.language].filter(Boolean).join(" / ") || "—"}</td>
                 <td>{planStatuses[task.status] ?? "状态待核实"}<small>{shanghaiStamp(task.dueAt).split(" ")[0]}</small>{weekly && task.action ? <small>{task.action}</small> : null}</td>
               </tr>)}</tbody>
@@ -411,7 +413,10 @@ export function SeoDigestReports() {
       </div> : <article className={reportStyles.report}>
         <header className={reportStyles.reportHeader}><div><h2>{report.title}</h2>
         <p>生成于 {shanghaiStamp(report.generatedAt)}（北京时间）</p></div>
-        {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}</header>
+        <div className={styles.toolbarActions}>
+          {exact ? <Link className={styles.secondary} href={route(kind, report.date)}>查看最新详情</Link> : null}
+          {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
+        </div></header>
         <dl className={reportStyles.metrics}>
           <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications, report.deliveryStates?.blogs)}</dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications, report.deliveryStates?.landing)}</dd></div>

@@ -48,9 +48,11 @@ function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnaps
   const plan = snapshot.plan;
   if (!plan) return undefined;
   const selected = new Set(plan.taskIds);
-  const tasks = snapshot.tasks.flatMap(task => {
-    const kind = task.kind;
-    if (!selected.has(task.id) || (kind !== "blog" && kind !== "landing" && kind !== "optimization")) return [];
+  const tasks = snapshot.tasks.flatMap<DigestWorkPlan["tasks"][number]>(task => {
+    if (!selected.has(task.id)) return [];
+    const kind = task.siteDomain !== "flatkey.ai" && (task.kind === "research" || task.kind === "technical" || task.kind === "cluster" || task.kind === "optimization" || task.kind === "landing")
+      ? "cluster_work" : task.kind;
+    if (kind !== "blog" && kind !== "landing" && kind !== "optimization" && kind !== "cluster_work" && kind !== "research") return [];
     const automatic = kind === "blog" && !task.pageUrl || Boolean(automaticTaskPolicy(task));
     const pending = task.status === "review_pending";
     const canReview = pending && !automatic && snapshot.approvals.some(approval => approval.items.some(item =>
