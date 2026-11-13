@@ -331,12 +331,12 @@ test("Friday DingTalk reports remind only unfinished weekly and overdue approval
  approvals[3].decisions = [{ itemIds: [approvals[3].items[0].id], decision: "approved" }];
  for (const kind of ["daily", "weekly"]) {
    const report = buildSeoDigest({ ...base(date), ...workflow(approvals, tasks), kind, notificationCompact: true, optimizationMonitoring: [] });
-   assert.match(report.text, /审批逾期 1 项 · 本周审批还有 1 项未完成/);
+   assert.match(report.text, /审批逾期 1 项 · 本周仍有 1 项待处理/);
    assert.match(report.text, /\[去审核\]\(https:\/\/flatkey-seo-roadmap.vercel.app\/approvals\)/);
  }
  const monday = buildSeoDigest({ ...base("2026-11-16"), ...workflow(approvals, tasks), notificationCompact: true, optimizationMonitoring: [] });
  assert.match(monday.text, /审批逾期 2 项/);
- assert.doesNotMatch(monday.text, /本周审批还有/);
+ assert.doesNotMatch(monday.text, /本周仍有/);
 });
 test("recent page comparison includes both weeks, excludes unverified and newer weekly records, dedupes by latest change and prioritizes freshness", () => {
  const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");

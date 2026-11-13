@@ -390,7 +390,7 @@ export function buildSeoDigest(input: DigestInput) {
   const friday = new Date(input.date + "T00:00:00Z").getUTCDay() === 5;
   const approvalReminder = [
     ...(approvalOverdue ? [`审批逾期 ${approvalOverdue} 项`] : []),
-    ...(friday && approvalDue ? [`本周审批还有 ${approvalDue} 项未完成，请在本周内处理`] : []),
+    ...(friday && approvalDue ? [`本周仍有 ${approvalDue} 项待处理，含未齐测试材料`] : []),
   ];
   const title = window.kind === "weekly"
     ? `Flatkey SEO 周报｜${window.trafficStart}—${window.trafficEnd}`
@@ -509,7 +509,7 @@ export function buildSeoDigest(input: DigestInput) {
     const technical = qa?.issues.filter(row => row.status !== "resolved" && ["P0", "P1"].includes(row.priority))
       .sort((a, b) => a.priority.localeCompare(b.priority))[0];
     if (technical) dailyFocus.push(`${technical.priority} ${link(technical.title, technical.url ?? SEO_PLATFORM + executionViewRoutes.tasks)}：${escaped(technical.nextAction)}`);
-    if (approvalOverdue || approvalDue || review?.tasks) dailyFocus.push(`处理${approvalOverdue ? `逾期审批 ${approvalOverdue} 项` : `本周待完成审批 ${approvalDue || review?.tasks} 项`}；先核对测试链接和截图，再完成审核。 ${link("去审核", approvalsUrl)}`);
+    if (approvalOverdue || approvalDue || review?.tasks) dailyFocus.push(`处理${approvalOverdue ? `逾期审批 ${approvalOverdue} 项` : `本周待完成审批 ${approvalDue || review?.tasks} 项`}；先补齐 Flatkey 测试材料，审核集群站已核验的正式页面。 ${link("去审核", approvalsUrl)}`);
     const mainClicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date);
     const mainImpressions = comparableMetric(input.observations, "flatkey.ai", "impressions", input.date);
     const performance = (input.optimizationMonitoring ?? []).find(row => row.status === "updated" && row.latest!.clicks < row.before!.clicks && row.latest!.impressions < row.before!.impressions);

@@ -32,7 +32,7 @@ export function technicalQaReport(
       id: row.id, title: row.title, status: row.status, priority: row.priority, url: row.pageUrl, nextAction: row.nextAction,
     })),
     approvals: snapshot.approvals.filter(row => row.submittedRecordedAt && Date.parse(row.submittedRecordedAt) <= cutoff
-      && row.items.some(item => taskIds.has(item.taskId))).map(row => ({ id: row.id, title: row.title, status: row.status })),
+      && row.items.some(item => taskIds.has(item.taskId) && (row.siteDomain === "flatkey.ai" || item.postPublicationId))).map(row => ({ id: row.id, title: row.title, status: row.status })),
   };
 }
 
