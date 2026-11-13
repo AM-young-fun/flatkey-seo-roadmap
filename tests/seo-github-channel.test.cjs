@@ -25,7 +25,7 @@ test('rolling snapshots merge by UTC date rather than summing overlapping 14-day
 });
 test('provisional current UTC buckets and missing dates never become a complete comparison',()=>{
  const row=fixture({observedAt:'2026-11-10T08:00:00Z'}),result=githubComparable([row],'views','2026-11-04','2026-11-10',true);
- assert.equal(result.dates.length,6);assert.equal(result.current,18);
+ assert.equal(result.dates.length,6);assert.equal(result.current,null);assert.equal(result.previous,null);
  const missing=githubDigestLines([],'2026-11-10','2026-11-10',false,new Date('2026-11-11')).join('\n');assert.match(missing,/待更新/);assert.doesNotMatch(missing,/浏览 0/);
 });
 test('README attribution audit excludes image assets and accepts only repo-specific GitHub UTM',()=>{
