@@ -20,13 +20,8 @@ export function groupApprovalPages(items: ReviewItem[]) {
 }
 
 export function approvalPreview(item: ReviewItem) {
-  const verifiedUrl = item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
-  if (verifiedUrl) return { url: verifiedUrl, verified: true };
-  const target = new URL(item.pageUrl);
-  if (!["flatkey.ai", "www.flatkey.ai"].includes(target.hostname)) return { url: null, verified: false };
-  target.hostname = "staging-website.flatkey.ai";
-  target.hash = "";
-  return { url: target.href, verified: false };
+  const url = item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
+  return { url, verified: Boolean(url) };
 }
 
 export function pendingTaskApproval(task: WorkflowTask, approvals: WorkflowApproval[]) {

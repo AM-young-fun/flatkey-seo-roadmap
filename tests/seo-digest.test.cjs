@@ -210,7 +210,7 @@ test("Friday retains today's verified links while old backfill is not new transl
 });
 test("preview before 18 is preliminary and absent run receipt is not a zero-work claim", () => {
  const report = buildSeoDigest({ ...base(), now: new Date("2026-11-10T17:30:00+08:00"), publicationCoverage: "missing" });
- assert.equal(report.preliminary, true); assert.match(report.text, /新增博客 待核实/);
+ assert.equal(report.preliminary, true); assert.match(report.text, /新增博客 暂无上线回执/);
 });
 test("unknown provider result and started send are never automatically reclaimed", () => {
  for (const status of ["UNKNOWN", "SENDING", "DELIVERED"]) assert.equal(digestClaimable({ status, leaseUntil: new Date(0), attemptedAt: new Date(0) }), false);
@@ -275,7 +275,7 @@ test("short GitHub summary adds repository counts only across matching daily win
 
 test("partial zero delivery coverage is pending verification instead of a cryptic zero plus",()=>{
  const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:"partial",optimizationCoverage:"partial"});
- assert.doesNotMatch(report.text,/0\+/);assert.doesNotMatch(report.text,/待核实 [篇页]/);assert.match(report.text,/落地页 待核实/);
+ assert.doesNotMatch(report.text,/0\+/);assert.doesNotMatch(report.text,/待核实 [篇页]/);assert.match(report.text,/落地页 暂无上线回执/);
 });
 
 test("actual verified ES optimization stays visible when the overall execution coverage is missing",()=>{
@@ -285,10 +285,10 @@ test("actual verified ES optimization stays visible when the overall execution c
   publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
  assert.deepEqual(report.counts,fixture.expectedCounts);
  assert.match(report.text,/优化 至少 1 页（已核实）/);
- assert.match(report.text,/博客.*待核实 · 落地页 待核实 · 集群 待核实/);
+ assert.match(report.text,/博客.*暂无上线回执 · 落地页 暂无上线回执 · 集群 暂无上线回执/);
  assert.match(report.detailText,/今日优化 至少 1 个页面（已核实），台账覆盖待补/);
  assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
- assert.doesNotMatch(report.text,/优化 待核实/);
+ assert.doesNotMatch(report.text,/优化 暂无上线回执/);
 });
 
 test("incomplete coverage reports verified lower bounds and keeps unknown zero distinct from a verified zero",()=>{
@@ -298,11 +298,17 @@ test("incomplete coverage reports verified lower bounds and keeps unknown zero d
   const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage,publications:[publication],optimizations:[optimization]});
   assert.match(report.text,/博客.*至少 1 篇（已核实）/);assert.match(report.text,/优化 至少 1 页（已核实）/);
   assert.match(report.detailText,/新增博客 至少 1 篇（已核实）/);
-  assert.match(report.text,/落地页 待核实 · 集群 待核实/);
+  assert.match(report.text,/落地页 暂无上线回执 · 集群 暂无上线回执/);
   const unknown=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage});
-  assert.match(unknown.text,/优化 待核实/);assert.match(unknown.detailText,/新增博客 待核实/);
+  assert.match(unknown.text,/优化 暂无上线回执/);assert.match(unknown.detailText,/新增博客 暂无上线回执/);
   assert.doesNotMatch(unknown.text,/0 [篇页]|至少 0/);
  }
  const complete=buildSeoDigest({...base(),notificationCompact:true});
  assert.match(complete.text,/博客.*0 篇/);assert.match(complete.text,/优化 0 页/);assert.doesNotMatch(complete.text,/至少/);
+});
+
+test("a checked empty publication is distinct from a category without a receipt", () => {
+ const report = buildSeoDigest({ ...base(), notificationCompact: true, publicationCoverage: "partial",
+   deliveryStates: { blogs: true, landing: false, cluster: false, optimizations: false } });
+ assert.match(report.text, /博客.*已核实 0 篇 · 落地页 暂无上线回执/);
 });

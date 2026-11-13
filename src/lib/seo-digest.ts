@@ -1,3 +1,5 @@
+import type { recentPublishedPages } from "./seo-digest-recent-pages";
+import { seoToday } from "./seo-date-range";
 import { businessDigestLines, flatkeyRegistrationCount, latestBusinessPeriod, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubComparable, githubDigestLines, PROMPT_REPOSITORIES, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
@@ -20,7 +22,7 @@ export const digestDateSchema = z.iso.date();
 export const digestKindSchema = z.enum(["daily", "weekly"]);
 export type DigestKind = z.infer<typeof digestKindSchema>;
 const shift = (day: string, n: number) => new Date(Date.parse(day + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
-export const beijingDay = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(date);
+export const beijingDay = seoToday;
 export type DigestMetric = "sessions" | "registrations" | "clicks" | "impressions";
 export type DigestObservation = {
   site: string; date: string; source: "GA4" | "GSC"; timezone: string; observedAt: string;
@@ -35,6 +37,7 @@ export type DigestInput = {
   notificationCompact?: boolean;
   date: string; kind?: DigestKind; now?: Date; observations: DigestObservation[];
   pageObservations?: AnalyticsObservation[];
+  recentPages?: ReturnType<typeof recentPublishedPages>;
   businessObservations?: BusinessAnalytics[];
   githubObservations?: GithubChannel[];
   publications: DigestPublication[]; optimizations: DigestOptimization[];
@@ -44,6 +47,7 @@ export type DigestInput = {
   priorities: { title: string; keyword?: string; country?: string; url?: string; reason: string; action: string }[];
   issues: string[]; runNotes: string[]; rankingNotes?: string[]; nextPlanUrl?: string; nextPlanStatus?: "draft" | "reviewed" | "bootstrap";
   publicationCoverage: "verified" | "missing" | "partial";
+  deliveryStates?: { blogs: boolean; landing: boolean; cluster: boolean; optimizations: boolean };
   optimizationCoverage: "verified" | "missing" | "partial";
   reviewWorkflow?: Pick<WorkflowSnapshot, "approvals" | "tasks" | "publications" | "historicalImports">;
   historicalImports?: { id: string; recordedAt: string; sourceRunId: string; originals: number; translations: number; liveVerified: number; artifactOnly: number; unknownFirstVerification: number; pendingEvidence: number; pendingRevisions: number }[];
@@ -348,16 +352,17 @@ export function buildSeoDigest(input: DigestInput) {
   const thisWeek = window.kind === "weekly" && input.date === "2026-11-13";
   const weeklyHighlights = thisWeek ? november13Highlights : undefined;
   const weeklyTraffic = window.kind === "weekly" ? weeklyTrafficRows(input, window) : undefined;
-  const pagePerformance = window.kind === "daily" ? digestTopPages(input.pageObservations ?? [], input.date, now) : [];
+  const pagePerformance = digestTopPages(input.pageObservations ?? [], input.date, now,
+    window.kind === "weekly" ? { start: window.trafficStart, end: window.trafficEnd } : undefined);
   const start = Date.parse(window.workStart), end = Math.min(now.getTime(), Date.parse(window.workEnd));
   const publications = [...new Map(input.publications.filter(row => confirmedInWindow(row, start, end) && safeLink(row.url)
     && Date.parse(row.publishedAt) <= Date.parse(row.verifiedAt)).map(row => [row.url, row])).values()];
   const originals = publications.filter(row => row.kind === "source"), translations = publications.filter(row => row.kind === "translation");
   const backfills = publications.filter(row => row.kind === "backfill_translation"), landingPages = publications.filter(row => row.kind === "landing"), clusterPages = publications.filter(row => row.kind === "cluster");
   const optimizations = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url)).map(row => [row.url, row])).values()];
-  const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "") => {
+  const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "", recorded = false) => {
     const count = `${value}${unit ? " " + unit : ""}`;
-    return coverage === "verified" ? count : value > 0 ? `至少 ${count}（已核实）` : "待核实";
+    return coverage === "verified" ? count : value > 0 ? `至少 ${count}（已核实）` : recorded ? `已核实 ${count}` : "暂无上线回执";
   };
   const review = input.reviewWorkflow ? digestReviewQueue(input.reviewWorkflow, now) : null;
   const title = window.kind === "weekly"
@@ -366,9 +371,9 @@ export function buildSeoDigest(input: DigestInput) {
   const lines = [title, "", `工作统计：${window.workStart.slice(0, 16).replace("T", " ")} — ${window.workEnd.slice(0, 16).replace("T", " ")}（北京时间，结束时刻不含）；确认截止 ${now.toISOString()}。`, "",
     `${review ? `待审核 ${review.tasks} 项（${review.tickets} 张审批单，${review.pages.length} 个页面版本） · 待补材料 ${review.materialCount} 项` : "待审核 待更新 · 待补材料 待更新"} · ${link("SEO 平台审批", approvalsUrl)}`, "",
     ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
-    `新增博客 ${amount(originals.length, input.publicationCoverage, "篇")}；新内容上线语言页 ${amount(originals.length + translations.length, input.publicationCoverage)}（其中译文 ${amount(translations.length, input.publicationCoverage)}）；旧文补译 ${amount(backfills.length, input.publicationCoverage)}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
-    `落地页/工具页 ${amount(landingPages.length, input.publicationCoverage)}，集群交付 ${amount(clusterPages.length, input.publicationCoverage)}（仅统计已上线验收）。`,
-    `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面")}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
+    `新增博客 ${amount(originals.length, input.publicationCoverage, "篇", input.deliveryStates?.blogs)}；新内容上线语言页 ${amount(originals.length + translations.length, input.publicationCoverage)}（其中译文 ${amount(translations.length, input.publicationCoverage)}）；旧文补译 ${amount(backfills.length, input.publicationCoverage)}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
+    `落地页/工具页 ${amount(landingPages.length, input.publicationCoverage, "", input.deliveryStates?.landing)}，集群交付 ${amount(clusterPages.length, input.publicationCoverage, "", input.deliveryStates?.cluster)}（仅统计已上线验收）。`,
+    `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面", input.deliveryStates?.optimizations)}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
   const notification: string[] = [];
   lines.push("", "待审批页面（截至报告生成，含往期未处理）");
   if (!review) lines.push("• 审批台账读取失败或尚未接通，待更新。");
@@ -392,14 +397,15 @@ export function buildSeoDigest(input: DigestInput) {
     lines.push("", "待补材料");
     for (const task of review.materials.slice(0, 3)) lines.push(`• ${link(task.title, task.url)} · ${task.reason}。`);
   }
-  if (window.kind === "daily") for (const page of [...originals, ...landingPages, ...clusterPages].slice(0, 10)) lines.push(`• ${link(page.title, page.url)}`);
+  const verifiedDeliveries = [...originals, ...landingPages, ...clusterPages].slice(0, 10);
+  if (window.kind === "daily" && verifiedDeliveries.length) lines.push("", "已核实新增页面", ...verifiedDeliveries.map(page => `• ${link(page.title, page.url)}`));
   if (originals.length > 10 && window.kind === "daily") lines.push(`其余 ${originals.length - 10} 篇见工作台交付记录。`);
   if (optimizations.length) {
     lines.push("", "已上线优化");
     for (const page of optimizations.slice(0, 5)) lines.push(`• ${link(page.url, page.url)} · ${escaped(page.changes)} · 目标词：${escaped(page.keyword)}；优化前基线已保存。`);
   }
   const archives = (input.historicalImports ?? []).filter(row => Date.parse(row.recordedAt) >= start && Date.parse(row.recordedAt) < end);
-  if (archives.length) {
+  if (window.kind === "daily" && archives.length) {
     lines.push("", "历史交付归档（不计入当期新增）");
     for (const archive of archives.slice(0, 3)) lines.push(`• ${escaped(archive.sourceRunId)}：${archive.originals} 篇源文、${archive.translations} 个译文页；${archive.liveVerified} 页有线上复核时间，${archive.artifactOnly} 页仅有留档核对。${archive.unknownFirstVerification} 页首次验收时刻未知；保留 ${archive.pendingEvidence} 项待补证据、${archive.pendingRevisions} 份待审旧稿。`);
   }
@@ -433,7 +439,7 @@ export function buildSeoDigest(input: DigestInput) {
     lines.push(`• ${site}：自然会话 ${metricText(comparableMetric(input.observations, site, "sessions", input.date, "all", window.kind))}`);
     lines.push(`  Google 点击 ${metricText(comparableMetric(input.observations, site, "clicks", input.date, "all", window.kind))}；曝光 ${metricText(comparableMetric(input.observations, site, "impressions", input.date, "all", window.kind))}`);
   }
-  for (const ranking of pagePerformance) {
+  for (const ranking of window.kind === "daily" ? pagePerformance : []) {
     const metric = ranking.source === "GSC" ? "Google 点击" : "自然搜索访问（会话）";
     lines.push("", `${metric} · 分模块 Top 3（${ranking.date ?? "日期待更新"}；覆盖 ${ranking.coveredSites.length}/5 站）`);
     lines.push(escaped(ranking.selectionReason) + "。");
@@ -472,7 +478,7 @@ export function buildSeoDigest(input: DigestInput) {
     const weekly = window.kind === "weekly";
     notification.push(title, ...(weekly ? [`${window.trafficStart}—${window.trafficEnd}`] : []), "",
       `**${weekly ? "本周" : "今日"}上线**`,
-      `${link("博客", SEO_PLATFORM + executionViewRoutes.deliveries)} ${amount(originals.length, input.publicationCoverage, "篇")} · 落地页 ${amount(landingPages.length, input.publicationCoverage, "页")} · 集群 ${amount(clusterPages.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")}`,
+      `${link("博客", SEO_PLATFORM + executionViewRoutes.deliveries)} ${amount(originals.length, input.publicationCoverage, "篇", input.deliveryStates?.blogs)} · 落地页 ${amount(landingPages.length, input.publicationCoverage, "页", input.deliveryStates?.landing)} · 集群 ${amount(clusterPages.length, input.publicationCoverage, "页", input.deliveryStates?.cluster)} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页", input.deliveryStates?.optimizations)}`,
       ...(translations.length || backfills.length ? [`译文 ${translations.length} 页 · 旧文补译 ${backfills.length} 页`] : []),
       "", "**关键变化**");
     // Two evidence-backed highlights plus the independently measured GitHub channel.
@@ -555,7 +561,7 @@ export function buildSeoDigest(input: DigestInput) {
     const heading = `**${title}**`;
     const mainClicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, "all", window.kind);
     notification.splice(0, notification.length, heading, "", "**交付与审批**",
-      `新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
+      `新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页", input.deliveryStates?.optimizations)} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
       "", "**自然搜索**", "Flatkey Google 点击 " + shortMetric(mainClicks),
       "", "**优化效果**", optimizationMonitorSummary(rows),
       focus ? `重点效果 · ${link(focus.title, optimizationPlotUrl(focus))} · ${focus.country} · ${optimizationMetrics(focus, false)} · ${effectStatusLabel[focus.status]}`
@@ -574,10 +580,12 @@ export function buildSeoDigest(input: DigestInput) {
   }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
-  return { id: `seo-digest:${input.date}:${hash.slice(0, 16)}`, date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { id: `seo-digest:${input.date}:${createHash("sha256").update(JSON.stringify({ text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates })).digest("hex").slice(0, 16)}`, date: input.date, kind: window.kind, title, text, detailText, hash,
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
+    recentPages: input.recentPages,
+    deliveryStates: input.deliveryStates,
     weeklyHighlights, weeklyTraffic,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
     flatkeyRegistrations,

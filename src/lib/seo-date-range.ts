@@ -4,6 +4,17 @@ export type DateRange = {
 };
 export const shiftDay = (d: string, n: number) => new Date(Date.parse(d + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 export const propertyToday = (timeZone = "America/Los_Angeles") => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+export const SEO_REPORT_TIME_ZONE = "Asia/Shanghai";
+export const seoToday = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: SEO_REPORT_TIME_ZONE }).format(now);
+
+export function collectionDateRange(days: number, now: Date, sourceTimeZone = "America/Los_Angeles"): DateRange {
+    const requestedEnd = shiftDay(seoToday(now), -1);
+    const sourceToday = new Intl.DateTimeFormat("en-CA", { timeZone: sourceTimeZone }).format(now);
+    const sourceEnd = shiftDay(sourceToday, -1);
+    const end = requestedEnd < sourceEnd ? requestedEnd : sourceEnd;
+    return { start: shiftDay(end, 1 - days), end };
+}
+
 export const defaultRange = (): DateRange => { const end = shiftDay(propertyToday(), -1); return { start: shiftDay(end, -29), end }; };
 export function validRange(r: DateRange) { return [r.start, r.end].every(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d) && r.start <= r.end; }
 export function previousRange(r: DateRange) { const n = (Date.parse(r.end) - Date.parse(r.start)) / 86400000 + 1; return { start: shiftDay(r.start, -n), end: shiftDay(r.start, -1) }; }

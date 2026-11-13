@@ -20,7 +20,7 @@ require.extensions[".ts"] = (module, file) => {
 
 
 const { analyticsObservationSchema, analyticsStorageKind } = require("../src/lib/seo-analytics.ts");
-const { propertyToday, shiftDay } = require("../src/lib/seo-date-range.ts");
+const { collectionDateRange, seoToday, shiftDay } = require("../src/lib/seo-date-range.ts");
 const { CLUSTER_SITES, clusterDomainForProperty } = require("../src/lib/seo-cluster-sites.ts");
 const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages } = require("../src/lib/services/ga4-organic.ts");
 const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = require("../src/lib/gsc-source.ts");
@@ -41,10 +41,6 @@ const scopes = [];
 const qualityIssues = [];
 function expectDay(base, kind, date) { expected.add(recordKey({ ...base, kind }) + ":" + date); }
 
-function collectionWindow(days, timezone) {
-  const end = shiftDay(propertyToday(timezone), -1);
-  return { start: shiftDay(end, 1 - days), end };
-}
 function logQuality(site, country, range, metric, quality) {
   if (quality?.complete !== false) return;
   const reasons = [...new Set((quality.reasons ?? []).map(reason => QUALITY_REASONS.has(reason) ? reason : "unrecognized_quality_reason"))];
@@ -115,11 +111,13 @@ async function run() {
   const lookbackDays = Number(requestedDays);
   if (!credential || !process.env.SEO_GOOGLE_SERVICE_ACCOUNT_JSON) throw new Error("missing_server_credentials");
   // Freeze the actual local-day windows for the entire run, including across midnight.
-  const gscWindow = collectionWindow(lookbackDays);
-  const windows = sites.map(site => ({ site: site.domain, ga4: collectionWindow(lookbackDays, site.ga4TimeZone), gsc: gscWindow }));
+  const collectionNow = new Date(collectionStartedAt);
+  const reportingDate = seoToday(collectionNow);
+  const gscWindow = collectionDateRange(lookbackDays, collectionNow);
+  const windows = sites.map(site => ({ site: site.domain, ga4: collectionDateRange(lookbackDays, collectionNow, site.ga4TimeZone), gsc: gscWindow }));
   const start = windows.flatMap(window => [window.ga4.start, window.gsc.start]).sort()[0];
   const end = windows.flatMap(window => [window.ga4.end, window.gsc.end]).sort().at(-1);
-  console.log(JSON.stringify({ status: "collection_windows", lookbackDays, concurrency: SAVE_CONCURRENCY, windows }));
+  console.log(JSON.stringify({ status: "collection_windows", reportingDate, reportingTimeZone: "Asia/Shanghai", lookbackDays, concurrency: SAVE_CONCURRENCY, windows }));
   const coverage = (await api("?" + new URLSearchParams({ start, end }))).rows;
   if (!Array.isArray(coverage)) throw new Error("invalid_coverage");
   const saved = new Map(coverage.map(row => [row.kind + ":" + row.date, row]));
@@ -217,7 +215,7 @@ async function run() {
   const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
-  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues };
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues };
   receiptAttempted = true;
   await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), result });
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));

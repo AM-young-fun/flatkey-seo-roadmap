@@ -1,5 +1,7 @@
 "use client";
 
+import { ReportLoading } from "./ReportLoading";
+
 import { groupApprovalPages, pendingTaskApproval } from "@/lib/seo-approval-display";
 import { ReviewChangeSummary } from "./SeoPageApprovals";
 import Link from "next/link";
@@ -300,7 +302,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       <UiSelect aria-label="页面语言筛选" value={language} onChange={value => filter("language", value)} options={[{ value: "all", label: "全部语言" }, ...languages]} /></> : null}
     </div> : null}
     {view === "runs" ? <SeoAutomationSchedule /> : null}
-    {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div> : !data ? <p className={styles.empty} role="status">正在读取{title}…</p> : <>
+    {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div> : !data ? <ReportLoading label={`正在读取${title}`} /> : <>
       {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       {view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
         {["open", "investigating", "blocked", "resolved"].map(status => <div key={status}><span>{stateLabel(status)}</span><strong>{issueScope.filter(issue => issue.status === status).length}</strong></div>)}
@@ -353,7 +355,7 @@ export function WorkTaskPage({ taskId, week, listHref }: { taskId: string; week:
       <Link className={styles.secondary} href={listHref}>← 返回任务列表</Link>
     </div>
     {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div>
-      : !result.data ? <p className={styles.empty} role="status">正在读取任务…</p>
+      : !result.data ? <ReportLoading label="正在读取任务" />
       : !task ? <p className={styles.empty}>该工作周没有找到这条任务。</p>
       : <article className={styles.listPanel}>
         <div className={styles.sectionHeading}>

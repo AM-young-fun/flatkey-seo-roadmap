@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { businessCountrySchema } from "@/lib/seo-business-analytics";
-import { propertyToday, validRange } from "@/lib/seo-date-range";
+import { seoToday, validRange } from "@/lib/seo-date-range";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { loadRegistrationDays, saveRegistrationDays } from "@/lib/services/seo-registration-days";
 
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const country = businessCountrySchema.safeParse(params.get("country") ?? "all");
   const range = { start: params.get("start") ?? "", end: params.get("end") ?? "" };
-  if (!country.success || !validRange(range) || range.end >= propertyToday() || Date.parse(range.end) - Date.parse(range.start) > 365 * 86400000) {
+  if (!country.success || !validRange(range) || range.end >= seoToday() || Date.parse(range.end) - Date.parse(range.start) > 365 * 86400000) {
     return Response.json({ message: "请选择有效国家和已结束日期，一次最多查询 366 天。" }, { status: 400, headers });
   }
   try {

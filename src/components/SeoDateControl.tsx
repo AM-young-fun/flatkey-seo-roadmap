@@ -2,11 +2,11 @@
 import { UiSelect } from "./UiSelect";
 
 import { useEffect, useRef, useState } from "react";
-import { closedPreset, previousRange, propertyToday, shiftDay, validRange, yearAgoRange, type DateRange } from "@/lib/seo-date-range";
+import { closedPreset, previousRange, propertyToday, SEO_REPORT_TIME_ZONE, shiftDay, validRange, yearAgoRange, type DateRange } from "@/lib/seo-date-range";
 import styles from "./SeoDateControl.module.css";
 
 const initialRange = (today: string): DateRange => { const end = shiftDay(today, -1); return { start: shiftDay(end, -6), end }; };
-export function useSeoRange(timeZone?: string) {
+export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
   const today = propertyToday(timeZone);
   const [range, setRange] = useState(() => initialRange(today));
   const [comparison, setComparison] = useState<DateRange | null>(() => previousRange(initialRange(today)));

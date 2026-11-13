@@ -81,6 +81,9 @@ export async function GET(request: Request) {
         const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
         return Response.json({ report: { ...report, flatkeyRegistrations }, dates }, { headers });
       }
+      if (!report && !explicitId && kind === "daily" && selected === beijingDay() && params.get("currentPreview") === "1") {
+        return Response.json({ report: await generateSeoDigest(selected), dates }, { headers });
+      }
       return Response.json({ report: report ?? null, dates }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? beijingDay(), new Date(), kind) }, { headers });

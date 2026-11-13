@@ -1,4 +1,6 @@
 "use client";
+
+import { ReportLoading } from "./ReportLoading";
 import { useEffect, useMemo, useState } from "react";
 import { KeywordGraph } from "@/components/KeywordGraph";
 import { useDashboard } from "@/components/useDashboard";
@@ -50,7 +52,7 @@ export function KeywordNetwork({ region = "all", showModuleFilter = false, modul
         {rankBucket !== null ? <button type="button" onClick={() => setRankBucket(null)}>清除排名筛选</button> : null}
       </div>
       {region !== "all" ? <label className="chartNote"><input type="checkbox" checked={crossLanguage} onChange={event => setCrossLanguage(event.target.checked)} /> 包含在该国有数据的跨语种词</label> : null}
-      {loading ? <div className="loadingState">正在加载关键词…</div> : error && !data ? <div className="loadingState">词库读取失败，请点击上方「重新加载」</div> : data?.usingDemoData ? <div className="emptyGraph">真实词库待接通，未将演示数据作为效果。</div> : <KeywordGraph keywords={visibleKeywords} region={region} />}
+      {loading ? <div className="loadingState"><ReportLoading label="正在加载关键词" compact /></div> : error && !data ? <div className="loadingState">词库读取失败，请点击上方「重新加载」</div> : data?.usingDemoData ? <div className="emptyGraph">真实词库待接通，未将演示数据作为效果。</div> : <KeywordGraph keywords={visibleKeywords} region={region} />}
     </article>
   </section>;
 }

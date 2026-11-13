@@ -36,3 +36,19 @@ export function parseReportComparisons(lines: string[]) {
   }
   return groups.length ? groups : null;
 }
+
+export type ReportComparisonGroups = NonNullable<ReturnType<typeof parseReportComparisons>>;
+export const REPORT_MARKETS = [
+  { code: "US", label: "美国", color: "#2e64d6" },
+  { code: "JP", label: "日本", color: "#12a17c" },
+  { code: "BR", label: "巴西", color: "#b9671b" },
+  { code: "ES", label: "西班牙", color: "#8a5dd1" },
+] as const;
+
+export function reportCountryShares(groups: ReportComparisonGroups, metric: string) {
+  const values = REPORT_MARKETS.map(country => groups.find(group => group.name === country.code)?.metrics.find(row => row.label === metric));
+  if (values.some(row => row?.current == null || !row.period || row.period !== values[0]?.period)) return null;
+  const total = values.reduce((sum, row) => sum + row!.current!, 0);
+  if (total <= 0) return null;
+  return REPORT_MARKETS.map((country, index) => ({ ...country, value: values[index]!.current!, share: values[index]!.current! / total }));
+}

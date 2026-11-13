@@ -1,3 +1,4 @@
+import { recentPublishedPages } from "../seo-digest-recent-pages";
 import { actionCardPayload, messageHash } from "../seo-digest-message.cjs";
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
@@ -35,7 +36,10 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const reads = await Promise.allSettled([
     loadWorkflowSnapshot({ week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, false),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, false),
-    prisma.seoAnalyticsDay.findMany({ where: { date: { gte: start, lte: window.trafficEnd } }, select: { payload: true } }),
+    prisma.seoAnalyticsDay.findMany({ where: { date: { gte: start, lte: window.trafficEnd }, OR: [
+      { kind: { startsWith: "ga4-site" } }, { kind: { startsWith: "gsc-site" } },
+      ...(["ga4-pages", "gsc-pages"] as const).map(kind => ({ kind: { in: [kind, ...CLUSTER_SITES.map(site => analyticsStorageKind(kind, "all", site.domain))] } })),
+    ] }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(window.workStart), lt: new Date(Math.min(now.getTime(), Date.parse(window.workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
     kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
     loadBusinessAnalytics(kind === "weekly" ? shiftWorkflowDay(window.trafficStart, -7) : window.trafficStart, window.trafficEnd),
@@ -91,7 +95,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   });
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
-    date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring, technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
+    date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
+    recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly"), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
     businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
     githubObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
     reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,
@@ -104,6 +109,12 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     priorities, issues: [...new Set([...issues, ...workflow.issues.filter(issue => issue.status !== "resolved" && Date.parse(issue.firstSeenAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(issue => `${issue.siteDomain} · ${issue.title} · ${issue.nextAction}`)])],
     runNotes: [...runs.map(run => `${run.stage} · ${run.status} · ${run.completedItems}/${run.checkedItems} · ${run.failureReason ?? run.nextAction} · 来源日期 ${Object.entries(run.sourceDates).map(([source, day]) => `${source}:${day ?? "未知"}`).join("，")}`), ...collectors.map(run => `${run.kind} · ${run.status} · ${run.detail ?? "采集回执已归档"}`)],
     publicationCoverage: stageCoverage(["BLOG_PUBLISH", "DELIVERY_VERIFY"]), optimizationCoverage: stageCoverage(["OPTIMIZATION", "DELIVERY_VERIFY"]),
+    deliveryStates: {
+      blogs: runs.some(run => ["BLOG_PUBLISH", "BLOG"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
+      landing: runs.some(run => ["LANDING_BUILD", "LANDING"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
+      cluster: runs.some(run => ["CLUSTER_DELIVERY", "CLUSTER"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
+      optimizations: runs.some(run => ["OPTIMIZATION", "OLD_PAGE"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
+    },
     nextPlanStatus: window.kind === "weekly" ? nextWeek.plan?.status : undefined,
     nextPlanUrl: window.kind === "weekly" && nextWeek.plan ? `https://flatkey-seo-roadmap.vercel.app/work?week=${nextWeek.weekStart}` : undefined,
   };

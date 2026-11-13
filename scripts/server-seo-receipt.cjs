@@ -6,7 +6,7 @@ function collectionReceipt({ runId, attempt = "1", sha, startedAt, completedAt, 
   const failed = Boolean(error || !result || result.failures || result.missing);
   const partial = !failed && Boolean(result.unavailable || result.qualityIssues?.length);
   const id = `server-collection-${runId}-${attempt}`;
-  const dates = {};
+  const dates = { 北京采集日期: result?.reportingDate ?? day };
   for (const scope of result?.windows ?? []) { dates[scope.site+":GA4_requested_end"]=scope.ga4.end; dates[scope.site+":GSC_requested_end"]=scope.gsc.end; }
   const summary = result ? `已导入并读回 ${result.imported} 条；${result.failures} 个失败；${result.unavailable} 个范围无源数据；${result.qualityIssues?.length ?? 0} 项指标覆盖限制；应有 ${result.expected} 条，缺失 ${result.missing} 条。` : "未取得完整采集结果。";
   return {action:"record_run",requestId:id,expectedVersion:0,record:{

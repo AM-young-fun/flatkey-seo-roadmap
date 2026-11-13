@@ -1,0 +1,10 @@
+.panel, .compact { display: grid; align-content: center; gap: 14px; padding: 20px; min-height: 155px; }
+.panel { margin: 16px 0; border: 1px solid #e5e9f0; border-radius: 8px; background: #fff; }
+.panel span, .compact span { display: block; height: 12px; border-radius: 5px; background: #e7eef6; animation: loading 1.5s ease-in-out infinite alternate; }
+.panel span:first-child, .compact span:first-child { width: 34%; height: 18px; }
+.panel span:nth-child(2), .compact span:nth-child(2) { width: 82%; }
+.panel span:last-child, .compact span:last-child { width: 62%; }
+@keyframes loading { to { opacity: .48; } }
+@media (prefers-reduced-motion: reduce) {
+  .panel span, .compact span { animation: none; }
+}

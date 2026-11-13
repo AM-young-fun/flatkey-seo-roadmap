@@ -1,4 +1,6 @@
 "use client";
+
+import { ReportLoading } from "./ReportLoading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type * as echarts from "echarts";
 import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
@@ -145,7 +147,7 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
       </dl>
     </> : null}
     {error || failed.length ? <div className="loadError"><span>{error ? "趋势暂时无法读取" : `${failed.map(market => REGIONS[market.region].label).join("、")}趋势暂时无法读取`}</span><button onClick={() => retry(value => value + 1)}>重新加载</button></div> : null}
-    {!markets ? <p className="muted">{error ? "趋势读取失败，请重试" : "正在加载…"}</p> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "四国去重" : REGIONS[region].label}上榜关键词数折线图`} />}
+    {!markets ? error ? null : <ReportLoading label="正在读取排名趋势" compact /> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "四国去重" : REGIONS[region].label}上榜关键词数折线图`} />}
 
   </section>;
 }

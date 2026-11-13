@@ -22,7 +22,7 @@ async function exercise(options={}){
   fs:{writeFileSync:(_file,value)=>snapshots.push(JSON.parse(value))},CLUSTER_SITES:[cluster],
   collectionStartedAt:stamp,receiptAttempted:false,
   saveCollectionReceipt:async input=>receipts.push(collectionReceipt({...input,runId:"123",attempt:"1",sha:"a".repeat(40)})),
-  propertyToday:timezone=>timezone==="Asia/Shanghai"?"2026-11-11":"2026-11-10",shiftDay:shift,
+  seoToday:()=>"2026-11-11",collectionDateRange:(days,_now,timezone)=>{const end=timezone==="Asia/Shanghai"?"2026-11-10":"2026-11-09";return {start:shift(end,1-days),end}},shiftDay:shift,
   analyticsObservationSchema:{parse:x=>x},analyticsStorageKind:(kind,country,site)=>[kind,country,site].filter(Boolean).join(":"),
   clusterDomainForProperty:p=>p===cluster.ga4||p===cluster.gsc?cluster.domain:undefined,
   fetchGa4Organic:async(range,country)=>main(range,country),

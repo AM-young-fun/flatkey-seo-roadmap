@@ -1,5 +1,7 @@
 "use client";
 
+import { ReportLoading } from "./ReportLoading";
+
 import { approvalPreview, groupApprovalPages, type ReviewItem } from "@/lib/seo-approval-display";
 import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,7 +31,7 @@ function ApprovalBadge({ status }: { status: string }) {
 }
 
 export function ReviewChangeSummary({ item }: { item: ReviewItem }) {
-  const { url, verified } = approvalPreview(item);
+  const { url } = approvalPreview(item);
   const label = item.afterSummary.match(/^新增文字“([^”]+)”/u)?.[1];
   const path = new URL(item.pageUrl).pathname;
   const pricingLink = label && /\/pricing\/?$/.test(path);
@@ -40,8 +42,10 @@ export function ReviewChangeSummary({ item }: { item: ReviewItem }) {
     <p>{summary}</p>
     {additional ? <p>{additional}</p> : null}
     <div className={review.previewLink}>
-      {url ? <a href={url} target="_blank" rel="noreferrer">{verified ? "打开测试预览" : "打开测试环境页面"} <ExternalLink size={13} aria-hidden="true" /></a> : null}
-      {!verified ? <span className={styles.muted}>{url ? "待审版本尚未核验" : "测试预览待补齐"}</span> : null}
+      {url ? <a href={url} target="_blank" rel="noreferrer">打开同版本测试预览 <ExternalLink size={13} aria-hidden="true" /></a>
+        : <span className={styles.muted}>待部署并核验测试版本</span>}
+      {item.operation === "update" ? <a href={item.pageUrl} target="_blank" rel="noreferrer">查看正式页面 <ExternalLink size={13} aria-hidden="true" /></a> : null}
+      {item.draftUrl && item.draftUrl !== url ? <a href={item.draftUrl} target="_blank" rel="noreferrer">查看稿件 <ExternalLink size={13} aria-hidden="true" /></a> : null}
     </div>
   </div>;
 }
@@ -190,7 +194,7 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
       </div>
     </div>
     {notice ? <p role="status" className={review.notice}>{notice}</p> : null}
-    {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={refresh}>重试读取审批单</button></div> : !data ? <p className={styles.empty} role="status">正在读取跨周审批记录…</p> : <>
+    {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={refresh}>重试读取审批单</button></div> : !data ? <ReportLoading label="正在读取跨周审批记录" /> : <>
       {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       <section className={`${styles.summary} ${styles.summaryPair}`} aria-label="跨周待审批摘要">
         <div><span>待审批单</span><strong>{numberText(data.summary.pendingApprovals)}</strong></div>

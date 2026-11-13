@@ -21,7 +21,7 @@ test('rolling snapshots merge by UTC date rather than summing overlapping 14-day
  const result=githubComparable([old,latest],'views','2026-11-04','2026-11-10',true);
  assert.equal(result.current,21);assert.equal(result.previous,21);assert.equal(result.dates.length,7);
  const text=githubDigestLines([latest],'2026-11-04','2026-11-10',true,new Date('2026-11-11T10:00:00Z')).join('\n');
- assert.match(text,/未把每日unique相加/);assert.match(text,/首次快照/);assert.match(text,/UTM覆盖 0\/3/);assert.doesNotMatch(text,/去重访客 14/);
+ assert.match(text,/未把每日unique相加/);assert.match(text,/Stars 待更新/);assert.match(text,/UTM覆盖 0\/3/);assert.doesNotMatch(text,/去重访客 14/);
 });
 test('provisional current UTC buckets and missing dates never become a complete comparison',()=>{
  const row=fixture({observedAt:'2026-11-10T08:00:00Z'}),result=githubComparable([row],'views','2026-11-04','2026-11-10',true);

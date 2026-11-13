@@ -48,7 +48,7 @@ test("each leaderboard is capped at five and report text shows dates, URL, value
  assert.equal(report.pagePerformance.reduce((n,r)=>n+r.pages.length,0),10);
  assert.match(report.text,/Google 点击 · 分模块 Top 3.*2026-11-10.*覆盖 1\/5 站/);assert.match(report.text,/自然搜索访问（会话） · 分模块 Top 3/);
  assert.match(report.text,/https:\/\/flatkey.ai\/p7.*Google 点击 8/);assert.match(report.text,/缺少前一日基线/);assert.match(report.text,/覆盖缺口/);
- assert.equal(buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00Z")}).pagePerformance.length,0);
+ assert.equal(buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00Z")}).pagePerformance.length,2);
 });
 test("zero is only displayed as an observed result and no data never becomes zero pages", () => {
  assert.equal(rank([])[0].date,null); const empty=rank([gs("2026-11-10",[])]);assert.equal(empty[0].date,"2026-11-10");assert.equal(empty[0].pages.length,0);
@@ -97,7 +97,7 @@ test("group summary selects one module highlight and keeps full module rankings 
  assert.match(report.text,/点击 10（基线待补）/);assert.match(report.text,/GSC 2026-11-10/);
  assert.doesNotMatch(report.text,/issue-marker-|每模块点击|工作统计|Asia\/|America\//);
  assert.match(report.detailText,/issue-marker-6/);assert.match(report.detailText,/分模块 Top 3/);
- assert.match(report.text,/待核实/);assert.match(report.text,/数据基础/);assert.ok(Buffer.byteLength(report.text)<4500);
+ assert.match(report.text,/暂无上线回执/);assert.match(report.text,/数据基础/);assert.ok(Buffer.byteLength(report.text)<4500);
 });
 
 
@@ -116,4 +116,19 @@ test("compact module fallback names the available source date without inventing 
   pageObservations:[ga('2026-11-10',[['flatkey.ai','/compute',5]])],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing'});
  assert.match(report.text,/GPU[^\n]*自然会话 5（基线待补） · 2026-11-10/);
  assert.doesNotMatch(report.text,/2026-11-09→2026-11-10/);
+});
+
+test("Flatkey module leaderboards rank ten pages independently and require both full weeks for a weekly change", () => {
+  const rows = Array.from({ length: 14 }, (_, i) => {
+    const date = new Date(Date.UTC(2026, 9, 29 + i)).toISOString().slice(0, 10);
+    return gs(date, Array.from({ length: 12 }, (_, j) => [url(`blog/api-guide-${j}`), i + j + 1]), { observedAt: "2026-11-13T15:00:00Z" });
+  });
+  const asOf = new Date("2026-11-13T16:00:00Z");
+  const period = { start: "2026-11-05", end: "2026-11-11" };
+  const getBlog = input => digestTopPages(input, "2026-11-13", asOf, period)[0].flatkey.modules.find(module => module.id === "blog");
+  assert.equal(getBlog(rows).pages.length, 10);
+  assert.equal(getBlog(rows).pages[0].url, url("blog/api-guide-11"));
+  assert.ok(getBlog(rows).current > getBlog(rows).previous);
+  assert.equal(getBlog(rows.slice(0, -1)).current, null);
+  assert.ok(getBlog(rows.slice(0, -1)).previous > 0);
 });

@@ -7,7 +7,7 @@ import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites
 import { optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
 import { pageOptimizationPriorities } from "@/lib/seo-page-priority";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
-import { propertyToday } from "@/lib/seo-date-range";
+import { seoToday } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
 import { overviewModuleAnalytics } from "@/lib/seo-overview-analytics";
 
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     if (effectAt && (!pageDaily || !Number.isFinite(Date.parse(effectAt)) || Date.parse(effectAt) > Date.now()
       || optimizationRange(effectAt, range.end).start !== range.start)) throw new Error("无效上线日期");
     // The cluster comparison uses one Beijing date range. Import still checks each source's timezone.
-    if (range.end >= propertyToday(site ? "Asia/Shanghai" : undefined) || urls.length > 25 || !urls.every(value => {
+    if (range.end >= seoToday() || urls.length > 25 || !urls.every(value => {
       if (!safeAnalyticsUrl(value)) return false;
       const domain = site?.domain ?? "flatkey.ai", host = new URL(value).hostname;
       return host === domain || host.endsWith(`.${domain}`);

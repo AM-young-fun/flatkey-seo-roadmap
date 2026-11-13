@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
+import { ReportLoading } from "@/components/ReportLoading";
 import { SeoDigestReports } from "@/components/SeoDigestReports";
 import workspace from "@/components/SeoWorkspace.module.css";
 
@@ -16,7 +17,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     redirect(query.size ? `/optimization-effects?${query}` : "/optimization-effects");
   }
   return <main className={workspace.shell}>
-    <Suspense fallback={<p role="status">正在读取日／周效果总结…</p>}>
+    <Suspense fallback={<ReportLoading label="正在读取日／周效果总结" />}>
       <PageHeader active="reports" />
       <SeoDigestReports />
     </Suspense>

@@ -48,7 +48,8 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
   const lines = ["GitHub 提示词渠道（独立于自然搜索）"];
   for (const repository of PROMPT_REPOSITORIES) {
     const own = rows.filter(r => r.repository === repository && Date.parse(r.observedAt) <= now.getTime()).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
-    const latest = own[0];
+    const day = (stamp: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(stamp));
+    const latest = weekly ? own.find(row => row.metadataStatus === "ok" && day(row.observedAt) <= end) : own[0];
     if (compact) {
       if (!latest) { lines.push(`• ${repository.split("/")[1]}：待更新，无采集回执。`); continue; }
       const views = githubComparable(own, "views", start, end, weekly), clones = githubComparable(own, "clones", start, end, weekly);
@@ -60,10 +61,11 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
       continue;
     }
     lines.push(`• [${repository}](https://github.com/${repository})`);
-    if (!latest) { lines.push("  Stars / Forks / 浏览 / 克隆 / Flatkey 到站：待更新，尚无采集回执。"); continue; }
-    const before = own.find(r => r.observedAt.slice(0, 10) < start && r.metadataStatus === "ok");
-    const total = (key: "stars" | "forks") => latest[key] === null ? "待更新" : `${latest[key]}${before?.[key] != null ? `（较 ${before.observedAt.slice(0, 10)} ${latest[key]! - before[key]! >= 0 ? "+" : ""}${latest[key]! - before[key]!}）` : "（首次快照，增量待观察）"}`;
-    lines.push(`  Stars ${total("stars")}；Forks ${total("forks")}；快照 ${latest.observedAt}。`);
+    if (!latest && !own.length) { lines.push("  Stars / Forks / 浏览 / 克隆 / Flatkey 到站：待更新，尚无采集回执。"); continue; }
+    const metadata = latest;
+    const before = own.find(r => day(r.observedAt) < start && r.metadataStatus === "ok");
+    const total = (key: "stars" | "forks") => metadata?.[key] == null ? "待更新" : `${metadata[key]}${before?.[key] != null ? `（较 ${day(before.observedAt)} ${metadata[key]! - before[key]! >= 0 ? "+" : ""}${metadata[key]! - before[key]!}）` : "（上期快照待更新）"}`;
+    lines.push(`  Stars ${total("stars")}；Forks ${total("forks")}；快照 ${metadata ? metadata.observedAt : "待更新"}。`);
     for (const [key, label] of [["views", "浏览次数"], ["clones", "克隆次数"]] as const) {
       const pair = githubComparable(own, key, start, end, weekly);
       const range = (days: string[]) => days.length ? `${days[0]}～${days.at(-1)}` : "无";
@@ -76,9 +78,16 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
     const referrals = own.flatMap(r => r.referrals).filter(r => r.end <= end && (weekly ? r.start === start && r.end === end : r.start === r.end && r.start >= shift(end, -7))).sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));
     const referral = referrals[0];
     lines.push(referral?.status === "ok" ? `  GitHub UTM→Flatkey 到站会话 ${referral.sessions}，去重访客 ${referral.users}；${referral.start}～${referral.end} ${referral.timezone}${referral.end < end ? "，最新完整日滞后于报表目标日" : ""}。` : "  GitHub UTM→Flatkey 到站会话/访客：待更新；没有把仓库浏览或克隆当作到站点击。");
+    if (weekly) {
+      const previous = own.flatMap(row => row.referrals).filter(row => row.status === "ok" && row.start === shift(start, -7) && row.end === shift(end, -7))
+        .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+      if (referral?.status === "ok" && previous && previous.timezone === referral.timezone)
+        lines.push(`  周到站会话 ${previous.sessions}→${referral.sessions}；周去重访客 ${previous.users}→${referral.users}。`);
+    }
     if (referral?.reason === "ga4_no_matching_utm_data") lines.push(`  GA4已查询 ${referral.start}～${referral.end} ${referral.timezone}，该仓库UTM条件暂无匹配数据，未记为0。`);
-    lines.push(latest.linkAudit.status === "ok" ? `  公开README的Flatkey链接UTM覆盖 ${latest.linkAudit.attributedLinks}/${latest.linkAudit.flatkeyLinks}；仅表示已核查链接。` : "  公开README链接归因核查待更新。");
-    if (latest.views.status !== "ok" || latest.clones.status !== "ok") lines.push("  仓库Traffic来源缺失或无权限，缺失值未写0。");
+    const audit = own[0];
+    lines.push(audit.linkAudit.status === "ok" ? `  公开README的Flatkey链接UTM覆盖 ${audit.linkAudit.attributedLinks}/${audit.linkAudit.flatkeyLinks}；仅表示已核查链接。` : "  公开README链接归因核查待更新。");
+    if (audit.views.status !== "ok" || audit.clones.status !== "ok") lines.push("  仓库Traffic来源缺失或无权限，缺失值未写0。");
   }
   lines.push("GitHub不提供仓库出站点击计数；GA4到站为带仓库UTM的真实会话，受同意与拦截影响，不是点击总量。");
   return lines;
