@@ -27,7 +27,7 @@ export type DigestObservation = {
   complete: boolean; scope: "session-organic-search" | "google-web";
   registrationMetric?: "sign_up_success" | "sign_up_or_legacy_distinct_users";
   country?: "US" | "JP" | "BR" | "ES";
-  sessions?: number | null; registrations?: number | null; clicks?: number | null; impressions?: number | null;
+  sessions?: number | null; registrations?: number | null; clicks?: number | null; impressions?: number | null; position?: number | null;
 };
 export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster" | "prompt"; verifiedAt: string; recordedAt: string; publishedAt: string };
 export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string };
@@ -107,6 +107,48 @@ function link(title: string, url: string) { const safe = safeLink(url); return s
 function dateCoverage(dates: string[]) {
   const ordered = [...dates].sort();
   return ordered.length > 1 && ordered.every((day, index) => !index || day === shift(ordered[index - 1], 1)) ? `${ordered[0]}—${ordered.at(-1)}（${ordered.length}日）` : ordered.join(",");
+}
+
+const november13Highlights = [
+  "完善 SEO 闭环，把数据采集、关键词与页面任务、测试预览与审批、发布记录和上线效果串起来，日周报汇总结果。",
+  "制作并上线 Flatkey About 页面，介绍团队、GPU 基础设施和模型 API，并接入官网多语言导航。",
+  "交付管理员权限管理和操作日志。根管理员可在用户管理页授予或撤销权限，撤权同时收回当前会话的管理权限。日志记录操作者、时间及权限和后台配置的变更。",
+];
+
+function weeklyTrafficRows(input: DigestInput, window: ReturnType<typeof digestWindow>) {
+  const count = (value: number | null) => value?.toLocaleString("en-US") ?? "—";
+  const change = (before: number | null, after: number | null) => before == null || after == null ? "—"
+    : before === after ? "持平" : before === 0 ? `+${count(after)}` : `${formatDelta(Math.round((after - before) / before * 1000) / 10)}%`;
+  const compare = (metric: DigestMetric) => comparableMetric(input.observations, "flatkey.ai", metric, input.date, "all", "weekly");
+  const row = (label: string, value: ReturnType<typeof compare>) => ({ label, previous: count(value.previous), current: count(value.current),
+    change: change(value.previous, value.current), dates: value.dates.length ? `${dateCoverage(value.previousDates)} → ${dateCoverage(value.dates)}` : "待更新" });
+  const sessions = compare("sessions"), clicks = compare("clicks"), impressions = compare("impressions");
+  const registration = (start: string, end: string) => latestBusinessPeriod(input.businessObservations ?? [], start, end, "all", "session-organic-search");
+  const previousRegistration = registration(shift(window.trafficStart, -7), shift(window.trafficEnd, -7));
+  const currentRegistration = registration(window.trafficStart, window.trafficEnd);
+  const users = (period: typeof currentRegistration) => period?.complete ? period.rows.find(item => item.event === "sign_up")?.users ?? null : null;
+  const previousUsers = users(previousRegistration), currentUsers = users(currentRegistration);
+  const sameGscDays = clicks.dates.length > 0 && clicks.timezone === impressions.timezone && clicks.dates.join() === impressions.dates.join();
+  const previousCtr = sameGscDays && impressions.previous ? clicks.previous! / impressions.previous : null;
+  const currentCtr = sameGscDays && impressions.current ? clicks.current! / impressions.current : null;
+  const position = (dates: string[]) => {
+    const rows = dates.map(date => input.observations.filter(row => row.site === "flatkey.ai" && row.date === date && !row.country && row.source === "GSC" && row.complete && row.timezone === clicks.timezone && row.impressions != null)
+      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0]);
+    if (rows.some(row => !row || row.impressions! > 0 && row.position == null)) return null;
+    const weight = rows.reduce((sum, row) => sum + row.impressions!, 0);
+    return weight ? rows.reduce((sum, row) => sum + (row.position ?? 0) * row.impressions!, 0) / weight : null;
+  };
+  const previousPosition = sameGscDays ? position(clicks.previousDates) : null, currentPosition = sameGscDays ? position(clicks.dates) : null;
+  const gscDates = sameGscDays ? row("", clicks).dates : "待更新";
+  return [row("自然搜索会话", sessions),
+    { label: "自然搜索去重注册用户", previous: count(previousUsers), current: count(currentUsers), change: previousRegistration?.timezone === currentRegistration?.timezone ? change(previousUsers, currentUsers) : "—",
+      dates: `${shift(window.trafficStart, -7)}—${shift(window.trafficEnd, -7)} → ${window.trafficStart}—${window.trafficEnd}` },
+    row("Google 自然搜索点击", clicks), row("Google 自然搜索曝光", impressions),
+    { label: "Google 自然搜索点击率", previous: formatCtr(previousCtr), current: formatCtr(currentCtr),
+      change: previousCtr == null || currentCtr == null ? "—" : `${formatDelta((currentCtr - previousCtr) * 100)} 个百分点`, dates: gscDates },
+    { label: "Google 自然搜索平均排名", previous: previousPosition?.toFixed(1) ?? "—", current: currentPosition?.toFixed(1) ?? "—",
+      change: previousPosition == null || currentPosition == null ? "—" : Math.abs(currentPosition - previousPosition) < 0.05 ? "持平" : `${currentPosition < previousPosition ? "提升" : "下降"} ${Math.abs(currentPosition - previousPosition).toFixed(1)} 位`, dates: gscDates },
+  ];
 }
 function metricText(value: ReturnType<typeof comparableMetric>) {
   if (value.current === null || value.previous === null) return value.reason;
@@ -271,6 +313,9 @@ const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/opt
 
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();
+  const thisWeek = window.kind === "weekly" && input.date === "2026-11-13";
+  const weeklyHighlights = thisWeek ? november13Highlights : undefined;
+  const weeklyTraffic = thisWeek ? weeklyTrafficRows(input, window) : undefined;
   const pagePerformance = window.kind === "daily" ? digestTopPages(input.pageObservations ?? [], input.date, now) : [];
   const start = Date.parse(window.workStart), end = Math.min(now.getTime(), Date.parse(window.workEnd));
   const publications = [...new Map(input.publications.filter(row => confirmedInWindow(row, start, end) && safeLink(row.url)
@@ -381,7 +426,7 @@ export function buildSeoDigest(input: DigestInput) {
   for (const country of ["US", "JP", "BR", "ES"] as const) {
     lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, window.kind))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, window.kind))}；曝光 ${metricText(comparableMetric(input.observations, "flatkey.ai", "impressions", input.date, country, window.kind))}`);
   }
-  if (input.rankingNotes?.length) lines.push("", "关键词实测（本期实际回执）", ...input.rankingNotes.map(note => "• " + escaped(note)));
+  if (!thisWeek && input.rankingNotes?.length) lines.push("", "关键词实测（本期实际回执）", ...input.rankingNotes.map(note => "• " + escaped(note)));
   lines.push("", window.kind === "weekly" ? `下周事项与关键词（${input.nextPlanStatus === "reviewed" ? "已确认" : "待确认"}）` : "明日优先关注");
   if (input.nextPlanUrl) lines.push(link("查看下周完整工作计划", input.nextPlanUrl));
   if (!input.priorities.length) lines.push("• 尚未取得已核对任务，需补齐关键词、国家、行动和验收条件。");
@@ -485,12 +530,18 @@ export function buildSeoDigest(input: DigestInput) {
       "", `**${window.kind === "weekly" ? "下周重点" : "下一步"}**`, `${priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
       "", link("数据基础", SEO_DATA_HUB));
   }
+  if (weeklyHighlights && weeklyTraffic && input.notificationCompact) {
+    const summary = weeklyTraffic.filter(row => row.current !== "—").map(row => `${row.label} ${row.previous} → ${row.current}（${row.change}）`);
+    notification.splice(1, 0, "", "**本周工作**", ...weeklyHighlights.map(item => `• ${item}`), "", "**Flatkey 流量对比**",
+      ...summary.map(item => `• ${item}`), link("查看实际对比日期", SEO_PLATFORM + "/reports?period=weekly&date=" + input.date));
+  }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { id: `seo-digest:${input.date}:${hash.slice(0, 16)}`, date: input.date, kind: window.kind, title, text, detailText, hash,
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
+    weeklyHighlights, weeklyTraffic,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
     flatkeyRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };

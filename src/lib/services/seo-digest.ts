@@ -37,8 +37,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     loadWorkflowSnapshot({ week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, false),
     prisma.seoAnalyticsDay.findMany({ where: { date: { gte: start, lte: window.trafficEnd } }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(window.workStart), lt: new Date(Math.min(now.getTime(), Date.parse(window.workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
-    loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
-    loadBusinessAnalytics(window.trafficStart, window.trafficEnd),
+    kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
+    loadBusinessAnalytics(kind === "weekly" ? shiftWorkflowDay(window.trafficStart, -7) : window.trafficStart, window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
   ]);
   const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档"][index]}读取失败，相关项保留缺失。`] : []);
@@ -58,7 +58,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     if (row.kind === "gsc-pages" || row.kind === "ga4-pages") pageObservations.push(...scopedAnalytics([row]));
     const site = clusterDomainForProperty(row.property) ?? "flatkey.ai";
     if (row.kind === "ga4-site") observations.push({ site, country: row.country, date: row.date, source: "GA4", timezone: CLUSTER_SITES.find(s => s.domain === site)?.ga4TimeZone ?? "America/Los_Angeles", observedAt: row.observedAt, complete: row.sessions !== null, scope: "session-organic-search", registrationMetric: row.registrationMetric, sessions: row.sessions, registrations: row.complete ? row.registrations : null });
-    if (row.kind === "gsc-site") observations.push({ site, country: row.country, date: row.date, source: "GSC", timezone: "America/Los_Angeles", observedAt: row.observedAt, complete: row.complete, scope: "google-web", clicks: row.clicks, impressions: row.impressions });
+    if (row.kind === "gsc-site") observations.push({ site, country: row.country, date: row.date, source: "GSC", timezone: "America/Los_Angeles", observedAt: row.observedAt, complete: row.complete, scope: "google-web", clicks: row.clicks, impressions: row.impressions, position: row.position });
   }
   const verified = workflow.publications.filter(row => row.status === "verified" && row.verifiedAt && row.verificationRecordedAt);
   const publications: DigestInput["publications"] = verified.filter(row => row.kind !== "optimization").map(row => ({ id: row.id, url: row.pageUrl, title: row.title, kind: row.kind === "source_blog" ? "source" : row.kind as "translation" | "backfill_translation" | "landing" | "cluster" | "prompt", verifiedAt: row.verifiedAt!, recordedAt: row.verificationRecordedAt!, publishedAt: row.publishedAt }));
