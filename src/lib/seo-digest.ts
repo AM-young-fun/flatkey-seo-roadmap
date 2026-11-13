@@ -64,7 +64,7 @@ export function digestWindow(date: string, kind: DigestKind = "daily") {
   };
 }
 
-/** Compare only matching source, metric and weekday; missing or provisional values never become zero. */
+/** Weekly comparisons require two complete Friday–Thursday periods. */
 export function comparableMetric(observations: DigestObservation[], site: string, metric: DigestMetric, date: string, country: "all" | "US" | "JP" | "BR" | "ES" = "all", kind: DigestKind = "daily") {
   const window = digestWindow(date, kind), source = metric === "clicks" || metric === "impressions" ? "GSC" : "GA4";
   const rows = observations.filter(row => row.site === site && (row.country ?? "all") === country && row.source === source && row.complete
@@ -87,6 +87,10 @@ export function comparableMetric(observations: DigestObservation[], site: string
     const current = latest.get(day), previous = latest.get(shift(day, window.kind === "weekly" ? -7 : -1));
     return current && previous && current.timezone === previous.timezone ? [{ current, previous }] : [];
   }).slice(0, window.kind === "daily" ? 1 : 7);
+  if (window.kind === "weekly" && pairs.length !== 7) {
+    return { current: null, previous: null, dates: [], previousDates: [], timezone: null,
+      reason: `待更新／两周均需完整 7 天，目前有 ${pairs.length} 个同口径可比日` };
+  }
   if (!pairs.length) return { current: null, previous: null, dates: [] as string[], previousDates: [] as string[], timezone: null, reason: "待更新／缺少同口径可比数据" };
   const timezones = new Set(pairs.map(pair => pair.current.timezone));
   if (timezones.size !== 1) return { current: null, previous: null, dates: [] as string[], previousDates: [] as string[], timezone: null, reason: "来源时区变更，需重新建立比较基线" };
@@ -109,6 +113,10 @@ function dateCoverage(dates: string[]) {
   return ordered.length > 1 && ordered.every((day, index) => !index || day === shift(ordered[index - 1], 1)) ? `${ordered[0]}—${ordered.at(-1)}（${ordered.length}日）` : ordered.join(",");
 }
 
+export function weeklyTrafficPeriod(start: string, end: string): string {
+  return `${shift(start, -7)}—${shift(end, -7)}（7日） → ${start}—${end}（7日）`;
+}
+
 const november13Highlights = [
   "完善 SEO 闭环，把数据采集、关键词与页面任务、测试预览与审批、发布记录和上线效果串起来，日周报汇总结果。",
   "制作并上线 Flatkey About 页面，介绍团队、GPU 基础设施和模型 API，并接入官网多语言导航。",
@@ -116,38 +124,62 @@ const november13Highlights = [
 ];
 
 function weeklyTrafficRows(input: DigestInput, window: ReturnType<typeof digestWindow>) {
-  const count = (value: number | null) => value?.toLocaleString("en-US") ?? "—";
+  const count = (value: number | null) => value?.toLocaleString("en-US") ?? "待更新";
+  const dates = weeklyTrafficPeriod(window.trafficStart, window.trafficEnd);
   const change = (before: number | null, after: number | null) => before == null || after == null ? "—"
     : before === after ? "持平" : before === 0 ? `+${count(after)}` : `${formatDelta(Math.round((after - before) / before * 1000) / 10)}%`;
-  const compare = (metric: DigestMetric) => comparableMetric(input.observations, "flatkey.ai", metric, input.date, "all", "weekly");
-  const row = (label: string, value: ReturnType<typeof compare>) => ({ label, previous: count(value.previous), current: count(value.current),
-    change: change(value.previous, value.current), dates: value.dates.length ? `${dateCoverage(value.previousDates)} → ${dateCoverage(value.dates)}` : "待更新" });
-  const sessions = compare("sessions"), clicks = compare("clicks"), impressions = compare("impressions");
+  const period = (start: string, metric: "sessions" | "clicks" | "impressions" | "position") => {
+    const source = metric === "sessions" ? "GA4" : "GSC";
+    const days = new Map<string, DigestObservation>();
+    const end = shift(start, 6);
+    for (const row of input.observations) {
+      if (row.site !== "flatkey.ai" || row.country || row.source !== source || !row.complete ||
+          row.scope !== (source === "GA4" ? "session-organic-search" : "google-web") ||
+          row.date < start || row.date > end || row[metric === "position" ? "impressions" : metric] == null) continue;
+      const prior = days.get(row.date);
+      if (!prior || row.observedAt > prior.observedAt) days.set(row.date, row);
+    }
+    const rows = [...days.values()];
+    if (rows.length !== 7 || new Set(rows.map(row => row.timezone)).size !== 1) return null;
+    const timezone = rows[0].timezone;
+    if (metric !== "position") return { timezone, value: rows.reduce((total, row) => total + row[metric]!, 0) };
+    if (rows.some(row => row.impressions! > 0 && row.position == null)) return null;
+    const weight = rows.reduce((total, row) => total + row.impressions!, 0);
+    return { timezone, value: weight ? rows.reduce((total, row) => total + (row.position ?? 0) * row.impressions!, 0) / weight : null };
+  };
+  const previousStart = shift(window.trafficStart, -7);
+  const pair = (metric: Parameters<typeof period>[1]) => ({
+    previous: period(previousStart, metric), current: period(window.trafficStart, metric),
+  });
+  const row = (label: string, value: ReturnType<typeof pair>) => ({
+    label, previous: count(value.previous?.value ?? null), current: count(value.current?.value ?? null),
+    change: value.previous?.timezone === value.current?.timezone
+      ? change(value.previous?.value ?? null, value.current?.value ?? null) : "—", dates,
+  });
+  const clicks = pair("clicks"), impressions = pair("impressions"), positions = pair("position");
   const registration = (start: string, end: string) => latestBusinessPeriod(input.businessObservations ?? [], start, end, "all", "session-organic-search");
   const previousRegistration = registration(shift(window.trafficStart, -7), shift(window.trafficEnd, -7));
   const currentRegistration = registration(window.trafficStart, window.trafficEnd);
   const users = (period: typeof currentRegistration) => period?.complete ? period.rows.find(item => item.event === "sign_up")?.users ?? null : null;
   const previousUsers = users(previousRegistration), currentUsers = users(currentRegistration);
-  const sameGscDays = clicks.dates.length > 0 && clicks.timezone === impressions.timezone && clicks.dates.join() === impressions.dates.join();
-  const previousCtr = sameGscDays && impressions.previous ? clicks.previous! / impressions.previous : null;
-  const currentCtr = sameGscDays && impressions.current ? clicks.current! / impressions.current : null;
-  const position = (dates: string[]) => {
-    const rows = dates.map(date => input.observations.filter(row => row.site === "flatkey.ai" && row.date === date && !row.country && row.source === "GSC" && row.complete && row.timezone === clicks.timezone && row.impressions != null)
-      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0]);
-    if (rows.some(row => !row || row.impressions! > 0 && row.position == null)) return null;
-    const weight = rows.reduce((sum, row) => sum + row.impressions!, 0);
-    return weight ? rows.reduce((sum, row) => sum + (row.position ?? 0) * row.impressions!, 0) / weight : null;
+  const ctr = (side: "previous" | "current") => {
+    const numerator = clicks[side], denominator = impressions[side];
+    if (!numerator || !denominator || numerator.timezone !== denominator.timezone) return null;
+    return { timezone: numerator.timezone, value: denominator.value ? numerator.value! / denominator.value : null };
   };
-  const previousPosition = sameGscDays ? position(clicks.previousDates) : null, currentPosition = sameGscDays ? position(clicks.dates) : null;
-  const gscDates = sameGscDays ? row("", clicks).dates : "待更新";
-  return [row("自然搜索会话", sessions),
+  const previousCtr = ctr("previous"), currentCtr = ctr("current");
+  const previousPosition = positions.previous?.value, currentPosition = positions.current?.value;
+  return [row("自然搜索会话", pair("sessions")),
     { label: "自然搜索去重注册用户", previous: count(previousUsers), current: count(currentUsers), change: previousRegistration?.timezone === currentRegistration?.timezone ? change(previousUsers, currentUsers) : "—",
-      dates: `${shift(window.trafficStart, -7)}—${shift(window.trafficEnd, -7)} → ${window.trafficStart}—${window.trafficEnd}` },
+      dates },
     row("Google 自然搜索点击", clicks), row("Google 自然搜索曝光", impressions),
-    { label: "Google 自然搜索点击率", previous: formatCtr(previousCtr), current: formatCtr(currentCtr),
-      change: previousCtr == null || currentCtr == null ? "—" : `${formatDelta((currentCtr - previousCtr) * 100)} 个百分点`, dates: gscDates },
-    { label: "Google 自然搜索平均排名", previous: previousPosition?.toFixed(1) ?? "—", current: currentPosition?.toFixed(1) ?? "—",
-      change: previousPosition == null || currentPosition == null ? "—" : Math.abs(currentPosition - previousPosition) < 0.05 ? "持平" : `${currentPosition < previousPosition ? "提升" : "下降"} ${Math.abs(currentPosition - previousPosition).toFixed(1)} 位`, dates: gscDates },
+    { label: "Google 自然搜索点击率", previous: previousCtr ? formatCtr(previousCtr.value) : "待更新", current: currentCtr ? formatCtr(currentCtr.value) : "待更新",
+      change: previousCtr?.value == null || currentCtr?.value == null || previousCtr.timezone !== currentCtr.timezone
+        ? "—" : `${formatDelta((currentCtr.value - previousCtr.value) * 100)} 个百分点`, dates },
+    { label: "Google 自然搜索平均排名", previous: positions.previous ? previousPosition?.toFixed(1) ?? "—" : "待更新",
+      current: positions.current ? currentPosition?.toFixed(1) ?? "—" : "待更新",
+      change: previousPosition == null || currentPosition == null || positions.previous?.timezone !== positions.current?.timezone
+        ? "—" : Math.abs(currentPosition - previousPosition) < 0.05 ? "持平" : `${currentPosition < previousPosition ? "提升" : "下降"} ${Math.abs(currentPosition - previousPosition).toFixed(1)} 位`, dates },
   ];
 }
 function metricText(value: ReturnType<typeof comparableMetric>) {
@@ -315,7 +347,7 @@ export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();
   const thisWeek = window.kind === "weekly" && input.date === "2026-11-13";
   const weeklyHighlights = thisWeek ? november13Highlights : undefined;
-  const weeklyTraffic = thisWeek ? weeklyTrafficRows(input, window) : undefined;
+  const weeklyTraffic = window.kind === "weekly" ? weeklyTrafficRows(input, window) : undefined;
   const pagePerformance = window.kind === "daily" ? digestTopPages(input.pageObservations ?? [], input.date, now) : [];
   const start = Date.parse(window.workStart), end = Math.min(now.getTime(), Date.parse(window.workEnd));
   const publications = [...new Map(input.publications.filter(row => confirmedInWindow(row, start, end) && safeLink(row.url)
@@ -328,7 +360,9 @@ export function buildSeoDigest(input: DigestInput) {
     return coverage === "verified" ? count : value > 0 ? `至少 ${count}（已核实）` : "待核实";
   };
   const review = input.reviewWorkflow ? digestReviewQueue(input.reviewWorkflow, now) : null;
-  const title = `Flatkey SEO ${window.kind === "weekly" ? "周报" : "日报"}｜${input.date}`;
+  const title = window.kind === "weekly"
+    ? `Flatkey SEO 周报｜${window.trafficStart}—${window.trafficEnd}`
+    : `Flatkey SEO 日报｜${input.date}`;
   const lines = [title, "", `工作统计：${window.workStart.slice(0, 16).replace("T", " ")} — ${window.workEnd.slice(0, 16).replace("T", " ")}（北京时间，结束时刻不含）；确认截止 ${now.toISOString()}。`, "",
     `${review ? `待审核 ${review.tasks} 项（${review.tickets} 张审批单，${review.pages.length} 个页面版本） · 待补材料 ${review.materialCount} 项` : "待审核 待更新 · 待补材料 待更新"} · ${link("SEO 平台审批", approvalsUrl)}`, "",
     ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
@@ -518,7 +552,7 @@ export function buildSeoDigest(input: DigestInput) {
     const focus = rows.filter(row => row.before && row.latest)
       .sort((a, b) => Math.abs(b.latest!.clicks - b.before!.clicks) - Math.abs(a.latest!.clicks - a.before!.clicks))[0] ?? rows[0];
     const priority = input.priorities[0];
-    const heading = window.kind === "weekly" ? `**Flatkey SEO 周报｜${window.workStart.slice(0, 10)}—${window.trafficEnd}**` : `**${title}**`;
+    const heading = `**${title}**`;
     const mainClicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, "all", window.kind);
     notification.splice(0, notification.length, heading, "", "**交付与审批**",
       `新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页")} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
@@ -530,10 +564,13 @@ export function buildSeoDigest(input: DigestInput) {
       "", `**${window.kind === "weekly" ? "下周重点" : "下一步"}**`, `${priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
       "", link("数据基础", SEO_DATA_HUB));
   }
-  if (weeklyHighlights && weeklyTraffic && input.notificationCompact) {
-    const summary = weeklyTraffic.filter(row => row.current !== "—").map(row => `${row.label} ${row.previous} → ${row.current}（${row.change}）`);
-    notification.splice(1, 0, "", "**本周工作**", ...weeklyHighlights.map(item => `• ${item}`), "", "**Flatkey 流量对比**",
-      ...summary.map(item => `• ${item}`), link("查看实际对比日期", SEO_PLATFORM + "/reports?period=weekly&date=" + input.date));
+  if (weeklyTraffic && input.notificationCompact) {
+    const summary = weeklyTraffic.filter(row => row.previous !== "待更新" || row.current !== "待更新")
+      .map(row => `${row.label} ${row.previous} → ${row.current}${row.change === "—" ? "" : `（${row.change}）`}`);
+    notification.splice(1, 0, ...(weeklyHighlights ? ["", "**本周工作**", ...weeklyHighlights.map(item => `• ${item}`)] : []),
+      "", "**Flatkey 流量对比**", weeklyTraffic[0].dates,
+      ...(summary.length ? summary.map(item => `• ${item}`) : ["• 完整周数据待更新"]),
+      link("查看周报", SEO_PLATFORM + "/reports?period=weekly&date=" + input.date));
   }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");

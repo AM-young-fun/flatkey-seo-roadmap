@@ -238,6 +238,8 @@ export function SeoDigestReports() {
   const selected = report?.date ?? date ?? dates[0] ?? "";
   const dateLabel = kind === "weekly" ? "报告周次" : "报告日期";
   const availableDates = selected && !dates.includes(selected) ? [selected, ...dates] : dates;
+  const weeklyDates = report && kind === "weekly"
+    ? [`${shiftDay(report.date, -14)}—${shiftDay(report.date, -8)}`, `${shiftDay(report.date, -7)}—${shiftDay(report.date, -1)}`] : [];
   const deliveryCount = (count: number, coverage: SeoDigest["coverage"]["publications"]) =>
     coverage === "verified" ? numberText(count) : count > 0 ? "至少 " + numberText(count) : "待核实";
   const route = (period: typeof kind, selectedDate?: string) => "/reports?" + new URLSearchParams({ period, ...(selectedDate ? { date: selectedDate } : {}) });
@@ -282,10 +284,16 @@ export function SeoDigestReports() {
           <div className={reportStyles.tableScroll}>
             <table className={reportStyles.comparison}>
               <thead><tr><th scope="col">指标</th><th scope="col">上周</th><th scope="col">本周</th><th scope="col">变化</th><th scope="col">对比日期</th></tr></thead>
-              <tbody>{report.weeklyTraffic.map(row => <tr key={row.label}>
-                <th scope="row">{row.label}</th><td>{row.previous}</td><td className={reportStyles.current}>{row.current}</td>
-                <td>{row.change}</td><td className={reportStyles.comparisonDates}>{row.dates.split(" → ").map(date => <span key={date}>{date}</span>)}</td>
-              </tr>)}</tbody>
+              <tbody>{report.weeklyTraffic.map(row => {
+                const savedDates = row.dates.split(" → ").map(date => date.replace(/（7日）$/, ""));
+                const complete = weeklyDates.every((date, index) => date === savedDates[index]);
+                return <tr key={row.label}>
+                  <th scope="row">{row.label}</th><td>{complete && row.previous !== "—" ? row.previous : "待更新"}</td>
+                  <td className={reportStyles.current}>{complete && row.current !== "—" ? row.current : "待更新"}</td>
+                  <td>{complete ? row.change : "—"}</td>
+                  <td className={reportStyles.comparisonDates}>{weeklyDates.map(date => <span key={date}>{date}（7日）</span>)}</td>
+                </tr>;
+              })}</tbody>
             </table>
           </div>
         </section> : null}
