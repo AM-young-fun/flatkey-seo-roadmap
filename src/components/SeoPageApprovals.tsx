@@ -1,15 +1,12 @@
 "use client";
 
-import { workTaskHref } from "@/lib/seo-workspace-routes";
-import { approvalReviewReadiness, approvalItemNeedsHuman, reviewPreviewUrl } from "@/lib/seo-workflow";
-import Link from "next/link";
-import Image from "next/image";
+import { approvalPreview, groupApprovalPages, type ReviewItem } from "@/lib/seo-approval-display";
+import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
-import { ExternalLink, ImageIcon, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import { workflowApprovalEffectiveItemStatus, workflowApprovalStatus, WORKFLOW_SITES, type WorkflowApproval, type WorkflowSnapshot, type WorkflowTask } from "@/lib/seo-workflow";
 import { UiSelect } from "./UiSelect";
-import { WorkflowEvidence } from "./WorkflowEvidence";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 import review from "./SeoPageApprovals.module.css";
@@ -22,7 +19,6 @@ const labels: Record<string, string> = { automatic_history: "免审历史", draf
 const siteLabels: Record<string, string> = { "flatkey.ai": "Flatkey", "jev-llm.com": "JEV LLM", "mochichatbot.com": "MochiChatbot", "modelfit.cc": "ModelFit", "rackrate.org": "RackRate" };
 const stamp = (value: string | null) => value ? shanghaiStamp(value) : "尚未提交";
 const href = (id: string) => `/approvals?approvalId=${encodeURIComponent(id)}`;
-const safeUrl = (value: string | null | undefined) => { try { const url = new URL(value ?? ""); return url.protocol === "https:" && !url.username && !url.password ? url.toString() : null; } catch { return null; } };
 const recordInput = (approval: WorkflowApproval): ApprovalInput => {
   const { version: _version, updatedAt: _updatedAt, recordedAt: _recordedAt, submittedRecordedAt: _submittedRecordedAt, decisions, ...record } = approval;
   return { ...record, decisions: decisions.map(({ recordedAt: _recordedAt, ...decision }) => decision) };
@@ -32,22 +28,43 @@ function ApprovalBadge({ status }: { status: string }) {
   return <span className={review.badge} data-state={status}>{labels[status] ?? status}</span>;
 }
 
-function ScreenshotLinks({ items }: { items: ApprovalItem["evidence"] }) {
-  const urls = new Set<string>();
-  for (const item of items) {
-    const url = safeUrl(item.url);
-    if (url && (/截图|截屏|screenshot|screen capture/i.test(item.label) || /\.(?:png|jpe?g|webp|gif|avif|bmp|heic)$/i.test(new URL(url).pathname))) urls.add(url);
-  }
-  return [...urls].map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer">
-    <ImageIcon size={14} aria-hidden="true" />查看截图{urls.size > 1 ? ` ${index + 1}` : ""}
-  </a>);
+export function ReviewChangeSummary({ item }: { item: ReviewItem }) {
+  const { url, verified } = approvalPreview(item);
+  const label = item.afterSummary.match(/^新增文字“([^”]+)”/u)?.[1];
+  const path = new URL(item.pageUrl).pathname;
+  const pricingLink = label && /\/pricing\/?$/.test(path);
+  const summary = pricingLink ? `在价格页简介下方添加「${label}」，链接到同语言的 LLM 费用计算器。` : item.changeSummary;
+  const additional = !pricingLink && !item.afterSummary.startsWith(item.changeSummary) && item.afterSummary.length <= 300 ? item.afterSummary : null;
+  return <div className={review.changeSummary}>
+    <h4>变更摘要</h4>
+    <p>{summary}</p>
+    {additional ? <p>{additional}</p> : null}
+    <div className={review.previewLink}>
+      {url ? <a href={url} target="_blank" rel="noreferrer">{verified ? "打开测试预览" : "打开测试环境页面"} <ExternalLink size={13} aria-hidden="true" /></a> : null}
+      {!verified ? <span className={styles.muted}>{url ? "待审版本尚未核验" : "测试预览待补齐"}</span> : null}
+    </div>
+  </div>;
 }
 
-function ReviewScreenshots({ item }: { item: ApprovalItem }) {
-  const uploads = item.evidence.filter(row => row.url?.startsWith("https://flatkey-seo-roadmap.vercel.app/api/seo/review-assets/"));
-  return uploads.length ? <div className={review.screenshotGrid}>{uploads.map(row =>
-    <a href={row.url} key={row.url} target="_blank" rel="noreferrer"><Image src={row.url!} unoptimized width={240} height={160} alt={row.label} /><span>{row.label}</span></a>
-  )}</div> : null;
+function ReviewPageGroup({ group, preferredTask, statusFor }: {
+  group: ReturnType<typeof groupApprovalPages>[number];
+  preferredTask: string | null;
+  statusFor: (item: ApprovalItem) => string;
+}) {
+  const [selected, setSelected] = useState(() => (group.items.find(item => item.taskId === preferredTask)
+    ?? group.items.find(item => item.language === "en") ?? group.items[0]).id);
+  const item = group.items.find(item => item.id === selected) ?? group.items[0];
+  return <section className={review.itemDetail} aria-label="审批页面">
+    <div className={review.pageGroupHeading}>
+      <div><h3>{item.operation === "new" ? "新增页面" : "修改页面"}</h3><span className={review.path}>{group.path}</span></div>
+      <div className={review.pageGroupActions}>
+        {group.items.length > 1 ? <UiSelect aria-label={`预览语言 ${group.path}`} value={item.id} onChange={setSelected}
+          options={group.items.map(entry => ({ value: entry.id, label: entry.language }))} /> : <span className={styles.muted}>{item.language}</span>}
+        <ApprovalBadge status={statusFor(item)} />
+      </div>
+    </div>
+    <ReviewChangeSummary item={item} />
+  </section>;
 }
 
 function useApprovalWrite() {
@@ -76,8 +93,8 @@ function WriteError({ error, conflict, onRefresh }: { error: string; conflict: b
   return error ? <div className={styles.warning} role="alert"><div><p>{error}</p>{conflict ? <><p>该记录已变更。当前操作未覆盖他人的决定；请刷新并重新核对最新内容。</p><button type="button" className={styles.secondary} onClick={onRefresh}>读取最新审批记录</button></> : null}</div></div> : null;
 }
 
-function DecisionForm({ id, approval, allApprovals, tasks, onSaved, onRefresh }: { id: string; approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[]; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void }) {
-  const [decision, setDecision] = useState<ApprovalDecision["decision"]>(() => approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending") ? "approved" : "withdrawn"), [selected, setSelected] = useState<string[]>([]), [reviewer, setReviewer] = useState(""), [note, setNote] = useState(""), [confirmed, setConfirmed] = useState(false);
+function DecisionForm({ approval, allApprovals, tasks, preferredTask, onSaved, onRefresh }: { preferredTask: string | null; approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[]; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void }) {
+  const [decision, setDecision] = useState<ApprovalDecision["decision"]>(() => approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending") ? "approved" : "withdrawn"), [selected, setSelected] = useState<string[]>(() => approval.items.filter(item => item.taskId === preferredTask && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending").map(item => item.id)), [reviewer, setReviewer] = useState(""), [note, setNote] = useState(""), [confirmed, setConfirmed] = useState(false);
   const write = useApprovalWrite();
   const eligible = approval.items.filter(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === (decision === "withdrawn" ? "approved" : "pending"));
   const selectedItems = eligible.filter(item => selected.includes(item.id));
@@ -94,72 +111,56 @@ function DecisionForm({ id, approval, allApprovals, tasks, onSaved, onRefresh }:
     if (saved) onSaved(saved);
   }
   if (!hasPending && !hasApproved) return <p className={styles.muted}>本单已无可审核项。要求修改或拒绝的内容请改稿后重新提交，原决定保留。</p>;
-  return <form id={id} tabIndex={-1} className={styles.reviewForm} onSubmit={event => void submit(event)}>
+  return <form className={styles.reviewForm} onSubmit={event => void submit(event)}>
     <h4>记录本次审核决定</h4><p className={styles.muted}>审核决定只适用于所选 URL、语言和版本。批准后交给发布队列。</p>
     <fieldset disabled={write.busy || write.conflict} className={review.fieldset}>
       <label className={review.selectLabel}>审批结果<UiSelect aria-label="审批结果" value={decision} onChange={value => { setDecision(value as typeof decision); setSelected([]); setConfirmed(false); }} options={[...(hasPending ? [{ value: "approved", label: "批准所选项" }, { value: "changes_requested", label: "要求修改" }, { value: "rejected", label: "拒绝所选项" }] : []), ...(hasApproved ? [{ value: "withdrawn", label: "撤回已批准项" }] : [])]} /></label>
       {!eligible.length ? <p className={styles.muted}>当前决定没有可选项。请选择“撤回已批准项”查看撤回范围。</p> : <>
         <div className={review.actions}><button type="button" className={styles.secondary} onClick={() => { setSelected(eligible.map(item => item.id)); setConfirmed(false); }}>{decision === "withdrawn" ? "选择全部已批准项" : "选择全部待审批项"}</button><button type="button" className={styles.secondary} onClick={() => { setSelected([]); setConfirmed(false); }}>取消选择</button><span className={styles.muted}>已选 {selectedItems.length} / {eligible.length} 项</span></div>
-        <div className={review.selections}>{eligible.map(item => <label className={styles.checkbox} key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={event => { setSelected(current => event.target.checked ? [...current, item.id] : current.filter(id => id !== item.id)); setConfirmed(false); }} /><span><strong>{item.language} · {item.operation === "new" ? "新增" : "修改"}</strong><span>{item.pageUrl}</span><code>{item.contentVersion}</code></span></label>)}</div>
+        <div className={review.selections}>{groupApprovalPages(eligible).map(group => <fieldset className={review.languageGroup} key={group.key}>
+          <legend>{group.path}</legend>
+          {group.items.map(item => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)}
+            onChange={event => {
+              const checked = event.target.checked;
+              setSelected(current => checked ? [...current, item.id] : current.filter(id => id !== item.id));
+              setConfirmed(false);
+            }} />{item.language}</label>)}
+        </fieldset>)}</div>
       </>}
       <div className={styles.formGrid}><label>审核人<input required maxLength={200} value={reviewer} onChange={event => setReviewer(event.target.value)} /></label><label className={styles.spanAll}>决定理由 / 需修改的具体内容<textarea required rows={3} maxLength={5000} value={note} onChange={event => setNote(event.target.value)} /></label></div>
-      <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />我已阅读所选 {selectedItems.length} 项的具体版本、前后改动和稿件，明确记录“{labels[decision]}”决定。</label>
+      <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />我已核对所选 {selectedItems.length} 项的变更摘要{decision === "approved" ? "和测试预览" : ""}，同意记录“{labels[decision]}”决定。</label>
       {decision === "approved" && selectedItems.some(item => !approvalReviewReadiness(item).ready) ? <p role="alert">所选版本缺少同版本测试链接或桌面/手机截图，请要求修改，由执行任务补齐材料后自动送审。</p> : null}
       <button type="submit" className={styles.primary} disabled={!confirmed || !selectedItems.length || !reviewer.trim() || !note.trim() || decision === "approved" && selectedItems.some(item => !approvalReviewReadiness(item).ready)}>{write.busy ? "记录中…" : `确认${labels[decision]} ${selectedItems.length} 项`}</button>
     </fieldset><WriteError error={write.error} conflict={write.conflict} onRefresh={onRefresh} />
   </form>;
 }
 
-function ApprovalCard({ approval, allApprovals, tasks, focused, onSaved, onRefresh }: { approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[]; focused: boolean; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void }) {
+function ApprovalCard({ approval, allApprovals, tasks, focused, startReview, preferredTask, onSaved, onRefresh }: {
+  approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[];
+  focused: boolean; startReview: boolean; preferredTask: string | null;
+  onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void;
+}) {
   const [open, setOpen] = useState(focused);
-  const itemStates = approval.items.map(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals));
-  const pending = approval.items.filter((item, i) => itemStates[i] === "pending" && approvalItemNeedsHuman(item, tasks)).length;
+  const [showDecision, setShowDecision] = useState(startReview);
+  const effectiveItemStatus = (item: ApprovalItem) => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals);
+  const pending = approval.items.filter(item => effectiveItemStatus(item) === "pending" && approvalItemNeedsHuman(item, tasks)).length;
   const automaticHistory = approval.items.every(item => !approvalItemNeedsHuman(item, tasks));
-  const effectiveStatus = itemStates.every(status => status === "superseded") ? "superseded" : approval.status;
-  const canDecide = !automaticHistory && (pending > 0 || itemStates.includes("approved"));
-  const decisionFormId = `decision-form-${approval.id}`;
+  const effectiveStatus = approval.items.every(item => effectiveItemStatus(item) === "superseded") ? "superseded" : approval.status;
+  const canDecide = !automaticHistory && (pending > 0 || approval.items.some(item => effectiveItemStatus(item) === "approved"));
+  const groups = groupApprovalPages(approval.items);
   return <details className={`${styles.record} ${focused ? review.focused : ""}`} id={`approval-${approval.id}`} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
-      <span><strong>{approval.title}</strong><small>{siteLabels[approval.siteDomain]} · {approval.requestedBy} · {stamp(approval.submittedAt)}</small></span>
-      <span className={styles.taskMeta}><ApprovalBadge status={automaticHistory ? "automatic_history" : effectiveStatus} /><small>{pending ? `待审 ${pending} / ${approval.items.length} 项` : `${approval.items.length} 个版本`}</small></span>
+      <span><strong>{approval.title}</strong><small>{siteLabels[approval.siteDomain]} · {stamp(approval.submittedAt)}</small></span>
+      <span className={styles.taskMeta}><ApprovalBadge status={automaticHistory ? "automatic_history" : effectiveStatus} />
+        <small>{pending ? `待审 ${pending} 项` : `${groups.length} 个页面`}</small></span>
     </summary>
     <div className={styles.detail}>
-      <div className={review.actions}>{canDecide ? <a href={`#${decisionFormId}`}>审核此单 ↓</a> : null}{!focused ? <Link href={href(approval.id)}>固定链接</Link> : null}<ScreenshotLinks items={approval.evidence} /></div>
-      {approval.items.map((item, index) => {
-        const task = tasks.find(task => task.id === item.taskId);
-        const mismatch = Boolean(task?.pageUrl === item.pageUrl && task?.language === item.language && task?.contentVersion && task.contentVersion !== item.contentVersion);
-        const preview = item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
-        const draft = safeUrl(item.draftUrl);
-        return <section key={item.id} className={review.itemDetail} aria-label={`审批页面 ${index + 1}`}>
-          <div className={styles.sectionHeading}><h3>{item.operation === "new" ? "新增页面" : "修改页面"} · {item.language}</h3><ApprovalBadge status={approvalItemNeedsHuman(item, tasks) ? itemStates[index] : "automatic_history"} /></div>
-          <a className={review.targetUrl} href={item.pageUrl} target="_blank" rel="noreferrer">正式页 · {item.pageUrl} ↗</a>
-          <div className={review.actions}>
-            {preview ? <a href={preview} target="_blank" rel="noreferrer">打开测试预览 <ExternalLink size={13} aria-hidden="true" /></a> : <span className={styles.muted}>测试预览待补齐</span>}
-            {draft ? <a href={draft} target="_blank" rel="noreferrer">打开稿件 <ExternalLink size={13} aria-hidden="true" /></a> : null}
-            <ScreenshotLinks items={item.evidence} />
-          </div>
-          <ReviewScreenshots item={item} />
-          <h4>变更摘要</h4><p className={review.preserveLines}>{item.changeSummary}</p>
-          <dl className={styles.metadata}><div><dt>本次待审版本</dt><dd><code>{item.contentVersion}</code></dd></div>{item.baseContentVersion ? <div><dt>修改前版本</dt><dd><code>{item.baseContentVersion}</code></dd></div> : null}</dl>
-          {mismatch ? <p className={styles.warning}>关联任务已有新版本，执行任务补齐新版本的测试材料后会重新送审。</p> : null}
-          <details className={review.content}>
-            <summary>前后改动与审稿内容</summary>
-            <div className={review.beforeAfter}>{item.beforeSummary ? <div><h4>修改前</h4><p>{item.beforeSummary}</p></div> : <div><h4>修改前</h4><p className={styles.muted}>新增页面，尚无旧版。</p></div>}<div><h4>修改后 / 新增内容</h4><p>{item.afterSummary}</p></div></div>
-            {item.beforeContent ? <details className={review.content}><summary>修改前完整内容 · {item.beforeContent.length.toLocaleString("zh-CN")} 字符</summary><pre>{item.beforeContent}</pre></details> : null}
-            {item.reviewContent ? <><h4>{item.reviewFormat === "diff" ? "完整变更 Diff" : "完整审稿内容"} · {item.reviewContent.length.toLocaleString("zh-CN")} 字符</h4><pre>{item.reviewContent}</pre></> : <p className={styles.muted}>请在测试页面或稿件中核对版本。若无法访问，可要求修改。</p>}
-          </details>
-          <details className={review.content}><summary>关联任务、页面效果与证据</summary>
-            <p>关联任务 {task ? <Link href={workTaskHref(task)}>{task.title}</Link> : item.taskId} · <Link href={"/pages?" + new URLSearchParams({ site: approval.siteDomain, pageUrl: item.pageUrl })}>页面效果</Link></p>
-            <WorkflowEvidence evidence={item.evidence} />
-          </details>
-        </section>;
-      })}
-      <details className={review.content}><summary>审核历史 · {approval.decisions.length} 条</summary>{approval.decisions.length ? <ol className={review.decisions}>{approval.decisions.map(decision => <li key={decision.id}><div><ApprovalBadge status={decision.decision} /><strong>{decision.decidedBy}</strong><small>{stamp(decision.decidedAt)} · 入库 {stamp(decision.recordedAt)}</small></div><p>适用页面：{decision.itemIds.map(id => { const item = approval.items.find(item => item.id === id); return item ? `${item.language} ${item.pageUrl}` : id; }).join("；")}</p><p className={review.preserveLines}>{decision.note}</p><details><summary>审核证据</summary><WorkflowEvidence evidence={decision.evidence} /></details></li>)}</ol> : <p className={styles.muted}>尚无人工审批决定。</p>}</details>
-      {automaticHistory ? <p className={styles.muted}>此页面按当前规则自动执行。本单仅保留历史，不计待审批；原审核决定未改写。</p> : approval.status === "draft" ? <p className={styles.muted}>等待执行任务补齐材料并送审。</p> : <DecisionForm id={decisionFormId} key={`${approval.id}:${approval.version}`} approval={approval} allApprovals={allApprovals} tasks={tasks} onSaved={onSaved} onRefresh={onRefresh} />}
-      <details className={review.recordEvidence}><summary>审批单信息与来源证据</summary>
-        <dl className={styles.metadata}><div><dt>单号 / 记录版本</dt><dd>{approval.id} / {approval.version}</dd></div><div><dt>归档工作周</dt><dd>{approval.weekStart}</dd></div><div><dt>提交入库</dt><dd>{stamp(approval.submittedRecordedAt)}</dd></div></dl>
-        {approval.supersedesApprovalIds.length ? <p>替换原审批单 {approval.supersedesApprovalIds.map(id => <Link key={id} href={href(id)} className={review.inlineLink}>{id}</Link>)}</p> : null}
-        <WorkflowEvidence evidence={approval.evidence} /></details>
+      {canDecide ? <div className={review.actions}><button type="button" className={styles.primary} aria-expanded={showDecision}
+        onClick={() => setShowDecision(current => !current)}>{showDecision ? "收起审核" : pending ? "审核此单" : "管理审核"}</button></div> : null}
+      {canDecide && showDecision ? <DecisionForm key={`${approval.id}:${approval.version}`} approval={approval}
+        allApprovals={allApprovals} tasks={tasks} preferredTask={preferredTask} onSaved={onSaved} onRefresh={onRefresh} /> : null}
+      {groups.map(group => <ReviewPageGroup key={group.key} group={group} preferredTask={preferredTask}
+        statusFor={item => approvalItemNeedsHuman(item, tasks) ? effectiveItemStatus(item) : "automatic_history"} />)}
     </div>
   </details>;
 }
@@ -199,7 +200,7 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
         <div className={styles.sectionHeading}><h2 id="approval-list-title">审批队列</h2><span className={styles.count}>{shown.length} 单</span></div>
         <div className={review.filters}><UiSelect aria-label="审批状态筛选" value={scope} onChange={setScope} options={[{ value: "pending", label: "待审批（跨周）" }, { value: "all", label: "全部审批记录" }, ...["draft", "partially_reviewed", "approved", "changes_requested", "rejected", "withdrawn", "superseded"].map(value => ({ value, label: labels[value] }))]} /><UiSelect aria-label="审批站点筛选" value={site} onChange={setSite} options={[{ value: "all", label: "全部五站" }, ...WORKFLOW_SITES.map(value => ({ value, label: siteLabels[value] }))]} /><input aria-label="搜索审批单" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索标题、URL、版本或提交人" /></div>
         {selectedId && !focused ? <p className={styles.warning}>未找到审批单 {selectedId}。请核对链接或刷新。</p> : null}
-        {shown.length ? shown.map(approval => <ApprovalCard key={`${approval.id}:${focused?.id === approval.id ? "focused" : "list"}`} approval={approval} allApprovals={approvals} tasks={data.tasks} focused={focused?.id === approval.id} onSaved={saved} onRefresh={refresh} />) : <p className={styles.empty}>当前没有匹配的送审记录。测试材料齐备后，执行任务会自动送审。</p>}
+        {shown.length ? shown.map(approval => <ApprovalCard key={`${approval.id}:${focused?.id === approval.id ? "focused" : "list"}`} approval={approval} allApprovals={approvals} tasks={data.tasks} focused={focused?.id === approval.id} startReview={focused?.id === approval.id && params.get("review") === "1"} preferredTask={taskFilter} onSaved={saved} onRefresh={refresh} />) : <p className={styles.empty}>当前没有匹配的送审记录。测试材料齐备后，执行任务会自动送审。</p>}
       </section>
     </>}
   </>;

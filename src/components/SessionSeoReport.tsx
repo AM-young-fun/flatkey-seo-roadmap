@@ -69,6 +69,10 @@ export function SessionSeoReport({ range, comparison = null, expanded = false, s
     : comparison && priorComplete ? `访问${changes.sessions}，可归属注册${changes.registrations}。` : `本期自然搜索带来 ${numberText(stats.sessions.total)} 次访问、${numberText(stats.registrations.total)} 人次可归属注册${comparison ? "，对比期数据待补齐" : ""}。`);
   const Heading = compact ? "h3" : "h2";
   const foldSourceReason = compact && showSourceSummary && showDetails;
+  const trendUsesRegistrations = flatkeyRegistrations && metric === "registrations";
+  const trendData = trendUsesRegistrations ? registrations.data : data;
+  const trendError = trendUsesRegistrations ? registrations.error : error;
+  const trendLoading = !trendData && !trendError;
   return <section className={compact ? `${styles.report} ${styles.compact}` : styles.report} aria-label="自然搜索统计">
     {summary || (missingCountry && !foldSourceReason) ? <p className={styles.conclusion}>{conclusion}</p> : null}
     {error ? <div className={styles.error} role="alert">{error}<button className="ui-button" type="button" onClick={current.retry}>重试</button></div> : null}
@@ -77,11 +81,12 @@ export function SessionSeoReport({ range, comparison = null, expanded = false, s
       const isFlatkey = flatkeyRegistrations && key === "registrations";
       const ready = isFlatkey ? registrations.data : data;
       const readError = isFlatkey ? registrations.error : error;
-      return <article key={key}>
+      const loading = !ready && !readError;
+      return <article key={key} aria-busy={loading}>
         <Heading>{label}</Heading>
-        <strong>{numberText(total)}</strong>
+        {loading ? <span className={styles.valueSkeleton} aria-hidden="true" /> : <strong>{numberText(total)}</strong>}
         {isFlatkey ? <small>全渠道 · 按日去重后加总</small> : null}
-        <p>{ready ? changes[key] : readError ? "读取失败" : "正在读取…"}</p>
+        {loading ? <span className={styles.captionSkeleton} aria-hidden="true" /> : <p>{ready ? changes[key] : "读取失败"}</p>}
         {ready && measured < days ? <small>{measured ? "部分数据" : "待采集"} · {measured}/{days} 天有记录</small> : null}
         {!flatkeyRegistrations && ready && key === "registrations" && measured === 0 ? <small>未取得可归属注册记录，暂不计为 0。</small> : null}
         {isFlatkey && readError ? <button className="ui-button" type="button" onClick={registrations.retry}>重试</button> : null}
@@ -91,10 +96,10 @@ export function SessionSeoReport({ range, comparison = null, expanded = false, s
       {data ? <SeoAnalyticsStatus name="GA4 自然搜索" source={foldSourceReason ? { ...data.ga4, reason: null } : data.ga4} /> : <p>{error ? "数据来源暂时无法读取，数值保持未知。" : "正在读取实际数据日期与采集状态…"}</p>}
     </div> : null}
     {showTrend ? <section className={styles.trend} aria-label="每日趋势"><div className={styles.heading}><Heading>每日趋势</Heading><div className={styles.switcher} aria-label="趋势指标"><button type="button" aria-pressed={metric === 'sessions'} onClick={() => setMetric('sessions')}>访问次数</button><button type="button" aria-pressed={metric === 'registrations'} onClick={() => setMetric('registrations')}>{flatkeyRegistrations ? "注册人数" : "可归属注册"}</button></div></div>
-      {stats[metric].measured > 0 ? <SessionChart points={daily} metric={metric} registrationLabel={registrationLabel} /> : <div className={styles.empty}>{
-        (flatkeyRegistrations && metric === "registrations" ? registrations.data : data) ? "所选区间暂无记录，请选择其他日期。"
-          : (flatkeyRegistrations && metric === "registrations" ? registrations.error : error) ? "暂时无法显示趋势" : "正在读取每日趋势…"
-      }</div>}
+      {trendLoading ? <div className={`${styles.plot} ${styles.plotSkeleton}`} role="status" aria-label="正在读取每日趋势">
+        <span className={styles.plotGrid} aria-hidden="true" />
+      </div> : stats[metric].measured > 0 ? <SessionChart points={daily} metric={metric} registrationLabel={registrationLabel} />
+        : <div className={styles.empty}>{trendError ? "暂时无法显示趋势" : "所选区间暂无记录，请选择其他日期。"}</div>}
     </section> : null}
     {showComparisonDate && comparison ? <p className={styles.comparison}>对比 {comparison.start === comparison.end ? comparison.start : `${comparison.start} — ${comparison.end}`}{previous.error ? <> · 读取失败 <button type="button" onClick={previous.retry}>重试</button></> : null}</p> : null}
     {expanded && data ? <section className={styles.records}><h2>日期明细</h2><SessionDaysTable points={daily} registrationLabel={registrationLabel} /></section> : null}

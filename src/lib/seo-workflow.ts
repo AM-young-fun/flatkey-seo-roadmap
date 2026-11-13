@@ -178,8 +178,12 @@ export function automaticTaskPolicy(task: Pick<WorkflowTask, "siteDomain" | "kin
   if (route === "prompt" && task.kind === "technical" && task.pageType === "other") return "auto_prompt";
   return null;
 }
-export function approvalItemNeedsHuman(item: { taskId: string; pageUrl: string }, tasks: WorkflowTask[]): boolean {
-  return !automaticTaskPolicy(tasks.find(task => task.id === item.taskId), item.pageUrl);
+export function approvalItemNeedsHuman(item: { taskId: string; pageUrl: string; contentVersion?: string }, tasks: WorkflowTask[]): boolean {
+  const task = tasks.find(task => task.id === item.taskId);
+  if (task?.status === "review_pending" && task.contentVersion && task.contentVersion === item.contentVersion && task.pageUrl === item.pageUrl) {
+    return true;
+  }
+  return !automaticTaskPolicy(task, item.pageUrl);
 }
 const automaticWriteReceipt = z.object({
   operation: z.enum(["create", "update"]), sourceId: z.string().trim().min(1).max(300),
