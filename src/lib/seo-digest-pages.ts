@@ -52,6 +52,7 @@ export type DigestPageRanking = {
     date: string | null;
     previousDate: string | null;
     periodDays?: number;
+    comparisonDates?: string[];
     rankingDates?: string[];
     modules: { id: string; label: string; current: number | null; previous: number | null; impressions?: { previous: number | null; current: number | null }; pages: DigestPageRanking["pages"] }[];
   };
@@ -133,13 +134,13 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
     const comparable = (row: PageObservation, base: PageObservation) => !completeness(row) && row.source === base.source
       && (base.kind !== "ga4-pages" || row.kind === "ga4-pages" && row.hostnameDimension === base.hostnameDimension);
     const days = period ? (Date.parse(period.end) - Date.parse(period.start)) / 86400000 + 1 : 1;
-    const aggregate = (end: string) => {
+    const aggregate = (dates: string[]) => {
       if (!flatkeyRow) return null;
       const values = new Map<string, number>();
       const impressions = new Map<string, number>();
       let absentIsZero = true;
-      for (let index = 0; index < days; index++) {
-        const row = byPropertyDay.get(JSON.stringify([kind, flatkeyRow.property, shift(end, -index)]));
+      for (const day of dates) {
+        const row = byPropertyDay.get(JSON.stringify([kind, flatkeyRow.property, day]));
         if (!row || !comparable(row, flatkeyRow)) return null;
         absentIsZero &&= row.source === "google-api" && (row.kind === "gsc-pages" || row.hostnameDimension === "hostName");
         for (const [url, value] of pageValues(row)) values.set(url, (values.get(url) ?? 0) + value);
@@ -151,9 +152,14 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
       return { values, impressions, absentIsZero };
     };
     const currentEnd = period?.end ?? flatkeyRow?.date;
-    const previousEnd = currentEnd ? shift(currentEnd, -days) : null;
-    const currentData = currentEnd ? aggregate(currentEnd) : null;
-    const previousData = previousEnd ? aggregate(previousEnd) : null;
+    const range = currentEnd ? Array.from({ length: days }, (_, index) => shift(currentEnd, index - days + 1)) : [];
+    const comparisonDates = period && flatkeyRow ? range.filter(day => [day, shift(day, -days)].every(date => {
+      const row = byPropertyDay.get(JSON.stringify([kind, flatkeyRow.property, date]));
+      return row && comparable(row, flatkeyRow);
+    })) : undefined;
+    const currentDates = comparisonDates?.length ? comparisonDates : range;
+    const currentData = currentDates.length ? aggregate(currentDates) : null;
+    const previousData = currentDates.length ? aggregate(currentDates.map(day => shift(day, -days))) : null;
     const rankingValues = new Map(currentData?.values);
     const rankingDates: string[] = [];
     if (period && flatkeyRow && !currentData) {
@@ -167,7 +173,7 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
     const currentValues = [...(currentData?.values ?? [])];
     const previousValues = [...(previousData?.values ?? [])];
     const flatkey = {
-      date: currentData ? currentEnd! : null, previousDate: previousData ? previousEnd : null, periodDays: days, rankingDates,
+      date: currentData ? currentDates.at(-1)! : null, previousDate: previousData ? shift(currentDates.at(-1)!, -days) : null, periodDays: days, rankingDates, comparisonDates,
       modules: DIGEST_FLATKEY_MODULES.map(([id, label]) => {
         const current = currentValues.filter(([url]) => flatkeyReportModule(url) === id);
         const previous = previousValues.filter(([url]) => flatkeyReportModule(url) === id);
@@ -176,7 +182,7 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
           .map(([url, value]) => {
             const baseline = currentData ? previousData?.values.get(url) ?? (previousData?.absentIsZero ? 0 : null) : null;
             return { site: "flatkey.ai", url, value, timezone: timezoneFor(flatkeyRow),
-              previousDate: baseline === null ? null : previousEnd, previous: baseline,
+              previousDate: baseline === null ? null : shift(currentDates.at(-1)!, -days), previous: baseline,
               difference: baseline === null ? null : value - baseline,
               percentage: baseline ? (value - baseline) / baseline * 100 : null,
               comparisonReason: baseline === null ? "缺少可比的前一日页面记录" : null };

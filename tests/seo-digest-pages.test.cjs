@@ -118,7 +118,7 @@ test("compact module fallback names the available source date without inventing 
  assert.doesNotMatch(report.text,/2026-11-09→2026-11-10/);
 });
 
-test("Flatkey module leaderboards rank ten pages independently and require both full weeks for a weekly change", () => {
+test("Flatkey module leaderboards rank ten pages and use the same six weekdays when one date is missing", () => {
   const rows = Array.from({ length: 14 }, (_, i) => {
     const date = new Date(Date.UTC(2026, 9, 29 + i)).toISOString().slice(0, 10);
     return gs(date, Array.from({ length: 12 }, (_, j) => [url(`blog/api-guide-${j}`), i + j + 1]), { observedAt: "2026-11-13T15:00:00Z" });
@@ -131,8 +131,10 @@ test("Flatkey module leaderboards rank ten pages independently and require both 
   assert.ok(getBlog(rows).current > getBlog(rows).previous);
   assert.equal(getBlog(rows).impressions.current, getBlog(rows).current * 10);
   assert.equal(getBlog(rows).impressions.previous, getBlog(rows).previous * 10);
-  assert.equal(getBlog(rows.slice(0, -1)).current, null);
-  assert.equal(getBlog(rows.slice(0, -1)).pages.length, 10);
-  assert.equal(getBlog(rows.slice(0, -1)).pages[0].previous, null);
-  assert.ok(getBlog(rows.slice(0, -1)).previous > 0);
+  const partial = getBlog(rows.slice(0, -1));
+  assert.equal(partial.current, 1152);
+  assert.equal(partial.previous, 648);
+  assert.equal(partial.pages.length, 10);
+  assert.equal(partial.pages[0].previous, 87);
+  assert.deepEqual(digestTopPages(rows.slice(0,-1), "2026-11-13", asOf, period)[0].flatkey.comparisonDates, ["2026-11-05","2026-11-06","2026-11-07","2026-11-08","2026-11-09","2026-11-10"]);
 });

@@ -76,7 +76,7 @@ export function digestWindow(date: string, kind: DigestKind = "daily") {
   };
 }
 
-/** Weekly comparisons require two complete Friday–Thursday periods. */
+/** Weekly additive metrics compare only matching weekdays with verified values on both sides. */
 export function comparableMetric(observations: DigestObservation[], site: string, metric: DigestMetric, date: string, country: "all" | "US" | "JP" | "BR" | "ES" = "all", kind: DigestKind = "daily") {
   const window = digestWindow(date, kind), source = metric === "clicks" || metric === "impressions" ? "GSC" : "GA4";
   const rows = observations.filter(row => row.site === site && (row.country ?? "all") === country && row.source === source && row.complete
@@ -99,10 +99,6 @@ export function comparableMetric(observations: DigestObservation[], site: string
     const current = latest.get(day), previous = latest.get(shift(day, window.kind === "weekly" ? -7 : -1));
     return current && previous && current.timezone === previous.timezone ? [{ current, previous }] : [];
   }).slice(0, window.kind === "daily" ? 1 : 7);
-  if (window.kind === "weekly" && pairs.length !== 7) {
-    return { current: null, previous: null, dates: [], previousDates: [], timezone: null,
-      reason: `待更新／两周均需完整 7 天，目前有 ${pairs.length} 个同口径可比日` };
-  }
   if (!pairs.length) return { current: null, previous: null, dates: [] as string[], previousDates: [] as string[], timezone: null, reason: "待更新／缺少同口径可比数据" };
   const timezones = new Set(pairs.map(pair => pair.current.timezone));
   if (timezones.size !== 1) return { current: null, previous: null, dates: [] as string[], previousDates: [] as string[], timezone: null, reason: "来源时区变更，需重新建立比较基线" };
@@ -163,11 +159,18 @@ function weeklyTrafficRows(input: DigestInput, window: ReturnType<typeof digestW
   const pair = (metric: Parameters<typeof period>[1]) => ({
     previous: period(previousStart, metric), current: period(window.trafficStart, metric),
   });
-  const row = (label: string, value: ReturnType<typeof pair>) => ({
+  const row = (label: string, value: ReturnType<typeof pair>, metric: "sessions" | "clicks" | "impressions") => {
+    if (!value.current || !value.previous) {
+      const matched = comparableMetric(input.observations, "flatkey.ai", metric, input.date, "all", "weekly");
+      if (matched.current !== null && matched.previous !== null) return { label, previous: count(matched.previous), current: count(matched.current),
+        change: change(matched.previous, matched.current), dates: `${dateCoverage(matched.previousDates)} → ${dateCoverage(matched.dates)} · 同星期 ${matched.dates.length}/7 天` };
+    }
+    return ({
     label, previous: count(value.previous?.value ?? null), current: count(value.current?.value ?? null),
     change: value.previous?.timezone === value.current?.timezone
       ? change(value.previous?.value ?? null, value.current?.value ?? null) : "—", dates,
-  });
+    });
+  };
   const clicks = pair("clicks"), impressions = pair("impressions"), positions = pair("position");
   const registration = (start: string, end: string) => latestBusinessPeriod(input.businessObservations ?? [], start, end, "all", "session-organic-search");
   const previousRegistration = registration(shift(window.trafficStart, -7), shift(window.trafficEnd, -7));
@@ -181,10 +184,10 @@ function weeklyTrafficRows(input: DigestInput, window: ReturnType<typeof digestW
   };
   const previousCtr = ctr("previous"), currentCtr = ctr("current");
   const previousPosition = positions.previous?.value, currentPosition = positions.current?.value;
-  return [row("自然搜索会话", pair("sessions")),
+  return [row("自然搜索会话", pair("sessions"), "sessions"),
     { label: "自然搜索去重注册用户", previous: count(previousUsers), current: count(currentUsers), change: previousRegistration?.timezone === currentRegistration?.timezone ? change(previousUsers, currentUsers) : "—",
       dates },
-    row("Google 自然搜索点击", clicks), row("Google 自然搜索曝光", impressions),
+    row("Google 自然搜索点击", clicks, "clicks"), row("Google 自然搜索曝光", impressions, "impressions"),
     { label: "Google 自然搜索点击率", previous: previousCtr ? formatCtr(previousCtr.value) : "待更新", current: currentCtr ? formatCtr(currentCtr.value) : "待更新",
       change: previousCtr?.value == null || currentCtr?.value == null || previousCtr.timezone !== currentCtr.timezone
         ? "—" : `${formatDelta((currentCtr.value - previousCtr.value) * 100)} 个百分点`, dates },
@@ -626,9 +629,9 @@ export function buildSeoDigest(input: DigestInput) {
   }
   if (weeklyTraffic && input.notificationCompact) {
     const summary = weeklyTraffic.filter(row => row.previous !== "待更新" || row.current !== "待更新")
-      .map(row => `${row.label} ${row.previous} → ${row.current}${row.change === "—" ? "" : `（${row.change}）`}`);
+      .map(row => `${row.label} ${row.previous} → ${row.current}${row.change === "—" ? "" : `（${row.change}）`}${row.dates.includes("同星期") ? ` · ${row.dates.split(" · ").at(-1)}` : ""}`);
     notification.splice(1, 0, ...(weeklyHighlights ? ["", "**本周工作**", ...weeklyHighlights.map(item => `• ${item}`)] : []),
-      "", "**Flatkey 流量对比**", weeklyTraffic[0].dates,
+      "", "**Flatkey 流量对比**", weeklyTrafficPeriod(window.trafficStart, window.trafficEnd),
       ...(summary.length ? summary.map(item => `• ${item}`) : ["• 完整周数据待更新"]),
       link("查看周报", SEO_PLATFORM + "/reports?period=weekly&date=" + input.date));
   }

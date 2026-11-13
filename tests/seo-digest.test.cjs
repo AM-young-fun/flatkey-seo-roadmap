@@ -173,21 +173,21 @@ test("daily digest uses the Flatkey all-channel registration count rather than S
  assert.match(report.text, /尚无同区间回执，待更新/);
  assert.match(report.text, /全渠道不能当成自然搜索效果/);
 });
-test("weekly comparison waits for both full weeks and never sums daily distinct registrations", () => {
+test("weekly comparison uses only matching weekdays and never sums daily distinct registrations", () => {
  const rows = [ga("2026-11-12", 10, { registrations: 3 }), ga("2026-11-05", 8, { registrations: 2 }), ga("2026-11-11", 500)];
  const result = comparableMetric(rows, "flatkey.ai", "sessions", "2026-11-13", "all", "weekly");
- assert.equal(result.current, null); assert.equal(result.previous, null); assert.match(result.reason, /1 个同口径可比日/);
+ assert.equal(result.current, 10); assert.equal(result.previous, 8); assert.deepEqual(result.dates, ["2026-11-12"]); assert.match(result.reason, /未齐/);
  assert.equal(comparableMetric(rows, "flatkey.ai", "registrations", "2026-11-13", "all", "weekly").current, null);
 });
-test("weekly table keeps fixed periods when some source dates are missing", () => {
+test("weekly table uses six matched dates for incomplete additive metrics", () => {
  const date = "2026-11-13";
  const dates = Array.from({ length: 14 }, (_, index) => new Date(Date.UTC(2026, 9, 30 + index)).toISOString().slice(0, 10));
  const rows = dates.map((day, index) => ga(day, index < 7 ? 10 : 20));
  const partial = buildSeoDigest({ ...base(date), kind: "weekly", observations: rows.slice(0, -1) });
  const full = buildSeoDigest({ ...base(date), kind: "weekly", observations: rows });
  const period = "2026-10-30—2026-11-05（7日） → 2026-11-06—2026-11-12（7日）";
- assert.ok(partial.weeklyTraffic.every(row => row.dates === period));
- assert.deepEqual(partial.weeklyTraffic[0], { label: "自然搜索会话", previous: "70", current: "待更新", change: "—", dates: period });
+ assert.ok(partial.weeklyTraffic.slice(1).every(row => row.dates === period));
+ assert.deepEqual(partial.weeklyTraffic[0], { label: "自然搜索会话", previous: "60", current: "120", change: "+100%", dates: "2026-10-30—2026-11-04（6日） → 2026-11-06—2026-11-11（6日） · 同星期 6/7 天" });
  assert.deepEqual(full.weeklyTraffic[0], { label: "自然搜索会话", previous: "70", current: "140", change: "+100%", dates: period });
 });
 test("paid/direct and provisional observations cannot leak into organic metrics", () => {

@@ -41,10 +41,10 @@ const reportModules = [["home", "首页"], ["blog", "博客"], ["models", "模�
 
 const sectionTitles = /^(统计与交付口径|已核实新增页面|内容交付|待审批页面|待补材料|已上线优化|历史交付归档|往期优化变化|优化效果监控|SEO 技术质检|五站自然搜索|Google 点击 ·|自然搜索访问（会话） ·|GA4 行为与转化|GitHub 提示词渠道|Flatkey 四国分项|关键词实测|下周事项与关键词|明日优先关注|数据与执行情况|新增博客|交付|搜索表现|待处理|本期交付|今日交付|关键变化|优化监控|重点效果|下一步|下周重点)/;
 
-function TrafficCell({ metric }: { metric?: Pick<ReportMetric, "previous" | "current"> }) {
+function TrafficCell({ metric, coverage }: { metric?: Pick<ReportMetric, "previous" | "current"> & Partial<Pick<ReportMetric, "period" | "note">>; coverage?: string }) {
   const current = metric?.current ?? null, previous = metric?.previous ?? null;
-  if (current === null) return <td className={reportStyles.trafficMissing}>待更新</td>;
-  return <td>
+  if (current === null) return <td className={reportStyles.trafficMissing} title={metric?.note || undefined}>待更新</td>;
+  return <td title={coverage || metric?.period || undefined}>
     <strong>{numberText(current)}</strong>
     {previous !== null ? <span className={reportStyles.delta} title={`上期 ${numberText(previous)}`} aria-label={`上期 ${numberText(previous)}，变化 ${trafficChange(previous, current)}`}
       data-tone={current === previous ? "neutral" : current > previous ? "increase" : "decrease"}>{trafficChange(previous, current)}</span> : null}
@@ -59,6 +59,8 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
 }) {
   const ga4 = rankings.find(ranking => ranking.source === "GA4")?.flatkey;
   const gsc = rankings.find(ranking => ranking.source === "GSC")?.flatkey;
+  const coverage = (row: typeof ga4) => row?.comparisonDates?.length && row.comparisonDates.length < (row.periodDays ?? 1)
+    ? `同星期可比 ${row.comparisonDates.length}/${row.periodDays} 天：${row.comparisonDates.join("、")}` : undefined;
   const flatkeyTotals = groups?.find(group => group.name === "flatkey.ai");
   const metric = (group: typeof flatkeyTotals, label: string) => group?.metrics.find(row => row.label === label);
 
@@ -78,9 +80,9 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
           </tr>
           {reportModules.map(([id, label]) => <tr key={id} className={reportStyles.trafficModule}>
             <th scope="row">{label}</th>
-            <TrafficCell metric={ga4?.modules.find(module => module.id === id)} />
-            <TrafficCell metric={gsc?.modules.find(module => module.id === id)} />
-            <TrafficCell metric={gsc?.modules.find(module => module.id === id)?.impressions} />
+            <TrafficCell metric={ga4?.modules.find(module => module.id === id)} coverage={coverage(ga4)} />
+            <TrafficCell metric={gsc?.modules.find(module => module.id === id)} coverage={coverage(gsc)} />
+            <TrafficCell metric={gsc?.modules.find(module => module.id === id)?.impressions} coverage={coverage(gsc)} />
             <td className={reportStyles.trafficMissing}>—</td>
           </tr>)}
         </tbody>
