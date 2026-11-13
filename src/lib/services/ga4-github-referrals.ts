@@ -29,7 +29,7 @@ export async function fetchGithubReferrals(repository: typeof PROMPT_REPOSITORIE
   try {
     const token = process.env.SEO_GA4_ACCESS_TOKEN?.trim() || await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
     const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value, caseSensitive: true } } });
-    const response = await fetch("https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport", { method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000), headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ dateRanges: [{ startDate: start, endDate: end }], metrics: [{ name: "sessions" }, { name: "totalUsers" }], dimensionFilter: { andGroup: { expressions: [exact("sessionSource", "github"), exact("sessionMedium", "referral"), exact("sessionCampaignName", repository.split("/")[1]), { filter: { fieldName: "hostName", inListFilter: { values: ["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai"] } } }] } }, limit: 1 }) });
+    const response = await fetch("https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport", { method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000), headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ dateRanges: [{ startDate: start, endDate: end }], metrics: [{ name: "sessions" }, { name: "totalUsers" }], dimensionFilter: { andGroup: { expressions: [exact("sessionSource", "github"), exact("sessionMedium", "referral"), exact("sessionCampaignName", repository.split("/")[1]), { filter: { fieldName: "hostName", inListFilter: { values: ["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai"] } } }] } }, keepEmptyRows: true, limit: 1 }) });
     if (!response.ok) throw Error("ga4_http_" + response.status);
     const result = await response.json();
     if (result.metadata?.timeZone !== timezone) throw Error("ga4_timezone_missing_or_mismatch");
@@ -42,7 +42,12 @@ export async function fetchGithubReferrals(repository: typeof PROMPT_REPOSITORIE
       console.warn(JSON.stringify({ kind: "ga4-referral-schema", timezone: result.metadata?.timeZone ?? null, emptyReason: result.metadata?.emptyReason ?? null, metricHeaders: result.metricHeaders?.map((row: { name: string }) => row.name) ?? [], rowCount: result.rowCount ?? null, rowArrayLength: result.rows?.length ?? null }));
       throw Error("ga4_response_mismatch");
     }
-    const read = (index: number) => { const value = result.rows?.[0]?.metricValues?.[index]?.value ?? "0"; if (!/^\d+$/.test(value)) throw Error("ga4_invalid_metric"); return Number(value); };
+    if (result.rows?.length !== 1) return githubReferralSchema.parse({ ...base, status: "unavailable", sessions: null, users: null, reason: "ga4_no_matching_utm_data" });
+    const read = (index: number) => {
+      const value = result.rows[0].metricValues?.[index]?.value;
+      if (typeof value !== "string" || !/^\d+$/.test(value)) throw Error("ga4_invalid_metric");
+      return Number(value);
+    };
     return githubReferralSchema.parse({ ...base, status: "ok", sessions: read(0), users: read(1), reason: end < requestedEnd ? "last_property_day_not_closed" : null });
   } catch (error) { return githubReferralSchema.parse({ ...base, status: "unavailable", sessions: null, users: null, reason: error instanceof Error && /^ga4_[a-z0-9_]+$/.test(error.message) ? error.message : "ga4_source_unavailable" }); }
 }

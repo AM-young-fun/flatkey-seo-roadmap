@@ -84,7 +84,7 @@ test("daily and weekly report variants agree with the two points and show CTR ch
   for (const kind of ["daily", "weekly"]) {
     const report = buildSeoDigest({ kind, now, date: "2026-11-20", notificationCompact: true, observations: [], publications: [], optimizations: [],
       effects: [], optimizationMonitoring: [row], priorities: [], issues: [], runNotes: [], publicationCoverage: "verified", optimizationCoverage: "verified" });
-    assert.match(report.text, /2026-11-13 → 2026-11-17 · 点击 3 → 5 · 曝光 100 → 100 · CTR 3.00% → 5.00%/);
+    assert.match(report.detailText, /2026-11-13 → 2026-11-17 · 点击 3 → 5（\+2） · 曝光 100 → 100（0） · CTR 3.00% → 5.00%/);
     assert.match(report.detailText, /CTR 3.00% → 5.00%（\+2 个百分点）/);
     assert.match(report.detailText, /optimization-effects\?publication=published-es&country=ES/);
   }

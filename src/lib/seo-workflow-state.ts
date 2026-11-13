@@ -78,22 +78,34 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   if (tasks.some(task => !task || task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
   if (!isExecutableWorkflowPlan(plan.status)) return;
   if (plan.status === "scheduled" && tasks.some(task => task && contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status))) reject("plan_task_not_ready", "自动排期只能领取已具备研究证据的内容任务；未完成研究的候选留在工作台");
-  const focused = "cadence" in plan.targets;
+  const cadence = "cadence" in plan.targets ? plan.targets.cadence : null;
+  const daily = cadence === "daily";
+  const focused = cadence !== null;
+  const localDay = (task: WorkflowTask) => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
   if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "正式计划须明确四国源文额度");
   const ready = tasks.filter((task): task is WorkflowTask => Boolean(task && !["planned", "researching", "blocked", "failed"].includes(task.status)));
-  const optimized = ready.filter(task => task.kind === "optimization" && task.pageUrl && (!focused || automaticTaskPolicy(task) === "auto_blog"));
+  const optimized = ready.filter(task => task.kind === "optimization" && task.pageUrl && (daily ? task.siteDomain === "flatkey.ai" : !focused || automaticTaskPolicy(task) === "auto_blog"));
   if (focused) {
     const perDay = new Map<string, Set<string>>();
     for (const task of optimized) {
-      const day = new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
+      const day = localDay(task);
       const pages = perDay.get(day) ?? new Set<string>();
       pages.add(task.pageUrl!);
       perDay.set(day, pages);
     }
-    if ([...perDay.values()].some(pages => pages.size > 2)) reject("plan_daily_blog_optimization_quota", "每天最多安排2篇常规博客优化");
+    if ([...perDay.values()].some(pages => pages.size > 2)) reject("plan_daily_blog_optimization_quota", daily ? "Flatkey 每天最多安排2个优化页面" : "每天最多安排2篇常规博客优化");
+  }
+  const landings = ready.filter(task => task.kind === "landing");
+  const flatkeyLandings = landings.filter(task => task.siteDomain === "flatkey.ai");
+  if (daily && new Set(flatkeyLandings.map(localDay)).size !== flatkeyLandings.length) reject("plan_daily_landing_quota", "Flatkey 每天最多安排1个新落地页");
+  if (plan.targets && "clusterLanding" in plan.targets) {
+    const count = landings.length - flatkeyLandings.length;
+    if (count > plan.targets.clusterLanding) reject("plan_cluster_landing_quota", "四个集群站合计每周最多安排2个新落地页");
+    const gap = plan.gaps.filter(row => row.category === "clusterLanding").reduce((sum, row) => sum + row.count, 0);
+    if (plan.targets.clusterLanding - count > gap) reject("plan_cluster_landing_gap_unrecorded", "集群落地页缺口须写入计划");
   }
   const counts = {
-    landing: ready.filter(task => task.kind === "landing" && task.siteDomain === "flatkey.ai").length,
+    landing: flatkeyLandings.length,
     apiBlogs: ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai" && task.business === "API").length,
     gpuBlogs: ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai" && task.business === "GPU").length,
     optimizedPages: new Set(optimized.map(task => task.pageUrl)).size,
@@ -103,12 +115,12 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   const blogs = ready.filter(task => task.kind === "blog" && task.siteDomain === "flatkey.ai");
   for (const language of Object.keys(languageCategories) as (keyof typeof languageCategories)[]) {
     const selected = blogs.filter(task => task.language === language);
-    if (focused && selected.length > plan.targets.blogLanguages[language]) reject("plan_weekly_language_quota", `${language} 每周最多安排5个源文关键词`);
+    if (focused && selected.length > plan.targets.blogLanguages[language]) reject("plan_weekly_language_quota", `${language} 每周最多安排 ${plan.targets.blogLanguages[language]} 个源文关键词`);
     const gap = Math.max(0, plan.targets.blogLanguages[language] - selected.length);
     if (gap > plan.gaps.filter(row => row.category === languageCategories[language]).reduce((sum, row) => sum + row.count, 0)) reject("plan_language_gap_unrecorded", `${language} 还缺 ${gap} 篇源文；需登记国家语言缺口`);
     const days = new Map<string, number>();
-    for (const task of selected) { const day = new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }); days.set(day, (days.get(day) ?? 0) + 1); }
-    if (!focused && [...days.values()].some(count => count > dailyQuota[language])) reject("plan_daily_language_quota", `${language} 单日源文不能超过 ${dailyQuota[language]} 篇；翻译另记`);
+    for (const task of selected) { const day = localDay(task); days.set(day, (days.get(day) ?? 0) + 1); }
+    if (cadence !== "focused" && [...days.values()].some(count => count > dailyQuota[language])) reject("plan_daily_language_quota", `${language} 单日源文不能超过 ${dailyQuota[language]} 篇；翻译另记`);
   }
   for (const category of Object.keys(counts) as (keyof typeof counts)[]) {
     if (focused && counts[category] > plan.targets[category]) reject("plan_weekly_quota", `${category} 超过周计划额度`);

@@ -90,8 +90,12 @@ export const workflowPlanSchema = z.object({
     z.object({ cadence: z.literal("focused"), landing: z.literal(3), apiBlogs: z.number().int().min(0).max(20), gpuBlogs: z.number().int().min(0).max(20), optimizedPages: z.literal(14),
       blogLanguages: z.object({ en: z.literal(5), ja: z.literal(5), "pt-BR": z.literal(5), "es-ES": z.literal(5) }).strict(),
     }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 20, "四国源文每周合计20篇"),
+    z.object({ cadence: z.literal("daily"), landing: z.literal(7), clusterLanding: z.literal(2),
+      apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(14),
+      blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict(),
+    }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "四国源文每周合计35篇"),
   ]),
-  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
+  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "clusterLanding", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
   evidence, notes: z.string().max(5000),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) ctx.addIssue({ code: "custom", path: ["taskIds"], message: "计划任务不能重复" });

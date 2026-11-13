@@ -236,45 +236,32 @@ test("draft page versions and submitted missing materials deduplicate by task ac
  const drafts=[approval("draft-shared-1",{status:"draft",submittedRecordedAt:null,items}),approval("draft-shared-2",{status:"draft",submittedRecordedAt:null,items:[{...items[0],id:"extra",pageUrl:"https://flatkey.ai/extra"}]})];
  const future=approval("future-draft",{status:"draft",submittedRecordedAt:null,recordedAt:"2027-01-01T00:00:00Z"});
  const result=buildSeoDigest({...base(),notificationCompact:true,...workflow([pending,...drafts,future],[task,approvalTask(future,{status:"drafting"})])});
- assert.match(result.text,/待审批 0 项 · 材料未齐 1 项/);
+ assert.match(result.detailText,/待审核 0 项[^\n]*待补材料 1 项/);
  assert.match(result.detailText,/未提交草稿 2 张，关联 1 项任务 \/ 220 个页面版本，其中 1 项任务待补材料/);
  assert.doesNotMatch(result.text,/220 项任务/);
 });
 
 
-test("compact notification is a bounded summary with two next actions, genuine live counts and detail-only diagnostics",()=>{
- const priorities=Array.from({length:8},(_,i)=>({title:"priority-"+i,keyword:"gpu server "+i,country:"US",reason:"checked",action:"prepare draft"}));
- const input={...base(),notificationCompact:true,priorities,issues:["private-diagnostic-marker"],...workflow([])};
- const result=buildSeoDigest(input);
- assert.match(result.text,/今日上线/);assert.match(result.text,/博客.*0 篇/);assert.match(result.text,/待审批 0 项 · 材料未齐 0 项/);
- assert.match(result.text,/priority-1/);assert.doesNotMatch(result.text,/priority-2|private-diagnostic-marker|五站自然搜索|四国（|GA4 业务链/);
- assert.match(result.detailText,/private-diagnostic-marker/);assert.match(result.text,/GitHub 两库/);assert.equal((result.text.match(/数据：/g)||[]).length,1);
- assert.ok(result.text.trim().endsWith(`[数据基础](${SEO_DATA_HUB})`));assert.ok(Buffer.byteLength(result.text)<4500);
- const weekly=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00+08:00")});
- assert.match(weekly.text,/2026-11-06—2026-11-12/);assert.match(weekly.text,/下周计划 · 尚未排期/);assert.doesNotMatch(weekly.text,/已定事项/);
- const confirmed=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",nextPlanStatus:"scheduled",now:new Date("2026-11-13T10:00:00+08:00")});
- assert.match(confirmed.text,/下周计划 · 已排期/);assert.match(confirmed.detailText,/下周事项与关键词（已排期）/);
-});
-
-
-test("short GitHub summary adds repository counts only across matching daily windows, never uniques",()=>{
- const github=repository=>({version:1,kind:"github-prompt-channel",repository,observedAt:"2026-11-10T08:00:00Z",timezone:"UTC",stars:10,forks:2,metadataStatus:"ok",metadataReason:null,
- views:{status:"ok",count:7,uniques:3,days:[{date:"2026-11-08",count:3,uniques:2},{date:"2026-11-09",count:4,uniques:2}],reason:null},
- clones:{status:"ok",count:3,uniques:2,days:[{date:"2026-11-08",count:1,uniques:1},{date:"2026-11-09",count:2,uniques:1}],reason:null},
- referrals:[{start:"2026-11-09",end:"2026-11-09",status:"ok",sessions:2,users:1,observedAt:"2026-11-10T08:00:00Z",timezone:"America/Los_Angeles",reason:null}],
- linkAudit:{status:"ok",flatkeyLinks:1,attributedLinks:1,reason:null}});
- const rows=[github("flatkey-ai/awesome-images"),github("flatkey-ai/awesome-seedance-prompts")];
- const report=buildSeoDigest({...base(),notificationCompact:true,githubObservations:rows});
- assert.match(report.text,/Stars 20 \/ Forks 4；浏览 6→8，克隆 2→4；到站 4 会话/);
- assert.match(report.text,/GitHub 2026-11-09/);assert.doesNotMatch(report.text,/去重/);
- rows[1].views.days.pop();rows[1].referrals=[];
- const partial=buildSeoDigest({...base(),notificationCompact:true,githubObservations:rows});
- assert.match(partial.text,/浏览 待更新/);assert.match(partial.text,/到站 待更新/);assert.doesNotMatch(partial.text,/到站 0/);
-});
-
-test("partial zero delivery coverage is pending verification instead of a cryptic zero plus",()=>{
- const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:"partial",optimizationCoverage:"partial"});
- assert.doesNotMatch(report.text,/0\+/);assert.doesNotMatch(report.text,/待核实 [篇页]/);assert.match(report.text,/落地页 暂无上线回执/);
+test("DingTalk summary only compares report metrics and keeps operational details in the platform", () => {
+ const date = "2026-11-13";
+ const gsc = (day, clicks, impressions) => ({ site: "flatkey.ai", date: day, source: "GSC",
+   scope: "google-web", timezone: "America/Los_Angeles", complete: true, observedAt: date + "T08:00:00Z", clicks, impressions });
+ const observations = [ga("2026-11-10", 10), ga("2026-11-11", 0),
+   gsc("2026-11-09", 5, 50), gsc("2026-11-10", 10, 100), gsc("2026-11-03", 4, 40)];
+ const input = { ...base(date), notificationCompact: true, observations, issues: ["private-diagnostic-marker"],
+   nextPlanStatus: "scheduled", ...workflow([approval("compact-test")]) };
+ const daily = buildSeoDigest(input);
+ assert.match(daily.text, /自然搜索会话  10 → 0（-100%） · 11\/10 → 11\/11/);
+ assert.match(daily.text, /Google 点击  5 → 10（\+100%） · 11\/09 → 11\/10/);
+ assert.match(daily.text, /Google 曝光  50 → 100/);
+ assert.equal(daily.text.split("\n").length, 4);
+ assert.doesNotMatch(daily.text, /待审核|计划|质检|GitHub|诊断|https:/);
+ assert.match(daily.detailText, /private-diagnostic-marker|待审核/);
+ const weekly = buildSeoDigest({ ...input, kind: "weekly" });
+ assert.match(weekly.text, /2026-11-06—2026-11-12/);
+ assert.match(weekly.text, /Google 点击  4 → 10（\+150%） · 可比 1\/7 天/);
+ assert.match(weekly.text, /自然搜索会话  可比数据待更新/);
+ assert.match(weekly.detailText, /下周事项与关键词（已排期）/);
 });
 
 test("actual verified ES optimization stays visible when the overall execution coverage is missing",()=>{
@@ -283,8 +270,7 @@ test("actual verified ES optimization stays visible when the overall execution c
   publications:fixture.publications,optimizations:fixture.optimizations,
   publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
  assert.deepEqual(report.counts,fixture.expectedCounts);
- assert.match(report.text,/优化 至少 1 页（已核实）/);
- assert.match(report.text,/博客.*暂无上线回执 · 落地页 暂无上线回执 · 集群 暂无上线回执/);
+ assert.doesNotMatch(report.text,/优化|落地页|集群/);
  assert.match(report.detailText,/今日优化 至少 1 个页面（已核实），台账覆盖待补/);
  assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
  assert.doesNotMatch(report.text,/优化 暂无上线回执/);
@@ -295,21 +281,21 @@ test("incomplete coverage reports verified lower bounds and keeps unknown zero d
  const optimization={id:"change",url:publication.url,keyword:"gpu server",changes:"title",verifiedAt:publication.verifiedAt,recordedAt:publication.recordedAt,baselineId:"baseline"};
  for(const coverage of ["missing","partial"]){
   const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage,publications:[publication],optimizations:[optimization]});
-  assert.match(report.text,/博客.*至少 1 篇（已核实）/);assert.match(report.text,/优化 至少 1 页（已核实）/);
+  assert.match(report.detailText,/新增博客 至少 1 篇（已核实）/);assert.match(report.detailText,/优化 至少 1 个页面（已核实）/);
   assert.match(report.detailText,/新增博客 至少 1 篇（已核实）/);
-  assert.match(report.text,/落地页 暂无上线回执 · 集群 暂无上线回执/);
+  assert.match(report.detailText,/落地页\/工具页 暂无上线回执，集群交付 暂无上线回执/);
   const unknown=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage});
-  assert.match(unknown.text,/优化 暂无上线回执/);assert.match(unknown.detailText,/新增博客 暂无上线回执/);
-  assert.doesNotMatch(unknown.text,/0 [篇页]|至少 0/);
+  assert.match(unknown.detailText,/优化 暂无上线回执/);assert.match(unknown.detailText,/新增博客 暂无上线回执/);
+  assert.doesNotMatch(unknown.detailText,/至少 0/);
  }
  const complete=buildSeoDigest({...base(),notificationCompact:true});
- assert.match(complete.text,/博客.*0 篇/);assert.match(complete.text,/优化 0 页/);assert.doesNotMatch(complete.text,/至少/);
+ assert.match(complete.detailText,/博客.*0 篇/);assert.match(complete.detailText,/优化 0 个页面/);assert.doesNotMatch(complete.detailText,/至少/);
 });
 
 test("a checked empty publication is distinct from a category without a receipt", () => {
  const report = buildSeoDigest({ ...base(), notificationCompact: true, publicationCoverage: "partial",
    deliveryStates: { blogs: true, landing: false, cluster: false, optimizations: false } });
- assert.match(report.text, /博客.*已核实 0 篇 · 落地页 暂无上线回执/);
+ assert.match(report.detailText, /新增博客 已核实 0 篇[\s\S]*落地页\/工具页 暂无上线回执/);
 });
 
 test("natural-search registrations compare verified distinct GA4 users without using all-channel or daily sums", () => {
@@ -324,19 +310,19 @@ test("natural-search registrations compare verified distinct GA4 users without u
  assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly" }).organicRegistrations, { previous: 11, current: 17 });
  assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly", businessObservations: businessObservations.slice(0, 3) }).organicRegistrations, { previous: null, current: null });
 });
-test("Friday DingTalk reports remind only unfinished weekly and overdue approvals", () => {
+test("Friday platform reports remind only unfinished weekly and overdue approvals", () => {
  const date = "2026-11-13";
  const approvals = [approval("due"), approval("late"), approval("future"), approval("done")];
  const tasks = approvals.map((row, i) => approvalTask(row, { weekStart: ["2026-11-09", "2026-11-02", "2026-11-16", "2026-11-09"][i] }));
  approvals[3].decisions = [{ itemIds: [approvals[3].items[0].id], decision: "approved" }];
  for (const kind of ["daily", "weekly"]) {
    const report = buildSeoDigest({ ...base(date), ...workflow(approvals, tasks), kind, notificationCompact: true, optimizationMonitoring: [] });
-   assert.match(report.text, /审批逾期 1 项 · 本周仍有 1 项待处理/);
-   assert.match(report.text, /\[去审核\]\(https:\/\/flatkey-seo-roadmap.vercel.app\/approvals\)/);
+   assert.match(report.detailText, /审批逾期 1 项 · 本周仍有 1 项待处理/);
+   assert.match(report.detailText, /\[去审核\]\(https:\/\/flatkey-seo-roadmap.vercel.app\/approvals\)/);
  }
  const monday = buildSeoDigest({ ...base("2026-11-16"), ...workflow(approvals, tasks), notificationCompact: true, optimizationMonitoring: [] });
- assert.match(monday.text, /审批逾期 2 项/);
- assert.doesNotMatch(monday.text, /本周仍有/);
+ assert.match(monday.detailText, /审批逾期 2 项/);
+ assert.doesNotMatch(monday.detailText, /本周仍有/);
 });
 test("recent page comparison includes both weeks, excludes unverified and newer weekly records, dedupes by latest change and prioritizes freshness", () => {
  const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");
@@ -358,13 +344,14 @@ test("recent page comparison includes both weeks, excludes unverified and newer 
  assert.equal(recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, false).some(row => row.title === "friday"), true);
 });
 
-test("daily and weekly notifications link to plan details with separate page and keyword counts", () => {
+test("daily and weekly reports preserve their linked plan rows outside the group summary", () => {
  const tasks = ["optimization", "blog", "landing"].map((kind, i) => ({ id: kind, kind, title: kind, keyword: "local keyword",
    country: "US", language: "en", pageUrl: null, dueAt: "2026-11-13T10:00:00Z", status: i === 0 ? "verified" : "drafting", action: "" }));
  const workPlan = { weekStart: "2026-11-09", status: "reviewed", tasks };
  const report = buildSeoDigest({ ...base("2026-11-13"), workPlan, notificationCompact: true, optimizationMonitoring: [] });
- assert.match(report.text, /页面优化 1\/1 已验收 · 博客关键词 0\/1 已验收 · 落地页关键词 0\/1 已验收/);
+ assert.deepEqual(report.workPlan.tasks, tasks);
+ assert.doesNotMatch(report.text, /关键词|计划/);
  const weekly = buildSeoDigest({ ...base("2026-11-13"), workPlan, kind: "weekly", notificationCompact: true, optimizationMonitoring: [] });
- assert.match(weekly.text, /页面优化 1 项 · 博客关键词 1 项 · 落地页关键词 1 项/);
+ assert.doesNotMatch(weekly.text, /关键词|计划/);
  assert.equal(weekly.workPlan.tasks.length, 3);
 });

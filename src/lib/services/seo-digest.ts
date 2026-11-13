@@ -50,9 +50,9 @@ function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnaps
   const selected = new Set(plan.taskIds);
   const tasks = snapshot.tasks.flatMap<DigestWorkPlan["tasks"][number]>(task => {
     if (!selected.has(task.id)) return [];
-    const kind = task.siteDomain !== "flatkey.ai" && (task.kind === "research" || task.kind === "technical" || task.kind === "cluster" || task.kind === "optimization" || task.kind === "landing")
-      ? "cluster_work" : task.kind;
-    if (kind !== "blog" && kind !== "landing" && kind !== "optimization" && kind !== "cluster_work" && kind !== "research") return [];
+    const kind = task.siteDomain === "flatkey.ai" ? task.kind
+      : task.kind === "landing" ? "cluster_landing" : "cluster_work";
+    if (kind !== "blog" && kind !== "landing" && kind !== "optimization" && kind !== "cluster_work" && kind !== "cluster_landing" && kind !== "research") return [];
     const automatic = kind === "blog" && !task.pageUrl || Boolean(automaticTaskPolicy(task));
     const pending = task.status === "review_pending";
     const canReview = pending && !automatic && snapshot.approvals.some(approval => approval.items.some(item =>
@@ -62,7 +62,11 @@ function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnaps
     return [{ id: task.id, kind, title: task.title, pageUrl: task.pageUrl, keyword: task.keyword, country: task.country,
       language: task.language, dueAt: task.dueAt, status, action: task.nextAction }];
   }).sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.id.localeCompare(b.id));
-  return { weekStart: snapshot.weekStart, status: plan.status, tasks };
+  const targets = "clusterLanding" in plan.targets ? {
+    blogs: plan.targets.apiBlogs + plan.targets.gpuBlogs, landing: plan.targets.landing,
+    optimizedPages: plan.targets.optimizedPages, clusterLanding: plan.targets.clusterLanding,
+  } : undefined;
+  return { weekStart: snapshot.weekStart, status: plan.status, targets, tasks };
 }
 
 export async function loadDigestWorkPlan(date: string, kind: DigestKind) {

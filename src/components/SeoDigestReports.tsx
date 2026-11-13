@@ -257,7 +257,7 @@ function BusinessComparison({ lines }: { lines: string[] }) {
   </>;
 }
 
-const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "落地页关键词"], ["research", "Flatkey 关键词研究"], ["cluster_work", "集群站任务"]] as const;
+const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "Flatkey 落地页关键词"], ["cluster_landing", "集群新增落地页"], ["research", "Flatkey 关键词研究"], ["cluster_work", "集群站其他任务"]] as const;
 const planStatuses: Record<string, string> = { planned: "待开始", researching: "研究中", ready: "待执行", drafting: "制作中",
   review_pending: "待审批", missing_materials: "待补测试材料", approved: "待发布", published: "已上线 · 待验收", verified: "已验收", observing: "已上线 · 监控中", blocked: "有阻塞", failed: "需处理" };
 function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
@@ -269,9 +269,11 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
         const tasks = plan.tasks.filter(task => task.kind === kind);
         if ((kind === "cluster_work" || kind === "research") && !tasks.length) return null;
         const pageTask = kind === "optimization" || kind === "cluster_work" || kind === "research";
+        const target = kind === "blog" ? plan.targets?.blogs : kind === "landing" ? plan.targets?.landing
+          : kind === "optimization" ? plan.targets?.optimizedPages : kind === "cluster_landing" ? plan.targets?.clusterLanding : undefined;
         const completed = tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
         return <div className={reportStyles.planGroup} key={kind}>
-          <h4>{label} <small>{weekly ? `${tasks.length} 项` : `已验收 ${completed} / ${tasks.length}`}</small></h4>
+          <h4>{label} <small>{weekly ? `${tasks.length}${target ? ` / ${target}` : ""} 项` : `已验收 ${completed} / ${tasks.length}`}</small></h4>
           {tasks.length ? <div className={reportStyles.tableScroll}>
             <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label={label}>
               <thead><tr><th scope="col">{pageTask ? "页面 / 任务" : "关键词"}</th><th scope="col">{pageTask ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>

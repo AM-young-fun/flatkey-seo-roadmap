@@ -121,3 +121,23 @@ test("same keyword page country cannot create duplicate weekly production tasks"
   const first = row(save(task()));
   assert.throws(() => save(task({ id: "task-copy", keyword: "MODEL  API INTEGRATION" }), [first]), /已有任务/);
 });
+
+test("daily plans accept the new quotas, and reject duplicate daily Flatkey landings and excess cluster landings", () => {
+  const targets = { cadence: "daily", landing: 7, clusterLanding: 2, apiBlogs: 9, gpuBlogs: 26, optimizedPages: 14,
+    blogLanguages: { en: 14, ja: 7, "pt-BR": 7, "es-ES": 7 } };
+  const ready = (id, domain, path) => row(save(task({ id, siteDomain: domain, keyword: id, pageUrl: "https://" + domain + "/" + path, pageType: "landing" })));
+  const first = ready("flatkey-1", "flatkey.ai", "a"), second = ready("flatkey-2", "flatkey.ai", "b");
+  const clusters = ["rackrate.org", "modelfit.cc", "jev-llm.com"].map((domain, i) => ready("cluster-" + i, domain, "new"));
+  const plan = (tasks, clusterGap) => ({
+    id: "daily-plan", weekStart: "2026-11-09", title: "Daily cadence", status: "scheduled", taskIds: tasks.map(t => t.record.id),
+    owner: "AI", preparedAt: now.toISOString(), reviewedAt: null, reviewedBy: null, evidence, notes: "", targets,
+    gaps: Object.entries({ landing: 6, apiBlogs: 9, gpuBlogs: 26, optimizedPages: 14, blogEn: 14, blogJa: 7, blogPt: 7, blogEs: 7, clusterLanding: clusterGap })
+      .filter(([, count]) => count).map(([category, count]) => ({ category, count, reason: "No qualified candidate" })),
+  });
+  const valid = [first, ...clusters.slice(0, 2)];
+  assert.equal(save(plan(valid, 0), valid, "save_plan").record.targets.cadence, "daily");
+  const duplicate = [first, second, ...clusters.slice(0, 2)];
+  assert.throws(() => save(plan(duplicate, 0), duplicate, "save_plan"), { code: "plan_daily_landing_quota" });
+  const excess = [first, ...clusters];
+  assert.throws(() => save(plan(excess, 0), excess, "save_plan"), { code: "plan_cluster_landing_quota" });
+});
