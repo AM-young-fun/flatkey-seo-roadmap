@@ -1,9 +1,9 @@
 "use client";
 
-import { ReportLoading } from "./ReportLoading";
+import { SeoApprovalSkeleton } from "./SeoApprovalWorkspace";
 
 import { approvalPreview, groupApprovalPages, visibleApprovalItemStatus, type ReviewItem } from "@/lib/seo-approval-display";
-import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman, shiftWorkflowDay, workflowWeek } from "@/lib/seo-workflow";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
@@ -12,7 +12,6 @@ import { UiSelect } from "./UiSelect";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 import review from "./SeoPageApprovals.module.css";
-import workspace from "./SeoWorkspace.module.css";
 
 type ApprovalItem = WorkflowApproval["items"][number];
 type ApprovalDecision = Omit<WorkflowApproval["decisions"][number], "recordedAt">;
@@ -173,8 +172,11 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, startReview, pre
   </details>;
 }
 
-export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
+export function SeoPageApprovals() {
   const params = useSearchParams(), router = useRouter();
+  const [monday] = useState(() => workflowWeek());
+  const requestedWeek = params.get("week");
+  const weekStart = requestedWeek === "next" ? shiftWorkflowDay(monday, 7) : requestedWeek && /^\d{4}-\d{2}-\d{2}$/.test(requestedWeek) && new Date(requestedWeek + "T00:00:00Z").getUTCDay() === 1 ? requestedWeek : monday;
   const selectedId = params.get("approvalId"), taskFilter = params.get("taskId");
   const result = useSeoRead<WorkflowSnapshot>(`/api/seo/workflow?week=${weekStart}&allHistory=true`);
   const [scope, setScope] = useState("pending"), [site, setSite] = useState("all"), [query, setQuery] = useState("");
@@ -192,14 +194,11 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
   });
   const shown = focused ? [focused, ...filtered.filter(approval => approval.id !== focused.id)] : filtered;
   return <>
-    <div className={workspace.titleRow}>
-      <h1 className={workspace.title}>页面审批</h1>
-      <div className={styles.toolbarActions}>
-        <button type="button" className={styles.secondary} onClick={refresh}><RefreshCw size={14} aria-hidden="true" />刷新</button>
-      </div>
-    </div>
+    {data || result.error ? <div className={review.approvalRefresh}>
+      <button type="button" className={styles.secondary} onClick={refresh}><RefreshCw size={14} aria-hidden="true" />刷新</button>
+    </div> : null}
     {notice ? <p role="status" className={review.notice}>{notice}</p> : null}
-    {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={refresh}>重试读取审批单</button></div> : !data ? <ReportLoading label="正在读取跨周审批记录" /> : <>
+    {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={refresh}>重试读取审批单</button></div> : !data ? <SeoApprovalSkeleton /> : <>
       {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       <section className={`${styles.summary}`} aria-label="跨周审批摘要">
         <div><span>待审批单</span><strong>{numberText(data.summary.pendingApprovals)}</strong></div>

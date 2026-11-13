@@ -34,8 +34,15 @@ export type DigestObservation = {
 };
 export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster" | "prompt"; verifiedAt: string; recordedAt: string; publishedAt: string };
 export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string };
+export type DigestWorkPlan = {
+  weekStart: string;
+  status: "draft" | "reviewed" | "bootstrap";
+  tasks: { id: string; kind: "blog" | "landing" | "optimization"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; dueAt: string; status: string; action: string }[];
+};
+
 export type DigestInput = {
   notificationCompact?: boolean;
+  workPlan?: DigestWorkPlan;
   date: string; kind?: DigestKind; now?: Date; observations: DigestObservation[];
   pageObservations?: AnalyticsObservation[];
   recentPages?: ReturnType<typeof recentPublishedPages>;
@@ -447,6 +454,7 @@ export function buildSeoDigest(input: DigestInput) {
     if (qa) {
       lines.push(`• 巡检时间 ${qa.scheduledFor} · 覆盖 ${{ full: "完整", partial: "部分", unknown: "未核实" }[qa.coverage]}`);
       if (qa.failure) lines.push("• 缺口 · " + escaped(qa.failure));
+      for (const diagnostic of qa.diagnostics ?? []) lines.push("• 复核 · " + escaped(diagnostic));
       for (const issue of qa.issues) lines.push(`• ${issue.priority} ${link(issue.title, issue.url ?? SEO_PLATFORM + "/work")} · ${escaped(issue.nextAction)}`);
       for (const approval of qa.approvals) lines.push(`• ${link(approval.title, SEO_PLATFORM + "/approvals?approvalId=" + encodeURIComponent(approval.id))} · ${approval.status}`);
       if (Object.keys(qa.sourceDates).length) lines.push("• 来源日期 · " + Object.entries(qa.sourceDates).map(([key, value]) => `${escaped(key)} ${value ?? "待更新"}`).join(" · "));
@@ -623,19 +631,28 @@ export function buildSeoDigest(input: DigestInput) {
       ...(summary.length ? summary.map(item => `• ${item}`) : ["• 完整周数据待更新"]),
       link("查看周报", SEO_PLATFORM + "/reports?period=weekly&date=" + input.date));
   }
+  if (input.notificationCompact && input.workPlan) {
+    const counts = (["optimization", "blog", "landing"] as const).map((kind, index) => {
+      const tasks = input.workPlan!.tasks.filter(task => task.kind === kind);
+      const complete = tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
+      return `${["页面优化", "博客关键词", "落地页关键词"][index]} ${window.kind === "weekly" ? tasks.length + " 项" : complete + "/" + tasks.length + " 已验收"}`;
+    });
+    notification.splice(-2, 0, "", `**${window.kind === "weekly" ? "下周计划" : "本周计划进度"} · ${input.workPlan.status === "reviewed" ? "已确认" : "待确认"}**`,
+      counts.join(" · "), link("查看计划明细", SEO_PLATFORM + "/reports?period=" + window.kind + "&date=" + input.date));
+  }
   if (input.notificationCompact && approvalReminder.length) {
     const approvalHeader = notification.findIndex(line => line === "**交付与审批**" || line === "**待处理**");
     notification.splice(approvalHeader + 2, 0, `${approvalReminder.join(" · ")} · ${link("去审核", approvalsUrl)}`);
   }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
-  return { id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations }), date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
     recentPages: input.recentPages,
     deliveryStates: input.deliveryStates,
-    weeklyHighlights, weeklyTraffic,
+    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
     flatkeyRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };

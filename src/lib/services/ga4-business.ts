@@ -57,6 +57,10 @@ export async function fetchGa4Business(query: Query, now = new Date(), options: 
       });
       if (!registration.ok) throw new GoogleReadError("unavailable", "registration_http_error", registration.status);
       const report = await registration.json(), metadata = report.metadata ?? {}, registrationRows = report.rows ?? [];
+      const unmeasured = metadata.timeZone === "America/Los_Angeles" &&
+        [report.dimensionHeaders, report.metricHeaders, report.rows].every(value => value === undefined || Array.isArray(value) && !value.length) &&
+        (report.rowCount === undefined || report.rowCount === 0);
+      if (unmeasured) throw new GoogleReadError("invalid_response", "registration_empty_response_unverified");
       if ((report.dimensionHeaders?.length ?? 0) !== 0 || report.metricHeaders?.map((row: { name: string }) => row.name).join() !== "eventCount,totalUsers" || metadata.timeZone !== "America/Los_Angeles" || !Array.isArray(registrationRows) || registrationRows.length > 1 || (report.rowCount ?? registrationRows.length) !== registrationRows.length) throw new GoogleReadError("invalid_response", "registration_shape_invalid");
       const restricted = metadata.subjectToThresholding || metadata.dataLossFromOtherRow || metadata.emptyReason || metadata.dataTruncationReasons?.length || metadata.schemaRestrictionResponse?.activeMetricRestrictions?.length || metadata.samplingMetadatas?.some((row: { samplesReadCount: string; samplingSpaceSize: string }) => row.samplesReadCount !== row.samplingSpaceSize);
       if (restricted) reasons.push("registration_thresholding_sampling_or_restriction");
@@ -65,7 +69,7 @@ export async function fetchGa4Business(query: Query, now = new Date(), options: 
         if ((row.dimensionValues?.length ?? 0) || row.metricValues?.length !== 2) throw new GoogleReadError("invalid_response", "registration_row_invalid");
         rows.push({ event: "sign_up", events: count(row.metricValues[0].value), users: count(row.metricValues[1].value) });
       }
-    } catch (error) { reasons.push(error instanceof GoogleReadError ? `registration_${error.code}${error.status ? "_http_" + error.status : ""}` : "registration_query_failed"); }
+    } catch (error) { reasons.push(error instanceof GoogleReadError ? error.message === "registration_empty_response_unverified" ? error.message : `registration_${error.code}${error.status ? "_http_" + error.status : ""}` : "registration_query_failed"); }
   }
   return businessAnalyticsSchema.parse({ ...(options.registrationCompatibility ? { registrationMetric: GA4_REGISTRATION_METRIC } : {}), hostScope: GA4_HOST_SCOPE, version: 1, siteDomain: "flatkey.ai", propertyId: "541304395", source: "google-api", ...query,
     timezone: "America/Los_Angeles", observedAt: now.toISOString(), distinctOverWholePeriod: true, complete: reasons.length === 0, reasons,

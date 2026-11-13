@@ -134,3 +134,14 @@
 .detailSections > .section { margin-top: 10px; padding: 12px 0 0; border: 0; border-top: 1px solid #edf0f5; border-radius: 0; }
 
 .comparison td strong + .delta { margin-inline-start: 8px; font-size: 11px; }
+
+.recentComparison :is(td,th) { vertical-align:top; }
+.recentComparison th[scope=row] { white-space:normal; min-width:150px; max-width:360px; overflow-wrap:anywhere; }
+.recentComparison small.delta { display:table; }
+
+.businessComparison :is(td,th) { vertical-align:top; overflow-wrap:anywhere; }
+.businessComparison th[scope=row] { white-space:normal; min-width:130px; }
+.businessComparison td { min-width:115px; }
+.planGroup { margin-top:14px; }
+.planGroup h4 { margin:0 0 6px; font-size:14px; }
+.planGroup h4 small { margin-inline-start:8px; color:#52647b; font-weight:400; }

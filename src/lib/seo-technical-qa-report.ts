@@ -1,3 +1,4 @@
+import { seoToday } from "./seo-date-range";
 import type { WorkflowSnapshot } from "./seo-workflow";
 
 export function technicalQaReport(
@@ -10,9 +11,23 @@ export function technicalQaReport(
     .sort((a, b) => Date.parse(b.scheduledFor) - Date.parse(a.scheduledFor))[0];
   if (!run) return null;
   const taskIds = new Set(run.taskIds);
+  const date = seoToday(new Date(run.scheduledFor));
+  const latestReceipt = (stage: string) => snapshot.runs.filter(row => row.stage === stage &&
+    seoToday(new Date(row.scheduledFor)) === date && row.completedAt && Date.parse(row.completedAt) <= cutoff)
+    .sort((a, b) => Date.parse(b.completedAt!) - Date.parse(a.completedAt!))[0];
+  const collection = latestReceipt("SERVER_COLLECTION"), inspection = latestReceipt("GSC_URL_INSPECTION");
+  const cleared = [
+    ...(collection ? [/^(?:未取得|缺).*(?:采集回执|服务器采集回执)/] : []),
+    ...(inspection?.status === "completed" ? [/^(?:未取得|缺).*GSC.*URL Inspection/] : []),
+  ];
+  const failure = run.failureReason?.split(/(?<=[。；])\s*/).filter(line => !cleared.some(pattern => pattern.test(line))).join("") || null;
+  const diagnostics = [
+    ...(collection ? [`服务器采集 · ${technicalQaStatus[collection.status]}${collection.failureReason ? "：" + collection.failureReason : ""}`] : []),
+    ...(inspection ? [`GSC 收录抽查 · ${inspection.completedItems}/${inspection.checkedItems} 已取得回执${inspection.failureReason ? "：" + inspection.failureReason : ""}`] : []),
+  ];
   return {
     id: run.id, status: run.status, checked: run.checkedItems, completed: run.completedItems, coverage: run.coverage,
-    scheduledFor: run.scheduledFor, failure: run.failureReason, nextAction: run.nextAction, sourceDates: run.sourceDates,
+    scheduledFor: run.scheduledFor, failure, diagnostics, nextAction: run.nextAction, sourceDates: run.sourceDates,
     issues: snapshot.issues.filter(row => row.taskId && taskIds.has(row.taskId)).map(row => ({
       id: row.id, title: row.title, status: row.status, priority: row.priority, url: row.pageUrl, nextAction: row.nextAction,
     })),

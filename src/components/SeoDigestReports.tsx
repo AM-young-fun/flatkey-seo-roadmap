@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, RefreshCw } from "lucide-react";
-import { executionViewRoutes } from "@/lib/seo-workspace-routes";
+import { executionViewRoutes, workTaskHref } from "@/lib/seo-workspace-routes";
 import { seoToday, shiftDay } from "@/lib/seo-date-range";
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
 import { ReportCountryShares } from "./ReportCountryShares";
@@ -76,7 +76,9 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
             <TrafficCell metric={metric(flatkeyTotals, "自然会话")} />
             <TrafficCell metric={metric(flatkeyTotals, "Google 点击")} />
             <TrafficCell metric={metric(flatkeyTotals, "曝光")} />
-            <TrafficCell metric={organicRegistrations} />
+            {organicRegistrations?.current == null
+              ? <td className={reportStyles.trafficMissing}>未核实<small>GA4 未返回可核验的注册人数</small></td>
+              : <TrafficCell metric={organicRegistrations} />}
           </tr>
           {reportModules.map(([id, label]) => <tr key={id} className={reportStyles.trafficModule}>
             <th scope="row">{label}</th>
@@ -101,7 +103,8 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
       </table>
     </div>
     {coverage ? <p className={reportStyles.note}>Flatkey 模块数据日 {coverage}</p> : null}
-    {countries ? <details className={reportStyles.reportDetail}><summary>Flatkey 四国占比</summary><ReportCountryShares groups={countries} /></details> : null}
+    <p className={reportStyles.note}>自然搜索注册目前只统计 Flatkey 全站；模块和集群站未接入此口径（—）。</p>
+    {countries ? <ReportCountryShares groups={countries} /> : null}
   </section>;
 }
 
@@ -115,27 +118,46 @@ function trafficChange(previous: number | null, current: number | null) {
 
 function RecentPageTraffic({ pages, weekly }: { pages: SeoDigest["recentPages"]; weekly: boolean }) {
   const entries = pages ?? [];
-  const best = entries.filter(page => page.latest || page.latestVisits).slice(0, 10);
-  const visits = (point: NonNullable<SeoDigest["recentPages"]>[number]["latestVisits"]) =>
-    point ? <>{numberText(point.visits)}<small>{point.date}</small></> : "—";
-  return <details className={reportStyles.reportDetail} open>
-    <summary>近期新增与优化 · 前 10</summary>
-    <p className={reportStyles.note}>本周与上周已核实上线的页面。优先选数据日期最新的页面，再按 Google 点击、曝光排序；仅有 GA4 的页面按自然访问排序。</p>
-    {!best.length ? <p className={reportStyles.note}>{!pages ? "近期发布台账待更新。" : entries.length ? "已核验上线，完整日流量待更新。" : "这两周暂无已核实的新增或优化页面。"}</p> : <div className={reportStyles.tableScroll}>
-      <table className={reportStyles.comparison}>
-        <thead><tr><th scope="col">页面</th><th scope="col">上线</th><th scope="col">上线前点击 / 曝光</th><th scope="col">最近点击 / 曝光</th><th scope="col">点击变化</th><th scope="col">上线前 GA4</th><th scope="col">最近 GA4</th></tr></thead>
-        <tbody>{best.map(page => <tr key={page.url}>
-          <th scope="row"><a href={page.url} target="_blank" rel="noreferrer">{page.title}</a></th>
-          <td>{page.day}<small>{page.change === "optimization" ? "优化" : "新增"} · {page.cohort === "current" ? weekly ? "报告本周" : "本周" : "上周"}</small></td>
-          <td>{page.before ? `${numberText(page.before.clicks)} / ${numberText(page.before.impressions)}` : "暂无基线"}
-            {page.before ? <small>{page.before.date}</small> : null}</td>
-          <td>{page.latest ? `${numberText(page.latest.clicks)} / ${numberText(page.latest.impressions)}` : "待出数"}
-            {page.latest ? <small>{page.latest.date}</small> : null}</td>
-          <td>{trafficChange(page.before?.clicks ?? null, page.latest?.clicks ?? null)}</td><td>{visits(page.beforeVisits)}</td><td>{visits(page.latestVisits)}</td>
-        </tr>)}</tbody>
+  const comparable = entries.filter(page => page.latest || page.latestVisits);
+  const best = [...comparable, ...entries.filter(page => !page.latest && !page.latestVisits)].slice(0, 10);
+  const changeCell = (before: number | null, current: number | null, points = false) => {
+    if (current === null) return <>{before !== null ? <>{numberText(before)}{points ? "%" : ""} → </> : null}<span className={reportStyles.trafficMissing}>待出数</span></>;
+    if (before === null) return <>{numberText(current)}{points ? "%" : ""}<small>暂无基线</small></>;
+    const delta = current - before;
+    return <>{numberText(before)}{points ? "%" : ""} → {numberText(current)}{points ? "%" : ""}
+      <small className={reportStyles.delta} data-tone={delta > 0 ? "increase" : delta < 0 ? "decrease" : "neutral"}>
+        {points && delta ? `${delta > 0 ? "+" : ""}${delta.toFixed(2)} 个百分点` : trafficChange(before, current)}
+      </small></>;
+  };
+  return <section className={reportStyles.section}>
+    <h3>近期新增与优化 · 前 10</h3>
+    <p className={reportStyles.note}>{weekly ? "本周和上周。" : "近两周。"}比较上线前最后一个有效日与上线后最新完整日。优先展示数据日期最新、Google 点击和曝光较高的页面。</p>
+    {!best.length ? <p className={reportStyles.note}>{!pages ? "近期发布台账待更新。" : "这两周暂无已核实的新增或优化页面。"}</p> : <div className={reportStyles.tableScroll}>
+      <table className={`${reportStyles.comparison} ${reportStyles.recentComparison}`} aria-label="近期新增与优化页面前后对比">
+        <thead><tr><th scope="col">页面 / 上线</th><th scope="col">Google 点击</th><th scope="col">Google 曝光</th><th scope="col">点击率</th><th scope="col">自然访问</th></tr></thead>
+        {(["current", "previous"] as const).map(cohort => {
+          const group = best.filter(page => page.cohort === cohort);
+          return <tbody key={cohort}>
+            <tr className={reportStyles.trafficGroup}><th colSpan={5} scope="rowgroup">{cohort === "current" ? "本周" : "上周"}</th></tr>
+            {group.length ? group.map(page => {
+              const beforeCtr = page.before?.impressions ? page.before.clicks / page.before.impressions * 100 : null;
+              const afterCtr = page.latest?.impressions ? page.latest.clicks / page.latest.impressions * 100 : null;
+              return <tr key={page.url}>
+                <th scope="row"><a href={page.url} target="_blank" rel="noreferrer">{page.title}</a>
+                  <small>{page.day} · {page.change === "optimization" ? "优化" : "新增"}</small></th>
+                <td>{changeCell(page.before?.clicks ?? null, page.latest?.clicks ?? null)}
+                  {page.before || page.latest ? <small>{[page.before?.date, page.latest?.date].filter(Boolean).join(" → ")}</small> : null}</td>
+                <td>{changeCell(page.before?.impressions ?? null, page.latest?.impressions ?? null)}</td>
+                <td>{afterCtr === null ? "—" : changeCell(beforeCtr === null ? null : Number(beforeCtr.toFixed(2)), Number(afterCtr.toFixed(2)), true)}</td>
+                <td>{changeCell(page.beforeVisits?.visits ?? null, page.latestVisits?.visits ?? null)}
+                  {page.beforeVisits || page.latestVisits ? <small>{[page.beforeVisits?.date, page.latestVisits?.date].filter(Boolean).join(" → ")}</small> : null}</td>
+              </tr>;
+            }) : <tr><td colSpan={5} className={reportStyles.trafficMissing}>暂无入榜页面</td></tr>}
+          </tbody>;
+        })}
       </table>
     </div>}
-  </details>;
+  </section>;
 }
 
 function GithubComparison({ lines }: { lines: string[] }) {
@@ -162,7 +184,8 @@ function GithubComparison({ lines }: { lines: string[] }) {
       </th>)}</tr></thead>
       <tbody>{metrics.map(metric => <tr key={metric.label}><th scope="row">{metric.label}</th>
         {repositories.map(repo => {
-          const value = metric.get(repo.details.join("\n"));
+          const details = repo.details.join("\n");
+          const value = metric.get(details) ?? (metric.label.startsWith("到站") && details.includes("该仓库UTM条件暂无匹配数据") ? "暂无匹配数据" : undefined);
           const [main, note] = value?.split("（") ?? [];
           return <td key={repo.href}>{!main || main === "待更新→待更新" ? "待更新" : main.replace("→", " → ")}
             {note ? <small>{note.replace(/）$/, "")}</small> : null}</td>;
@@ -185,6 +208,7 @@ function OptimizationLinks({ lines }: { lines: string[] }) {
 function TechnicalIssues({ lines }: { lines: string[] }) {
   const issues = lines.flatMap(line => {
     if (/^•\s+缺口\s*·/.test(line)) return line.replace(/^•\s+缺口\s*·\s*/, "").split("；").filter(Boolean);
+    if (/^•\s+复核\s*·/.test(line)) return [line.replace(/^•\s+复核\s*·\s*/, "")];
     if (/^•\s+P[0-4]\s+/.test(line)) return [line.replace(/^•\s+/, "")];
     return [];
   });
@@ -192,7 +216,83 @@ function TechnicalIssues({ lines }: { lines: string[] }) {
   return <p className={reportStyles.note}>{lines.some(line => line.includes("尚未收到巡检回执")) ? "本期巡检结果待更新。" : "本期暂无已记录的巡检问题。"}</p>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"] }) {
+const ga4Scopes = ["自然搜索归因", "全渠道业务"] as const;
+const ga4ReasonLabels: Record<string, string> = {
+  registration_invalid_response: "注册查询未返回可核验的数据",
+  registration_empty_response_unverified: "注册查询未返回可核验的数据",
+  no_matching_steps_in_selected_period: "本期无匹配步骤",
+  "invalid_response:funnel_steps_incomplete": "漏斗步骤数据不完整",
+  thresholding: "GA4 数据阈值限制",
+  sampling: "GA4 数据采样",
+};
+
+function BusinessComparison({ lines }: { lines: string[] }) {
+  const metrics = new Map<string, Map<string, string>>();
+  let scope: string | null = null;
+  for (const line of lines) {
+    const heading = /^• (自然搜索归因|全渠道业务)：(.+)$/.exec(line);
+    const metric = /^\s{2,}([^：]+)：(.+)$/.exec(line);
+    const key = heading ? "数据范围" : metric?.[1];
+    const raw = heading?.[2] ?? metric?.[2];
+    if (heading) scope = heading[1];
+    if (line.startsWith("• ") && !heading) scope = null;
+    if (!scope || !key || !raw) continue;
+    const values = metrics.get(key) ?? new Map<string, string>();
+    const value = Object.entries(ga4ReasonLabels).reduce((current, [code, label]) => current.replaceAll(code, label), raw)
+      .replace("America/Los_Angeles", "太平洋时间").replace(/未观测到，埋点上线及收数待核验/g, "未观测到");
+    values.set(scope, value);
+    metrics.set(key, values);
+  }
+  if (!metrics.size) return <p className={reportStyles.note}>本期暂无 GA4 转化回执。</p>;
+  return <>
+    <div className={reportStyles.tableScroll}>
+      <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label="GA4 自然搜索与全渠道对比">
+        <thead><tr><th scope="col">指标</th>{ga4Scopes.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <tbody>{[...metrics].map(([metric, values]) => <tr key={metric}>
+          <th scope="row">{metric}</th>{ga4Scopes.map(label => {
+            const value = values.get(label);
+            const collected = metric === "数据范围" && value?.match(/ · 采集 (\S+)$/)?.[1];
+            return <td key={label}>{collected ? <>{value!.replace(/ · 采集 \S+$/, "").replace(/(\d{4}-\d{2}-\d{2})—\1/, "$1")}<small>采集于 {shanghaiStamp(collected)}（北京时间）</small></> : value ?? "—"}</td>;
+          })}
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <p className={reportStyles.note}>事件人数按区间去重；漏斗按 GA4 同一用户的步骤顺序统计。</p>
+  </>;
+}
+
+const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "落地页关键词"]] as const;
+const planStatuses: Record<string, string> = { planned: "待开始", researching: "研究中", ready: "待执行", drafting: "制作中",
+  review_pending: "待审核", approved: "待发布", published: "已上线 · 待验收", verified: "已验收", observing: "已上线 · 监控中", blocked: "有阻塞", failed: "需处理" };
+function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
+  return <section className={reportStyles.section}>
+    <h3>{weekly ? "下周工作计划" : "本周计划进度"}</h3>
+    {!plan ? <p className={reportStyles.note}>工作台暂无{weekly ? "下周" : "本周"}计划记录。</p> : <>
+      <p className={reportStyles.note}>{plan.weekStart} — {shiftDay(plan.weekStart, 6)} · {plan.status === "reviewed" ? "已确认" : "待确认"} · <Link href={`/work?week=${plan.weekStart}`}>查看工作任务</Link></p>
+      {planKinds.map(([kind, label]) => {
+        const tasks = plan.tasks.filter(task => task.kind === kind);
+        const completed = tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
+        return <div className={reportStyles.planGroup} key={kind}>
+          <h4>{label} <small>{weekly ? `${tasks.length} 项` : `已验收 ${completed} / ${tasks.length}`}</small></h4>
+          {tasks.length ? <div className={reportStyles.tableScroll}>
+            <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label={label}>
+              <thead><tr><th scope="col">{kind === "optimization" ? "页面" : "关键词"}</th><th scope="col">{kind === "optimization" ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>
+              <tbody>{tasks.map(task => <tr key={task.id}>
+                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart })}>{kind === "optimization" ? task.title : task.keyword ?? "关键词待确认"}</Link>
+                  {kind === "optimization" && task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</a></small> : null}</th>
+                <td>{kind === "optimization" ? task.keyword ?? "—" : task.title}</td>
+                <td>{[task.country, task.language].filter(Boolean).join(" / ") || "—"}</td>
+                <td>{planStatuses[task.status] ?? "待确认"}<small>{shanghaiStamp(task.dueAt).split(" ")[0]}</small>{weekly && task.action ? <small>{task.action}</small> : null}</td>
+              </tr>)}</tbody>
+            </table>
+          </div> : <p className={reportStyles.note}>暂无安排</p>}
+        </div>;
+      })}
+    </>}
+  </section>;
+}
+
+function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"] }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -225,6 +325,7 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
   const countries = countrySection ? parseReportComparisons(countrySection.lines) : null;
   const sites = sections.find(section => section.title.startsWith("五站自然搜索"));
   const github = sections.find(section => section.title.startsWith("GitHub 提示词渠道"));
+  const business = sections.find(section => section.title.startsWith("GA4 行为与转化"));
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
   return <div className={reportStyles.sections}>
@@ -237,8 +338,8 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
       {technical?.lines[0] && !technical.lines[0].startsWith("•") ? <p className={reportStyles.note}>{technical.lines[0]}</p> : null}
       <TechnicalIssues lines={technical?.lines ?? ["尚未收到巡检回执"]} />
     </section> : null}
+    <RecentPageTraffic pages={recentPages} weekly={weekly} />
     <section className={reportStyles.section}>
-      <RecentPageTraffic pages={recentPages} weekly={weekly} />
       <details className={reportStyles.reportDetail}><summary>工作与其他数据</summary>
         <div className={reportStyles.detailSections}>
           {highlights?.length ? <section className={reportStyles.section}>
@@ -247,21 +348,19 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
             <p><a href="https://flatkey.ai/zh/about" target="_blank" rel="noreferrer">查看 Flatkey About 页面 ↗</a></p>
           </section> : null}
           {sections.map((section, index) => {
-            if (/^(五站自然搜索|Flatkey 四国分项|GitHub 提示词渠道|SEO 技术质检|待审批页面|待补材料|明日优先关注|下周事项与关键词)/.test(section.title) || weekly && section.title.startsWith("历史交付归档")) return null;
+            if (/^(五站自然搜索|Flatkey 四国分项|GitHub 提示词渠道|SEO 技术质检|待审批页面|待补材料|明日优先关注|下周事项与关键词|GA4 行为与转化)/.test(section.title) || weekly && section.title.startsWith("历史交付归档")) return null;
             if (/^(统计与交付口径|已核实新增页面|内容交付|交付$|本期交付|今日交付|优化效果监控|优化监控|数据与执行情况|数据基础|Google 点击 ·|自然搜索访问（会话） ·)/.test(section.title)) return null;
             if (section.title.startsWith("已上线优化")) return <section className={reportStyles.section} key={index}>
               <h3>已上线优化</h3><OptimizationLinks lines={section.lines} />
             </section>;
-            const business = section.title.startsWith("GA4 行为与转化");
-            const lines = section.lines.filter(line => !line.startsWith("可归属注册") &&
-              !(business && /^\s*(注册成功[：:]|• Flatkey 注册人数)/.test(line)));
-            if (business && !lines.some(line => /\d+\s*(次|人|秒)/.test(line))) return null;
             return <section className={reportStyles.section} key={index}>
-              <h3>{section.title}</h3>{items(lines)}
+              <h3>{section.title}</h3>{items(section.lines)}
             </section>;
           })}</div>
       </details>
     </section>
+    {business ? <section className={reportStyles.section}><h3>GA4 行为与转化</h3><BusinessComparison lines={business.lines} /></section> : null}
+    <ReportWorkPlan plan={workPlan} weekly={weekly} />
     <section className={reportStyles.section}>
       <h3>{weekly ? "下周优先关注" : "明日优先关注"}</h3>
       {next?.lines.length ? items(next.lines) : <p className={reportStyles.note}>待生成</p>}
@@ -331,7 +430,7 @@ export function SeoDigestReports() {
           <div><dt>Flatkey 注册人数</dt><dd>{registrations?.users == null ? "待更新" : numberText(registrations.users)}</dd>
             <small>{registrations ? registrations.start === registrations.end ? registrations.start : `${registrations.start} — ${registrations.end}` : "全渠道 · 区间去重"}</small></div>
         </dl>
-        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} />
+        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} />
       </article>}
   </div>;
 }

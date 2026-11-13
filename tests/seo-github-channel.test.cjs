@@ -85,3 +85,10 @@ test('archive read includes next-day failed receipts even without historical tra
  const text=githubDigestLines([fixture(),latest],'2026-11-10','2026-11-10',false,new Date('2026-11-11T10:00:00Z')).join('\n');
  assert.match(text,/Traffic来源缺失或无权限/);assert.match(text,/2026-11-11T09:00:00Z/);
 });
+
+test("a later unavailable GA4 refresh cannot overwrite verified attribution for the same dates", () => {
+ const date = "2026-11-10", base = { start: date, end: date, timezone: "America/Los_Angeles" };
+ const old = fixture({referrals:[{...base, status:"ok", sessions:2, users:2, observedAt:"2026-11-11T07:00:00Z", reason:null}]});
+ const fresh = fixture({observedAt:"2026-11-11T09:00:00Z", referrals:[{...base, status:"unavailable", sessions:null, users:null, observedAt:"2026-11-11T09:00:00Z", reason:"ga4_source_unavailable"}]});
+ assert.match(githubDigestLines([fresh,old],date,date,false,new Date("2026-11-11T10:00:00Z")).join("\n"),/到站会话 2，去重访客 2/);
+});

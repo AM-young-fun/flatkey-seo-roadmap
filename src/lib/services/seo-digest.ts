@@ -8,7 +8,7 @@ import { webhookReceiptSchema, type WebhookReceipt } from "../seo-webhook-receip
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
+import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type DigestWorkPlan, type SeoDigest } from "@/lib/seo-digest";
 import { gscDate, gscPeriodEnd, OPTIMIZATION_BASELINE_DAYS, OPTIMIZATION_HISTORY_DAYS, optimizationReportRows, verifiedPagePublications } from "../seo-page-effects";
 import { technicalQaReport } from "../seo-technical-qa-report";
 import { analyticsObservationSchema, analyticsStorageKind, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
@@ -42,6 +42,24 @@ export async function loadRecentDigestPages(date: string, kind: DigestKind, now 
     return parsed.success ? scopedAnalytics([parsed.data]) : [];
   });
   return recentPublishedPages(workflow, pages, date, now, kind === "weekly");
+}
+
+function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnapshot>>): DigestWorkPlan | undefined {
+  const plan = snapshot.plan;
+  if (!plan) return undefined;
+  const selected = new Set(plan.taskIds);
+  const tasks = snapshot.tasks.flatMap(task => {
+    const kind = task.kind;
+    if (!selected.has(task.id) || (kind !== "blog" && kind !== "landing" && kind !== "optimization")) return [];
+    return [{ id: task.id, kind, title: task.title, pageUrl: task.pageUrl, keyword: task.keyword, country: task.country,
+      language: task.language, dueAt: task.dueAt, status: task.status, action: task.nextAction }];
+  }).sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.id.localeCompare(b.id));
+  return { weekStart: snapshot.weekStart, status: plan.status, tasks };
+}
+
+export async function loadDigestWorkPlan(date: string, kind: DigestKind) {
+  const week = workflowWeek(new Date(date + "T12:00:00+08:00"));
+  return summarizeWorkPlan(await loadWorkflowSnapshot({ week: kind === "weekly" ? shiftWorkflowDay(week, 7) : week }));
 }
 
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
@@ -113,6 +131,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
     date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
+    workPlan: summarizeWorkPlan(relevantPlan),
     recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly"), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
     businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
     githubObservations: reads[6].status === "fulfilled" ? reads[6].value : [],

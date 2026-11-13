@@ -105,6 +105,13 @@ jobs:
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
         run: node scripts/server-seo-inventory.cjs
+      - name: Verify a small GSC URL Inspection sample
+        if: ${{ !inputs.business_only && !inputs.periods_only }}
+        continue-on-error: true
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/server-seo-index-sample.cjs
       - name: Collect, backfill and verify production
         id: analytics
         if: ${{ !inputs.business_only && !inputs.periods_only }}

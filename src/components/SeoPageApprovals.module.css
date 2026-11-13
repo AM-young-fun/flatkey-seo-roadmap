@@ -63,3 +63,23 @@
 .languageGroup { border: 0; min-width: 0; margin: 12px 0; padding: 0; }
 .languageGroup legend { font-size: 13px; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
 .languageGroup label { display: inline-flex; align-items: center; gap: 5px; margin: 0 14px 4px 0; }
+
+.approvalBody { position:relative; }
+.approvalHeading { display:flex; align-items:center; min-height:36px; margin:24px 0 16px; padding-inline-end:92px; }
+.approvalRefresh { position:absolute; inset-block-start:0; inset-inline-end:0; }
+.approvalLoading [aria-hidden=true] span { display:block; border-radius:5px; background:#e7eef6; animation:approvalLoading 1.5s ease-in-out infinite alternate; }
+.skeletonLabel { width:min(55%, 150px); height:12px; }
+.skeletonNumber { width:38px; height:27px; }
+.skeletonMeta { width:68px; height:9px; }
+.skeletonFilters { display:grid; grid-template-columns:132px 132px minmax(0,1fr); gap:8px; margin:12px 0 10px; }
+.skeletonFilters span { height:36px; }
+.skeletonRecord { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:68px; border:1px solid #e5e9f0; border-radius:8px; padding:14px 16px; }
+.skeletonRecord + .skeletonRecord { margin-top:8px; }
+.skeletonRecord div { display:grid; gap:8px; flex:1; min-width:0; }
+@keyframes approvalLoading { to { opacity:.55; } }
+@media(max-width:640px) {
+  .approvalHeading { margin:18px 0 14px; }
+  .skeletonFilters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .skeletonFilters span:last-child { grid-column:1 / -1; }
+}
+@media(prefers-reduced-motion:reduce) { .approvalLoading [aria-hidden=true] span { animation:none; } }

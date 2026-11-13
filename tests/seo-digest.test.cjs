@@ -357,3 +357,14 @@ test("recent page comparison includes both weeks, excludes unverified and newer 
  assert.equal(weekly[0].latest.clicks, 3);
  assert.equal(recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, false).some(row => row.title === "friday"), true);
 });
+
+test("daily and weekly notifications link to plan details with separate page and keyword counts", () => {
+ const tasks = ["optimization", "blog", "landing"].map((kind, i) => ({ id: kind, kind, title: kind, keyword: "local keyword",
+   country: "US", language: "en", pageUrl: null, dueAt: "2026-11-13T10:00:00Z", status: i === 0 ? "verified" : "drafting", action: "" }));
+ const workPlan = { weekStart: "2026-11-09", status: "reviewed", tasks };
+ const report = buildSeoDigest({ ...base("2026-11-13"), workPlan, notificationCompact: true, optimizationMonitoring: [] });
+ assert.match(report.text, /页面优化 1\/1 已验收 · 博客关键词 0\/1 已验收 · 落地页关键词 0\/1 已验收/);
+ const weekly = buildSeoDigest({ ...base("2026-11-13"), workPlan, kind: "weekly", notificationCompact: true, optimizationMonitoring: [] });
+ assert.match(weekly.text, /页面优化 1 项 · 博客关键词 1 项 · 落地页关键词 1 项/);
+ assert.equal(weekly.workPlan.tasks.length, 3);
+});

@@ -5,5 +5,5 @@ export function actionCardPayload(report: MessageReport): { msgtype: "actionCard
 export function messageHash(payload: ReturnType<typeof actionCardPayload>): string;
 export function digestSnapshotId(report: {
   date: string; text: string; detailText?: string; pagePerformance?: unknown; recentPages?: unknown;
-  deliveryStates?: unknown; organicRegistrations?: unknown;
+  deliveryStates?: unknown; organicRegistrations?: unknown; workPlan?: unknown;
 }): string;

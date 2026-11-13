@@ -7,7 +7,7 @@ import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoD
 import { shiftDay } from "@/lib/seo-date-range";
 import { flatkeyRegistrationCount, organicRegistrationComparison } from "@/lib/seo-business-analytics";
 import { loadBusinessAnalytics } from "@/lib/services/seo-business-analytics";
-import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, loadRecentDigestPages, saveSeoDigest } from "@/lib/services/seo-digest";
+import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, loadDigestWorkPlan, loadRecentDigestPages, saveSeoDigest } from "@/lib/services/seo-digest";
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
 import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
@@ -84,16 +84,17 @@ export async function GET(request: Request) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
         const previousStart = shiftDay(trafficStart, offset), previousEnd = shiftDay(trafficEnd, offset);
-        const [observations, recentPages] = await Promise.all([
+        const [observations, recentPages, workPlan] = await Promise.all([
           loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
           loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
+          report.workPlan ? Promise.resolve(report.workPlan) : loadDigestWorkPlan(selected, kind).catch(() => undefined),
         ]);
         const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);
         const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
         const organicRegistrations = observations.length
           ? organicRegistrationComparison(observations, trafficStart, trafficEnd, previousStart, previousEnd)
           : report.organicRegistrations;
-        return Response.json({ report: { ...report, flatkeyRegistrations, organicRegistrations, recentPages }, dates }, { headers });
+        return Response.json({ report: { ...report, flatkeyRegistrations, organicRegistrations, recentPages, workPlan }, dates }, { headers });
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }
