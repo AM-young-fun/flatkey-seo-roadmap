@@ -6,6 +6,8 @@ import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders 
 import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
 import { shiftDay } from "@/lib/seo-date-range";
 import { flatkeyRegistrationCount, organicRegistrationComparison } from "@/lib/seo-business-analytics";
+import { githubDigestLines } from "@/lib/seo-github-channel";
+import { loadGithubChannels } from "@/lib/services/seo-github-channel";
 import { loadBusinessAnalytics } from "@/lib/services/seo-business-analytics";
 import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, loadDigestWorkPlan, loadRecentDigestPages, saveSeoDigest } from "@/lib/services/seo-digest";
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
@@ -84,17 +86,19 @@ export async function GET(request: Request) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
         const previousStart = shiftDay(trafficStart, offset), previousEnd = shiftDay(trafficEnd, offset);
-        const [observations, recentPages, workPlan] = await Promise.all([
+        const [observations, recentPages, workPlan, github] = await Promise.all([
           loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
           loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
           report.workPlan ? Promise.resolve(report.workPlan) : loadDigestWorkPlan(selected, kind).catch(() => undefined),
+          loadGithubChannels(shiftDay(trafficStart, -7), trafficEnd).catch(() => []),
         ]);
         const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);
         const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
         const organicRegistrations = observations.length
           ? organicRegistrationComparison(observations, trafficStart, trafficEnd, previousStart, previousEnd)
           : report.organicRegistrations;
-        return Response.json({ report: { ...report, flatkeyRegistrations, organicRegistrations, recentPages, workPlan }, dates }, { headers });
+        const githubSection = github.length ? githubDigestLines(github, trafficStart, trafficEnd, kind === "weekly", new Date()) : undefined;
+        return Response.json({ report: { ...report, flatkeyRegistrations, organicRegistrations, recentPages, workPlan, githubSection }, dates }, { headers });
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }

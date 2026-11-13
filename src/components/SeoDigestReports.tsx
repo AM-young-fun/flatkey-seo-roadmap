@@ -292,7 +292,7 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
   </section>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"] }) {
+function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan, githubSection }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[] }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -324,14 +324,14 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
   const countrySection = sections.find(section => section.title.startsWith("Flatkey 四国分项"));
   const countries = countrySection ? parseReportComparisons(countrySection.lines) : null;
   const sites = sections.find(section => section.title.startsWith("五站自然搜索"));
-  const github = sections.find(section => section.title.startsWith("GitHub 提示词渠道"));
+  const github = githubSection?.slice(1) ?? sections.find(section => section.title.startsWith("GitHub 提示词渠道"))?.lines;
   const business = sections.find(section => section.title.startsWith("GA4 行为与转化"));
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={sites ? parseReportComparisons(sites.lines) : null} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations} />
     {github ? <section className={reportStyles.section}>
-      <h3>GitHub 提示词渠道</h3><GithubComparison lines={github.lines} />
+      <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
     </section> : null}
     {technical || !weekly ? <section className={reportStyles.section}>
       <h3>SEO 技术质检</h3>
@@ -382,7 +382,7 @@ export function SeoDigestReports() {
   const selectedDate = date ?? exact?.split(":")[1] ?? (kind === "daily" ? seoToday() : null);
   const query = new URLSearchParams({ kind, saved: "1", archive: "1", ...(selectedDate ? { date: selectedDate } : {}), ...(exact ? { reportId: exact } : {}) });
   if (kind === "daily" && selectedDate === seoToday() && !exact) query.set("currentPreview", "1");
-  const result = useSeoRead<{ report: SeoDigest | null; dates?: string[] }>("/api/seo/digest?" + query);
+  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[] }) | null; dates?: string[] }>("/api/seo/digest?" + query);
   const report = result.data?.report;
   const dates = result.data?.dates ?? [];
   const registrations = report?.flatkeyRegistrations;
@@ -430,7 +430,7 @@ export function SeoDigestReports() {
           <div><dt>Flatkey 注册人数</dt><dd>{registrations?.users == null ? "待更新" : numberText(registrations.users)}</dd>
             <small>{registrations ? registrations.start === registrations.end ? registrations.start : `${registrations.start} — ${registrations.end}` : "全渠道 · 区间去重"}</small></div>
         </dl>
-        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} />
+        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} />
       </article>}
   </div>;
 }
