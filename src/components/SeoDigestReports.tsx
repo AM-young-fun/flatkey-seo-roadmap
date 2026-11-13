@@ -110,6 +110,7 @@ function ReportModuleTraffic({ rankings }: { rankings: SeoDigest["pagePerformanc
             <th scope="row">{module.label}</th><td>{numberText(module.previous)}</td><td className={reportStyles.current}>{numberText(module.current)}</td><td>{trafficChange(module.previous, module.current)}</td>
           </tr>)}</tbody>
         </table></div>
+        {result.rankingDates?.length ? <p className={reportStyles.note}>前 10 名按本周已出数的 {result.rankingDates.length} 天统计（{result.rankingDates.join("、")}）。完整周变化待更新。</p> : null}
         {result.modules.map(module => <details key={module.id}>
           <summary>{module.label}前 {module.pages.length || 10} 名</summary>
           {module.pages.length ? <div className={reportStyles.tableScroll}><table className={reportStyles.comparison}>

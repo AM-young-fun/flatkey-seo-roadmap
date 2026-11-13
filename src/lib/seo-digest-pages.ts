@@ -52,6 +52,7 @@ export type DigestPageRanking = {
     date: string | null;
     previousDate: string | null;
     periodDays?: number;
+    rankingDates?: string[];
     modules: { id: string; label: string; current: number | null; previous: number | null; pages: DigestPageRanking["pages"] }[];
   };
   pages: { site: string; url: string; value: number; timezone: string; previousDate: string | null; previous: number | null; difference: number | null; percentage: number | null; comparisonReason: string | null }[];
@@ -148,17 +149,27 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
     const previousEnd = currentEnd ? shift(currentEnd, -days) : null;
     const currentData = currentEnd ? aggregate(currentEnd) : null;
     const previousData = previousEnd ? aggregate(previousEnd) : null;
+    const rankingValues = new Map(currentData?.values);
+    const rankingDates: string[] = [];
+    if (period && flatkeyRow && !currentData) {
+      for (const row of flatkeyRows) {
+        if (row.date < period.start || row.date > period.end || row.property !== flatkeyRow.property || !comparable(row, flatkeyRow)) continue;
+        rankingDates.push(row.date);
+        for (const [url, value] of pageValues(row)) rankingValues.set(url, (rankingValues.get(url) ?? 0) + value);
+      }
+      rankingDates.sort();
+    }
     const currentValues = [...(currentData?.values ?? [])];
     const previousValues = [...(previousData?.values ?? [])];
     const flatkey = {
-      date: currentData ? currentEnd! : null, previousDate: previousData ? previousEnd : null, periodDays: days,
+      date: currentData ? currentEnd! : null, previousDate: previousData ? previousEnd : null, periodDays: days, rankingDates,
       modules: DIGEST_FLATKEY_MODULES.map(([id, label]) => {
         const current = currentValues.filter(([url]) => flatkeyReportModule(url) === id);
         const previous = previousValues.filter(([url]) => flatkeyReportModule(url) === id);
-        const ranked = flatkeyRow ? current.filter(([, value]) => value > 0)
+        const ranked = flatkeyRow ? [...rankingValues].filter(([url]) => flatkeyReportModule(url) === id).filter(([, value]) => value > 0)
           .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10)
           .map(([url, value]) => {
-            const baseline = previousData?.values.get(url) ?? (previousData?.absentIsZero ? 0 : null);
+            const baseline = currentData ? previousData?.values.get(url) ?? (previousData?.absentIsZero ? 0 : null) : null;
             return { site: "flatkey.ai", url, value, timezone: timezoneFor(flatkeyRow),
               previousDate: baseline === null ? null : previousEnd, previous: baseline,
               difference: baseline === null ? null : value - baseline,
