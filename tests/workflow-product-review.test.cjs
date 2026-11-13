@@ -32,7 +32,9 @@ test("product approval must reference a product technical task; channel cannot c
   assert.throws(() => mutate(approval, "save_approval", [{ kind: "task", record: ordinary.record }]), /同渠道技术任务/);
   const t = mutate(task, "save_task"), rows = [{ kind: "task", record: t.record }];
   assert.throws(() => mutate({ ...task, channel: "website" }, "save_task", rows, 1), /不能更换渠道/);
-  const websiteItem = { ...item, pageUrl: "https://flatkey.ai/" };
+  const websiteItem = { ...item, pageUrl: "https://flatkey.ai/", previewContentVersion: "v2", evidence: [...evidence,
+    { label: "桌面截图", url: "https://images.example.com/desktop.png", observedAt: "2026-11-11T09:00:00Z" },
+    { label: "手机截图", url: "https://images.example.com/mobile.png", observedAt: "2026-11-11T09:00:00Z" }] };
   assert.throws(() => mutate({ ...approval, channel: "website", items: [websiteItem] }, "save_approval", rows), /同渠道技术任务/);
   const submitted = mutate({ ...approval, submittedAt: "2026-11-11T09:00:00Z", status: "pending", items: [websiteItem] }, "save_approval", rows);
   assert.throws(() => mutate({ ...approval, channel: "website", submittedAt: "2026-11-11T09:00:00Z", status: "pending", items: [websiteItem] }, "save_approval", [...rows, { kind: "approval", record: submitted.record }], 1), /同渠道技术任务|不可改写/);

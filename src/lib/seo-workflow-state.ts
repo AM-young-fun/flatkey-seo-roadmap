@@ -173,6 +173,11 @@ function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | un
   if (!previous || previous.status === "draft") {
     for (const item of value.items) checkApprovalItemContext(item, value.siteDomain, all);
     if (value.status !== "draft") {
+      const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+      for (const item of value.items.filter(item => approvalItemNeedsHuman(item, tasks))) {
+        const readiness = approvalReviewReadiness(item);
+        if (!readiness.ready) reject("approval_preview_missing", "送审前须补齐：" + readiness.missing.join("、"));
+      }
       const others = approvalRows(all).filter(other => other.id !== value.id && other.status !== "draft");
       for (const priorId of value.supersedesApprovalIds) {
         const prior = others.find(other => other.id === priorId);
@@ -181,7 +186,14 @@ function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | un
       for (const item of value.items) for (const other of others) {
         const priorItem = other.items.find(old => old.pageUrl === item.pageUrl && old.language === item.language);
         if (!priorItem) continue;
-        if (priorItem.contentVersion === item.contentVersion) reject("approval_version_reused", "该页面语言版本已有审批；改稿必须新版本，不能重建审批绕过决定");
+        if (priorItem.contentVersion === item.contentVersion) {
+          const materialOnly = value.supersedesApprovalIds.includes(other.id)
+            && workflowApprovalEffectiveItemStatus(other, priorItem.id, others) === "pending"
+            && !approvalReviewReadiness(priorItem).ready
+            && (["taskId", "operation", "baseContentVersion", "reviewContent", "reviewFormat", "beforeContent", "codeSource"] as const)
+              .every(key => same(priorItem[key], item[key]));
+          if (!materialOnly) reject("approval_version_reused", "该页面语言版本已有审批；改稿必须新版本，不能重建审批绕过决定");
+        }
         if (workflowApprovalEffectiveItemStatus(other, priorItem.id, others) !== "superseded" && !value.supersedesApprovalIds.includes(other.id)) reject("approval_supersession_required", "同页面语言已有审批单；新稿须明确替换旧单以阻止旧稿并发发布");
       }
     }
@@ -331,8 +343,8 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
   const verified = publications.filter(row => row.status === "verified");
   return { weekStart, weekEnd: shiftWorkflowDay(weekStart, 6), plan: plans[0] ?? null, approvals, tasks, publications, historicalImports, optimizations, issues, runs, storage, generatedAt: now.toISOString(), summary: {
     tasks: tasks.length, blocked: tasks.filter(task => ["blocked", "failed"].includes(task.status)).length, reviewPending: tasks.filter(task => task.status === "review_pending" && !automaticTaskPolicy(task)).length,
-    pendingApprovalItems: approvals.reduce((sum, row) => sum + row.items.filter(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, tasks)).length, 0),
-    pendingApprovals: approvals.filter(row => row.items.some(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, tasks))).length,
+    pendingApprovalItems: approvals.reduce((sum, row) => sum + row.items.filter(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, tasks) && approvalReviewReadiness(item).ready).length, 0),
+    pendingApprovals: approvals.filter(row => row.items.some(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, tasks) && approvalReviewReadiness(item).ready)).length,
     verifiedSourceBlogs: verified.filter(row => row.kind === "source_blog").length, verifiedTranslations: verified.filter(row => ["translation", "backfill_translation"].includes(row.kind)).length,
     verifiedLandingPages: verified.filter(row => row.kind === "landing").length, optimizedPages: new Set(verified.filter(row => row.kind === "optimization").map(row => row.pageUrl)).size,
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,

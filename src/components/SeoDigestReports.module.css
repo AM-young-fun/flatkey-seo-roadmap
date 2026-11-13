@@ -90,7 +90,9 @@
 .comparison .delta[data-tone="increase"] { color: #076449; background: #eaf7ef; }
 .comparison .delta[data-tone="decrease"] { color: #a13530; background: #fdf0ef; }
 .comparison small { display: block; color: #52647b; margin-top: 2px; font-size: 11px; }
-.allApprovals { display: inline-block; margin-top: 12px; }
+.approvalButton { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 5px; background: #eef4ff; color: #2157c2; text-decoration: none; }
+.approvalButton span { font-size: 14px; }
+.approvalButton:is(:hover, :focus-visible) { background: #dfeaff; text-decoration: underline; }
 .issueList { margin: 0; padding-left: 20px; max-inline-size: 78ch; color: #334155; }
 .issueList li { padding: 4px 0; line-height: 1.6; overflow-wrap: anywhere; }
 .optimization { display: grid; gap: 6px; border-top: 1px solid #edf1f6; padding-top: 12px; }
@@ -121,11 +123,6 @@
 .countryMissing { display: grid; min-height: 115px; place-items: center; color: #52647b; }
 .countryLegend { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 0; margin: 10px 0 0; list-style: none; font-size: 12px; color: #52647b; }
 .countryLegend li::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; background: var(--market-color); }
-.moduleRows { margin-top: 14px; }
-.moduleRows details { margin-top: 8px; border-top: 1px solid #edf0f5; padding-top: 8px; }
-.moduleRows summary { cursor: pointer; width: fit-content; font-weight: 600; }
-.moduleTopics { margin-top: 12px; }
-.moduleTopics h4 { margin: 0 0 5px; font-size: 14px; }
 @media (max-width: 580px) { .countryCharts { grid-template-columns: 1fr; } }
 
 .trafficGroup > th, .trafficGroup > td { background: #f7f9fc; }

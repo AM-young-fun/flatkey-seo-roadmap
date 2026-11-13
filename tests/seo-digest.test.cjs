@@ -71,7 +71,7 @@ test("the review headline counts tasks separately from tickets and page versions
  assert.deepEqual(result.approvalQueue,{tickets:2,pages:4});
  assert.match(result.text,/待审核 3 项（2 张审批单，4 个页面版本） · 待补材料 0 项/);
 });
-test("incomplete review materials count once per task without removing pending page versions", () => {
+test("incomplete review materials count once per task without treating them as pending review", () => {
  const ticket = approval("incomplete");
  const item = ticket.items[0], timestamp = ticket.submittedRecordedAt;
  const local = { label:"截图", artifact:"/tmp/internal.png", observedAt:timestamp };
@@ -84,20 +84,19 @@ test("incomplete review materials count once per task without removing pending p
    evidence:[{label:"审稿材料",url:"https://images.example.com/version.WEBP?view=1",observedAt:timestamp}] },
  ];
  const result = buildSeoDigest({...base(),...workflow([ticket],[approvalTask(ticket,{kind:"blog"})])});
- assert.deepEqual(result.approvalQueue,{tickets:1,pages:3});
- assert.match(result.text,/待审核 1 项（1 张审批单，3 个页面版本） · 待补材料 1 项/);
+ assert.deepEqual(result.approvalQueue,{tickets:0,pages:0});
+ assert.match(result.text,/待审核 0 项（0 张审批单，0 个页面版本） · 待补材料 1 项/);
  assert.match(result.text,/缺少独立测试环境链接、桌面截图链接、手机截图链接、改动简介/);
  assert.match(result.text,/缺少独立测试环境链接、桌面截图链接、手机截图链接/);
- assert.match(result.text,/\[截图\]\(https:\/\/images\.example\.com\/version\.WEBP\?view=1\)/);
  assert.doesNotMatch(result.text,/internal\.png|private\.png|batch\.png|drafts\.example\.com|http:\/\/preview/);
 });
-test("ticket-level screenshots remain visible but cannot replace version-bound page materials", () => {
+test("ticket-level screenshots cannot replace version-bound page materials", () => {
  const ticket = approval("single");
  ticket.evidence = ticket.items[0].evidence;
  ticket.items[0].evidence = [];
  const result = buildSeoDigest({...base(),...workflow([ticket])});
- assert.match(result.text,/待审核 1 项（1 张审批单，1 个页面版本） · 待补材料 1 项/);
- assert.match(result.text,/\[截图\]\(https:\/\/images\.example\.com\/share\/123\)/);
+ assert.match(result.text,/待审核 0 项（0 张审批单，0 个页面版本） · 待补材料 1 项/);
+ assert.match(result.text,/缺少桌面截图链接、手机截图链接/);
 });
 test("withdrawals, obsolete versions and future submissions do not enter the review total", () => {
  const stale = approval("stale");
@@ -237,7 +236,7 @@ test("draft page versions and submitted missing materials deduplicate by task ac
  const drafts=[approval("draft-shared-1",{status:"draft",submittedRecordedAt:null,items}),approval("draft-shared-2",{status:"draft",submittedRecordedAt:null,items:[{...items[0],id:"extra",pageUrl:"https://flatkey.ai/extra"}]})];
  const future=approval("future-draft",{status:"draft",submittedRecordedAt:null,recordedAt:"2027-01-01T00:00:00Z"});
  const result=buildSeoDigest({...base(),notificationCompact:true,...workflow([pending,...drafts,future],[task,approvalTask(future,{status:"drafting"})])});
- assert.match(result.text,/待审批 1 项 · 材料未齐 1 项/);
+ assert.match(result.text,/待审批 0 项 · 材料未齐 1 项/);
  assert.match(result.detailText,/未提交草稿 2 张，关联 1 项任务 \/ 220 个页面版本，其中 1 项任务待补材料/);
  assert.doesNotMatch(result.text,/220 项任务/);
 });
@@ -311,4 +310,50 @@ test("a checked empty publication is distinct from a category without a receipt"
  const report = buildSeoDigest({ ...base(), notificationCompact: true, publicationCoverage: "partial",
    deliveryStates: { blogs: true, landing: false, cluster: false, optimizations: false } });
  assert.match(report.text, /博客.*已核实 0 篇 · 落地页 暂无上线回执/);
+});
+
+test("natural-search registrations compare verified distinct GA4 users without using all-channel or daily sums", () => {
+ const organic = (start, end, users, extra = {}) => ({ scope: "session-organic-search", country: "all", start, end,
+   hostScope: "production-hosts-v1", observedAt: "2026-11-13T16:00:00Z", complete: true, reasons: [], rows: [{ event: "sign_up", users, events: users }], ...extra });
+ const date = "2026-11-13";
+ const businessObservations = [organic("2026-11-11", "2026-11-11", 5), organic("2026-11-12", "2026-11-12", 0),
+   organic("2026-11-12", "2026-11-12", 15, { scope: "all-channels" }),
+   organic("2026-11-06", "2026-11-12", 17), organic("2026-10-30", "2026-11-05", 11)];
+ const input = { ...base(date), businessObservations };
+ assert.deepEqual(buildSeoDigest(input).organicRegistrations, { previous: 5, current: 0 });
+ assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly" }).organicRegistrations, { previous: 11, current: 17 });
+ assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly", businessObservations: businessObservations.slice(0, 3) }).organicRegistrations, { previous: null, current: null });
+});
+test("Friday DingTalk reports remind only unfinished weekly and overdue approvals", () => {
+ const date = "2026-11-13";
+ const approvals = [approval("due"), approval("late"), approval("future"), approval("done")];
+ const tasks = approvals.map((row, i) => approvalTask(row, { weekStart: ["2026-11-09", "2026-11-02", "2026-11-16", "2026-11-09"][i] }));
+ approvals[3].decisions = [{ itemIds: [approvals[3].items[0].id], decision: "approved" }];
+ for (const kind of ["daily", "weekly"]) {
+   const report = buildSeoDigest({ ...base(date), ...workflow(approvals, tasks), kind, notificationCompact: true, optimizationMonitoring: [] });
+   assert.match(report.text, /审批逾期 1 项 · 本周审批还有 1 项未完成/);
+   assert.match(report.text, /\[去审核\]\(https:\/\/flatkey-seo-roadmap.vercel.app\/approvals\)/);
+ }
+ const monday = buildSeoDigest({ ...base("2026-11-16"), ...workflow(approvals, tasks), notificationCompact: true, optimizationMonitoring: [] });
+ assert.match(monday.text, /审批逾期 2 项/);
+ assert.doesNotMatch(monday.text, /本周审批还有/);
+});
+test("recent page comparison includes both weeks, excludes unverified and newer weekly records, dedupes by latest change and prioritizes freshness", () => {
+ const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");
+ const page = (name, day, kind = "landing", extra = {}) => ({ pageUrl: "https://flatkey.ai/" + name, siteDomain: "flatkey.ai", title: name, kind,
+   publishedAt: day + "T15:00:00Z", verifiedAt: day + "T15:05:00Z", verificationRecordedAt: day + "T15:10:00Z",
+   status: "verified", ...(kind === "landing" ? { approvalId: name, approvalItemId: name } : {}), ...extra });
+ const publications = [page("new", "2026-11-04"), page("optimized", "2026-11-07", "optimization"), page("optimized", "2026-11-10", "optimization"),
+   page("friday", "2026-11-13", "optimization"), page("older", "2026-10-29", "optimization"),
+   page("unknown", "2026-11-10", "optimization", { status: "published" })];
+ const search = (day, name, clicks) => ({ kind: "gsc-pages", complete: true, date: day, property: "sc-domain:flatkey.ai",
+   observedAt: "2026-11-13T16:00:00Z", rows: [{ url: "https://flatkey.ai/" + name, clicks, impressions: clicks * 10 }] });
+ const observations = [search("2026-11-09", "new", 100), search("2026-11-12", "optimized", 3), search("2026-11-09", "optimized", 1)];
+ const approvals = [{ id: "new", items: [{ id: "new", operation: "new" }] }];
+ const now = new Date("2026-11-13T17:00:00Z");
+ const weekly = recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, true);
+ assert.deepEqual(weekly.map(row => [row.title, row.change, row.cohort]), [["optimized", "optimization", "current"], ["new", "new", "previous"]]);
+ assert.equal(weekly[0].before.clicks, 1);
+ assert.equal(weekly[0].latest.clicks, 3);
+ assert.equal(recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, false).some(row => row.title === "friday"), true);
 });

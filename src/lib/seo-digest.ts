@@ -1,14 +1,15 @@
 import type { recentPublishedPages } from "./seo-digest-recent-pages";
 import { seoToday } from "./seo-date-range";
-import { businessDigestLines, flatkeyRegistrationCount, latestBusinessPeriod, type BusinessAnalytics } from "./seo-business-analytics";
+import { businessDigestLines, flatkeyRegistrationCount, latestBusinessPeriod, organicRegistrationComparison, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubComparable, githubDigestLines, PROMPT_REPOSITORIES, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
 import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
 import { technicalQaSummary, type TechnicalQaReport } from "./seo-technical-qa-report";
 import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
+import { digestSnapshotId } from "./seo-digest-message.cjs";
 import { z } from "zod";
-import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, workflowWeek, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
@@ -253,6 +254,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   const pages: PendingPage[] = [];
   const pendingTasks = new Set<string>();
   const tasksMissingMaterials = new Set<string>();
+  const missingPages: PendingPage[] = [];
   const decidedTasks = new Set<string>();
   const revisions = new Map<string, string>();
   const draftTasks = new Set<string>(), draftTickets = new Set<string>(), draftMaterials = new Set<string>();
@@ -276,9 +278,13 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
         const screenshot = reviewScreenshot(item.evidence) ?? (approval.items.length === 1 ? reviewScreenshot(approval.evidence) : null);
         const summary = escaped(item.changeSummary ?? "").trim();
         const missing = [...approvalReviewReadiness(item).missing, ...(summary ? [] : ["改动简介"])];
-        pages.push({ approval, item, preview, screenshot, summary, missing });
-        pendingTasks.add(task.id);
-        if (missing.length) tasksMissingMaterials.add(task.id);
+        if (missing.length) {
+          tasksMissingMaterials.add(task.id);
+          missingPages.push({ approval, item, preview, screenshot, summary, missing });
+        } else {
+          pages.push({ approval, item, preview, screenshot, summary, missing });
+          pendingTasks.add(task.id);
+        }
       } else if (status === "changes_requested") {
         revisions.set(task.id, approval.id);
       } else if (!translation && ["approved", "rejected", "withdrawn", "superseded"].includes(status)) {
@@ -310,11 +316,11 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
     if (pageApprovalKinds.has(task.kind)) {
       const revision = revisions.get(task.id);
       if (revision) materials.push({ id: task.id, title: task.title, url: approvalUrl(revision), reason: "需按审批意见修改或补充材料" });
-      else if (!pendingTasks.has(task.id) && !decidedTasks.has(task.id) && !draftTasks.has(task.id)) materials.push({
+      else if (!pendingTasks.has(task.id) && !decidedTasks.has(task.id) && !draftTasks.has(task.id) && !tasksMissingMaterials.has(task.id)) materials.push({
         id: task.id, title: task.title, url: `${approvalsUrl}?newApproval=1&taskId=${encodeURIComponent(task.id)}`, reason: "缺少当前版本的有效审批单",
       });
     } else if (task.evidence.length) {
-      standalone.push({ title: task.title, url: taskUrl });
+      standalone.push({ id: task.id, title: task.title, url: taskUrl });
     } else {
       materials.push({ id: task.id, title: task.title, url: taskUrl, reason: "缺少审核依据" });
     }
@@ -323,7 +329,8 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   pages.sort((a, b) => (a.approval.submittedRecordedAt ?? "").localeCompare(b.approval.submittedRecordedAt ?? "") || a.item.id.localeCompare(b.item.id));
   const tickets = new Set(pages.map(row => row.approval.id)).size;
   for (const task of materials) tasksMissingMaterials.add(task.id);
-  return { pages, tickets, tasks: pendingTasks.size + standalone.length, standalone, materials, materialCount: tasksMissingMaterials.size,
+  const unfinished = new Set([...pendingTasks, ...standalone.map(task => task.id), ...tasksMissingMaterials, ...draftTasks]);
+  return { pages, missingPages, tickets, unfinished, tasks: pendingTasks.size + standalone.length, standalone, materials, materialCount: tasksMissingMaterials.size,
     draftTickets: draftTickets.size, draftTasks: draftTasks.size, draftPages, draftMaterialCount: draftMaterials.size };
 }
 
@@ -365,6 +372,16 @@ export function buildSeoDigest(input: DigestInput) {
     return coverage === "verified" ? count : value > 0 ? `至少 ${count}（已核实）` : recorded ? `已核实 ${count}` : "暂无上线回执";
   };
   const review = input.reviewWorkflow ? digestReviewQueue(input.reviewWorkflow, now) : null;
+  const approvalWeek = workflowWeek(new Date(input.date + "T12:00:00+08:00"));
+  const unfinishedApprovals = [...new Map((input.reviewWorkflow?.tasks ?? []).filter(task => review?.unfinished.has(task.id))
+    .map(task => [task.id, task])).values()];
+  const approvalDue = unfinishedApprovals.filter(task => task.weekStart === approvalWeek).length;
+  const approvalOverdue = unfinishedApprovals.filter(task => task.weekStart < approvalWeek).length;
+  const friday = new Date(input.date + "T00:00:00Z").getUTCDay() === 5;
+  const approvalReminder = [
+    ...(approvalOverdue ? [`审批逾期 ${approvalOverdue} 项`] : []),
+    ...(friday && approvalDue ? [`本周审批还有 ${approvalDue} 项未完成，请在本周内处理`] : []),
+  ];
   const title = window.kind === "weekly"
     ? `Flatkey SEO 周报｜${window.trafficStart}—${window.trafficEnd}`
     : `Flatkey SEO 日报｜${input.date}`;
@@ -390,11 +407,13 @@ export function buildSeoDigest(input: DigestInput) {
     }
     if (review.pages.length > 3) lines.push(`其余 ${review.pages.length - 3} 个页面版本见${link("全部待审批", approvalsUrl)}。`);
   }
+  if (approvalReminder.length) lines.push(`• ${approvalReminder.join(" · ")} · ${link("去审核", approvalsUrl)}`);
   if (review?.standalone.length) {
     lines.push(`• ${review.standalone.length} 项独立任务待审核：${review.standalone.slice(0, 3).map(task => link(task.title, task.url)).join("、")}。`);
   }
-  if (review?.materials.length) {
+  if (review?.materials.length || review?.missingPages.length) {
     lines.push("", "待补材料");
+    for (const { approval, item, missing } of review.missingPages.slice(0, 3)) lines.push(`• ${link(approval.title, approvalUrl(approval.id))} · ${escaped(item.language)} · 缺少${missing.join("、")}。`);
     for (const task of review.materials.slice(0, 3)) lines.push(`• ${link(task.title, task.url)} · ${task.reason}。`);
   }
   const verifiedDeliveries = [...originals, ...landingPages, ...clusterPages].slice(0, 10);
@@ -459,6 +478,9 @@ export function buildSeoDigest(input: DigestInput) {
     lines.push("仅比较同来源、同站点、同日期口径；不同日期和未完成/截断数据未混排。");
   }
   const flatkeyRegistrations = flatkeyRegistrationCount(input.businessObservations ?? [], window.trafficStart, window.trafficEnd);
+  const registrationOffset = window.kind === "weekly" ? -7 : -1;
+  const organicRegistrations = organicRegistrationComparison(input.businessObservations ?? [], window.trafficStart, window.trafficEnd,
+    shift(window.trafficStart, registrationOffset), shift(window.trafficEnd, registrationOffset));
   const [businessHeading, ...businessLines] = businessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd, false);
   lines.push("", businessHeading, `• Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（全渠道区间去重）`, ...businessLines);
   lines.push("", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, window.kind === "weekly", now));
@@ -469,8 +491,31 @@ export function buildSeoDigest(input: DigestInput) {
   if (!thisWeek && input.rankingNotes?.length) lines.push("", "关键词实测（本期实际回执）", ...input.rankingNotes.map(note => "• " + escaped(note)));
   lines.push("", window.kind === "weekly" ? `下周事项与关键词（${input.nextPlanStatus === "reviewed" ? "已确认" : "待确认"}）` : "明日优先关注");
   if (input.nextPlanUrl) lines.push(link("查看下周完整工作计划", input.nextPlanUrl));
-  if (!input.priorities.length) lines.push("• 尚未取得已核对任务，需补齐关键词、国家、行动和验收条件。");
-  for (const [i, row] of input.priorities.slice(0, window.kind === "weekly" ? 8 : 3).entries()) lines.push(`${i + 1}. ${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""} · ${escaped(row.reason)} · ${escaped(row.action)}`);
+  const dailyFocus: string[] = [];
+  if (window.kind === "daily") {
+    const qa = input.technicalQa;
+    const technical = qa?.issues.filter(row => row.status !== "resolved" && ["P0", "P1"].includes(row.priority))
+      .sort((a, b) => a.priority.localeCompare(b.priority))[0];
+    if (technical) dailyFocus.push(`${technical.priority} ${link(technical.title, technical.url ?? SEO_PLATFORM + executionViewRoutes.tasks)}：${escaped(technical.nextAction)}`);
+    if (approvalOverdue || approvalDue || review?.tasks) dailyFocus.push(`处理${approvalOverdue ? `逾期审批 ${approvalOverdue} 项` : `本周待完成审批 ${approvalDue || review?.tasks} 项`}；先核对测试链接和截图，再完成审核。 ${link("去审核", approvalsUrl)}`);
+    const mainClicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date);
+    const mainImpressions = comparableMetric(input.observations, "flatkey.ai", "impressions", input.date);
+    const performance = (input.optimizationMonitoring ?? []).find(row => row.status === "updated" && row.latest!.clicks < row.before!.clicks && row.latest!.impressions < row.before!.impressions);
+    if (performance) dailyFocus.push(`复查 ${link(performance.title, optimizationPlotUrl(performance))}：优化后点击和曝光均下降；按目标词检查排名与收录。`);
+    else if (mainClicks.current !== null && mainClicks.previous !== null && mainClicks.previous >= 20 && mainClicks.current <= mainClicks.previous * 0.8 &&
+        mainClicks.dates.join() === mainImpressions.dates.join() && mainImpressions.current !== null && mainImpressions.previous !== null) {
+      dailyFocus.push(`排查 Flatkey Google 点击下降（${mainClicks.dates.join("、")}，${mainClicks.previous} → ${mainClicks.current}）：按页面和国家拆分，${mainImpressions.current >= mainImpressions.previous ? "优先看点击率和搜索摘要" : "优先看曝光、排名及索引变化"}。`);
+    }
+    if (qa === null) dailyFocus.push("补录本期技术质检回执：重跑未出结果的检查，并记录通过项和阻塞项。");
+    if (qa?.status === "partial" || qa?.status === "blocked" || qa?.status === "failed") dailyFocus.push(`补齐技术质检：${escaped(qa.nextAction || qa.failure || "重跑未完成项，记录证据与复查结果。").slice(0, 220)}`);
+    const waiting = input.recentPages?.find(row => !row.latest && !row.latestVisits);
+    if (waiting) dailyFocus.push(`复查近期上线页 ${link(waiting.title, waiting.url)}：核对生产 URL 和索引，等首个完整数据日再评估变化。`);
+    if (mainClicks.current === null) dailyFocus.push("复核 GSC 采集回执并补齐最新完整日数据，再判断点击变化。");
+  }
+  const plannedFocus = input.priorities.map(row => `${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""} · ${escaped(row.reason)} · ${escaped(row.action)}`);
+  const nextFocus = (window.kind === "weekly" ? plannedFocus : [...dailyFocus, ...plannedFocus]).slice(0, window.kind === "weekly" ? 8 : 3);
+  if (nextFocus.length) nextFocus.forEach((row, i) => lines.push(`${i + 1}. ${row}`));
+  else lines.push(window.kind === "weekly" ? "• 核对下周计划与验收条件，确认优先执行项。" : "• 复核最新完整日的点击与曝光；有明显异常时再建立优化任务。");
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
   const detailText = lines.join("\n");
@@ -561,13 +606,13 @@ export function buildSeoDigest(input: DigestInput) {
     const heading = `**${title}**`;
     const mainClicks = comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, "all", window.kind);
     notification.splice(0, notification.length, heading, "", "**交付与审批**",
-      `新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页", input.deliveryStates?.optimizations)} · 待审批 ${review ? review.tasks + " 项" : "待更新"}`,
+      `新增 ${amount(originals.length + landingPages.length + clusterPages.length + translations.length + backfills.length, input.publicationCoverage, "页")} · 优化 ${amount(optimizations.length, input.optimizationCoverage, "页", input.deliveryStates?.optimizations)} · 待审批 ${review ? review.tasks + " 项 · 待补测试材料 " + review.materialCount + " 项" : "待更新"}`,
       "", "**自然搜索**", "Flatkey Google 点击 " + shortMetric(mainClicks),
       "", "**优化效果**", optimizationMonitorSummary(rows),
       focus ? `重点效果 · ${link(focus.title, optimizationPlotUrl(focus))} · ${focus.country} · ${optimizationMetrics(focus, false)} · ${effectStatusLabel[focus.status]}`
         : "重点效果 · 暂无已核验的优化版本可跟踪。",
       ...(window.kind === "daily" && input.technicalQa !== undefined ? ["", "**SEO 技术质检**", technicalQaSummary(input.technicalQa)] : []),
-      "", `**${window.kind === "weekly" ? "下周重点" : "下一步"}**`, `${priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
+      "", `**${window.kind === "weekly" ? "下周重点" : "下一步"}**`, `${window.kind === "daily" && nextFocus.length ? nextFocus[0] : priority ? escaped(priority.title) + " · " + escaped(priority.action) : focus?.status === "waiting" ? "补齐上线后 GSC 完整数据" : "继续观察页面趋势"}`,
       "", link("数据基础", SEO_DATA_HUB));
   }
   if (weeklyTraffic && input.notificationCompact) {
@@ -578,9 +623,13 @@ export function buildSeoDigest(input: DigestInput) {
       ...(summary.length ? summary.map(item => `• ${item}`) : ["• 完整周数据待更新"]),
       link("查看周报", SEO_PLATFORM + "/reports?period=weekly&date=" + input.date));
   }
+  if (input.notificationCompact && approvalReminder.length) {
+    const approvalHeader = notification.findIndex(line => line === "**交付与审批**" || line === "**待处理**");
+    notification.splice(approvalHeader + 2, 0, `${approvalReminder.join(" · ")} · ${link("去审核", approvalsUrl)}`);
+  }
   const text = input.notificationCompact ? notification.join("  \n") : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
-  return { id: `seo-digest:${input.date}:${createHash("sha256").update(JSON.stringify({ text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates })).digest("hex").slice(0, 16)}`, date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations }), date: input.date, kind: window.kind, title, text, detailText, hash,
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
@@ -588,7 +637,7 @@ export function buildSeoDigest(input: DigestInput) {
     deliveryStates: input.deliveryStates,
     weeklyHighlights, weeklyTraffic,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
-    flatkeyRegistrations,
+    flatkeyRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };
 }
 export type SeoDigest = ReturnType<typeof buildSeoDigest>;

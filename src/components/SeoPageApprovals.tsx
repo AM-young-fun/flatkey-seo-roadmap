@@ -2,7 +2,7 @@
 
 import { ReportLoading } from "./ReportLoading";
 
-import { approvalPreview, groupApprovalPages, type ReviewItem } from "@/lib/seo-approval-display";
+import { approvalPreview, groupApprovalPages, visibleApprovalItemStatus, type ReviewItem } from "@/lib/seo-approval-display";
 import { approvalReviewReadiness, approvalItemNeedsHuman } from "@/lib/seo-workflow";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
@@ -17,7 +17,7 @@ import workspace from "./SeoWorkspace.module.css";
 type ApprovalItem = WorkflowApproval["items"][number];
 type ApprovalDecision = Omit<WorkflowApproval["decisions"][number], "recordedAt">;
 type ApprovalInput = Omit<WorkflowApproval, "version" | "updatedAt" | "recordedAt" | "submittedRecordedAt" | "decisions"> & { decisions: ApprovalDecision[] };
-const labels: Record<string, string> = { automatic_history: "免审历史", draft: "草稿", pending: "待审批", partially_reviewed: "逐项处理", approved: "已批准", rejected: "已拒绝", changes_requested: "要求修改", withdrawn: "已撤回", superseded: "已被新单替换" };
+const labels: Record<string, string> = { automatic_history: "免审历史", draft: "草稿", missing_materials: "待补测试材料", pending: "待审批", partially_reviewed: "逐项处理", approved: "已批准", rejected: "已拒绝", changes_requested: "要求修改", withdrawn: "已撤回", superseded: "已被新单替换" };
 const siteLabels: Record<string, string> = { "flatkey.ai": "Flatkey", "jev-llm.com": "JEV LLM", "mochichatbot.com": "MochiChatbot", "modelfit.cc": "ModelFit", "rackrate.org": "RackRate" };
 const stamp = (value: string | null) => value ? shanghaiStamp(value) : "尚未提交";
 const href = (id: string) => `/approvals?approvalId=${encodeURIComponent(id)}`;
@@ -98,11 +98,14 @@ function WriteError({ error, conflict, onRefresh }: { error: string; conflict: b
 }
 
 function DecisionForm({ approval, allApprovals, tasks, preferredTask, onSaved, onRefresh }: { preferredTask: string | null; approval: WorkflowApproval; allApprovals: WorkflowApproval[]; tasks: WorkflowTask[]; onSaved: (approval: WorkflowApproval) => void; onRefresh: () => void }) {
-  const [decision, setDecision] = useState<ApprovalDecision["decision"]>(() => approval.items.some(item => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending") ? "approved" : "withdrawn"), [selected, setSelected] = useState<string[]>(() => approval.items.filter(item => item.taskId === preferredTask && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending").map(item => item.id)), [reviewer, setReviewer] = useState(""), [note, setNote] = useState(""), [confirmed, setConfirmed] = useState(false);
+  const [decision, setDecision] = useState<ApprovalDecision["decision"]>(() => approval.items.some(item => visibleApprovalItemStatus(approval, item, allApprovals, tasks) === "pending") ? "approved" : "withdrawn"), [selected, setSelected] = useState<string[]>(() => approval.items.filter(item => item.taskId === preferredTask && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending").map(item => item.id)), [reviewer, setReviewer] = useState(""), [note, setNote] = useState(""), [confirmed, setConfirmed] = useState(false);
   const write = useApprovalWrite();
-  const eligible = approval.items.filter(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === (decision === "withdrawn" ? "approved" : "pending"));
+  const eligible = approval.items.filter(item => {
+    const state = visibleApprovalItemStatus(approval, item, allApprovals, tasks);
+    return state === (decision === "withdrawn" ? "approved" : "pending");
+  });
   const selectedItems = eligible.filter(item => selected.includes(item.id));
-  const hasPending = approval.items.some(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending"), hasApproved = approval.items.some(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "approved");
+  const hasPending = approval.items.some(item => visibleApprovalItemStatus(approval, item, allApprovals, tasks) === "pending"), hasApproved = approval.items.some(item => approvalItemNeedsHuman(item, tasks) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "approved");
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!confirmed || !selectedItems.length || !reviewer.trim() || !note.trim()) return;
@@ -146,17 +149,18 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, startReview, pre
 }) {
   const [open, setOpen] = useState(focused);
   const [showDecision, setShowDecision] = useState(startReview);
-  const effectiveItemStatus = (item: ApprovalItem) => workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals);
+  const effectiveItemStatus = (item: ApprovalItem) => visibleApprovalItemStatus(approval, item, allApprovals, tasks);
   const pending = approval.items.filter(item => effectiveItemStatus(item) === "pending" && approvalItemNeedsHuman(item, tasks)).length;
   const automaticHistory = approval.items.every(item => !approvalItemNeedsHuman(item, tasks));
   const effectiveStatus = approval.items.every(item => effectiveItemStatus(item) === "superseded") ? "superseded" : approval.status;
+  const missing = approval.items.filter(item => effectiveItemStatus(item) === "missing_materials").length;
   const canDecide = !automaticHistory && (pending > 0 || approval.items.some(item => effectiveItemStatus(item) === "approved"));
   const groups = groupApprovalPages(approval.items);
   return <details className={`${styles.record} ${focused ? review.focused : ""}`} id={`approval-${approval.id}`} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <span><strong>{approval.title}</strong><small>{siteLabels[approval.siteDomain]} · {stamp(approval.submittedAt)}</small></span>
-      <span className={styles.taskMeta}><ApprovalBadge status={automaticHistory ? "automatic_history" : effectiveStatus} />
-        <small>{pending ? `待审 ${pending} 项` : `${groups.length} 个页面`}</small></span>
+      <span className={styles.taskMeta}><ApprovalBadge status={automaticHistory ? "automatic_history" : !pending && missing ? "missing_materials" : effectiveStatus} />
+        <small>{[pending ? `待审 ${pending} 项` : "", missing ? `待补 ${missing} 项` : ""].filter(Boolean).join(" · ") || `${groups.length} 个页面`}</small></span>
     </summary>
     <div className={styles.detail}>
       {canDecide ? <div className={review.actions}><button type="button" className={styles.primary} aria-expanded={showDecision}
@@ -164,7 +168,7 @@ function ApprovalCard({ approval, allApprovals, tasks, focused, startReview, pre
       {canDecide && showDecision ? <DecisionForm key={`${approval.id}:${approval.version}`} approval={approval}
         allApprovals={allApprovals} tasks={tasks} preferredTask={preferredTask} onSaved={onSaved} onRefresh={onRefresh} /> : null}
       {groups.map(group => <ReviewPageGroup key={group.key} group={group} preferredTask={preferredTask}
-        statusFor={item => approvalItemNeedsHuman(item, tasks) ? effectiveItemStatus(item) : "automatic_history"} />)}
+        statusFor={effectiveItemStatus} />)}
     </div>
   </details>;
 }
@@ -176,13 +180,14 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
   const [scope, setScope] = useState("pending"), [site, setSite] = useState("all"), [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
   const data = result.data, approvals = data?.approvals ?? [], allApprovals = approvals;
-  const pending = approvals.filter(approval => approval.items.some(item => approvalItemNeedsHuman(item, data?.tasks ?? []) && workflowApprovalEffectiveItemStatus(approval, item.id, allApprovals) === "pending"));
+  const pending = approvals.filter(approval => approval.items.some(item => visibleApprovalItemStatus(approval, item, allApprovals, data?.tasks ?? []) === "pending"));
+  const missing = approvals.filter(approval => approval.items.some(item => visibleApprovalItemStatus(approval, item, allApprovals, data?.tasks ?? []) === "missing_materials"));
   function refresh() { result.retry(); }
   function saved(record: WorkflowApproval) { setNotice("审批结果已保存。"); refresh(); router.push(href(record.id), { scroll: false }); }
   const focused = approvals.find(approval => approval.id === selectedId);
   const filtered = approvals.filter(approval => {
     const effectiveSuperseded = approval.items.every(item => workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "superseded");
-    const matchesState = scope === "all" || (scope === "pending" ? pending.includes(approval) : (effectiveSuperseded ? "superseded" : approval.status) === scope);
+    const matchesState = scope === "all" || (scope === "pending" ? pending.includes(approval) : scope === "missing_materials" ? missing.includes(approval) : (effectiveSuperseded ? "superseded" : approval.status) === scope);
     return (!taskFilter || approval.items.some(item => item.taskId === taskFilter)) && (site === "all" || approval.siteDomain === site) && matchesState && [approval.title, approval.id, approval.requestedBy, ...approval.items.flatMap(item => [item.pageUrl, item.language, item.contentVersion])].some(value => value.toLowerCase().includes(query.trim().toLowerCase()));
   });
   const shown = focused ? [focused, ...filtered.filter(approval => approval.id !== focused.id)] : filtered;
@@ -196,13 +201,14 @@ export function SeoPageApprovals({ weekStart }: { weekStart: string }) {
     {notice ? <p role="status" className={review.notice}>{notice}</p> : null}
     {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={refresh}>重试读取审批单</button></div> : !data ? <ReportLoading label="正在读取跨周审批记录" /> : <>
       {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
-      <section className={`${styles.summary} ${styles.summaryPair}`} aria-label="跨周待审批摘要">
+      <section className={`${styles.summary}`} aria-label="跨周审批摘要">
         <div><span>待审批单</span><strong>{numberText(data.summary.pendingApprovals)}</strong></div>
         <div><span>待审页面版本</span><strong>{numberText(data.summary.pendingApprovalItems)}</strong></div>
+        <div><span>待补测试材料</span><button type="button" className={styles.secondary} onClick={() => setScope("missing_materials")}>{missing.length} 单</button></div>
       </section>
       <section className={styles.listPanel} aria-labelledby="approval-list-title">
         <div className={styles.sectionHeading}><h2 id="approval-list-title">审批队列</h2><span className={styles.count}>{shown.length} 单</span></div>
-        <div className={review.filters}><UiSelect aria-label="审批状态筛选" value={scope} onChange={setScope} options={[{ value: "pending", label: "待审批（跨周）" }, { value: "all", label: "全部审批记录" }, ...["draft", "partially_reviewed", "approved", "changes_requested", "rejected", "withdrawn", "superseded"].map(value => ({ value, label: labels[value] }))]} /><UiSelect aria-label="审批站点筛选" value={site} onChange={setSite} options={[{ value: "all", label: "全部五站" }, ...WORKFLOW_SITES.map(value => ({ value, label: siteLabels[value] }))]} /><input aria-label="搜索审批单" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索标题、URL、版本或提交人" /></div>
+        <div className={review.filters}><UiSelect aria-label="审批状态筛选" value={scope} onChange={setScope} options={[{ value: "pending", label: "待审批（跨周）" }, { value: "missing_materials", label: "待补测试材料" }, { value: "all", label: "全部审批记录" }, ...["draft", "partially_reviewed", "approved", "changes_requested", "rejected", "withdrawn", "superseded"].map(value => ({ value, label: labels[value] }))]} /><UiSelect aria-label="审批站点筛选" value={site} onChange={setSite} options={[{ value: "all", label: "全部五站" }, ...WORKFLOW_SITES.map(value => ({ value, label: siteLabels[value] }))]} /><input aria-label="搜索审批单" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索标题、URL、版本或提交人" /></div>
         {selectedId && !focused ? <p className={styles.warning}>未找到审批单 {selectedId}。请核对链接或刷新。</p> : null}
         {shown.length ? shown.map(approval => <ApprovalCard key={`${approval.id}:${focused?.id === approval.id ? "focused" : "list"}`} approval={approval} allApprovals={approvals} tasks={data.tasks} focused={focused?.id === approval.id} startReview={focused?.id === approval.id && params.get("review") === "1"} preferredTask={taskFilter} onSaved={saved} onRefresh={refresh} />) : <p className={styles.empty}>当前没有匹配的送审记录。测试材料齐备后，执行任务会自动送审。</p>}
       </section>

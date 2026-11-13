@@ -101,9 +101,22 @@ test('new localized tool pages keep their actual locale and count as landing pag
 test('missing staging URL or screenshot blocks both approval and old approved publication preflight',()=>{
  for(const patch of [{previewUrl:null},{previewUrl:task.pageUrl},{evidence}]) {
   const taskRow=mutate(task,[],'save_task');
-  const pending=mutate(approval({items:[item(patch)]}),[taskRow],'save_approval','collector');
+  const incomplete=approval({items:[item(patch)]});
+  assert.throws(()=>mutate(incomplete,[taskRow],'save_approval','collector'),/送审前须补齐/);
+  const pending={kind:'approval',record:{...incomplete,version:1,recordedAt:time.toISOString(),submittedRecordedAt:time.toISOString()}};
   assert.throws(()=>decide(pending,[taskRow,pending]),/批准前须补齐/);
   const legacy={...pending,record:{...pending.record,status:'approved',decisions:[{...decision(),recordedAt:time.toISOString()}]}};
   assert.throws(()=>checkWorkflowApproval(check(),[taskRow,legacy],time),/发布前须补齐/);
  }
+});
+
+test('an unreviewable legacy ticket can be replaced by the same unchanged version once material is complete',()=>{
+ const { taskRow, pending } = setup();
+ const original = pending.record.items[0];
+ const legacy = { ...pending, record: { ...pending.record, items: [{ ...original, previewUrl: null }] } };
+ const completed = approval({ id: 'recovery', supersedesApprovalIds: [pending.record.id], items: [original] });
+ const replacement = mutate(completed, [taskRow, legacy], 'save_approval', 'collector');
+ assert.equal(replacement.record.status, 'pending');
+ assert.throws(()=>mutate({ ...completed, items: [{ ...original, reviewContent: 'Changed content' }] }, [taskRow, legacy], 'save_approval', 'collector'), /新版本/);
+ assert.throws(()=>mutate(completed, [taskRow, pending], 'save_approval', 'collector'), /新版本/);
 });

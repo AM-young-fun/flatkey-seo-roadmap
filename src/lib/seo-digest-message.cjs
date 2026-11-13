@@ -16,4 +16,9 @@ function actionCardPayload(report) {
  return { msgtype: 'actionCard', actionCard: { title: report.title, text: report.text, btnOrientation: '0', singleTitle: '查看详情', singleURL: reportDetailUrl(report) } };
 }
 const messageHash = payload => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-module.exports = { actionCardPayload, messageHash, reportDetailUrl, DETAIL_URL };
+function digestSnapshotId(report) {
+ const { date, text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations } = report;
+ const version = createHash('sha256').update(JSON.stringify({ text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations })).digest('hex').slice(0, 16);
+ return `seo-digest:${date}:${version}`;
+}
+module.exports = { actionCardPayload, digestSnapshotId, messageHash, reportDetailUrl, DETAIL_URL };

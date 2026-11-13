@@ -1,4 +1,4 @@
-import { approvalItemNeedsHuman, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowTask } from "./seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowTask } from "./seo-workflow";
 
 export type ReviewItem = WorkflowApproval["items"][number];
 
@@ -34,4 +34,24 @@ export function pendingTaskApproval(task: WorkflowTask, approvals: WorkflowAppro
     if (item) return { approval, item };
   }
   return null;
+}
+
+export function visibleApprovalItemStatus(approval: WorkflowApproval, item: ReviewItem, all: WorkflowApproval[], tasks: WorkflowTask[]) {
+  if (!approvalItemNeedsHuman(item, tasks)) return "automatic_history";
+  const status = workflowApprovalEffectiveItemStatus(approval, item.id, all);
+  return (status === "pending" || status === "draft") && !approvalReviewReadiness(item).ready ? "missing_materials" : status;
+}
+
+export function approvalMaterialBacklog(approvals: WorkflowApproval[], tasks: WorkflowTask[]) {
+  const taskById = new Map(tasks.map(task => [task.id, task]));
+  return approvals.flatMap(approval => approval.items.flatMap(item => {
+    const task = taskById.get(item.taskId);
+    if (!task || task.siteDomain !== approval.siteDomain || ["published", "verified", "observing"].includes(task.status)) return [];
+    if (task.contentVersion && (!task.language || task.language === item.language) && task.contentVersion !== item.contentVersion) return [];
+    const status = visibleApprovalItemStatus(approval, item, approvals, [task]);
+    if (status !== "missing_materials" && status !== "draft") return [];
+    return [{ approvalId: approval.id, taskId: item.taskId, siteDomain: approval.siteDomain, pageUrl: item.pageUrl, language: item.language,
+      contentVersion: item.contentVersion, codeSource: item.codeSource ?? task.codeSource,
+      missing: approvalReviewReadiness(item).missing, status }];
+  }));
 }

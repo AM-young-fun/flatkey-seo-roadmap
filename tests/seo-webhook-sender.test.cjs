@@ -34,3 +34,15 @@ test('one shared ActionCard payload binds the real details button and every visi
  assert.match(sender,/claim\.payloadSha256 !== payloadSha256/);assert.match(sender,/body: JSON\.stringify\(payload\)/);
  assert.match(sender,/messageFormat: 'actionCard', payloadSha256/);
 });
+
+test('sender verifies both the body and the report snapshot, including detail-only changes', () => {
+ const { createHash } = require('node:crypto');
+ const { digestSnapshotId } = require('../src/lib/seo-digest-message.cjs');
+ const { validReportBinding } = require('../scripts/server-seo-digest-send.cjs');
+ const report = { date: '2026-11-13', kind: 'daily', text: 'summary', detailText: 'details', deliveryProtocol: 2 };
+ report.hash = createHash('sha256').update(report.text).digest('hex');
+ report.id = digestSnapshotId(report);
+ assert.equal(validReportBinding(report, report.date, report.kind), true);
+ assert.equal(validReportBinding({ ...report, text: 'tampered' }, report.date, report.kind), false);
+ assert.equal(validReportBinding({ ...report, detailText: 'tampered' }, report.date, report.kind), false);
+});

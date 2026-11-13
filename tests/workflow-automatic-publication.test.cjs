@@ -43,7 +43,7 @@ test("legacy pending blog tickets stay immutable history but disappear from acti
  const blog=save(task({status:"review_pending"})),landing=save(task({id:"landing-task",kind:"landing",pageType:"landing",pageUrl:"https://flatkey.ai/gpu",status:"review_pending"}));
  const a={kind:"approval",record:{id:"ticket",weekStart:"2026-11-09",siteDomain:"flatkey.ai",status:"pending",items:[{id:"blog-item",taskId:"blog-task",pageUrl:blog.record.pageUrl,language:"en"},{id:"landing-item",taskId:"landing-task",pageUrl:landing.record.pageUrl,language:"en"}],decisions:[],supersedesApprovalIds:[]}};
  const beforeJSON=JSON.stringify(a),view=workflowSnapshot([blog,landing,a],{week:"2026-11-09"},"database",now);
- assert.equal(view.summary.pendingApprovalItems,1);assert.equal(view.summary.pendingApprovals,1);assert.equal(view.summary.reviewPending,1);assert.equal(JSON.stringify(a),beforeJSON);
+ assert.equal(view.summary.pendingApprovalItems,0);assert.equal(view.summary.pendingApprovals,0);assert.equal(view.summary.reviewPending,1);assert.equal(JSON.stringify(a),beforeJSON);
  assert.equal(approvalItemNeedsHuman(a.record.items[0],[blog.record,landing.record]),false);
 });
 

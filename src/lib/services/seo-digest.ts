@@ -27,6 +27,23 @@ async function requireReportingEnabled(transport: "application-bot" | "signed-we
   return control;
 }
 
+const pageArchiveKinds = (["ga4-pages", "gsc-pages"] as const)
+  .flatMap(kind => [kind, ...CLUSTER_SITES.map(site => analyticsStorageKind(kind, "all", site.domain))]);
+
+export async function loadRecentDigestPages(date: string, kind: DigestKind, now = new Date()) {
+  const { trafficStart, trafficEnd } = digestWindow(date, kind);
+  const [workflow, archive] = await Promise.all([
+    loadWorkflowSnapshot({ allHistory: true }),
+    prisma.seoAnalyticsDay.findMany({ where: { date: { gte: shiftWorkflowDay(trafficStart, -15), lte: trafficEnd },
+      kind: { in: pageArchiveKinds } }, select: { payload: true } }),
+  ]);
+  const pages = archive.flatMap(({ payload }) => {
+    const parsed = analyticsObservationSchema.safeParse(payload);
+    return parsed.success ? scopedAnalytics([parsed.data]) : [];
+  });
+  return recentPublishedPages(workflow, pages, date, now, kind === "weekly");
+}
+
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
   const window = digestWindow(date, kind);
   const start = shiftWorkflowDay(window.trafficStart, -15);
@@ -38,11 +55,11 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     loadWorkflowSnapshot({ week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, false),
     prisma.seoAnalyticsDay.findMany({ where: { date: { gte: start, lte: window.trafficEnd }, OR: [
       { kind: { startsWith: "ga4-site" } }, { kind: { startsWith: "gsc-site" } },
-      ...(["ga4-pages", "gsc-pages"] as const).map(kind => ({ kind: { in: [kind, ...CLUSTER_SITES.map(site => analyticsStorageKind(kind, "all", site.domain))] } })),
+      { kind: { in: pageArchiveKinds } },
     ] }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(window.workStart), lt: new Date(Math.min(now.getTime(), Date.parse(window.workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
     kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
-    loadBusinessAnalytics(kind === "weekly" ? shiftWorkflowDay(window.trafficStart, -7) : window.trafficStart, window.trafficEnd),
+    loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
   ]);
   const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档"][index]}读取失败，相关项保留缺失。`] : []);

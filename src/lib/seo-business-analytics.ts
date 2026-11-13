@@ -58,6 +58,16 @@ export function flatkeyRegistrationCount(rows: BusinessAnalytics[], start: strin
   return { start, end, users: period?.complete ? period.rows.find(row => row.event === "sign_up")?.users ?? null : null };
 }
 
+export function organicRegistrationComparison(rows: BusinessAnalytics[], start: string, end: string, previousStart: string, previousEnd: string) {
+  const current = latestBusinessPeriod(rows, start, end, "all", "session-organic-search");
+  const previous = latestBusinessPeriod(rows, previousStart, previousEnd, "all", "session-organic-search");
+  const users = (period: typeof current) => period?.complete ? period.rows.find(row => row.event === "sign_up")?.users ?? null : null;
+  return {
+    current: users(current),
+    previous: current?.registrationMetric === previous?.registrationMetric ? users(previous) : null,
+  };
+}
+
 export function businessDigestLines(rows: BusinessAnalytics[], start: string, end: string, includeRegistration = true) {
   const lines = ["GA4 行为与转化"];
   for (const scope of ["session-organic-search", "all-channels"] as const) {

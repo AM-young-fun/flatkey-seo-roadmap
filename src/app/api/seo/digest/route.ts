@@ -4,9 +4,10 @@ import { z } from "zod";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
-import { flatkeyRegistrationCount } from "@/lib/seo-business-analytics";
+import { shiftDay } from "@/lib/seo-date-range";
+import { flatkeyRegistrationCount, organicRegistrationComparison } from "@/lib/seo-business-analytics";
 import { loadBusinessAnalytics } from "@/lib/services/seo-business-analytics";
-import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, saveSeoDigest } from "@/lib/services/seo-digest";
+import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, loadRecentDigestPages, saveSeoDigest } from "@/lib/services/seo-digest";
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
 import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
@@ -74,15 +75,25 @@ export async function GET(request: Request) {
         select: { payload: true },
       });
       const report = saved?.payload as unknown as SeoDigest | undefined;
-      if (archive && report) {
+      const currentDaily = !explicitId && kind === "daily" && selected === beijingDay() && params.get("currentPreview") === "1";
+      if (currentDaily) {
+        const fresh = await generateSeoDigest(selected).catch(() => null);
+        if (fresh) return Response.json({ report: fresh, dates }, { headers });
+      }
+      if (archive && report && !explicitId) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
-        const observations = await loadBusinessAnalytics(trafficStart, trafficEnd).catch(() => []);
+        const offset = kind === "weekly" ? -7 : -1;
+        const previousStart = shiftDay(trafficStart, offset), previousEnd = shiftDay(trafficEnd, offset);
+        const [observations, recentPages] = await Promise.all([
+          loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
+          loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
+        ]);
         const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);
         const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
-        return Response.json({ report: { ...report, flatkeyRegistrations }, dates }, { headers });
-      }
-      if (!report && !explicitId && kind === "daily" && selected === beijingDay() && params.get("currentPreview") === "1") {
-        return Response.json({ report: await generateSeoDigest(selected), dates }, { headers });
+        const organicRegistrations = observations.length
+          ? organicRegistrationComparison(observations, trafficStart, trafficEnd, previousStart, previousEnd)
+          : report.organicRegistrations;
+        return Response.json({ report: { ...report, flatkeyRegistrations, organicRegistrations, recentPages }, dates }, { headers });
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }

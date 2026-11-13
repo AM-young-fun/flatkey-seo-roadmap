@@ -125,8 +125,8 @@ export function approvalReviewReadiness(item: z.infer<typeof workflowApprovalIte
   if (!reviewPreviewUrl(item.previewUrl, item.pageUrl)) missing.push("独立测试环境链接");
   if (item.previewContentVersion !== item.contentVersion) missing.push("与稿件一致的测试部署版本");
   const sameVersion = (row: typeof item.evidence[number]) => !row.url?.startsWith("https://flatkey-seo-roadmap.vercel.app/api/seo/review-assets/") || row.label.endsWith(` · ${item.contentVersion}`);
-  if (!item.evidence.some(row => safe(row.url) && sameVersion(row) && /桌面|desktop/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("桌面截图链接");
-  if (!item.evidence.some(row => safe(row.url) && sameVersion(row) && /手机|移动|mobile/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("手机截图链接");
+  if (!(item.evidence ?? []).some(row => safe(row.url) && sameVersion(row) && /桌面|desktop/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("桌面截图链接");
+  if (!(item.evidence ?? []).some(row => safe(row.url) && sameVersion(row) && /手机|移动|mobile/i.test(row.label) && /截图|截屏|screenshot|screen capture/i.test(row.label))) missing.push("手机截图链接");
   return { ready: missing.length === 0, missing };
 }
 export const workflowApprovalDecisionSchema = z.object({

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Signed webhook secret stays in the existing GitHub Actions secret store.
 const fs = require('node:fs/promises'), path = require('node:path'), crypto = require('node:crypto');
-const { actionCardPayload, messageHash } = require('../src/lib/seo-digest-message.cjs');
+const { actionCardPayload, digestSnapshotId, messageHash } = require('../src/lib/seo-digest-message.cjs');
 const { signedWebhook } = require('./seo-alert.cjs');
 const ORIGIN = 'https://flatkey-seo-roadmap.vercel.app', REPO = 'AM-young-fun/flatkey-seo-roadmap';
 const GROUP = 'cid7d5au0J8RAKDDxMR+VNh1w==', BOT = 'tFmSJLB0+A1WmEX9zMnH2w==';
@@ -21,6 +21,11 @@ function acceptedReceipt(response, text, config, runId, now = new Date()) {
   const trace = response.headers.get('x-acs-request-id');
   return { transport: 'signed-webhook', httpStatus: 200, errcode: 0, responseHash: hash(text), webhookConfigSha256: config.fingerprint, acceptedAt: now.toISOString(), repository: REPO, workflowRunId: runId, ...(trace && /^[A-Za-z0-9_-]{1,160}$/.test(trace) ? { providerTraceId: trace } : {}) };
 }
+function validReportBinding(report, date, kind) {
+  return report?.date === date && report.kind === kind && typeof report.text === 'string' &&
+    report.hash === hash(report.text) && report.deliveryProtocol === 2 &&
+    (report.id === digestSnapshotId(report) || report.id === `seo-digest:${date}:${report.hash.slice(0,16)}`);
+}
 async function run() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_REPOSITORY !== REPO || process.env.GITHUB_REF !== 'refs/heads/main' || !/^\d{1,20}$/.test(process.env.GITHUB_RUN_ID || '')) throw Error('authorized_production_workflow_required');
   const flag = name => process.argv.find(arg => arg.startsWith('--' + name + '='))?.slice(name.length + 3);
@@ -35,7 +40,7 @@ async function run() {
   };
   const reportId = flag('report-id');
   const { report } = await api('/api/seo/digest', reportId ? { action: 'read_saved', reportId } : { action: 'prepare', date, kind });
-  if (report?.date !== date || report.kind !== kind || report.hash !== hash(report.text || '') || report.id !== `seo-digest:${date}:${report.hash.slice(0,16)}` || report.deliveryProtocol !== 2) throw Error('report_binding_mismatch');
+  if (!validReportBinding(report, date, kind)) throw Error('report_binding_mismatch');
   const payload = actionCardPayload(report), payloadSha256 = messageHash(payload);
   const directory = process.env.SEO_DIGEST_OUTPUT_DIR || path.join(process.env.RUNNER_TEMP || '/tmp', 'seo-digest');
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -67,5 +72,5 @@ async function run() {
     throw Error('webhook_delivery_unconfirmed_do_not_resend');
   }
 }
-module.exports = { parseConfig, acceptedReceipt };
+module.exports = { parseConfig, acceptedReceipt, validReportBinding };
 if (require.main === module) run().catch(error => { console.error(JSON.stringify({ error: error.message })); process.exitCode = 1; });

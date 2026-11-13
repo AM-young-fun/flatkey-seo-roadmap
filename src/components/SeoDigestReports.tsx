@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, RefreshCw } from "lucide-react";
+import { executionViewRoutes } from "@/lib/seo-workspace-routes";
 import { seoToday, shiftDay } from "@/lib/seo-date-range";
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
-import { rankBlogTopics } from "@/lib/seo-digest-blog-topics";
 import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
 import type { SeoDigest } from "@/lib/seo-digest";
@@ -51,10 +51,11 @@ function TrafficCell({ metric }: { metric?: Pick<ReportMetric, "previous" | "cur
   </td>;
 }
 
-function SearchTraffic({ groups, countries, rankings }: {
+function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
   groups: ReturnType<typeof parseReportComparisons>;
   countries: ReturnType<typeof parseReportComparisons>;
   rankings: SeoDigest["pagePerformance"];
+  organicRegistrations?: SeoDigest["organicRegistrations"];
 }) {
   const ga4 = rankings.find(ranking => ranking.source === "GA4")?.flatkey;
   const gsc = rankings.find(ranking => ranking.source === "GSC")?.flatkey;
@@ -69,18 +70,20 @@ function SearchTraffic({ groups, countries, rankings }: {
     <h3>自然搜索</h3>
     <div className={reportStyles.tableScroll}>
       <table className={reportStyles.comparison} aria-label="各模块与站点自然搜索">
-        <thead><tr><th scope="col">站点 / 模块</th><th scope="col">自然访问 · GA4</th><th scope="col">Google 点击 · GSC</th><th scope="col">Google 曝光 · GSC</th></tr></thead>
+        <thead><tr><th scope="col">站点 / 模块</th><th scope="col">自然访问 · GA4</th><th scope="col">Google 点击 · GSC</th><th scope="col">Google 曝光 · GSC</th><th scope="col">自然搜索注册 · GA4</th></tr></thead>
         <tbody>
           <tr className={reportStyles.trafficGroup}><th scope="row">Flatkey 全站</th>
             <TrafficCell metric={metric(flatkeyTotals, "自然会话")} />
             <TrafficCell metric={metric(flatkeyTotals, "Google 点击")} />
             <TrafficCell metric={metric(flatkeyTotals, "曝光")} />
+            <TrafficCell metric={organicRegistrations} />
           </tr>
           {reportModules.map(([id, label]) => <tr key={id} className={reportStyles.trafficModule}>
             <th scope="row">{label}</th>
             <TrafficCell metric={ga4?.modules.find(module => module.id === id)} />
             <TrafficCell metric={gsc?.modules.find(module => module.id === id)} />
             <TrafficCell metric={gsc?.modules.find(module => module.id === id)?.impressions} />
+            <td className={reportStyles.trafficMissing}>—</td>
           </tr>)}
         </tbody>
         <tbody>
@@ -91,6 +94,7 @@ function SearchTraffic({ groups, countries, rankings }: {
               <TrafficCell metric={metric(group, "自然会话")} />
               <TrafficCell metric={metric(group, "Google 点击")} />
               <TrafficCell metric={metric(group, "曝光")} />
+              <td className={reportStyles.trafficMissing}>—</td>
             </tr>;
           })}
         </tbody>
@@ -98,7 +102,6 @@ function SearchTraffic({ groups, countries, rankings }: {
     </div>
     {coverage ? <p className={reportStyles.note}>Flatkey 模块数据日 {coverage}</p> : null}
     {countries ? <details className={reportStyles.reportDetail}><summary>Flatkey 四国占比</summary><ReportCountryShares groups={countries} /></details> : null}
-    <ReportModuleTraffic rankings={rankings} />
   </section>;
 }
 
@@ -110,50 +113,20 @@ function trafficChange(previous: number | null, current: number | null) {
   return `${delta > 0 ? "+" : ""}${(delta / previous * 100).toFixed(1)}%`;
 }
 
-function ReportModuleTraffic({ rankings }: { rankings: SeoDigest["pagePerformance"] }) {
-  const available = rankings.filter(ranking => ranking.flatkey);
-  if (!available.length) return null;
-  return <details className={reportStyles.reportDetail}>
-    <summary>Flatkey 模块前 10 与博客选题</summary>
-    {available.map(ranking => {
-      const result = ranking.flatkey!;
-      const metric = ranking.source === "GSC" ? "Google 点击" : "自然访问";
-      const topics = rankBlogTopics(result.modules.find(module => module.id === "blog")?.pages ?? []);
-      return <div key={ranking.source} className={reportStyles.moduleRows}>
-        <h4>{ranking.source} · {metric}</h4>
-        {result.rankingDates?.length ? <p className={reportStyles.note}>榜单覆盖 {result.rankingDates.join("、")}</p> : null}
-        {result.modules.map(module => <details key={module.id}>
-          <summary>{module.label} · {module.pages.length ? `前 ${module.pages.length} 名` : "暂无榜单"}</summary>
-          {module.pages.length ? <ol className={reportStyles.issueList}>
-            {module.pages.map(page => <li key={page.url}>
-              <a href={page.url} target="_blank" rel="noreferrer">{new URL(page.url).pathname + new URL(page.url).search}</a>
-              {" · "}{numberText(page.value)}{page.previous !== null ? ` · ${trafficChange(page.previous, page.value)}` : ""}
-            </li>)}
-          </ol> : null}
-        </details>)}
-        {topics.length ? <div className={reportStyles.moduleTopics}>
-          <h4>博客选题</h4>
-          <ul className={reportStyles.issueList}>{topics.map(topic => <li key={topic.label}>{topic.label} · {topic.pages} 页{topic.followUp ? `。建议${topic.followUp}` : ""}</li>)}</ul>
-        </div> : null}
-      </div>;
-    })}
-  </details>;
-}
-
 function RecentPageTraffic({ pages, weekly }: { pages: SeoDigest["recentPages"]; weekly: boolean }) {
-  if (!pages) return null;
-  const best = pages.filter(page => page.latest || page.latestVisits).slice(0, 10);
+  const entries = pages ?? [];
+  const best = entries.filter(page => page.latest || page.latestVisits).slice(0, 10);
   const visits = (point: NonNullable<SeoDigest["recentPages"]>[number]["latestVisits"]) =>
     point ? <>{numberText(point.visits)}<small>{point.date}</small></> : "—";
-  return <details className={reportStyles.reportDetail}>
-    <summary>新上线页面流量{pages.length ? ` · ${pages.length} 页` : ""}</summary>
-    <p className={reportStyles.note}>按最近完整日的 Google 点击排序，同点击量按曝光排序。上线前和上线后的数据分别注明日期。</p>
-    {!best.length ? <p className={reportStyles.note}>{pages.length ? "已核验上线，完整日流量待更新。" : "该范围暂无已核验的新页面上线记录。"}</p> : <div className={reportStyles.tableScroll}>
+  return <details className={reportStyles.reportDetail} open>
+    <summary>近期新增与优化 · 前 10</summary>
+    <p className={reportStyles.note}>本周与上周已核实上线的页面。优先选数据日期最新的页面，再按 Google 点击、曝光排序；仅有 GA4 的页面按自然访问排序。</p>
+    {!best.length ? <p className={reportStyles.note}>{!pages ? "近期发布台账待更新。" : entries.length ? "已核验上线，完整日流量待更新。" : "这两周暂无已核实的新增或优化页面。"}</p> : <div className={reportStyles.tableScroll}>
       <table className={reportStyles.comparison}>
         <thead><tr><th scope="col">页面</th><th scope="col">上线</th><th scope="col">上线前点击 / 曝光</th><th scope="col">最近点击 / 曝光</th><th scope="col">点击变化</th><th scope="col">上线前 GA4</th><th scope="col">最近 GA4</th></tr></thead>
         <tbody>{best.map(page => <tr key={page.url}>
           <th scope="row"><a href={page.url} target="_blank" rel="noreferrer">{page.title}</a></th>
-          <td>{page.day}<small>{page.cohort === "current" ? weekly ? "报告本周" : "本周" : "上周"}</small></td>
+          <td>{page.day}<small>{page.change === "optimization" ? "优化" : "新增"} · {page.cohort === "current" ? weekly ? "报告本周" : "本周" : "上周"}</small></td>
           <td>{page.before ? `${numberText(page.before.clicks)} / ${numberText(page.before.impressions)}` : "暂无基线"}
             {page.before ? <small>{page.before.date}</small> : null}</td>
           <td>{page.latest ? `${numberText(page.latest.clicks)} / ${numberText(page.latest.impressions)}` : "待出数"}
@@ -162,14 +135,6 @@ function RecentPageTraffic({ pages, weekly }: { pages: SeoDigest["recentPages"];
         </tr>)}</tbody>
       </table>
     </div>}
-    {pages.length > best.length ? <details className={reportStyles.moduleRows}>
-      <summary>查看本周及上周全部 {pages.length} 个上线页面</summary>
-      <ul className={reportStyles.issueList}>{pages.map(page => <li key={page.url}>
-        <a href={page.url} target="_blank" rel="noreferrer">{page.title}</a> · {page.day}
-        {page.latest ? ` · 点击 ${numberText(page.before?.clicks)} → ${numberText(page.latest.clicks)}，曝光 ${numberText(page.before?.impressions)} → ${numberText(page.latest.impressions)}` : " · GSC 待出数"}
-        {page.latestVisits ? ` · 自然访问 ${numberText(page.beforeVisits?.visits)} → ${numberText(page.latestVisits.visits)}` : ""}
-      </li>)}</ul>
-    </details> : null}
   </details>;
 }
 
@@ -207,32 +172,14 @@ function GithubComparison({ lines }: { lines: string[] }) {
   </div>;
 }
 
-function ReportLinks({ lines, approvals }: { lines: string[]; approvals: boolean }) {
+function OptimizationLinks({ lines }: { lines: string[] }) {
   const links = new Map<string, string>();
   for (const line of lines) {
-    for (const match of line.matchAll(inline)) {
-      const [, label, href] = match;
-      if (!href || !URL.canParse(href)) continue;
-      const url = new URL(href);
-      if (approvals) {
-        if (url.origin !== "https://flatkey-seo-roadmap.vercel.app" || url.pathname !== "/approvals" && !url.pathname.startsWith("/work/")) continue;
-        if (url.pathname === "/approvals" && !url.searchParams.has("approvalId")) continue;
-        links.set(url.pathname + url.search, label);
-      } else {
-        links.set("/optimization-effects?" + new URLSearchParams({ page: href }), label);
-        break;
-      }
-    }
+    const match = [...line.matchAll(inline)].find(([, , href]) => href && URL.canParse(href));
+    if (match) links.set("/optimization-effects?" + new URLSearchParams({ page: match[2] }), match[1]);
   }
-  return <>
-    {links.size ? <div className={reportStyles.tableScroll}>
-      <table className={reportStyles.comparison}>
-        <thead><tr><th scope="col">{approvals ? "审批详情" : "页面链接"}</th></tr></thead>
-        <tbody>{[...links].map(([href, label]) => <tr key={href}><td><Link href={href}>{label}</Link></td></tr>)}</tbody>
-      </table>
-    </div> : null}
-    {approvals ? <Link className={reportStyles.allApprovals} href="/approvals">查看全部待审批</Link> : null}
-  </>;
+  return links.size ? <ul className={reportStyles.issueList}>{[...links].map(([href, label]) =>
+    <li key={href}><Link href={href}>{label}</Link></li>)}</ul> : null;
 }
 
 function TechnicalIssues({ lines }: { lines: string[] }) {
@@ -245,7 +192,7 @@ function TechnicalIssues({ lines }: { lines: string[] }) {
   return <p className={reportStyles.note}>{lines.some(line => line.includes("尚未收到巡检回执")) ? "本期巡检结果待更新。" : "本期暂无已记录的巡检问题。"}</p>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, highlights }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[] }) {
+function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"] }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -277,8 +224,19 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights }: { t
   const countrySection = sections.find(section => section.title.startsWith("Flatkey 四国分项"));
   const countries = countrySection ? parseReportComparisons(countrySection.lines) : null;
   const sites = sections.find(section => section.title.startsWith("五站自然搜索"));
+  const github = sections.find(section => section.title.startsWith("GitHub 提示词渠道"));
+  const technical = sections.find(section => section.title === "SEO 技术质检");
+  const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
   return <div className={reportStyles.sections}>
-    <SearchTraffic groups={sites ? parseReportComparisons(sites.lines) : null} countries={countries} rankings={rankings ?? []} />
+    <SearchTraffic groups={sites ? parseReportComparisons(sites.lines) : null} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations} />
+    {github ? <section className={reportStyles.section}>
+      <h3>GitHub 提示词渠道</h3><GithubComparison lines={github.lines} />
+    </section> : null}
+    {technical || !weekly ? <section className={reportStyles.section}>
+      <h3>SEO 技术质检</h3>
+      {technical?.lines[0] && !technical.lines[0].startsWith("•") ? <p className={reportStyles.note}>{technical.lines[0]}</p> : null}
+      <TechnicalIssues lines={technical?.lines ?? ["尚未收到巡检回执"]} />
+    </section> : null}
     <section className={reportStyles.section}>
       <RecentPageTraffic pages={recentPages} weekly={weekly} />
       <details className={reportStyles.reportDetail}><summary>工作与其他数据</summary>
@@ -289,22 +247,10 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights }: { t
             <p><a href="https://flatkey.ai/zh/about" target="_blank" rel="noreferrer">查看 Flatkey About 页面 ↗</a></p>
           </section> : null}
           {sections.map((section, index) => {
-            if (/^(五站自然搜索|Flatkey 四国分项)/.test(section.title) || weekly && section.title.startsWith("历史交付归档")) return null;
+            if (/^(五站自然搜索|Flatkey 四国分项|GitHub 提示词渠道|SEO 技术质检|待审批页面|待补材料|明日优先关注|下周事项与关键词)/.test(section.title) || weekly && section.title.startsWith("历史交付归档")) return null;
             if (/^(统计与交付口径|已核实新增页面|内容交付|交付$|本期交付|今日交付|优化效果监控|优化监控|数据与执行情况|数据基础|Google 点击 ·|自然搜索访问（会话） ·)/.test(section.title)) return null;
-            if (/^(待审批页面|已上线优化)/.test(section.title)) {
-              const approvals = section.title.startsWith("待审批页面");
-              return <section className={reportStyles.section} key={index}>
-                <h3>{approvals ? "待审批页面" : "已上线优化"}</h3>
-                <ReportLinks lines={section.lines} approvals={approvals} />
-              </section>;
-            }
-            if (section.title === "SEO 技术质检") return <section className={reportStyles.section} key={index}>
-              <h3>SEO 技术质检</h3>
-              {section.lines[0] && !section.lines[0].startsWith("•") ? <p className={reportStyles.note}>{section.lines[0]}</p> : null}
-              <TechnicalIssues lines={section.lines} />
-            </section>;
-            if (section.title.startsWith("GitHub 提示词渠道")) return <section className={reportStyles.section} key={index}>
-              <h3>GitHub 提示词渠道</h3><GithubComparison lines={section.lines} />
+            if (section.title.startsWith("已上线优化")) return <section className={reportStyles.section} key={index}>
+              <h3>已上线优化</h3><OptimizationLinks lines={section.lines} />
             </section>;
             const business = section.title.startsWith("GA4 行为与转化");
             const lines = section.lines.filter(line => !line.startsWith("可归属注册") &&
@@ -315,6 +261,10 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights }: { t
             </section>;
           })}</div>
       </details>
+    </section>
+    <section className={reportStyles.section}>
+      <h3>{weekly ? "下周优先关注" : "明日优先关注"}</h3>
+      {next?.lines.length ? items(next.lines) : <p className={reportStyles.note}>待生成</p>}
     </section>
   </div>;
 }
@@ -376,11 +326,12 @@ export function SeoDigestReports() {
           <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications, report.deliveryStates?.blogs)}</dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications, report.deliveryStates?.landing)}</dd></div>
           <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations, report.deliveryStates?.optimizations)}</dd></div>
-          <div><dt>待审页面版本</dt><dd>{numberText(report.approvalQueue?.pages)}</dd></div>
+          <div><dt>待审页面版本</dt><dd><Link className={reportStyles.approvalButton} href={executionViewRoutes.approvals}
+            aria-label={`查看待审批页面版本：${numberText(report.approvalQueue?.pages)}`}>{numberText(report.approvalQueue?.pages)} <span aria-hidden="true">↗</span></Link></dd></div>
           <div><dt>Flatkey 注册人数</dt><dd>{registrations?.users == null ? "待更新" : numberText(registrations.users)}</dd>
             <small>{registrations ? registrations.start === registrations.end ? registrations.start : `${registrations.start} — ${registrations.end}` : "全渠道 · 区间去重"}</small></div>
         </dl>
-        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} />
+        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} />
       </article>}
   </div>;
 }
