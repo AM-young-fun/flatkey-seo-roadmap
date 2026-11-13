@@ -11,9 +11,11 @@ function reportDetailUrl(report) {
  }
  return url.href;
 }
-function actionCardPayload(report) {
+function actionCardPayload(report, revision = false) {
  if (!report || typeof report.title !== 'string' || typeof report.text !== 'string') throw Error('invalid_report_message');
- return { msgtype: 'actionCard', actionCard: { title: report.title, text: report.text, btnOrientation: '0', singleTitle: '查看详情', singleURL: reportDetailUrl(report) } };
+ const title = revision ? report.title + '（修订版）' : report.title;
+ const text = revision ? report.text.replace('**' + report.title + '**', '**' + title + '**') : report.text;
+ return { msgtype: 'actionCard', actionCard: { title, text, btnOrientation: '0', singleTitle: '查看详情', singleURL: reportDetailUrl(report) } };
 }
 const messageHash = payload => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 function digestSnapshotId(report) {

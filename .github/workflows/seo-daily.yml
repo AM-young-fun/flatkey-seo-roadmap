@@ -23,7 +23,7 @@ on:
         type: boolean
         default: false
       report_id:
-        description: Optional existing immutable report ID; required for an audited retry
+        description: "Optional immutable report ID; prefix revision: for an approved same-day correction"
         type: string
         default: ""
       periods_only:

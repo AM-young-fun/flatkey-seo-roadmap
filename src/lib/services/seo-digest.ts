@@ -176,7 +176,8 @@ export async function saveSeoDigest(digest: SeoDigest) {
   return digest;
 }
 
-export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot", messageFormat?: "actionCard") {
+export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot", messageFormat?: "actionCard", revision = false) {
+  if (revision && transport !== "signed-webhook") throw new DigestError("修订版须通过原群机器人发送", 400);
   const control = await requireReportingEnabled(transport);
   if (transport === "signed-webhook" && messageFormat !== "actionCard") throw new DigestError("Webhook 发送必须使用已绑定的详情卡片", 400);
   return prisma.$transaction(async tx => {
@@ -187,15 +188,20 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
     const expected = digestWindow(report.date, report.kind);
     if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${report.kind === "weekly" ? "周五10:00" : "18:00"} 前的草稿不能发送，请刷新最终快照`);
-    const id = `seo-digest-delivery:${report.kind}:${report.date}`;
+    const originalId = `seo-digest-delivery:${report.kind}:${report.date}`;
+    const id = revision ? originalId + ":revision" : originalId;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
     const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
+    if (revision) {
+      const original = await tx.seoDigestDelivery.findUnique({ where: { id: originalId } });
+      if (original?.status !== "DELIVERED" || original.reportId === reportId) throw new DigestError("修订版须绑定已送达原稿和不同报告快照");
+    }
     const previous = await tx.seoDigestDelivery.findUnique({ where: { id } });
     const recovered = previous?.status === "REJECTED_CONFIRMED" && previous.reportId === reportId;
     if (previous?.status === "REJECTED_CONFIRMED" && !recovered) throw new DigestError("已核验拒绝仅允许恢复原报告快照");
-    if (!recovered && (now.getTime() - Date.parse(report.generatedAt) > 15 * 60000 || Date.parse(report.generatedAt) > now.getTime())) throw new DigestError("请在发送前刷新报告");
+    if (!recovered && ((!revision && now.getTime() - Date.parse(report.generatedAt) > 15 * 60000) || Date.parse(report.generatedAt) > now.getTime())) throw new DigestError("请在发送前刷新报告");
     if (previous && !digestClaimable(previous, clock.now)) throw new DigestError(previous.status === "DELIVERED" ? "当天该类报告已发送" : "发送已被领取或结果未核实，禁止重复发送");
-    const payloadSha256 = transport === "signed-webhook" ? messageHash(actionCardPayload(report)) : undefined;
+    const payloadSha256 = transport === "signed-webhook" ? messageHash(actionCardPayload(report, revision)) : undefined;
     const data = { reportId, reportHash: report.hash, destination: control.destination, robotCode: control.robotCode, status: "CLAIMED", claimedBy: owner, fencingToken: (previous?.fencingToken ?? 0) + 1, leaseUntil: new Date(clock.now.getTime() + 5 * 60000), errorCode: null,
       receipt: json({ transport, ...(payloadSha256 ? { messageFormat, payloadSha256 } : {}), controlVersion: control.version, ...(control.webhookConfigSha256 ? { webhookConfigSha256: control.webhookConfigSha256 } : {}) }) };
     const receipt = previous ? await tx.seoDigestDelivery.update({ where: { id }, data }) : await tx.seoDigestDelivery.create({ data: { id, ...data } });

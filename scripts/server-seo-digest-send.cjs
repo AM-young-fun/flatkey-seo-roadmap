@@ -38,22 +38,27 @@ async function run() {
     if (!response.ok) throw Error('report_api_http_' + response.status);
     return response.json();
   };
-  const reportId = flag('report-id');
+  const reportSelection = flag('report-id');
+  const revision = reportSelection?.startsWith('revision:') ?? false;
+  const reportId = revision ? reportSelection.slice('revision:'.length) : reportSelection;
+  if (revision && !/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/.test(reportId)) throw Error('revision_requires_exact_report');
+
   const { report } = await api('/api/seo/digest', reportId ? { action: 'read_saved', reportId } : { action: 'prepare', date, kind });
   if (!validReportBinding(report, date, kind)) throw Error('report_binding_mismatch');
-  const payload = actionCardPayload(report), payloadSha256 = messageHash(payload);
+  const payload = actionCardPayload(report, revision), payloadSha256 = messageHash(payload);
   const directory = process.env.SEO_DIGEST_OUTPUT_DIR || path.join(process.env.RUNNER_TEMP || '/tmp', 'seo-digest');
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const prefix = path.join(directory, date + '.' + kind);
   const write = (suffix, data) => fs.writeFile(prefix + suffix, typeof data === 'string' ? data : JSON.stringify(data, null, 2), { mode: 0o600 });
-  await write('.md', report.text);
+  await write('.md', payload.actionCard.text);
   await write('.action-card.json', payload);
   await write('.preflight.json', { version: 1, transport: 'signed-webhook', messageFormat: 'actionCard', payloadSha256, destination: GROUP, robotCode: BOT, webhookConfigSha256: config.fingerprint, reportId: report.id, reportHash: report.hash, preliminary: report.preliminary, repository: REPO, workflowRunId: process.env.GITHUB_RUN_ID });
   if (!process.argv.includes('--send')) { console.log(JSON.stringify({ status: 'preflight_only', reportId: report.id, webhookConfigSha256: config.fingerprint, transport: 'signed-webhook' })); return; }
   const { control } = await api('/api/seo/reporting-control');
   if (!control.enabled || control.transport !== 'signed-webhook' || control.destination !== GROUP || control.robotCode !== BOT || control.webhookConfigSha256 !== config.fingerprint) throw Error('webhook_control_binding_unverified');
   const owner = `github-webhook-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
-  const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook', messageFormat: 'actionCard' });
+  const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook', messageFormat: 'actionCard', ...(revision ? { revision: true } : {}) });
+  if (revision && claim.id !== `seo-digest-delivery:${kind}:${date}:revision`) throw Error('revision_claim_binding_mismatch');
   if (claim.messageFormat !== 'actionCard' || claim.payloadSha256 !== payloadSha256 || claim.transport !== 'signed-webhook' || claim.destination !== GROUP || claim.robotCode !== BOT || claim.webhookConfigSha256 !== config.fingerprint || claim.report?.hash !== report.hash) throw Error('webhook_claim_binding_mismatch');
   const context = { id: claim.id, owner, fencingToken: claim.fencingToken, reportId: report.id, reportHash: report.hash, destination: GROUP, robotCode: BOT };
   await write('.claim.json', { version: 1, origin: ORIGIN, ...context, webhookConfigSha256: config.fingerprint });
