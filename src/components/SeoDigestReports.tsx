@@ -270,6 +270,25 @@ export function SeoDigestReports() {
         <header className={reportStyles.reportHeader}><div><h2>{report.title}</h2>
         <p>生成于 {shanghaiStamp(report.generatedAt)}（北京时间）</p></div>
         {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}</header>
+        {report.weeklyHighlights ? <section className={reportStyles.section}>
+          <h3>本周工作</h3>
+          <ul className={reportStyles.issueList}>
+            {report.weeklyHighlights.map(item => <li key={item}>{item}</li>)}
+          </ul>
+          <p><a href="https://flatkey.ai/zh/about" target="_blank" rel="noreferrer">查看 Flatkey About 页面 ↗</a></p>
+        </section> : null}
+        {report.weeklyTraffic ? <section className={reportStyles.section}>
+          <h3>Flatkey 流量对比</h3>
+          <div className={reportStyles.tableScroll}>
+            <table className={reportStyles.comparison}>
+              <thead><tr><th scope="col">指标</th><th scope="col">上周</th><th scope="col">本周</th><th scope="col">变化</th><th scope="col">对比日期</th></tr></thead>
+              <tbody>{report.weeklyTraffic.map(row => <tr key={row.label}>
+                <th scope="row">{row.label}</th><td>{row.previous}</td><td className={reportStyles.current}>{row.current}</td>
+                <td>{row.change}</td><td className={reportStyles.comparisonDates}>{row.dates.split(" → ").map(date => <span key={date}>{date}</span>)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </section> : null}
         <dl className={reportStyles.metrics}>
           <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications)}</dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications)}</dd></div>
