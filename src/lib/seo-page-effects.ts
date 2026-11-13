@@ -13,6 +13,26 @@ type GscPages = Extract<AnalyticsObservation, { kind: "gsc-pages" }>;
 export type GscPoint = { date: string; clicks: number; impressions: number; ctr: number | null; position: number | null };
 export type GscSeries = { date: string; clicks: number | null; impressions: number | null; ctr: number | null; position: number | null }[];
 
+export function optimizationTrendDays(series: GscSeries, gaDays: { date: string; sessions: number | null; registrations: number | null }[], launchDay: string) {
+  const search = new Map(series.map(day => [day.date, day]));
+  const analytics = new Map(gaDays.map(day => [day.date, day]));
+  const dates = [...new Set([...search.keys(), ...analytics.keys(), launchDay])].sort();
+  const first = dates.findIndex(date => {
+    const gsc = search.get(date), ga4 = analytics.get(date);
+    return [gsc?.clicks, gsc?.impressions, gsc?.ctr, gsc?.position, ga4?.sessions, ga4?.registrations].some(value => value != null);
+  });
+  return first < 0 ? [] : dates.slice(first).map(date => ({
+    date,
+    clicks: search.get(date)?.clicks ?? null,
+    impressions: search.get(date)?.impressions ?? null,
+    ctr: search.get(date)?.ctr ?? null,
+    position: search.get(date)?.position ?? null,
+    sessions: analytics.get(date)?.sessions ?? null,
+    registrations: analytics.get(date)?.registrations ?? null,
+  }));
+}
+
+
 export type OptimizedEffectVersion = { id: string; date: string | null };
 export type OptimizedEffectPage = {
   url: string; title: string; site: string; versions: OptimizedEffectVersion[];

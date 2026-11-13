@@ -53,7 +53,7 @@ export type DigestPageRanking = {
     previousDate: string | null;
     periodDays?: number;
     rankingDates?: string[];
-    modules: { id: string; label: string; current: number | null; previous: number | null; pages: DigestPageRanking["pages"] }[];
+    modules: { id: string; label: string; current: number | null; previous: number | null; impressions?: { previous: number | null; current: number | null }; pages: DigestPageRanking["pages"] }[];
   };
   pages: { site: string; url: string; value: number; timezone: string; previousDate: string | null; previous: number | null; difference: number | null; percentage: number | null; comparisonReason: string | null }[];
 };
@@ -136,14 +136,19 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
     const aggregate = (end: string) => {
       if (!flatkeyRow) return null;
       const values = new Map<string, number>();
+      const impressions = new Map<string, number>();
       let absentIsZero = true;
       for (let index = 0; index < days; index++) {
         const row = byPropertyDay.get(JSON.stringify([kind, flatkeyRow.property, shift(end, -index)]));
         if (!row || !comparable(row, flatkeyRow)) return null;
         absentIsZero &&= row.source === "google-api" && (row.kind === "gsc-pages" || row.hostnameDimension === "hostName");
         for (const [url, value] of pageValues(row)) values.set(url, (values.get(url) ?? 0) + value);
+        if (row.kind === "gsc-pages") for (const page of row.rows) {
+          if (new URL(page.url).hash) continue;
+          impressions.set(page.url, (impressions.get(page.url) ?? 0) + page.impressions);
+        }
       }
-      return { values, absentIsZero };
+      return { values, impressions, absentIsZero };
     };
     const currentEnd = period?.end ?? flatkeyRow?.date;
     const previousEnd = currentEnd ? shift(currentEnd, -days) : null;
@@ -176,8 +181,12 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
               percentage: baseline ? (value - baseline) / baseline * 100 : null,
               comparisonReason: baseline === null ? "缺少可比的前一日页面记录" : null };
           }) : [];
-        return { id, label, current: current.length || currentData?.absentIsZero ? current.reduce((n, [, value]) => n + value, 0) : null,
-          previous: previous.length || previousData?.absentIsZero ? previous.reduce((n, [, value]) => n + value, 0) : null, pages: ranked };
+        const total = (entries: [string, number][], absentIsZero?: boolean) =>
+          entries.length || absentIsZero ? entries.reduce((n, [, value]) => n + value, 0) : null;
+        const exposure = (data: typeof currentData) => total(
+          [...(data?.impressions ?? [])].filter(([url]) => flatkeyReportModule(url) === id), data?.absentIsZero);
+        return { id, label, current: total(current, currentData?.absentIsZero), previous: total(previous, previousData?.absentIsZero),
+          ...(source === "GSC" ? { impressions: { current: exposure(currentData), previous: exposure(previousData) } } : {}), pages: ranked };
       }),
     };
     return { source, metric: source === "GSC" ? "clicks" : "sessions", date, selectionReason, coveredSites: [...currentBySite.keys()].sort(), gaps, pages: pages.slice(0, 5), modules, flatkey };

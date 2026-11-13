@@ -129,6 +129,8 @@ test("Flatkey module leaderboards rank ten pages independently and require both 
   assert.equal(getBlog(rows).pages.length, 10);
   assert.equal(getBlog(rows).pages[0].url, url("blog/api-guide-11"));
   assert.ok(getBlog(rows).current > getBlog(rows).previous);
+  assert.equal(getBlog(rows).impressions.current, getBlog(rows).current * 10);
+  assert.equal(getBlog(rows).impressions.previous, getBlog(rows).previous * 10);
   assert.equal(getBlog(rows.slice(0, -1)).current, null);
   assert.equal(getBlog(rows.slice(0, -1)).pages.length, 10);
   assert.equal(getBlog(rows.slice(0, -1)).pages[0].previous, null);

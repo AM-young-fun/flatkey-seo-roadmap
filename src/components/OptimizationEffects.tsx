@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, ChevronRight, RefreshCw, Search } from "lucide-react";
-import { formatCtr, formatDelta, gscDate, gscPeriodEnd, optimizationRange, optimizationWeekComparison, type OptimizationEffect, type OptimizedEffectPage, type OptimizedEffectVersion } from "@/lib/seo-page-effects";
+import { formatCtr, formatDelta, gscDate, gscPeriodEnd, optimizationRange, optimizationTrendDays, optimizationWeekComparison, type OptimizationEffect, type OptimizedEffectPage, type OptimizedEffectVersion } from "@/lib/seo-page-effects";
 import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
 import { propertyToday, shiftDay } from "@/lib/seo-date-range";
 import type { SeoCountry } from "@/lib/seo";
@@ -37,14 +37,14 @@ function OptimizationTrend({ series, gaDays, launchDay }: { series: Optimization
   const element = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(metrics);
   const [failed, setFailed] = useState(false);
-  const hasData = (key: Metric) => isGaMetric(key) ? gaDays.some(row => row[key] != null) : series.some(row => row[key] != null);
+  const days = useMemo(() => optimizationTrendDays(series, gaDays, launchDay), [series, gaDays, launchDay]);
+  const hasData = (key: Metric) => days.some(row => row[key] != null);
   const visibleLabels = visible.filter(hasData).map(key => labels[key]);
 
   useEffect(() => {
     const target = element.current;
     if (!target) return;
-    const gaByDay = new Map(gaDays.map(day => [day.date, day]));
-    const data = visible.map(key => ({ key, values: series.map(day => isGaMetric(key) ? gaByDay.get(day.date)?.[key] ?? null : day[key]) }))
+    const data = visible.map(key => ({ key, values: days.map(day => day[key]) }))
       .filter(line => line.values.some(value => value !== null));
     if (!data.length) return;
     const axes = (["count", "percent", "rank"] as const).filter(axis => data.some(line => axisFor(line.key) === axis));
@@ -56,7 +56,7 @@ function OptimizationTrend({ series, gaDays, launchDay }: { series: Optimization
         animation: false,
         tooltip: { trigger: "axis", confine: true, renderMode: "richText" },
         grid: { left: 48, right: axes.length === 3 ? 84 : axes.length === 2 ? 52 : 20, top: 36, bottom: 32 },
-        xAxis: { type: "category", data: series.map(day => day.date), axisTick: { show: false },
+        xAxis: { type: "category", data: days.map(day => day.date), axisTick: { show: false },
           axisLabel: { hideOverlap: true, formatter: (date: string) => date.slice(5) }, axisLine: { lineStyle: { color: "#dce4ef" } } },
         yAxis: axes.map((axis, index) => ({
           type: "value", name: axisLabels[axis], position: index ? "right" : "left", offset: index > 1 ? 43 : 0,
@@ -68,7 +68,7 @@ function OptimizationTrend({ series, gaDays, launchDay }: { series: Optimization
           name: labels[key], type: "line", data: values, yAxisIndex: axes.indexOf(axisFor(key)),
           connectNulls: false, symbolSize: 5, lineStyle: { color: seriesColors[key], width: 2 }, itemStyle: { color: seriesColors[key] },
           tooltip: { valueFormatter: (value: unknown) => typeof value === "number" ? key === "ctr" ? formatCtr(value) : key === "position" ? value.toFixed(2) : numberText(value) : "—" },
-          ...(!index && series.some(day => day.date === launchDay) ? { markLine: { silent: true, symbol: "none",
+          ...(!index && days.some(day => day.date === launchDay) ? { markLine: { silent: true, symbol: "none",
             label: { formatter: "优化", color: "#52647b" }, lineStyle: { color: "#64748b", type: "dashed" }, data: [{ xAxis: launchDay }] } } : {}),
         })),
       });
@@ -77,10 +77,11 @@ function OptimizationTrend({ series, gaDays, launchDay }: { series: Optimization
       observer.observe(target);
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
-  }, [series, gaDays, launchDay, visible]);
+  }, [days, launchDay, visible]);
 
   return <section className={effects.panel} aria-labelledby="optimization-trend">
     <h2 id="optimization-trend">每日趋势</h2>
+    <p className={effects.note}>优化日 {launchDay}{days.length ? ` · 数据从 ${days[0].date} 开始` : ""}</p>
     <div className={effects.legend} role="group" aria-label="筛选趋势指标">
       {metrics.map(key => <button type="button" key={key} aria-pressed={visible.includes(key)}
         title={hasData(key) ? undefined : "暂无日数据"} style={{ "--line-color": seriesColors[key] } as CSSProperties}

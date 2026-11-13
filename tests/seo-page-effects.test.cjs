@@ -7,7 +7,7 @@ require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, file);
 
-const { optimizationEffect, optimizationWeekComparison } = require("../src/lib/seo-page-effects.ts");
+const { optimizationEffect, optimizationTrendDays, optimizationWeekComparison } = require("../src/lib/seo-page-effects.ts");
 const { pageOptimizationPriorities } = require("../src/lib/seo-page-priority.ts");
 const { buildSeoDigest } = require("../src/lib/seo-digest.ts");
 
@@ -88,4 +88,19 @@ test("daily and weekly report variants agree with the two points and show CTR ch
     assert.match(report.detailText, /CTR 3.00% → 5.00%（\+2 个百分点）/);
     assert.match(report.detailText, /optimization-effects\?publication=published-es&country=ES/);
   }
+});
+
+
+test("trend starts at the first measured date across both sources and keeps zero, missing days and the launch marker", () => {
+  const points = [
+    { date: "2026-10-23", clicks: null, impressions: null, ctr: null, position: null },
+    { date: "2026-10-24", clicks: null, impressions: null, ctr: null, position: null },
+    { date: "2026-10-25", clicks: null, impressions: null, ctr: null, position: null },
+    { date: "2026-10-26", clicks: 2, impressions: 5, ctr: 0.4, position: 3 },
+  ];
+  const days = optimizationTrendDays(points, [{ date: "2026-10-24", sessions: 0, registrations: null }], "2026-10-27");
+  assert.deepEqual(days.map(row => row.date), ["2026-10-24", "2026-10-25", "2026-10-26", "2026-10-27"]);
+  assert.equal(days[0].sessions, 0);
+  assert.equal(days[1].clicks, null);
+  assert.deepEqual(optimizationTrendDays(points.slice(0, 2), [], "2026-10-27"), []);
 });
