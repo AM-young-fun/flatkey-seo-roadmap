@@ -75,7 +75,7 @@ export const workflowTaskSchema = z.object({
   if (["blocked", "failed"].includes(value.status) && !value.failureReason) ctx.addIssue({ code: "custom", path: ["failureReason"], message: "阻塞或失败必须说明原因" });
 });
 export const workflowPlanSchema = z.object({
-  id, weekStart: workflowWeekSchema, status: z.enum(["draft", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
+  id, weekStart: workflowWeekSchema, status: z.enum(["draft", "scheduled", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
   targets: z.union([
     z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
@@ -90,7 +90,10 @@ export const workflowPlanSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) ctx.addIssue({ code: "custom", path: ["taskIds"], message: "计划任务不能重复" });
   if (value.status === "reviewed" && (!value.reviewedAt || !value.reviewedBy || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "正式计划需要核对人、时间和证据" });
+  if (value.status === "scheduled" && (!("cadence" in value.targets) || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "自动排期需要当前四国额度和选题证据" });
 });
+export const isExecutableWorkflowPlan = (status: string | undefined) => status === "scheduled" || status === "reviewed";
+
 export const WORKFLOW_APPROVAL_STATUSES = ["draft", "pending", "partially_reviewed", "approved", "rejected", "changes_requested", "withdrawn", "superseded"] as const;
 export const workflowApprovalItemSchema = z.object({
   id, taskId: id, operation: z.enum(["new", "update"]), pageUrl: httpsUrl,
@@ -171,18 +174,16 @@ export function automaticPageRoute(pageUrl: string, siteDomain: string): "blog" 
   } catch { /* Unknown routes retain individual approval. */ }
   return null;
 }
-export function automaticTaskPolicy(task: Pick<WorkflowTask, "siteDomain" | "kind" | "pageType" | "pageUrl" | "channel" | "changeScope"> | undefined, pageUrl = task?.pageUrl): "auto_blog" | "auto_prompt" | null {
+export function automaticTaskPolicy(task: Pick<WorkflowTask, "siteDomain" | "kind" | "pageType" | "pageUrl" | "channel" | "changeScope" | "codeSource"> | undefined, pageUrl = task?.pageUrl): "auto_blog" | "auto_prompt" | null {
   if (!task || task.changeScope === "search_intent" || task.channel && task.channel !== "website" || !pageUrl) return null;
   const route = automaticPageRoute(pageUrl, task.siteDomain);
-  if (route === "blog" && task.pageType === "blog" && ["blog", "optimization"].includes(task.kind)) return "auto_blog";
+  if (route === "blog" && !task.codeSource && task.pageType === "blog" && ["blog", "optimization"].includes(task.kind)) return "auto_blog";
   if (route === "prompt" && task.kind === "technical" && task.pageType === "other") return "auto_prompt";
   return null;
 }
 export function approvalItemNeedsHuman(item: { taskId: string; pageUrl: string; contentVersion?: string }, tasks: WorkflowTask[]): boolean {
   const task = tasks.find(task => task.id === item.taskId);
-  if (task?.status === "review_pending" && task.contentVersion && task.contentVersion === item.contentVersion && task.pageUrl === item.pageUrl) {
-    return true;
-  }
+  if (task?.kind === "research") return false;
   return !automaticTaskPolicy(task, item.pageUrl);
 }
 const automaticWriteReceipt = z.object({
@@ -348,7 +349,7 @@ export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "task
   return snapshot.approvals.flatMap(approval => approval.items.flatMap(item => {
     const task = tasks.get(item.taskId);
     if (!task?.codeSource || !item.codeSource || task.siteDomain !== approval.siteDomain || ["blocked", "failed"].includes(task.status) ||
-        !["landing", "optimization", "cluster", "technical"].includes(task.kind) || task.channel === "github" ||
+        !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind) || task.channel === "github" || !approvalItemNeedsHuman(item, [task]) ||
         task.codeSource.repository !== item.codeSource.repository || task.codeSource.branch !== item.codeSource.branch ||
         task.codeSource.commitSha !== item.codeSource.commitSha || task.contentVersion !== item.contentVersion ||
         item.previewUrl !== task.artifactUrl || !approvalReviewReadiness(item).ready ||

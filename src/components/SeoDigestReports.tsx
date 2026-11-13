@@ -148,7 +148,7 @@ function RecentPageTraffic({ pages, weekly }: { pages: SeoDigest["recentPages"];
                 <td>{changeCell(page.before?.clicks ?? null, page.latest?.clicks ?? null)}
                   {page.before || page.latest ? <small>{[page.before?.date, page.latest?.date].filter(Boolean).join(" → ")}</small> : null}</td>
                 <td>{changeCell(page.before?.impressions ?? null, page.latest?.impressions ?? null)}</td>
-                <td>{afterCtr === null ? "—" : changeCell(beforeCtr === null ? null : Number(beforeCtr.toFixed(2)), Number(afterCtr.toFixed(2)), true)}</td>
+                <td>{page.latest && afterCtr === null ? "—" : changeCell(beforeCtr === null ? null : Number(beforeCtr.toFixed(2)), afterCtr === null ? null : Number(afterCtr.toFixed(2)), true)}</td>
                 <td>{changeCell(page.beforeVisits?.visits ?? null, page.latestVisits?.visits ?? null)}
                   {page.beforeVisits || page.latestVisits ? <small>{[page.beforeVisits?.date, page.latestVisits?.date].filter(Boolean).join(" → ")}</small> : null}</td>
               </tr>;
@@ -263,12 +263,12 @@ function BusinessComparison({ lines }: { lines: string[] }) {
 
 const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "落地页关键词"]] as const;
 const planStatuses: Record<string, string> = { planned: "待开始", researching: "研究中", ready: "待执行", drafting: "制作中",
-  review_pending: "待审核", approved: "待发布", published: "已上线 · 待验收", verified: "已验收", observing: "已上线 · 监控中", blocked: "有阻塞", failed: "需处理" };
+  review_pending: "待审批", missing_materials: "待补测试材料", approved: "待发布", published: "已上线 · 待验收", verified: "已验收", observing: "已上线 · 监控中", blocked: "有阻塞", failed: "需处理" };
 function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
   return <section className={reportStyles.section}>
     <h3>{weekly ? "下周工作计划" : "本周计划进度"}</h3>
     {!plan ? <p className={reportStyles.note}>工作台暂无{weekly ? "下周" : "本周"}计划记录。</p> : <>
-      <p className={reportStyles.note}>{plan.weekStart} — {shiftDay(plan.weekStart, 6)} · {plan.status === "reviewed" ? "已确认" : "待确认"} · <Link href={`/work?week=${plan.weekStart}`}>查看工作任务</Link></p>
+      <p className={reportStyles.note}>{plan.weekStart} — {shiftDay(plan.weekStart, 6)} · {plan.tasks.length && (plan.status === "scheduled" || plan.status === "reviewed") ? "已排期" : plan.tasks.length ? "候选整理中" : "尚未排期"} · <Link href={`/work?week=${plan.weekStart}`}>查看工作任务</Link></p>
       {planKinds.map(([kind, label]) => {
         const tasks = plan.tasks.filter(task => task.kind === kind);
         const completed = tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
@@ -278,11 +278,11 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
             <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label={label}>
               <thead><tr><th scope="col">{kind === "optimization" ? "页面" : "关键词"}</th><th scope="col">{kind === "optimization" ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>
               <tbody>{tasks.map(task => <tr key={task.id}>
-                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart })}>{kind === "optimization" ? task.title : task.keyword ?? "关键词待确认"}</Link>
+                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart })}>{kind === "optimization" ? task.title : task.keyword ?? "关键词待补"}</Link>
                   {kind === "optimization" && task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</a></small> : null}</th>
                 <td>{kind === "optimization" ? task.keyword ?? "—" : task.title}</td>
                 <td>{[task.country, task.language].filter(Boolean).join(" / ") || "—"}</td>
-                <td>{planStatuses[task.status] ?? "待确认"}<small>{shanghaiStamp(task.dueAt).split(" ")[0]}</small>{weekly && task.action ? <small>{task.action}</small> : null}</td>
+                <td>{planStatuses[task.status] ?? "状态待核实"}<small>{shanghaiStamp(task.dueAt).split(" ")[0]}</small>{weekly && task.action ? <small>{task.action}</small> : null}</td>
               </tr>)}</tbody>
             </table>
           </div> : <p className={reportStyles.note}>暂无安排</p>}
@@ -328,6 +328,10 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
   const business = sections.find(section => section.title.startsWith("GA4 行为与转化"));
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
+  const workDetails = sections.filter(section => section.lines.some(line => line.trim())
+    && !/^(五站自然搜索|Flatkey 四国分项|GitHub 提示词渠道|SEO 技术质检|待审批页面|待补材料|明日优先关注|下周事项与关键词|GA4 行为与转化)/.test(section.title)
+    && !(weekly && section.title.startsWith("历史交付归档"))
+    && !/^(统计与交付口径|已核实新增页面|内容交付|交付$|本期交付|今日交付|优化效果监控|优化监控|数据与执行情况|数据基础|Google 点击 ·|自然搜索访问（会话） ·)/.test(section.title));
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={sites ? parseReportComparisons(sites.lines) : null} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations} />
     {github ? <section className={reportStyles.section}>
@@ -339,32 +343,25 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
       <TechnicalIssues lines={technical?.lines ?? ["尚未收到巡检回执"]} />
     </section> : null}
     <RecentPageTraffic pages={recentPages} weekly={weekly} />
-    <section className={reportStyles.section}>
-      <details className={reportStyles.reportDetail}><summary>工作与其他数据</summary>
-        <div className={reportStyles.detailSections}>
-          {highlights?.length ? <section className={reportStyles.section}>
-            <h3>本周工作</h3>
-            <ul className={reportStyles.issueList}>{highlights.map(item => <li key={item}>{item}</li>)}</ul>
-            <p><a href="https://flatkey.ai/zh/about" target="_blank" rel="noreferrer">查看 Flatkey About 页面 ↗</a></p>
-          </section> : null}
-          {sections.map((section, index) => {
-            if (/^(五站自然搜索|Flatkey 四国分项|GitHub 提示词渠道|SEO 技术质检|待审批页面|待补材料|明日优先关注|下周事项与关键词|GA4 行为与转化)/.test(section.title) || weekly && section.title.startsWith("历史交付归档")) return null;
-            if (/^(统计与交付口径|已核实新增页面|内容交付|交付$|本期交付|今日交付|优化效果监控|优化监控|数据与执行情况|数据基础|Google 点击 ·|自然搜索访问（会话） ·)/.test(section.title)) return null;
-            if (section.title.startsWith("已上线优化")) return <section className={reportStyles.section} key={index}>
-              <h3>已上线优化</h3><OptimizationLinks lines={section.lines} />
-            </section>;
-            return <section className={reportStyles.section} key={index}>
-              <h3>{section.title}</h3>{items(section.lines)}
-            </section>;
-          })}</div>
-      </details>
-    </section>
     {business ? <section className={reportStyles.section}><h3>GA4 行为与转化</h3><BusinessComparison lines={business.lines} /></section> : null}
     <ReportWorkPlan plan={workPlan} weekly={weekly} />
     <section className={reportStyles.section}>
       <h3>{weekly ? "下周优先关注" : "明日优先关注"}</h3>
       {next?.lines.length ? items(next.lines) : <p className={reportStyles.note}>待生成</p>}
     </section>
+    {Boolean(highlights?.length || workDetails.length) ? <section className={reportStyles.section}>
+      <h3>工作记录与排名明细</h3>
+      <div className={reportStyles.detailSections}>
+        {highlights?.length ? <section className={reportStyles.section}>
+          <h4>本周工作</h4>
+          <ul className={reportStyles.issueList}>{highlights.map(item => <li key={item}>{item}</li>)}</ul>
+          <p><a href="https://flatkey.ai/zh/about" target="_blank" rel="noreferrer">查看 Flatkey About 页面 ↗</a></p>
+        </section> : null}
+        {workDetails.map((section, index) => <section className={reportStyles.section} key={index}>
+          {section.title.startsWith("已上线优化") ? <><h4>已上线优化</h4><OptimizationLinks lines={section.lines} /></> : <><h4>{section.title}</h4>{items(section.lines)}</>}
+        </section>)}
+      </div>
+    </section> : null}
   </div>;
 }
 

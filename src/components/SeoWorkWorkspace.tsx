@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
-import { approvalReviewReadiness, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman, automaticTaskPolicy, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
 import type { WorkflowSnapshot, WorkflowTask, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
 import { WorkflowEvidence } from "./WorkflowEvidence";
@@ -24,7 +24,7 @@ import styles from "./SeoWorkWorkspace.module.css";
 const sites = [{ value: "flatkey.ai", label: "Flatkey" }, { value: "jev-llm.com", label: "JEV LLM" }, { value: "mochichatbot.com", label: "MochiChatbot" }, { value: "modelfit.cc", label: "ModelFit" }, { value: "rackrate.org", label: "RackRate" }];
 const languages = [{ value: "en", label: "英语" }, { value: "ja", label: "日语" }, { value: "pt-BR", label: "巴西葡语" }, { value: "es-ES", label: "西班牙语" }];
 const markets = { US: "美国", JP: "日本", BR: "巴西", ES: "西班牙" };
-const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审核", approved: "已批准，待发布", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "草案", reviewed: "已定稿", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
+const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审批", missing_materials: "待补测试材料", approved: "已批准，待发布", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "候选整理中", scheduled: "已自动排期", reviewed: "已排期", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
 const taskKinds: Record<string, string> = { blog: "博客", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", technical: "技术修复", research: "关键词研究", promotion: "推广与内链", review: "复盘" };
 const pageTypes: Record<string, string> = { blog: "博客", landing: "落地页", tool: "工具", comparison: "比较页", tutorial: "教程", pricing: "价格页", integration: "接入页", technical: "技术项", other: "其他" };
 const publicationKinds: Record<string, string> = { source_blog: "源文", translation: "翻译", backfill_translation: "历史补译", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", prompt: "提示词" };
@@ -184,9 +184,16 @@ function workTaskStatus(task: WorkflowTask, data?: WorkflowSnapshot | null) {
   if (task.status === "observing") return task.status;
   const publication = data?.publications.find(row => row.taskId === task.id && row.contentVersion === task.contentVersion && ["published", "verified"].includes(row.status));
   if (publication) return publication.status;
+  if (task.status === "review_pending" || task.status === "approved") {
+    if (task.kind === "research") return "researching";
+    if (automaticTaskPolicy(task)) return "ready";
+  }
   const approvals = data?.approvals ?? [];
   if (approvals.some(approval => approval.items.some(item => item.taskId === task.id && item.contentVersion === task.contentVersion &&
       approvalReviewReadiness(item).ready && workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "approved"))) return "approved";
+  if (task.status === "review_pending" && !approvals.some(approval => approval.items.some(item => item.taskId === task.id
+    && item.contentVersion === task.contentVersion && approvalItemNeedsHuman(item, [task])
+    && approvalReviewReadiness(item).ready && workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "pending"))) return "missing_materials";
   return task.status;
 }
 
@@ -199,7 +206,8 @@ function multilingualReviews(data: WorkflowSnapshot | null) {
     const pending = approval.items.filter(item => {
       const task = tasks.get(item.taskId);
       return task?.siteDomain === approval.siteDomain && task.pageUrl === item.pageUrl && task.contentVersion === item.contentVersion
-        && approvalItemNeedsHuman(item, [task]) && workflowApprovalEffectiveItemStatus(approval, item.id, data.approvals) === "pending";
+        && approvalItemNeedsHuman(item, [task]) && approvalReviewReadiness(item).ready
+        && workflowApprovalEffectiveItemStatus(approval, item.id, data.approvals) === "pending";
     });
     for (const group of groupApprovalPages(pending)) {
       const languages = [...new Set(group.items.map(item => item.language))];
@@ -312,7 +320,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       </section> : null}
       {tab === "tasks" ? <section className={styles.listPanel} aria-labelledby="work-list-title">
         <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2><span className={styles.count}>{taskRows.length} 项</span></div>
-        <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }, { value: "technical", label: "技术修复" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
+        <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={[{ value: "all", label: "全部任务" }, { value: "optimization", label: "页面优化" }, { value: "landing", label: "关键词页面搭建" }, { value: "technical", label: "技术修复" }]} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["planned", "researching", "ready", "drafting", "missing_materials", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"].map(value => ({ value, label: stateLabel(value) }))]} /></div>
         {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
           const review = reviews.get(task.id);
           if (review) return <Link className={styles.taskLink} href={`/approvals?approvalId=${encodeURIComponent(review.approval.id)}`} key={review.key} prefetch={false}>

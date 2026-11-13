@@ -3,7 +3,7 @@ require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.r
 const { prepareWorkflowMutation, checkWorkflowApproval, workflowSnapshot } = require('../src/lib/seo-workflow-state.ts');
 const { workflowApprovalSchema, workflowApprovalStatus } = require('../src/lib/seo-workflow.ts');
 const time = new Date('2026-11-10T08:00:00Z'), evidence=[{label:'Visible draft and review',url:'https://flatkey.ai/preview',observedAt:'2026-11-10T06:00:00Z'}];
-const task={id:'review-task',weekStart:'2026-11-09',siteDomain:'flatkey.ai',title:'Review model API page',kind:'blog',country:'US',language:'en',business:'API',pageType:'blog',keyword:'model api',pageUrl:'https://flatkey.ai/blog/review',owner:'AI',dueAt:'2026-11-10T09:00:00Z',status:'review_pending',dependencies:[],evidence,nextAction:'Review exact draft',contentVersion:'v1',acceptanceCriteria:['Reviewed exact version'],research:{volume:20,kd:10,businessValue:3,exceptionReason:null,intent:'API integration',observedAt:'2026-11-10T06:00:00Z',evidence},approval:null,source:'automation'};
+const task={id:'review-task',weekStart:'2026-11-09',siteDomain:'flatkey.ai',title:'Review model API page',kind:'blog',country:'US',language:'en',business:'API',pageType:'tutorial',keyword:'model api',pageUrl:'https://flatkey.ai/blog/review',owner:'AI',dueAt:'2026-11-10T09:00:00Z',status:'review_pending',dependencies:[],evidence,nextAction:'Review exact draft',contentVersion:'v1',acceptanceCriteria:['Reviewed exact version'],research:{volume:20,kd:10,businessValue:3,exceptionReason:null,intent:'API integration',observedAt:'2026-11-10T06:00:00Z',evidence},approval:null,source:'automation'};
 const item=(patch={})=>({id:'item-en',taskId:task.id,operation:'new',pageUrl:task.pageUrl,language:'en',contentVersion:'v1',baseContentVersion:null,changeSummary:'Create exact page and title/meta',beforeSummary:null,afterSummary:'Full new draft',draftUrl:null,previewUrl:"https://staging-website.flatkey.ai/review",previewContentVersion:patch.contentVersion??"v1",reviewContent:'# Full reviewer-visible draft\nVerified API instructions.',reviewFormat:'markdown',beforeContent:null,evidence:[...evidence,{label:"Desktop screenshot",url:"https://staging-website.flatkey.ai/review.jpg",observedAt:"2026-11-10T06:00:00Z"},{label:"Mobile screenshot",url:"https://staging-website.flatkey.ai/mobile.jpg",observedAt:"2026-11-10T06:00:00Z"}],...patch});
 const approval=(patch={})=>({id:'approval-main',weekStart:'2026-11-09',siteDomain:'flatkey.ai',title:'Review two language pages',requestedBy:'AI',submittedAt:'2026-11-10T07:00:00Z',status:'pending',items:[item(),item({id:'item-ja',language:'ja',pageUrl:'https://flatkey.ai/ja/blog/review',contentVersion:'v1-ja'})],decisions:[],supersedesApprovalIds:[],evidence,...patch});
 const decision=(patch={})=>({id:'decision-1',itemIds:['item-en'],decision:'approved',decidedBy:'负责人',decidedAt:'2026-11-10T08:00:00Z',note:'Read exact text and version',evidence,...patch});
@@ -21,6 +21,16 @@ test('collector can submit visible drafts but cannot decide or forge old standin
  assert.throws(()=>mutate(publication(),[legacy],'record_publication','collector'),/缺少已提交/);
  assert.equal(workflowApprovalSchema.safeParse(approval({items:[item({reviewContent:null,previewUrl:null})]})).success,false,'local artifact evidence is not a remotely reviewable draft');
 });
+test('ordinary CMS blogs cannot enter page review but a code-backed blog page can',()=>{
+ const cms=mutate({...task,pageType:'blog',status:'drafting'},[],'save_task');
+ assert.throws(()=>mutate(approval({items:[item()]}),[cms],'save_approval','collector'),/不需要提交页面审批/);
+ const codeSource={repository:'example/website',branch:'seo/blog-layout',commitSha:'a'.repeat(40)};
+ const previewUrl='https://staging-website.flatkey.ai/blog/review';
+ const code=mutate({...task,pageType:'blog',codeSource,contentVersion:codeSource.commitSha,artifactUrl:previewUrl},[],'save_task');
+ const submitted=mutate(approval({items:[item({codeSource,contentVersion:codeSource.commitSha,previewUrl})]}),[code],'save_approval','collector');
+ assert.equal(submitted.record.status,'pending');
+});
+
 test('decisions apply to exact selected language page and task/version, never the whole batch implicitly',()=>{
  const {all,pending,taskRow}=setup(),approved=decide(pending,all),rows=[taskRow,approved];
  assert.equal(approved.record.status,'partially_reviewed');assert.equal(checkWorkflowApproval(check(),rows,time).allowed,true);

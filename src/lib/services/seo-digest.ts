@@ -14,7 +14,7 @@ import { technicalQaReport } from "../seo-technical-qa-report";
 import { analyticsObservationSchema, analyticsStorageKind, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
 import { loadWorkflowSnapshot } from "./seo-workflow";
-import { shiftWorkflowDay, workflowWeek } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, isExecutableWorkflowPlan, shiftWorkflowDay, workflowApprovalEffectiveItemStatus, workflowWeek } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
 import { digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { loadSerpTasks } from "./serp-results";
@@ -51,8 +51,14 @@ function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnaps
   const tasks = snapshot.tasks.flatMap(task => {
     const kind = task.kind;
     if (!selected.has(task.id) || (kind !== "blog" && kind !== "landing" && kind !== "optimization")) return [];
+    const automatic = kind === "blog" && !task.pageUrl || Boolean(automaticTaskPolicy(task));
+    const pending = task.status === "review_pending";
+    const canReview = pending && !automatic && snapshot.approvals.some(approval => approval.items.some(item =>
+      item.taskId === task.id && item.contentVersion === task.contentVersion && approvalReviewReadiness(item).ready
+      && workflowApprovalEffectiveItemStatus(approval, item.id, snapshot.approvals) === "pending"));
+    const status = !pending ? task.status : automatic ? "ready" : canReview ? "review_pending" : "missing_materials";
     return [{ id: task.id, kind, title: task.title, pageUrl: task.pageUrl, keyword: task.keyword, country: task.country,
-      language: task.language, dueAt: task.dueAt, status: task.status, action: task.nextAction }];
+      language: task.language, dueAt: task.dueAt, status, action: task.nextAction }];
   }).sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.id.localeCompare(b.id));
   return { weekStart: snapshot.weekStart, status: plan.status, tasks };
 }
@@ -106,7 +112,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     return publication ? [{ id: change.id, url: row.pageUrl, keyword: row.keyword, changes: change.description, verifiedAt: publication.verifiedAt!, recordedAt: publication.verificationRecordedAt!, baselineId: row.id + ":baseline" }] : [];
   }));
   const relevantPlan = window.kind === "weekly" ? nextWeek : workflow;
-  const priorities = relevantPlan.tasks.filter(task => (relevantPlan.plan?.status === "reviewed" || window.kind === "weekly" && relevantPlan.plan?.status === "draft") && relevantPlan.plan.taskIds.includes(task.id) && !["verified", "observing"].includes(task.status))
+  const priorities = relevantPlan.tasks.filter(task => relevantPlan.plan?.taskIds.includes(task.id) && (window.kind !== "weekly" || isExecutableWorkflowPlan(relevantPlan.plan.status)) && !["verified", "observing"].includes(task.status))
     .sort((a, b) => a.dueAt.localeCompare(b.dueAt)).map(task => ({ title: task.title, keyword: task.keyword ?? undefined, country: task.country ?? undefined, url: task.pageUrl ?? undefined, reason: task.research?.intent ?? task.acceptanceCriteria.join("；"), action: task.nextAction || task.acceptanceCriteria.join("；") }));
   const startStamp = Date.parse(window.workStart);
   const runs = workflow.runs.filter(run => Date.parse(run.scheduledFor) >= startStamp && Date.parse(run.scheduledFor) < Date.parse(window.workEnd));
@@ -151,7 +157,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       cluster: runs.some(run => ["CLUSTER_DELIVERY", "CLUSTER"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
       optimizations: runs.some(run => ["OPTIMIZATION", "OLD_PAGE"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
     },
-    nextPlanStatus: window.kind === "weekly" ? nextWeek.plan?.status : undefined,
+    nextPlanStatus: window.kind === "weekly" && nextWeek.plan && isExecutableWorkflowPlan(nextWeek.plan.status) && nextWeek.plan.taskIds.length ? nextWeek.plan.status : undefined,
     nextPlanUrl: window.kind === "weekly" && nextWeek.plan ? `https://flatkey-seo-roadmap.vercel.app/work?week=${nextWeek.weekStart}` : undefined,
   };
   return buildSeoDigest(input);

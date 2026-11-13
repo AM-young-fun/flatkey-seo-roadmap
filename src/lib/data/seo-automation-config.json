@@ -1,15 +1,15 @@
 {
-  "verifiedAt": "2026-11-12T07:27:04.660597+00:00",
+  "verifiedAt": "2026-11-13T09:04:25.943Z",
   "tasks": [
     {
       "id": "automation",
-      "name": "SEO 周四16:30 下周计划定稿待确认",
+      "name": "SEO 周四16:30 下周计划自动排期",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=16;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468209967,
+      "updated_at": 1794560625429,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -43,7 +43,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=11;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468233757,
+      "updated_at": 1794560637387,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -60,7 +60,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=15;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468216036,
+      "updated_at": 1794560641256,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -77,7 +77,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468189292,
+      "updated_at": 1794560646508,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -94,7 +94,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468257859,
+      "updated_at": 1794560665943,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -145,7 +145,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=13;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468245911,
+      "updated_at": 1794560650232,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -162,7 +162,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=14;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468205471,
+      "updated_at": 1794560655088,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -179,7 +179,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=14;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468227455,
+      "updated_at": 1794560661141,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"

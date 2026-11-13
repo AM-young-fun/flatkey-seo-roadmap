@@ -15,9 +15,14 @@ test("automatic route/task policy rejects functional pages and host/path imperso
  for(const patch of [{kind:"landing"},{kind:"technical"},{pageType:"tool"},{channel:"product"},{pageUrl:"https://flatkey.ai/pricing"}]) assert.equal(automaticTaskPolicy(task(patch)),null);
  assert.equal(automaticTaskPolicy(task({kind:"optimization"})),"auto_blog");
 });
-test("new source and linked translation can publish without a human approval, only from confirmed plan",()=>{
- const t=save(task());assert.throws(()=>save(pub(),[t],"record_publication"),/确认周计划/);
- const source=save(pub(),[t,plan],"record_publication"); assert.equal(source.record.approvalId,null);
+test("new source and linked translation can publish without a human approval, from an automatically scheduled plan",()=>{
+ const t=save(task());assert.throws(()=>save(pub(),[t],"record_publication"),/本周最新计划已排期/);
+ const draft = {...plan.record,status:"draft",title:"Weekly candidates",owner:"AI",preparedAt:before,reviewedAt:null,reviewedBy:null,targets:{cadence:"focused",landing:3,apiBlogs:0,gpuBlogs:20,optimizedPages:14,blogLanguages:{en:5,ja:5,"pt-BR":5,"es-ES":5}},gaps:Object.entries({landing:3,gpuBlogs:19,optimizedPages:14,blogEn:4,blogJa:5,blogPt:5,blogEs:5}).map(([category,count])=>({category,count,reason:"Awaiting qualified candidates"})),evidence,notes:""};
+ const pending=save(draft,[t],"save_plan");
+ assert.throws(()=>save(pub(),[t,pending],"record_publication"),/本周最新计划已排期/);
+ assert.throws(()=>save({...draft,status:"scheduled",gaps:[]},[t],"save_plan"),/缺/);
+ const scheduled=save({...draft,status:"scheduled"},[t],"save_plan");
+ const source=save(pub(),[t,scheduled],"record_publication"); assert.equal(source.record.approvalId,null);
  const translation=pub({id:"translation",kind:"translation",sourcePublicationId:"pub",country:null,language:"ja",keyword:null,pageUrl:"https://flatkey.ai/ja/blog/gpu-rental",contentVersion:"ja2",automaticWrite:{...pub().automaticWrite,sourceId:"cms-ja",contentVersion:"ja2"}});
  assert.equal(save(translation,[t,plan,source],"record_publication").record.kind,"translation");
  assert.throws(()=>save({...translation,sourcePublicationId:"missing"},[t,plan],"record_publication"),/源文/);

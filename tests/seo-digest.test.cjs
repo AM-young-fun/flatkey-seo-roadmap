@@ -56,8 +56,8 @@ test("pending review deduplicates a multi-page ticket and its task and separates
   approvalTask(submitted,{kind:"blog"}), independent, independent, approvalTask(draft),
  ])});
  assert.deepEqual(result.approvalQueue,{tickets:1,pages:2});
- assert.match(result.text,/待审核 2 项（1 张审批单，2 个页面版本） · 待补材料 0 项/);
- assert.match(result.text,/1 项独立任务待审核.*独立研究任务/);
+ assert.match(result.text,/待审核 1 项（1 张审批单，2 个页面版本） · 待补材料 0 项/);
+ assert.doesNotMatch(result.text,/独立研究任务/);
  assert.match(result.text,/未提交草稿 1 张，关联 1 项任务 \/ 1 个页面版本，其中 0 项任务待补材料/);
  assert.doesNotMatch(result.text,/newApproval=1&taskId=draft%3Atask/);
 });
@@ -251,9 +251,9 @@ test("compact notification is a bounded summary with two next actions, genuine l
  assert.match(result.detailText,/private-diagnostic-marker/);assert.match(result.text,/GitHub 两库/);assert.equal((result.text.match(/数据：/g)||[]).length,1);
  assert.ok(result.text.trim().endsWith(`[数据基础](${SEO_DATA_HUB})`));assert.ok(Buffer.byteLength(result.text)<4500);
  const weekly=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00+08:00")});
- assert.match(weekly.text,/2026-11-06—2026-11-12/);assert.match(weekly.text,/下周计划 · 待确认/);assert.doesNotMatch(weekly.text,/已定事项/);
- const confirmed=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",nextPlanStatus:"reviewed",now:new Date("2026-11-13T10:00:00+08:00")});
- assert.match(confirmed.text,/下周计划 · 已确认/);assert.match(confirmed.detailText,/下周事项与关键词（已确认）/);
+ assert.match(weekly.text,/2026-11-06—2026-11-12/);assert.match(weekly.text,/下周计划 · 尚未排期/);assert.doesNotMatch(weekly.text,/已定事项/);
+ const confirmed=buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",nextPlanStatus:"scheduled",now:new Date("2026-11-13T10:00:00+08:00")});
+ assert.match(confirmed.text,/下周计划 · 已排期/);assert.match(confirmed.detailText,/下周事项与关键词（已排期）/);
 });
 
 

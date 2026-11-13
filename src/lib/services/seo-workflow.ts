@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ACTION_KIND, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval } from "@/lib/seo-workflow";
+import { ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, workflowHash, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
@@ -87,7 +87,7 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     await tx.seoWorkflowRecord.upsert({ where: { key: prepared.key }, create: { key: prepared.key, ...data }, update: data });
     await tx.seoWorkflowEvent.create({ data: { requestId: request.requestId, requestHash, recordKey: prepared.key, kind: prepared.kind, version: prepared.record.version, payload: json(prepared.record) } });
     const marketTasks: WorkflowTask[] = prepared.kind === "task" && (prepared.record as WorkflowTask).status === "approved" ? [prepared.record as WorkflowTask]
-      : prepared.kind === "plan" && (prepared.record as WorkflowPlan).status === "reviewed" ? all.filter(row => row.kind === "task" && (prepared.record as WorkflowPlan).taskIds.includes(row.record.id)).map(row => row.record as WorkflowTask) : [];
+      : prepared.kind === "plan" && isExecutableWorkflowPlan(prepared.record.status) ? all.filter(row => row.kind === "task" && (prepared.record as WorkflowPlan).taskIds.includes(row.record.id)).map(row => row.record as WorkflowTask) : [];
     for (const task of marketTasks) if (task.keywordId && task.keyword && task.country && task.language && task.evidence.length) {
       await syncWorkflowMarketAssignment(tx, { siteDomain: task.siteDomain, keywordId: task.keywordId, keyword: task.keyword, country: task.country, language: task.language, evidence: task.evidence, reviewedAt: prepared.record.updatedAt });
     }

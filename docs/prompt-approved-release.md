@@ -31,7 +31,7 @@
 }
 ```
 
-`auto_blog` 只接受已核实的主站规范 `/blog/:slug` 及合法语言路径，并且 task.kind 为 blog/optimization、pageType=blog、渠道为网站。博客必须属于用户明确设定的任务或已确认周计划；其他页面不能只改客户端 kind 绕过。新增 source_blog/translation/backfill_translation 使用 create；译文关联真实同任务 sourcePublicationId。旧博客和已有译文改动统一 kind=optimization、operation=update；CMS 执行器必须做改前版本 CAS，优化基线先保存（缺数保留 null），平台会核对已知最新版本。实际媒体/CMS CAS 并不由台账本身替代。
+`auto_blog` 只接受已核实的主站规范 `/blog/:slug` 及合法语言路径，并且 task.kind 为 blog/optimization、pageType=blog、渠道为网站。博客必须属于用户明确设定的任务或已自动排期的周计划；其他页面不能只改客户端 kind 绕过。新增 source_blog/translation/backfill_translation 使用 create；译文关联真实同任务 sourcePublicationId。旧博客和已有译文改动统一 kind=optimization、operation=update；CMS 执行器必须做改前版本 CAS，优化基线先保存（缺数保留 null），平台会核对已知最新版本。实际媒体/CMS CAS 并不由台账本身替代。
 
 `auto_prompt` 仅真实 `/prompts/image|video/:slug` 详情路径、technical/other 任务，operation 必须 create；不消费博客周计划额度。非博客免审申请会拒绝；原有人工审批记录仍可正常读写。
 
