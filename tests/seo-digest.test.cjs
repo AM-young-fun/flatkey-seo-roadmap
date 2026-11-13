@@ -251,11 +251,12 @@ test("DingTalk summary only compares report metrics and keeps operational detail
  const input = { ...base(date), notificationCompact: true, observations, issues: ["private-diagnostic-marker"],
    nextPlanStatus: "scheduled", ...workflow([approval("compact-test")]) };
  const daily = buildSeoDigest(input);
- assert.match(daily.text, /自然搜索会话  10 → 0（-100%） · 11\/10 → 11\/11/);
- assert.match(daily.text, /Google 点击  5 → 10（\+100%） · 11\/09 → 11\/10/);
- assert.match(daily.text, /Google 曝光  50 → 100/);
- assert.equal(daily.text.split("\n").length, 4);
- assert.doesNotMatch(daily.text, /待审核|计划|质检|GitHub|诊断|https:/);
+ assert.match(daily.text, /flatkey\.ai · 点击 5→10（2026-11-09→2026-11-10；截至 2026-11-12 待更新） · 曝光 50→100/);
+ for (const site of ["rackrate.org", "modelfit.cc", "mochichatbot.com", "jev-llm.com"]) {
+  assert.ok(daily.text.includes(site + " · 点击待更新（截至 2026-11-12 缺可比日）"));
+ }
+ assert.match(daily.text, /GitHub Traffic.*2026-11-12.*GA4 UTM.*待更新/);
+ assert.doesNotMatch(daily.text, /private-diagnostic-marker|待审核/);
  assert.match(daily.detailText, /private-diagnostic-marker|待审核/);
  const weekly = buildSeoDigest({ ...input, kind: "weekly" });
  assert.match(weekly.text, /2026-11-06—2026-11-12/);

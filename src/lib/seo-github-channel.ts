@@ -58,13 +58,13 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
     const day = (stamp: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(stamp));
     const latest = weekly ? own.find(row => row.metadataStatus === "ok" && day(row.observedAt) <= end) : own[0];
     if (compact) {
-      if (!latest) { lines.push(`• ${repository.split("/")[1]}：待更新，无采集回执。`); continue; }
+      if (!latest) { lines.push(`• ${repository.split("/")[1]}：GitHub Traffic（${start}～${end} UTC）及 GA4 UTM（${start}～${end}，America/Los_Angeles）待更新。`); continue; }
       const views = githubComparable(own, "views", start, end, weekly), clones = githubComparable(own, "clones", start, end, weekly);
       const period = weekly ? `${shift(start, -7)}～${shift(end, -7)} 对比 ${start}～${end} UTC`
-        : views.dates.length ? `${views.dates[0]}～${views.dates.at(-1)} UTC` : "日期待更新";
+        : `${shift(start, -1)}→${end} UTC`;
       const referral = reportReferrals(own, start, end, weekly)[0];
-      const arrival = referral?.status === "ok" ? `${referral.sessions}会话/${referral.users}去重访客` : referral?.reason === "ga4_no_matching_utm_data" ? "无匹配UTM数据（非0）" : "待更新";
-      lines.push(`• [${repository.split("/")[1]}](https://github.com/${repository})：Stars ${latest.stars ?? "待更新"} / Forks ${latest.forks ?? "待更新"}（${latest.observedAt.slice(0, 10)}快照）；浏览 ${views.previous ?? "待更新"}→${views.current ?? "待更新"}，克隆 ${clones.previous ?? "待更新"}→${clones.current ?? "待更新"}；${period}；到站 ${arrival}${referral ? `，${referral.start}～${referral.end} ${referral.timezone}` : ""}；UTM ${latest.linkAudit.attributedLinks ?? "?"}/${latest.linkAudit.flatkeyLinks ?? "?"}。`);
+      const arrival = referral?.status === "ok" ? `${referral.sessions}会话/${referral.users}去重访客` : referral?.reason === "ga4_no_matching_utm_data" ? "待更新（暂无匹配 UTM）" : "待更新";
+      lines.push(`• [${repository.split("/")[1]}](https://github.com/${repository})：Stars ${latest.stars ?? "待更新"} / Forks ${latest.forks ?? "待更新"}（${latest.observedAt.slice(0, 10)}快照）；浏览 ${views.previous ?? "待更新"}→${views.current ?? "待更新"}，克隆 ${clones.previous ?? "待更新"}→${clones.current ?? "待更新"}；${period}；GA4 到站 ${arrival}（${referral ? `${referral.start}～${referral.end} ${referral.timezone}` : `${start}～${end} America/Los_Angeles`}${referral && referral.end < end ? `；${end} 待更新` : ""}）；UTM ${latest.linkAudit.status === "ok" ? `${latest.linkAudit.attributedLinks}/${latest.linkAudit.flatkeyLinks}` : "待更新"}。`);
       continue;
     }
     lines.push(`• [${repository}](https://github.com/${repository})`);

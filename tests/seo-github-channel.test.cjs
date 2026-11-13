@@ -92,3 +92,14 @@ test("a later unavailable GA4 refresh cannot overwrite verified attribution for 
  const fresh = fixture({observedAt:"2026-11-11T09:00:00Z", referrals:[{...base, status:"unavailable", sessions:null, users:null, observedAt:"2026-11-11T09:00:00Z", reason:"ga4_source_unavailable"}]});
  assert.match(githubDigestLines([fresh,old],date,date,false,new Date("2026-11-11T10:00:00Z")).join("\n"),/到站会话 2，去重访客 2/);
 });
+
+test('compact daily Prompt traffic dates GitHub metrics and missing GA4 attribution separately', () => {
+ const date = '2026-11-10';
+ const report = githubDigestLines([fixture({referrals:[{
+  start:date,end:date,timezone:'America/Los_Angeles',status:'unavailable',
+  sessions:null,users:null,observedAt:'2026-11-11T08:00:00Z',reason:'ga4_no_matching_utm_data'
+ }]})],date,date,false,new Date('2026-11-11T10:00:00Z'),true).join('\n');
+ assert.match(report,/浏览 3→3，克隆 3→3；2026-11-09→2026-11-10 UTC/);
+ assert.match(report,/GA4 到站 待更新（暂无匹配 UTM）.*2026-11-10.*America\/Los_Angeles/);
+ assert.match(report,/awesome-seedance-prompts.*GitHub Traffic.*GA4 UTM.*待更新/);
+});

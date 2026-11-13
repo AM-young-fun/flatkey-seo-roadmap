@@ -204,10 +204,37 @@ function metricText(value: ReturnType<typeof comparableMetric>) {
   const percentage = value.previous === 0 ? (value.current === 0 ? "持平" : "上期为0，不计算百分比") : `${difference >= 0 ? "+" : ""}${(difference / value.previous * 100).toFixed(1)}%`;
   return `${value.previous}→${value.current}（${percentage}；${dateCoverage(value.previousDates)} → ${dateCoverage(value.dates)}，${value.timezone}${value.reason ? "；" + value.reason : ""}）`;
 }
+function compactDailyTraffic(input: DigestInput, window: ReturnType<typeof digestWindow>, rankings: ReturnType<typeof digestTopPages>) {
+  const lines = ["", "**五站 Google 自然搜索（GSC · America/Los_Angeles）**"];
+  const metric = (site: string, key: "clicks" | "impressions", label: string) => {
+    const row = comparableMetric(input.observations, site, key, input.date);
+    if (row.current === null) return `${label}待更新（截至 ${window.trafficEnd} 缺可比日）`;
+    return `${label} ${row.previous}→${row.current}（${row.previousDates[0]}→${row.dates[0]}${row.reason ? `；截至 ${window.trafficEnd} 待更新` : ""}）`;
+  };
+  for (const site of SEO_SITES) {
+    lines.push(`• ${site} · ${metric(site, "clicks", "点击")} · ${metric(site, "impressions", "曝光")}`);
+  }
+  for (const ranking of rankings) {
+    const label = ranking.source === "GSC" ? "GSC 点击" : "GA4 自然会话";
+    lines.push("", `**分模块最佳页 · ${label} · ${ranking.date ?? window.trafficEnd} · ${ranking.coveredSites.length}/5 站**`);
+    for (const module of ranking.modules) {
+      const page = module.pages[0];
+      if (module.id === "unknown" && !page) continue;
+      const url = page ? new URL(page.url) : null;
+      const path = url ? url.pathname + url.search : "";
+      lines.push(`• ${module.label} · ${page && url ? `${link(url.hostname + (path.length > 36 ? path.slice(0, 35) + "…" : path), page.url)} ${page.value}` : "待更新"}`);
+    }
+    if (ranking.date !== window.trafficEnd) lines.push(`• ${label} 更新至 ${window.trafficEnd} 待更新`);
+    if (ranking.gaps.length) lines.push(`• ${label} 覆盖待更新 · ${ranking.gaps.map(escaped).join("；")}`);
+  }
+  return lines;
+}
+
 function compactNotification(
   title: string, input: DigestInput, window: ReturnType<typeof digestWindow>,
   weeklyTraffic: ReturnType<typeof weeklyTrafficRows> | undefined,
   registrations: ReturnType<typeof organicRegistrationComparison>,
+  rankings: ReturnType<typeof digestTopPages>, now: Date,
 ) {
   const lines = [`**${title}**`];
   const number = (value: number) => value.toLocaleString("en-US");
@@ -218,23 +245,22 @@ function compactNotification(
       : `${number(previous)} → ${number(current)}（${change(previous, current)}）`;
     lines.push(`• ${label}  ${value}${dates ? ` · ${dates}` : ""}`);
   };
-  const metrics = [
-    ["自然搜索会话", "sessions", "自然搜索会话"],
-    ["Google 点击", "clicks", "Google 自然搜索点击"],
-    ["Google 曝光", "impressions", "Google 自然搜索曝光"],
-  ] as const;
-  for (const [label, metric, weeklyLabel] of metrics) {
-    if (weeklyTraffic) {
+  if (weeklyTraffic) {
+    const metrics = [
+      ["自然搜索会话", "自然搜索会话"],
+      ["Google 点击", "Google 自然搜索点击"],
+      ["Google 曝光", "Google 自然搜索曝光"],
+    ] as const;
+    for (const [label, weeklyLabel] of metrics) {
       const row = weeklyTraffic.find(item => item.label === weeklyLabel)!;
       const days = row.dates.match(/同星期 (\d+\/7) 天/)?.[1];
       const comparable = row.previous !== "待更新" && row.current !== "待更新" && row.change !== "—";
       lines.push(`• ${label}  ${comparable ? `${row.previous} → ${row.current}（${row.change}）${days ? ` · 可比 ${days} 天` : ""}` : "可比数据待更新"}`);
-      continue;
     }
-    const row = comparableMetric(input.observations, "flatkey.ai", metric, input.date);
-    const shortDate = (day: string) => day.slice(5).replace("-", "/");
-    pair(label, row.previous, row.current, row.previousDates[0] && row.dates[0]
-      ? `${shortDate(row.previousDates[0])} → ${shortDate(row.dates[0])}` : "");
+  }
+  if (window.kind === "daily") {
+    lines.push(...compactDailyTraffic(input, window, rankings), "",
+      ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, false, now, true));
   }
   if (registrations.previous !== null && registrations.current !== null) {
     pair("自然搜索注册", registrations.previous, registrations.current);
@@ -569,7 +595,7 @@ export function buildSeoDigest(input: DigestInput) {
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
   const detailText = lines.join("\n");
-  const text = input.notificationCompact ? compactNotification(title, input, window, weeklyTraffic, organicRegistrations) : detailText;
+  const text = input.notificationCompact ? compactNotification(title, input, window, weeklyTraffic, organicRegistrations, pagePerformance, now) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),

@@ -91,12 +91,15 @@ test("module leaders are selected before global top five, preserve language and 
  assert.equal(ranking.modules.find(m=>m.id==='blog').pages.length,3);
  assert.deepEqual(ranking.modules.find(m=>m.id==='other').pages,[]);
 });
-test("page rankings stay in the detailed report while the group card uses comparable site metrics", () => {
+test("group card shows module leaders and dates alongside comparable site metrics", () => {
  const observations=['2026-11-08','2026-11-09'].map((date,i)=>({site:'flatkey.ai',date,source:'GSC',timezone:'America/Los_Angeles',observedAt:'2026-11-11T08:00:00Z',complete:true,scope:'google-web',clicks:i?254:95,impressions:1000}));
  const report=buildSeoDigest({date:'2026-11-12',now:new Date('2026-11-12T04:00:00Z'),notificationCompact:true,observations,
   pageObservations:[gs('2026-11-07',[[url(''),8]]),gs('2026-11-08',[[url(''),19]])],publications:[],optimizations:[],effects:[],priorities:[],issues:['issue-marker'],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing'});
- assert.match(report.text,/Google 点击[^\n]*95 → 254.*11\/08 → 11\/09/);
- assert.doesNotMatch(report.text,/首页及其他功能页|issue-marker|数据基础/);
+ assert.match(report.text,/点击 95→254（2026-11-08→2026-11-09；截至 2026-11-11 待更新）/);
+ assert.match(report.text,/分模块最佳页 · GSC 点击 · 2026-11-08 · 1\/5 站/);
+ assert.match(report.text,/首页及其他功能页 · \[flatkey\.ai\/\]\(https:\/\/flatkey\.ai\/\) 19/);
+ assert.match(report.text,/Prompt · 待更新/);
+ assert.doesNotMatch(report.text,/issue-marker|数据基础/);
  assert.match(report.detailText,/分模块 Top 3/);
  assert.match(report.detailText,/issue-marker/);
 });
