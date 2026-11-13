@@ -21,10 +21,14 @@ function acceptedReceipt(response, text, config, runId, now = new Date()) {
   const trace = response.headers.get('x-acs-request-id');
   return { transport: 'signed-webhook', httpStatus: 200, errcode: 0, responseHash: hash(text), webhookConfigSha256: config.fingerprint, acceptedAt: now.toISOString(), repository: REPO, workflowRunId: runId, ...(trace && /^[A-Za-z0-9_-]{1,160}$/.test(trace) ? { providerTraceId: trace } : {}) };
 }
-function validReportBinding(report, date, kind) {
+function validReportBinding(report, date, kind, savedId) {
   return report?.date === date && report.kind === kind && typeof report.text === 'string' &&
     report.hash === hash(report.text) && report.deliveryProtocol === 2 &&
-    (report.id === digestSnapshotId(report) || report.id === `seo-digest:${date}:${report.hash.slice(0,16)}`);
+    (savedId
+      // read_saved resolves this exact immutable DB key. JSONB can reorder nested
+      // keys, so do not rebuild the legacy key from the round-tripped document.
+      ? new RegExp(`^seo-digest:${date}:[a-f0-9]{16}$`).test(savedId) && report.id === savedId
+      : report.id === digestSnapshotId(report) || report.id === `seo-digest:${date}:${report.hash.slice(0,16)}`);
 }
 async function run() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_REPOSITORY !== REPO || process.env.GITHUB_REF !== 'refs/heads/main' || !/^\d{1,20}$/.test(process.env.GITHUB_RUN_ID || '')) throw Error('authorized_production_workflow_required');
@@ -44,7 +48,7 @@ async function run() {
   if (revision && !/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/.test(reportId)) throw Error('revision_requires_exact_report');
 
   const { report } = await api('/api/seo/digest', reportId ? { action: 'read_saved', reportId } : { action: 'prepare', date, kind });
-  if (!validReportBinding(report, date, kind)) throw Error('report_binding_mismatch');
+  if (!validReportBinding(report, date, kind, reportId)) throw Error('report_binding_mismatch');
   const payload = actionCardPayload(report, revision), payloadSha256 = messageHash(payload);
   const directory = process.env.SEO_DIGEST_OUTPUT_DIR || path.join(process.env.RUNNER_TEMP || '/tmp', 'seo-digest');
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });

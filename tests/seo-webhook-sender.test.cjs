@@ -46,3 +46,17 @@ test('sender verifies both the body and the report snapshot, including detail-on
  assert.equal(validReportBinding({ ...report, text: 'tampered' }, report.date, report.kind), false);
  assert.equal(validReportBinding({ ...report, detailText: 'tampered' }, report.date, report.kind), false);
 });
+
+test('explicit saved reports bind to their authenticated DB key after JSONB reorders the payload', () => {
+ const { createHash } = require('node:crypto');
+ const { digestSnapshotId } = require('../src/lib/seo-digest-message.cjs');
+ const { validReportBinding } = require('../scripts/server-seo-digest-send.cjs');
+ const report = { date: '2026-11-13', kind: 'daily', text: 'summary', detailText: 'details', recentPages: [{ title: 'GPU', id: 'gpu' }], deliveryProtocol: 2 };
+ report.hash = createHash('sha256').update(report.text).digest('hex');
+ report.id = digestSnapshotId(report);
+ const saved = { ...report, recentPages: [{ id: 'gpu', title: 'GPU' }] };
+ assert.notEqual(digestSnapshotId(saved), report.id);
+ assert.equal(validReportBinding(saved, report.date, report.kind, report.id), true);
+ assert.equal(validReportBinding(saved, report.date, report.kind, 'seo-digest:2026-11-13:0123456789abcdef'), false);
+ assert.equal(validReportBinding({ ...saved, text: 'changed' }, report.date, report.kind, report.id), false);
+});
