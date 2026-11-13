@@ -1,6 +1,12 @@
 import { z } from "zod";
 
 export const WORKFLOW_SITES = ["flatkey.ai", "jev-llm.com", "mochichatbot.com", "modelfit.cc", "rackrate.org"] as const;
+export const WORKFLOW_CLUSTER_REPOSITORIES = {
+  "rackrate.org": "solvea-plg/rackrate",
+  "modelfit.cc": "solvea-plg/modelfit",
+  "mochichatbot.com": "AM-young-fun/Mochi-ai-chatbot",
+  "jev-llm.com": "AM-young-fun/jev-llm",
+} as const;
 export const WORKFLOW_MARKETS = { US: "en", JP: "ja", BR: "pt-BR", ES: "es-ES" } as const;
 export const WORKFLOW_SITE_LANGUAGES = {
   "flatkey.ai": ["en", "ja", "pt-BR", "es-ES"],
@@ -60,7 +66,7 @@ export const workflowTaskSchema = z.object({
   fallbackReason: z.string().max(2000).nullable().default(null), failureReason: z.string().max(3000).nullable().default(null),
 }).strict().superRefine((value, ctx) => {
   if (value.branchObservation && !value.codeSource) ctx.addIssue({ code: "custom", message: "分支检查须关联已登记的代码分支" });
-  if (value.codeSource && (value.contentVersion !== value.codeSource.commitSha || !value.artifactUrl || !value.pageUrl)) ctx.addIssue({ code: "custom", message: "代码分支必须绑定同一提交的测试地址和正式页面" });
+  if (value.codeSource && (value.contentVersion !== value.codeSource.commitSha || (value.siteDomain === "flatkey.ai" && !value.artifactUrl) || !value.pageUrl)) ctx.addIssue({ code: "custom", message: "代码分支必须绑定同一提交的测试地址和正式页面" });
   if (value.changeScope && (value.kind !== "optimization" || !value.pageUrl || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "搜索意图整改须关联已有页面和发现证据" });
   if (value.country && value.language && !workflowContentLanguages(value.siteDomain, value.country).includes(value.language)) ctx.addIssue({ code: "custom", path: ["language"], message: "语言与 Flatkey 目标市场或集群站已支持语言不匹配" });
   if (["blog", "landing", "optimization", "cluster"].includes(value.kind) && (!value.country || !value.language || !value.keyword)) ctx.addIssue({ code: "custom", message: "内容任务必须有明确国家、本语言关键词和语言" });
@@ -99,11 +105,13 @@ export const workflowApprovalItemSchema = z.object({
   id, taskId: id, operation: z.enum(["new", "update"]), pageUrl: httpsUrl,
   language: z.string().trim().min(2).max(20).regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/),
   codeSource: workflowCodeSourceSchema.optional(),
+  postPublicationId: id.optional(),
   contentVersion: z.string().trim().min(1).max(200), baseContentVersion: z.string().trim().min(1).max(200).nullable(),
   changeSummary: z.string().trim().min(1).max(5000), beforeSummary: z.string().trim().min(1).max(5000).nullable(), afterSummary: z.string().trim().min(1).max(5000),
   draftUrl: httpsUrl.nullable(), previewUrl: httpsUrl.nullable(), previewContentVersion: z.string().trim().min(1).max(200).nullable().default(null), reviewContent: z.string().trim().min(1).max(120000).nullable().default(null), reviewFormat: z.enum(["markdown", "diff", "text"]).default("text"), beforeContent: z.string().max(120000).nullable().default(null), evidence: evidence.min(1),
 }).strict().superRefine((item, ctx) => {
-  if (item.codeSource && (item.contentVersion !== item.codeSource.commitSha || item.previewContentVersion !== item.codeSource.commitSha || !item.previewUrl)) ctx.addIssue({ code: "custom", message: "审批代码、稿件版本与测试版本必须对应同一个完整提交 SHA" });
+  if (item.postPublicationId && (!item.codeSource || item.previewUrl || item.previewContentVersion)) ctx.addIssue({ code: "custom", message: "上线后审核须绑定代码版本和正式发布记录，不使用测试链接" });
+  if (item.codeSource && (item.contentVersion !== item.codeSource.commitSha || !item.postPublicationId && (item.previewContentVersion !== item.codeSource.commitSha || !item.previewUrl))) ctx.addIssue({ code: "custom", message: "审批代码、稿件版本与测试版本必须对应同一个完整提交 SHA" });
   if (!item.draftUrl && !item.previewUrl && !item.reviewContent) ctx.addIssue({ code: "custom", message: "每项审批必须提供平台内可读稿件正文、完整差异或 HTTPS 稿件/预览链接" });
   if (item.operation === "update" && (!item.baseContentVersion || !item.beforeSummary)) ctx.addIssue({ code: "custom", message: "修改页面需保留改前版本和改前说明" });
   if (item.operation === "new" && item.baseContentVersion) ctx.addIssue({ code: "custom", message: "新增页面不能冒用旧版本基线" });
@@ -125,6 +133,7 @@ export function reviewPreviewUrl(value: string | null | undefined, pageUrl?: str
 export function approvalReviewReadiness(item: z.infer<typeof workflowApprovalItemSchema>) {
   const missing: string[] = [];
   const safe = (value: string | null | undefined) => { try { const url = new URL(value ?? ""); return url.protocol === "https:" && !url.username && !url.password ? url : null; } catch { return null; } };
+  if (item.postPublicationId) return { ready: true, missing }; // The server verifies the linked production receipt.
   if (!reviewPreviewUrl(item.previewUrl, item.pageUrl)) missing.push("独立测试环境链接");
   if (item.previewContentVersion !== item.contentVersion) missing.push("与稿件一致的测试部署版本");
   const sameVersion = (row: typeof item.evidence[number]) => !row.url?.startsWith("https://flatkey-seo-roadmap.vercel.app/api/seo/review-assets/") || row.label.endsWith(` · ${item.contentVersion}`);
@@ -194,7 +203,8 @@ const automaticWriteReceipt = z.object({
 
 const liveCheck = z.object({ checkedAt: stamp, httpStatus: z.literal(200), canonicalUrl: httpsUrl, language: z.string().min(2).max(20), contentVersion: z.string().min(1).max(200), contentMatched: z.literal(true), linksChecked: z.literal(true), sourceReceipt: z.string().trim().min(1).max(3000), evidence: evidence.min(1) }).strict();
 export const workflowPublicationSchema = z.object({
-  id, taskId: id, approvalId: id.nullable(), approvalItemId: id.nullable(), publicationPolicy: z.enum(["auto_blog", "auto_prompt"]).optional(), automaticWrite: automaticWriteReceipt.optional(), weekStart: workflowWeekSchema, runId: id, siteDomain: site, pageUrl: httpsUrl,
+  id, taskId: id, approvalId: id.nullable(), approvalItemId: id.nullable(), publicationPolicy: z.enum(["auto_blog", "auto_prompt", "cluster_post_review"]).optional(), automaticWrite: automaticWriteReceipt.optional(),
+  clusterRelease: z.object({ codeSource: workflowCodeSourceSchema, mergeSha: z.string().regex(/^[a-f0-9]{40}$/), deploymentUrl: httpsUrl }).strict().optional(), weekStart: workflowWeekSchema, runId: id, siteDomain: site, pageUrl: httpsUrl,
   country: country.nullable(), language: z.string().trim().min(2).max(20), keyword: z.string().trim().min(1).max(300).nullable(),
   contentVersion: z.string().trim().min(1).max(200), title: z.string().trim().min(1).max(500),
   kind: z.enum(["source_blog", "translation", "backfill_translation", "landing", "optimization", "cluster", "prompt"]),
@@ -203,7 +213,10 @@ export const workflowPublicationSchema = z.object({
   failureReason: z.string().max(3000).nullable(),
 }).strict().superRefine((value, ctx) => {
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
-  if (value.publicationPolicy) {
+  if (value.clusterRelease && value.publicationPolicy !== "cluster_post_review") fail("正式部署证明仅用于集群站上线后审核");
+  if (value.publicationPolicy === "cluster_post_review") {
+    if (value.siteDomain === "flatkey.ai" || !value.clusterRelease || value.clusterRelease.codeSource.repository.toLowerCase() !== WORKFLOW_CLUSTER_REPOSITORIES[value.siteDomain].toLowerCase() || value.clusterRelease.codeSource.commitSha !== value.contentVersion || value.status !== "verified" || value.approvalId || value.approvalItemId || value.automaticWrite || !["landing", "optimization", "cluster"].includes(value.kind)) fail("集群站先验收正式部署，再凭真实发布回执送审");
+  } else if (value.publicationPolicy) {
     if (value.approvalId !== null || value.approvalItemId !== null) fail("自动发布不伪造人工审批；审批字段必须为空");
     const expectedRoute = value.publicationPolicy === "auto_blog" ? "blog" : "prompt";
     if (automaticPageRoute(value.pageUrl, value.siteDomain) !== expectedRoute || (value.publicationPolicy === "auto_prompt" ? value.kind !== "prompt" : !["source_blog", "translation", "backfill_translation", "optimization"].includes(value.kind))) fail("自动发布仅限已支持的真实博客或提示词详情路径");
@@ -348,7 +361,7 @@ export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "task
   const tasks = new Map(snapshot.tasks.map(task => [task.id, task]));
   return snapshot.approvals.flatMap(approval => approval.items.flatMap(item => {
     const task = tasks.get(item.taskId);
-    if (!task?.codeSource || !item.codeSource || task.siteDomain !== approval.siteDomain || ["blocked", "failed"].includes(task.status) ||
+    if (!task?.codeSource || !item.codeSource || approval.siteDomain !== "flatkey.ai" || item.postPublicationId || task.siteDomain !== approval.siteDomain || ["blocked", "failed"].includes(task.status) ||
         !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind) || task.channel === "github" || !approvalItemNeedsHuman(item, [task]) ||
         task.codeSource.repository !== item.codeSource.repository || task.codeSource.branch !== item.codeSource.branch ||
         task.codeSource.commitSha !== item.codeSource.commitSha || task.contentVersion !== item.contentVersion ||
@@ -358,6 +371,21 @@ export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "task
         snapshot.publications.some(row => row.taskId === task.id && row.contentVersion === item.contentVersion && ["published", "verified"].includes(row.status))) return [];
     return [{ taskId: task.id, approvalId: approval.id, approvalItemId: item.id, approvalVersion: approval.version,
       siteDomain: task.siteDomain, codeSource: item.codeSource, pageUrl: item.pageUrl, previewUrl: item.previewUrl }];
+  }));
+}
+
+/** Rejections apply to the exact published version. Never target an older version of a page. */
+export function workflowClusterRollbackCandidates(snapshot: Pick<WorkflowSnapshot, "approvals" | "publications" | "runs">) {
+  return snapshot.approvals.flatMap(approval => approval.items.flatMap(item => {
+    const decision = [...approval.decisions].reverse().find(row => row.itemIds.includes(item.id));
+    if (!item.postPublicationId || !decision || !["rejected", "changes_requested"].includes(workflowApprovalEffectiveItemStatus(approval, item.id, snapshot.approvals))) return [];
+    const publication = snapshot.publications.find(row => row.id === item.postPublicationId && row.publicationPolicy === "cluster_post_review" && row.status === "verified");
+    if (!publication?.clusterRelease || publication.siteDomain !== approval.siteDomain || publication.pageUrl !== item.pageUrl || publication.contentVersion !== item.contentVersion) return [];
+    if (snapshot.publications.some(row => row.pageUrl === item.pageUrl && row.status === "verified" && Date.parse(row.publishedAt) > Date.parse(publication.publishedAt))) return [];
+    const runId = `cluster-rollback:${publication.id}`;
+    if (snapshot.runs.some(run => run.id === runId && run.status === "completed")) return [];
+    return [{ runId, taskId: item.taskId, approvalId: approval.id, itemId: item.id, publicationId: publication.id, siteDomain: publication.siteDomain,
+      pageUrl: publication.pageUrl, contentVersion: publication.contentVersion, release: publication.clusterRelease, decidedAt: decision.recordedAt, reason: decision.note }];
   }));
 }
 

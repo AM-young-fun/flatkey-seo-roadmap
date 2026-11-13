@@ -39,6 +39,7 @@ export function pendingTaskApproval(task: WorkflowTask, approvals: WorkflowAppro
 export function visibleApprovalItemStatus(approval: WorkflowApproval, item: ReviewItem, all: WorkflowApproval[], tasks: WorkflowTask[]) {
   if (!approvalItemNeedsHuman(item, tasks)) return "automatic_history";
   const status = workflowApprovalEffectiveItemStatus(approval, item.id, all);
+  if (!item.postPublicationId && approval.siteDomain !== "flatkey.ai" && approval.channel !== "github" && ["draft", "pending"].includes(status)) return "legacy_cluster";
   return (status === "pending" || status === "draft") && !approvalReviewReadiness(item).ready ? "missing_materials" : status;
 }
 

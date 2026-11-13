@@ -1,7 +1,7 @@
 const { test } = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), ts = require('typescript');
 require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
 const { prepareWorkflowMutation, checkWorkflowApproval, workflowSnapshot } = require('../src/lib/seo-workflow-state.ts');
-const { workflowApprovalSchema, workflowApprovalStatus } = require('../src/lib/seo-workflow.ts');
+const { workflowApprovalSchema, workflowApprovalStatus, workflowClusterRollbackCandidates, workflowReleaseCandidates } = require('../src/lib/seo-workflow.ts');
 const time = new Date('2026-11-10T08:00:00Z'), evidence=[{label:'Visible draft and review',url:'https://flatkey.ai/preview',observedAt:'2026-11-10T06:00:00Z'}];
 const task={id:'review-task',weekStart:'2026-11-09',siteDomain:'flatkey.ai',title:'Review model API page',kind:'blog',country:'US',language:'en',business:'API',pageType:'tutorial',keyword:'model api',pageUrl:'https://flatkey.ai/blog/review',owner:'AI',dueAt:'2026-11-10T09:00:00Z',status:'review_pending',dependencies:[],evidence,nextAction:'Review exact draft',contentVersion:'v1',acceptanceCriteria:['Reviewed exact version'],research:{volume:20,kd:10,businessValue:3,exceptionReason:null,intent:'API integration',observedAt:'2026-11-10T06:00:00Z',evidence},approval:null,source:'automation'};
 const item=(patch={})=>({id:'item-en',taskId:task.id,operation:'new',pageUrl:task.pageUrl,language:'en',contentVersion:'v1',baseContentVersion:null,changeSummary:'Create exact page and title/meta',beforeSummary:null,afterSummary:'Full new draft',draftUrl:null,previewUrl:"https://staging-website.flatkey.ai/review",previewContentVersion:patch.contentVersion??"v1",reviewContent:'# Full reviewer-visible draft\nVerified API instructions.',reviewFormat:'markdown',beforeContent:null,evidence:[...evidence,{label:"Desktop screenshot",url:"https://staging-website.flatkey.ai/review.jpg",observedAt:"2026-11-10T06:00:00Z"},{label:"Mobile screenshot",url:"https://staging-website.flatkey.ai/mobile.jpg",observedAt:"2026-11-10T06:00:00Z"}],...patch});
@@ -129,4 +129,29 @@ test('an unreviewable legacy ticket can be replaced by the same unchanged versio
  assert.equal(replacement.record.status, 'pending');
  assert.throws(()=>mutate({ ...completed, items: [{ ...original, reviewContent: 'Changed content' }] }, [taskRow, legacy], 'save_approval', 'collector'), /新版本/);
  assert.throws(()=>mutate(completed, [taskRow, pending], 'save_approval', 'collector'), /新版本/);
+});
+
+test('cluster review follows a verified production receipt and rejection queues only the exact current release',()=>{
+ const branch={repository:'solvea-plg/rackrate',branch:'codex/provider-review',commitSha:'a'.repeat(40)};
+ const page='https://rackrate.org/providers/flatkey';
+ const change={...task,id:'cluster-task',siteDomain:'rackrate.org',business:'CLUSTER',kind:'technical',pageType:'technical',pageUrl:page,codeSource:branch,contentVersion:branch.commitSha,status:'drafting'};
+ const taskRow=mutate(change,[],'save_task','collector');
+ const live=publication({id:'cluster-pub',siteDomain:change.siteDomain,taskId:change.id,pageUrl:page,contentVersion:branch.commitSha,kind:'optimization',
+   approvalId:null,approvalItemId:null,publicationPolicy:'cluster_post_review',clusterRelease:{codeSource:branch,mergeSha:'b'.repeat(40),deploymentUrl:'https://github.com/solvea-plg/rackrate/actions/runs/12'},
+   status:'verified',verifiedAt:time.toISOString(),liveCheck:{checkedAt:time.toISOString(),httpStatus:200,canonicalUrl:page,language:'en',contentVersion:branch.commitSha,contentMatched:true,linksChecked:true,sourceReceipt:'production deploy 12',evidence}});
+ const ticket=approval({id:'cluster-ticket',siteDomain:change.siteDomain,submittedAt:time.toISOString(),items:[item({id:'item-en',taskId:change.id,pageUrl:page,operation:'update',baseContentVersion:'old',beforeSummary:'Old page',codeSource:branch,contentVersion:branch.commitSha,previewUrl:null,previewContentVersion:null,postPublicationId:live.id})]});
+ assert.throws(()=>mutate(ticket,[taskRow],'save_approval','collector'),/真实生产发布回执/);
+ const liveRow=mutate(live,[taskRow],'record_publication','collector');
+ const post=mutate(ticket,[taskRow,liveRow],'save_approval','collector');
+ const rows=[taskRow,liveRow,post];
+ const accepted=decide(post,rows);
+ const toSnapshot=approval=>({tasks:[taskRow.record],publications:[liveRow.record],approvals:[approval.record],runs:[]});
+ assert.deepEqual(workflowReleaseCandidates(toSnapshot(accepted)),[]);
+ assert.deepEqual(workflowClusterRollbackCandidates(toSnapshot(accepted)),[]);
+ const declined=decide(post,rows,[decision({decision:'rejected'})]);
+ const snapshot=toSnapshot(declined);
+ assert.equal(workflowClusterRollbackCandidates(snapshot)[0].release.mergeSha,'b'.repeat(40));
+ assert.deepEqual(workflowClusterRollbackCandidates({...snapshot,publications:[...snapshot.publications,{...liveRow.record,id:'newer',publishedAt:'2026-11-10T08:01:00Z'}]}),[]);
+ assert.deepEqual(workflowClusterRollbackCandidates({...snapshot,runs:[{id:'cluster-rollback:cluster-pub',status:'completed'}]}),[]);
+ assert.throws(()=>mutate({...live,siteDomain:'flatkey.ai',pageUrl:task.pageUrl},[],'record_publication','collector'),/集群站先验收/);
 });

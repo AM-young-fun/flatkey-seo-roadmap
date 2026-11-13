@@ -1,4 +1,4 @@
-import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan } from "./seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
@@ -125,6 +125,14 @@ function checkApprovalItemContext(item: WorkflowApproval["items"][number], siteD
   const task = all.find(row => row.kind === "task" && row.record.id === item.taskId)?.record as WorkflowTask | undefined;
   if (!task || task.siteDomain !== siteDomain || !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind)) reject("approval_task_missing", "审批项必须关联同站点真实页面任务，历史归档不能提供发布授权");
   if (contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status)) reject("approval_task_not_ready", "先完成关键词研究并进入制作或待审阶段，再提交页面审批");
+  if (item.postPublicationId) {
+    const live = all.find(row => row.kind === "publication" && row.record.id === item.postPublicationId)?.record as WorkflowPublication | undefined;
+    if (siteDomain === "flatkey.ai" || !live || live.publicationPolicy !== "cluster_post_review" || live.status !== "verified"
+      || live.siteDomain !== siteDomain || live.taskId !== task.id || live.pageUrl !== item.pageUrl || live.language !== item.language
+      || live.contentVersion !== item.contentVersion || !same(live.clusterRelease?.codeSource, item.codeSource))
+      reject("post_publication_unverified", "集群站上线后审核需要同站、同页面和同提交的真实生产发布回执");
+    return task;
+  }
   const translation = task.kind === "blog" && item.language !== task.language;
   if (!translation && (task.codeSource || item.codeSource) && (!same(task.codeSource, item.codeSource) || item.previewUrl !== task.artifactUrl)) reject("approval_branch_mismatch", "审批须绑定当前页面工作分支、提交和同版本测试链接");
   if (!translation && task.contentVersion !== item.contentVersion) reject("approval_task_version_mismatch", "审批稿件版本与当前任务不一致；请先保留新稿版本");
@@ -143,6 +151,7 @@ function checkApprovalItemContext(item: WorkflowApproval["items"][number], siteD
 function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
   for (const item of value.items) {
     const task = all.find(row => row.kind === "task" && row.record.id === item.taskId)?.record as WorkflowTask | undefined;
+    if ((!previous || previous.status === "draft") && value.status !== "draft" && value.siteDomain !== "flatkey.ai" && value.channel !== "github" && !item.postPublicationId) reject("cluster_review_after_release", "集群站先发布并验证，再提交上线后审核");
     if ((!previous || previous.status === "draft") && value.status !== "draft" && task && !approvalItemNeedsHuman(item, [task]))
       reject("approval_not_needed", "关键词研究和常规博客不需要提交页面审批");
     if ((value.channel === "product" || task?.channel === "product") && (value.channel !== "product" || task?.channel !== "product" || task.kind !== "technical")) reject("approval_product_task_required", "产品渠道审批必须关联同渠道技术任务");
@@ -178,6 +187,7 @@ function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | un
   if (!previous || previous.status === "draft") {
     for (const item of value.items) checkApprovalItemContext(item, value.siteDomain, all);
     if (value.status !== "draft") {
+      if (value.items.some(item => item.postPublicationId) && !value.items.every(item => item.postPublicationId)) reject("approval_mode_mixed", "上线前和上线后审核不能混用同一单");
       const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
       for (const item of value.items.filter(item => approvalItemNeedsHuman(item, tasks))) {
         const readiness = approvalReviewReadiness(item);
@@ -192,12 +202,13 @@ function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | un
         const priorItem = other.items.find(old => old.pageUrl === item.pageUrl && old.language === item.language);
         if (!priorItem) continue;
         if (priorItem.contentVersion === item.contentVersion) {
+          const postReleaseReplacement = Boolean(item.postPublicationId && !priorItem.postPublicationId && value.supersedesApprovalIds.includes(other.id) && same(priorItem.codeSource, item.codeSource));
           const materialOnly = value.supersedesApprovalIds.includes(other.id)
             && workflowApprovalEffectiveItemStatus(other, priorItem.id, others) === "pending"
             && !approvalReviewReadiness(priorItem).ready
             && (["taskId", "operation", "baseContentVersion", "reviewContent", "reviewFormat", "beforeContent", "codeSource"] as const)
               .every(key => same(priorItem[key], item[key]));
-          if (!materialOnly) reject("approval_version_reused", "该页面语言版本已有审批；改稿必须新版本，不能重建审批绕过决定");
+          if (!materialOnly && !postReleaseReplacement) reject("approval_version_reused", "该页面语言版本已有审批；改稿必须新版本，不能重建审批绕过决定");
         }
         if (workflowApprovalEffectiveItemStatus(other, priorItem.id, others) !== "superseded" && !value.supersedesApprovalIds.includes(other.id)) reject("approval_supersession_required", "同页面语言已有审批单；新稿须明确替换旧单以阻止旧稿并发发布");
       }
@@ -210,6 +221,7 @@ export function checkWorkflowApproval(input: WorkflowApprovalCheck, all: Workflo
   if (!approval || approval.status === "draft") reject("publication_unapproved", "缺少已提交并经负责人批准的逐页审批单");
   const item = approval.items.find(item => item.id === input.itemId);
   if (!item || item.taskId !== input.taskId || item.pageUrl !== input.pageUrl || item.language !== input.language || item.contentVersion !== input.contentVersion) reject("publication_approval_mismatch", "审批项与待发布 URL、语言、任务或内容版本不匹配");
+  if (item.postPublicationId || approval.siteDomain !== "flatkey.ai" && approval.channel !== "github") reject("post_publication_only", "上线后审核不会提供生产发布授权");
   if (workflowApprovalEffectiveItemStatus(approval, item.id, approvals) !== "approved") reject("publication_unapproved", "该页面版本尚未批准，或审批已撤回、要求修改、被新稿替换");
   const decision = [...approval.decisions].reverse().find(decision => decision.itemIds.includes(item.id))!;
   if (!decision.recordedAt) reject("publication_approval_unverified", "审批缺少服务器记录的决定时刻");
@@ -225,7 +237,9 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
   const task = all.find(row => row.kind === "task" && row.record.id === value.taskId)?.record as WorkflowTask | undefined;
   if (!task || task.siteDomain !== value.siteDomain || task.weekStart !== value.weekStart) reject("publication_task_missing", "发布记录需要对应同站点工作任务");
   const automatic = value.publicationPolicy;
-  if (automatic) {
+  if (automatic === "cluster_post_review") {
+    if (!value.clusterRelease || !same(task.codeSource, value.clusterRelease.codeSource) || task.channel && task.channel !== "website" || !["landing", "optimization", "cluster", "technical"].includes(task.kind) || ["planned", "researching", "blocked", "failed"].includes(task.status) || (task.branchObservation && task.branchObservation.headSha !== value.contentVersion)) reject("cluster_release_context", "集群站发布必须绑定可执行的逐页任务、独立分支和准确提交");
+  } else if (automatic) {
     if (automaticTaskPolicy(task, value.pageUrl) !== automatic) reject("automatic_policy_context", "自动发布必须匹配真实页面模块与任务类型");
     if (["planned", "researching", "blocked", "failed"].includes(task.status)) reject("automatic_task_not_ready", "任务须完成内容准备与质量检查");
     if (automatic === "auto_blog") {
@@ -263,7 +277,7 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
   }
   if (all.some(row => row.kind === "historical_import" && (row.record as WorkflowHistoricalImport).publications.some(item => item.pageUrl === value.pageUrl && item.contentVersion === value.contentVersion))) reject("duplicate_historical_publication", "该页面版本已有历史归档，不能作为本次新增发布重复计数");
   if (previous) {
-    for (const key of ["taskId", "approvalId", "approvalItemId", "publicationPolicy", "automaticWrite", "siteDomain", "pageUrl", "country", "language", "keyword", "contentVersion", "kind", "sourcePublicationId", "publishedAt"] as const) if (!same(previous[key], value[key])) reject("publication_identity_changed", "已有发布身份和真实发布时间不可覆盖");
+    for (const key of ["taskId", "approvalId", "approvalItemId", "publicationPolicy", "automaticWrite", "clusterRelease", "siteDomain", "pageUrl", "country", "language", "keyword", "contentVersion", "kind", "sourcePublicationId", "publishedAt"] as const) if (!same(previous[key], value[key])) reject("publication_identity_changed", "已有发布身份和真实发布时间不可覆盖");
     if (previous.status === "verified" && (!same(previous.liveCheck, value.liveCheck) || previous.verifiedAt !== value.verifiedAt || value.status !== "verified")) reject("verification_immutable", "已验收事实不可撤写；新增问题或新版本保留审计历史");
   }
 }
@@ -318,6 +332,17 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   if (kind === "publication") assertPublication(record as WorkflowPublication, previous as WorkflowPublication | undefined, all);
   if (kind === "optimization") assertOptimization(record as WorkflowOptimization, previous as WorkflowOptimization | undefined, all);
   if (kind === "run" && (previous as WorkflowRun | undefined)?.status === "completed") reject("run_completed", "已完成回执不可回退；修正请增加单独复核记录");
+  if (kind === "run" && (record as WorkflowRun).stage === "CLUSTER_ROLLBACK") {
+    const run = record as WorkflowRun;
+    const rollback = workflowClusterRollbackCandidates({ approvals: approvalRows(all),
+      publications: all.filter(row => row.kind === "publication").map(row => row.record as WorkflowPublication),
+      runs: all.filter(row => row.kind === "run").map(row => row.record as WorkflowRun) })
+      .find(candidate => candidate.runId === run.id);
+    if (!rollback || !mutation.claim || run.taskIds.length !== 1 || run.taskIds[0] !== rollback.taskId || run.inputVersion !== rollback.contentVersion)
+      reject("cluster_rollback_context", "撤销回执必须关联当前拒绝决定、线上版本和执行租约");
+    if (run.status === "completed" && (!run.evidence.some(row => row.url === rollback.pageUrl) || !run.evidence.some(row => row.url?.startsWith(`https://github.com/${rollback.release.codeSource.repository}/actions/runs/`) && row.url !== rollback.release.deploymentUrl)))
+      reject("cluster_rollback_unverified", "完成撤销需核验正式页面及区别于原发布的部署回执");
+  }
   if (kind === "historical_import") {
     const historical = record as WorkflowHistoricalImport;
     if (previous) reject("historical_import_immutable", "历史导入是不可变证据归档，不能改写为新发布授权或覆盖原记录");

@@ -270,7 +270,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   for (const approval of approvals) {
     for (const item of approval.items) {
       const task = tasks.get(item.taskId);
-      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind) || !approvalItemNeedsHuman(item, workflow.tasks)) continue;
+      if (!task || task.siteDomain !== approval.siteDomain || (!item.postPublicationId && approval.siteDomain !== "flatkey.ai" && approval.channel !== "github") || !pageApprovalKinds.has(task.kind) || !approvalItemNeedsHuman(item, workflow.tasks)) continue;
       // Blog translations have independent content versions from their source task.
       const translation = task.kind === "blog" && item.language !== task.language;
       if (!translation && (item.contentVersion !== task.contentVersion
@@ -279,8 +279,8 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
       if (status === "pending") {
         if (["blocked", "failed"].includes(task.status) || task.kind !== "technical" && ["planned", "researching"].includes(task.status)) continue;
         const baseline = baselines.get(approvalPageKey(item));
-        if (baseline && (item.operation !== "update" || item.baseContentVersion !== baseline.contentVersion)) continue;
-        const preview = item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
+        if (!item.postPublicationId && baseline && (item.operation !== "update" || item.baseContentVersion !== baseline.contentVersion)) continue;
+        const preview = item.postPublicationId ? item.pageUrl : item.previewContentVersion === item.contentVersion ? reviewPreviewUrl(item.previewUrl, item.pageUrl) : null;
         // A ticket-level screenshot only identifies a page when the ticket has one item.
         const screenshot = reviewScreenshot(item.evidence) ?? (approval.items.length === 1 ? reviewScreenshot(approval.evidence) : null);
         const summary = escaped(item.changeSummary ?? "").trim();
@@ -305,7 +305,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   for (const approval of allApprovals.filter(row => row.status === "draft")) {
     for (const item of approval.items) {
       const task = tasks.get(item.taskId);
-      if (!task || task.siteDomain !== approval.siteDomain || !pageApprovalKinds.has(task.kind) || !approvalItemNeedsHuman(item, workflow.tasks)) continue;
+      if (!task || task.siteDomain !== approval.siteDomain || (!item.postPublicationId && approval.siteDomain !== "flatkey.ai" && approval.channel !== "github") || !pageApprovalKinds.has(task.kind) || !approvalItemNeedsHuman(item, workflow.tasks)) continue;
       const translation = task.kind === "blog" && item.language !== task.language;
       if (!translation && item.contentVersion !== task.contentVersion) continue;
       draftTasks.add(task.id); draftTickets.add(approval.id); draftPages++;
@@ -318,7 +318,7 @@ function digestReviewQueue(workflow: NonNullable<DigestInput["reviewWorkflow"]>,
   const standalone = [];
   const materials = [];
   for (const task of tasks.values()) {
-    if (task.status !== "review_pending" || task.kind === "research" || automaticTaskPolicy(task)) continue;
+    if (task.status !== "review_pending" || task.kind === "research" || task.siteDomain !== "flatkey.ai" || automaticTaskPolicy(task)) continue;
     const taskUrl = SEO_PLATFORM + workTaskHref(task);
     if (pageApprovalKinds.has(task.kind)) {
       const revision = revisions.get(task.id);
@@ -407,7 +407,7 @@ export function buildSeoDigest(input: DigestInput) {
       lines.push(`• ${link(approval.title, approvalUrl(approval.id))} · ${approval.siteDomain} · ${escaped(item.language)} · ${item.operation === "new" ? "新增" : "修改"}`);
       const details = [link(item.pageUrl, item.pageUrl), `版本 ${escaped(item.contentVersion)}`];
       if (summary) details.push(summary.slice(0, 180));
-      if (preview) details.push(link("测试链接", preview));
+      if (preview) details.push(link(item.postPublicationId ? "正式页面" : "测试链接", preview));
       if (screenshot) details.push(link("截图", screenshot));
       if (missing.length) details.push(`缺少${missing.join("、")}`);
       lines.push(`  ${details.join(" · ")}`);

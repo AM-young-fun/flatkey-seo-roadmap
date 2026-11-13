@@ -1,5 +1,5 @@
 import { approvalMaterialBacklog } from "@/lib/seo-approval-display";
-import { workflowWeekSchema, pageBelongsToSite, workflowReleaseCandidates, WORKFLOW_SITES } from "@/lib/seo-workflow";
+import { workflowWeekSchema, pageBelongsToSite, workflowReleaseCandidates, workflowClusterRollbackCandidates, WORKFLOW_SITES } from "@/lib/seo-workflow";
 import { WorkflowError } from "@/lib/seo-workflow-state";
 import { authorizeWorkflow, readWorkflowBody, workflowErrorResponse, workflowHeaders } from "@/lib/seo-workflow-http";
 import { loadWorkflowSnapshot, saveWorkflowMutation } from "@/lib/services/seo-workflow";
@@ -12,8 +12,10 @@ export async function GET(request: Request) {
     if (!["current", "next", "latest"].includes(week)) workflowWeekSchema.parse(week);
     if (pageUrl) { let valid = false; try { valid = WORKFLOW_SITES.some(site => pageBelongsToSite(pageUrl, site)); } catch { /* Invalid URL. */ } if (!valid) throw new WorkflowError("invalid_page", "请选择五站正式 HTTPS 页面", 400); }
     const releaseQueue = params.get("releaseQueue") === "1";
+    const rollbackQueue = params.get("rollbackQueue") === "1";
     const materialQueue = params.get("materialQueue") === "1";
-    const snapshot = await loadWorkflowSnapshot({ week, pageUrl, allHistory: releaseQueue || materialQueue || params.get("allHistory") === "true" }, auth.localPreview);
+    const snapshot = await loadWorkflowSnapshot({ week, pageUrl, allHistory: releaseQueue || rollbackQueue || materialQueue || params.get("allHistory") === "true" }, auth.localPreview);
+    if (rollbackQueue) return Response.json({ candidates: workflowClusterRollbackCandidates(snapshot), storage: snapshot.storage }, { headers: workflowHeaders });
     if (materialQueue) return Response.json({ candidates: approvalMaterialBacklog(snapshot.approvals, snapshot.tasks), storage: snapshot.storage }, { headers: workflowHeaders });
     if (releaseQueue) return Response.json({ candidates: workflowReleaseCandidates(snapshot), storage: snapshot.storage }, { headers: workflowHeaders });
     return Response.json({ ...snapshot, capabilities: { promptPublication: 1, automaticPublicationPolicy: 1 } }, { headers: workflowHeaders });
