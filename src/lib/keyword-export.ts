@@ -11,6 +11,7 @@ export const exportRegionSchema = z.enum(["all", "US", "JP", "ES", "BR"]);
 export type ExportRegion = z.infer<typeof exportRegionSchema>;
 export const apiKeyMutationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("create"), name: z.string().trim().min(1).max(80), siteDomain: pageAuditDomainSchema.nullable().default(null) }).strict(),
+  z.object({ action: z.literal("create-research"), name: z.string().trim().min(1).max(80) }).strict(),
   z.object({ action: z.literal("reveal"), id: z.string().min(1).max(100) }).strict(),
   z.object({ action: z.literal("revoke"), id: z.string().min(1).max(100) }).strict(),
 ]);

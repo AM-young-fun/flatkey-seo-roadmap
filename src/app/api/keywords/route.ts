@@ -1,3 +1,4 @@
+import { researchReadAccess } from "@/lib/services/seo-research-read";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDemoDashboard } from "@/lib/demo-data";
@@ -14,7 +15,9 @@ const createKeywordSchema = z.object({
   parentId: z.string().trim().min(1).nullable().optional()
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const research = await researchReadAccess(request);
+  if (research instanceof Response) return research;
   if (!isDatabaseConfigured()) {
     return NextResponse.json({
       usingDemoData: true,
@@ -23,14 +26,15 @@ export async function GET() {
   }
 
   const keywords = await prisma.keyword.findMany({
-    where: {
+    where: research ? undefined : {
       active: true,
       topicId: {
         not: null
       }
     },
     include: {
-      topic: true
+      topic: true,
+      siteLinks: research ? { include: { topicAssignments: { select: { topicId: true } } } } : false
     },
     orderBy: [
       {
@@ -45,7 +49,7 @@ export async function GET() {
   return NextResponse.json({
     usingDemoData: false,
     keywords
-  });
+  }, research ? { headers: research } : undefined);
 }
 
 export async function POST(request: Request) {

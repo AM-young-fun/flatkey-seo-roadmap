@@ -1,3 +1,4 @@
+import { researchReadAccess } from "@/lib/services/seo-research-read";
 import { TopicType } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -15,7 +16,9 @@ const createTopicSchema = z.object({
   parentId: z.string().trim().min(1).nullable().optional()
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const research = await researchReadAccess(request);
+  if (research instanceof Response) return research;
   if (!isDatabaseConfigured()) {
     return NextResponse.json({
       usingDemoData: true,
@@ -24,9 +27,10 @@ export async function GET() {
   }
 
   const topics = await prisma.topic.findMany({
-    where: {
+    where: research ? undefined : {
       active: true
     },
+    include: research ? { sites: { select: { siteDomain: true } } } : undefined,
     orderBy: [
       {
         type: "asc"
@@ -40,7 +44,7 @@ export async function GET() {
   return NextResponse.json({
     usingDemoData: false,
     topics
-  });
+  }, research ? { headers: research } : undefined);
 }
 
 export async function POST(request: Request) {

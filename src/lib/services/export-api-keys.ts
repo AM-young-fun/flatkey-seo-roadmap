@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { SEO_RESEARCH_KEY_PREFIX } from "@/lib/seo-research-read";
 import { prisma } from "@/lib/prisma";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { decryptExportApiKey, encryptExportApiKey, generateExportApiKey, hashExportApiKey } from "@/lib/export-api-key-crypto";
@@ -9,9 +11,10 @@ export async function listExportApiKeys() {
   return prisma.keywordExportApiKey.findMany({ select, orderBy: [{ createdAt: "desc" }, { id: "asc" }] });
 }
 export async function mutateExportApiKey(input: z.infer<typeof apiKeyMutationSchema>) {
-  if (input.action === "create") {
-    const secret = generateExportApiKey();
-    const key = await prisma.keywordExportApiKey.create({ data: { name: input.name, siteDomain: input.siteDomain,
+  if (input.action === "create" || input.action === "create-research") {
+    const research = input.action === "create-research";
+    const secret = research ? SEO_RESEARCH_KEY_PREFIX + randomBytes(32).toString("hex") : generateExportApiKey();
+    const key = await prisma.keywordExportApiKey.create({ data: { name: input.name, siteDomain: input.action === "create" ? input.siteDomain : null,
       keyHash: hashExportApiKey(secret), encryptedKey: encryptExportApiKey(secret), prefix: `${secret.slice(0, 17)}…` }, select });
     return { key, secret };
   }
@@ -32,4 +35,18 @@ export async function authenticateExportApiKey(request: Request) {
   const secret = bearer ?? headerKey;
   if (!secret || !/^seo_export_[A-Za-z0-9_-]{43}$/.test(secret)) return null;
   return prisma.keywordExportApiKey.findFirst({ where: { keyHash: hashExportApiKey(secret), revokedAt: null }, select: { id: true, siteDomain: true } });
+}
+
+export async function authenticateResearchApiKey(secret: string) {
+  if (!/^seo_research_[a-f0-9]{64}$/.test(secret)) return false;
+  const key = await prisma.keywordExportApiKey.findFirst({
+    where: {
+      keyHash: hashExportApiKey(secret),
+      prefix: { startsWith: SEO_RESEARCH_KEY_PREFIX },
+      siteDomain: null,
+      revokedAt: null
+    },
+    select: { id: true }
+  });
+  return key !== null;
 }
