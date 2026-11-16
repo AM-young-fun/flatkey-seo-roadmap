@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { authorizeResearchRead } from "@/lib/seo-research-read";
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { IMPORT_API_PATH } from "@/lib/ranking-import";
@@ -22,6 +23,13 @@ function isAuthorizedCron(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  const researchRead = authorizeResearchRead(request);
+  if (researchRead !== null) {
+    const headers = { "Cache-Control": "private, no-store" };
+    return researchRead
+      ? NextResponse.next({ headers })
+      : NextResponse.json({ message: "Unauthorized" }, { status: 401, headers });
+  }
   if (request.nextUrl.pathname === "/api/seo/review-assets" || /^\/api\/seo\/review-assets\/[a-f0-9]{64}$/.test(request.nextUrl.pathname)) return NextResponse.next();
   if (["/api/seo/workflow", "/api/seo/workflow/claims", "/api/seo/workflow/approval-check", "/api/seo/workflow/history", "/api/seo/digest", "/api/seo/reporting-control", "/api/seo/periods", "/api/seo/business", "/api/seo/registrations", "/api/seo/github"].includes(request.nextUrl.pathname)) return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/optimization-plans") return NextResponse.next();
