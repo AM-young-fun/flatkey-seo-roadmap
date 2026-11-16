@@ -7,8 +7,16 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 const mock = (relative, exports) => { const filename = path.join(root, relative); require.cache[filename] = { id: filename, filename, loaded: true, exports }; };
 let state, session = true, reads = 0;
 const project = (row, select) => row ? Object.fromEntries(Object.keys(select).filter(key => select[key]).map(key => [key, row[key]])) : null;
-const matches = (row, where) => Object.entries(where).every(([key, value]) => row[key] === value);
+const matches = (row, where) => Object.entries(where).every(([key, value]) => (typeof value === "object" && value?.startsWith ? row[key]?.startsWith(value.startsWith) : row[key] === value));
 const db = {
+  keyword: { findMany: async ({ where }) => {
+    assert.equal(where, undefined);
+    return [{ id: "unassigned", active: false, topicId: null }];
+  } },
+  topic: { findMany: async ({ where }) => {
+    assert.equal(where, undefined);
+    return [{ id: "archived-topic", active: false }];
+  } },
   keywordExportApiKey: {
     create: async ({ data, select }) => { const row = { id: `key-${state.keys.length}`, createdAt: new Date(), lastUsedAt: null, revokedAt: null, ...data }; state.keys.push(row); return project(row, select); },
     findMany: async ({ select }) => { reads++; return state.keys.map(row => project(row, select)); },
@@ -36,6 +44,8 @@ const service = require("../src/lib/services/export-api-keys.ts");
 const { loadContentOpportunities } = require("../src/lib/services/content-opportunities.ts");
 const management = require("../src/app/api/api-keys/route.ts");
 const endpoint = require("../src/app/api/keywords/content-opportunities/route.ts");
+const keywordRead = require("../src/app/api/keywords/route.ts").GET;
+const topicRead = require("../src/app/api/topics/route.ts").GET;
 const { proxy } = require("../src/proxy.ts");
 const { NextRequest } = require("next/server");
 const member = (id, extra = {}) => ({ siteDomain: "flatkey.ai", keywordId: id, pool: "FORMAL", active: true, topicId: "topic", mappingStatus: "NEEDS_BUILD", targetUrls: [], candidateUrls: [], keyword: { text: id, active: true, defaultVolume: 100 }, ...extra });
@@ -341,4 +351,38 @@ test("proxy allows only the exact export path to reach API-key authentication", 
   assert.equal((await proxy(new NextRequest("https://example.test/api/api-keys"))).status, 401);
   assert.equal((await proxy(new NextRequest("https://example.test/api/keywords/candidates/cleanup"))).status, 401);
   assert.equal((await proxy(new NextRequest("https://example.test/api/keywords/page-tasks"))).status, 401);
+});
+
+test("platform-managed research keys read both full catalogs and revoke without granting other access", async () => {
+  const response = await management.POST(post({ action: "create-research", name: "scheduled research" }));
+  assert.equal(response.status, 201);
+  const { key, secret } = await response.json();
+  assert.match(secret, /^seo_research_[a-f0-9]{64}$/);
+  const exportKey = await service.mutateExportApiKey({ action: "create", name: "blog export", siteDomain: null });
+  session = false;
+  const research = (path, value = secret, method = "GET") =>
+    new NextRequest("https://example.test" + path, { method, headers: { "X-SEO-Research-Key": value } });
+
+  for (const [path, get, field, id] of [
+    ["/api/keywords", keywordRead, "keywords", "unassigned"],
+    ["/api/topics", topicRead, "topics", "archived-topic"],
+  ]) {
+    const req = research(path);
+    assert.equal((await proxy(req)).headers.get("x-middleware-next"), "1");
+    const result = await get(req);
+    assert.equal(result.status, 200);
+    assert.match(result.headers.get("cache-control"), /private, no-store/);
+    assert.deepEqual((await result.json())[field].map(row => row.id), [id]);
+    assert.equal((await get(research(path, exportKey.secret))).status, 401);
+    assert.equal((await get(research(path, "invalid"))).status, 401);
+    assert.equal((await proxy(research(path, secret, "POST"))).status, 401);
+  }
+  assert.equal((await endpoint.GET(request(secret))).status, 401);
+  assert.equal((await proxy(research("/api/api-keys"))).status, 401);
+  assert.equal((await management.GET()).status, 401);
+
+  session = true;
+  assert.equal((await management.POST(post({ action: "revoke", id: key.id }))).status, 200);
+  assert.equal((await keywordRead(research("/api/keywords"))).status, 401);
+  assert.equal((await topicRead(research("/api/topics"))).status, 401);
 });

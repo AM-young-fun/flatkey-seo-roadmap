@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   try {
     const parsed = apiKeyMutationSchema.safeParse(await readImportJson(request));
     if (!parsed.success) return NextResponse.json({ message: "API Key 参数无效" }, { status: 400, headers });
-    return NextResponse.json(await mutateExportApiKey(parsed.data), { status: parsed.data.action === "create" ? 201 : 200, headers });
+    return NextResponse.json(await mutateExportApiKey(parsed.data), { status: parsed.data.action === "create" || parsed.data.action === "create-research" ? 201 : 200, headers });
   } catch (error) {
     if (error instanceof ImportRequestError) return NextResponse.json({ message: error.message }, { status: error.status, headers });
     return NextResponse.json({ message: "API Key 操作未确认，请刷新列表后检查" }, { status: 503, headers });
