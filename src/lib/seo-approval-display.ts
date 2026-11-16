@@ -29,6 +29,7 @@ export function pendingTaskApproval(task: WorkflowTask, approvals: WorkflowAppro
     if (approval.siteDomain !== task.siteDomain || !approval.submittedAt) continue;
     const item = approval.items.find(item => item.taskId === task.id && item.contentVersion === task.contentVersion
       && (!task.pageUrl || task.pageUrl === item.pageUrl)
+      && (!item.codeSource || !task.branchObservation || task.branchObservation.headSha === item.codeSource.commitSha)
       && approvalItemNeedsHuman(item, [task])
       && workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "pending");
     if (item) return { approval, item };

@@ -6,9 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, ChevronRight, RefreshCw, Search } from "lucide-react";
 import { formatCtr, formatDelta, gscDate, gscPeriodEnd, optimizationRange, optimizationTrendDays, optimizationWeekComparison, type OptimizationEffect, type OptimizedEffectPage, type OptimizedEffectVersion } from "@/lib/seo-page-effects";
 import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
-import { propertyToday, shiftDay } from "@/lib/seo-date-range";
+import { dateInListRange, propertyToday, shiftDay } from "@/lib/seo-date-range";
 import type { SeoCountry } from "@/lib/seo";
 import { UiSelect } from "./UiSelect";
+import { SeoListDateControl, listDateParamKeys, useSeoListDateRange } from "./SeoDateControl";
 import { useSeoCountry } from "./useSeoCountry";
 import { analyticsUrl, numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
@@ -28,8 +29,16 @@ const axisFor = (metric: Metric) => metric === "ctr" ? "percent" : metric === "p
 const axisLabels = { count: "次数", percent: "点击率", rank: "排名" };
 const sites = [{ value: "flatkey.ai", label: "Flatkey" }, ...CLUSTER_SITES.map(site => ({ value: site.domain, label: site.name }))];
 const siteName = (domain: string) => sites.find(site => site.value === domain)?.label ?? domain;
-const baseHref = (country: SeoCountry) => country === "all" ? "/optimization-effects" : `/optimization-effects?country=${country}`;
-const detailHref = (id: string, country: SeoCountry) => "/optimization-effects?" + new URLSearchParams({ publication: id, ...(country === "all" ? {} : { country }) });
+function effectHref(country: SeoCountry, params: Pick<URLSearchParams, "get">, id?: string) {
+  const query = new URLSearchParams();
+  if (id) query.set("publication", id);
+  if (country !== "all") query.set("country", country);
+  for (const key of listDateParamKeys) {
+    const value = params.get(key);
+    if (value) query.set(key, value);
+  }
+  return "/optimization-effects" + (query.size ? "?" + query : "");
+}
 const dateLabel = (date: string) => date.length === 10 ? date : shanghaiStamp(date);
 const isGaMetric = (metric: Metric): metric is "sessions" | "registrations" => metric === "sessions" || metric === "registrations";
 
@@ -143,6 +152,7 @@ function PageEffectDetail({ page, version, country }: { page: OptimizedEffectPag
 export function OptimizationEffects() {
   const result = useSeoRead<{ pages: OptimizedEffectPage[]; partial: boolean }>("/api/seo/optimized-pages");
   const params = useSearchParams();
+  const time = useSeoListDateRange();
   const [country] = useSeoCountry();
   const [site, setSite] = useState("all"), [query, setQuery] = useState("");
   const selected = params.get("publication");
@@ -152,11 +162,14 @@ export function OptimizationEffects() {
   const active = selected ? pages.find(page => page.versions.some(version => version.id === selected)) : pages.find(page => page.url === selectedPage);
   const version = selected ? active?.versions.find(item => item.id === selected) : active?.versions[0];
   const search = query.trim().toLowerCase();
-  const filtered = pages.filter(page => (site === "all" || page.site === site) &&
-    (page.title.toLowerCase().includes(search) || page.url.toLowerCase().includes(search)));
+  const filtered = pages.flatMap(page => {
+    if ((site !== "all" && page.site !== site) || ![page.title, page.url].some(value => value.toLowerCase().includes(search))) return [];
+    const version = page.versions.find(version => dateInListRange(version.date, time.range));
+    return version ? [{ page, version }] : [];
+  }).sort((a, b) => (Date.parse(b.version.date ?? "") || 0) - (Date.parse(a.version.date ?? "") || 0));
   return <div className={effects.workspace}>
     <div className={effects.header}><h1>优化效果</h1><div className={styles.toolbarActions}>
-      {detail ? <Link className={styles.secondary} href={baseHref(country)}>返回优化页面列表</Link> : null}
+      {detail ? <Link className={styles.secondary} href={effectHref(country, params)}>返回优化页面列表</Link> : null}
       <button type="button" className={styles.secondary} onClick={result.retry}><RefreshCw size={14} aria-hidden="true" />刷新</button>
     </div></div>
     {result.error ? <p className={effects.panel} role="alert">{result.error}</p>
@@ -168,13 +181,14 @@ export function OptimizationEffects() {
             <div className={effects.filters}>
               <label className={effects.search}><Search size={17} aria-hidden="true" /><input aria-label="搜索已优化页面" placeholder="搜索页面标题或链接" value={query} onChange={event => setQuery(event.target.value)} /></label>
               <UiSelect aria-label="优化站点" value={site} onChange={setSite} options={[{ value: "all", label: "全部站点" }, ...sites]} />
+              <SeoListDateControl value={time} />
             </div>
-            {filtered.length ? <ul className={effects.list}>{filtered.map(page => <li className={effects.row} key={page.url}>
+            {filtered.length ? <ul className={effects.list}>{filtered.map(({ page, version }) => <li className={effects.row} key={page.url}>
               <div className={effects.rowPage}><strong>{page.title}</strong>
                 <a href={page.url} target="_blank" rel="noreferrer">{page.url} <ArrowUpRight size={12} aria-hidden="true" /></a></div>
               <span className={effects.site}>{siteName(page.site)}</span>
-              <span className={effects.date}>{page.versions[0].date ? dateLabel(page.versions[0].date) : "日期待核实"}</span>
-              <Link className={`${styles.secondary} ${effects.open}`} href={detailHref(page.versions[0].id, country)} prefetch={false}>查看详情 <ChevronRight size={15} aria-hidden="true" /></Link>
+              <span className={effects.date}>{version.date ? dateLabel(version.date) : "日期待核实"}</span>
+              <Link className={`${styles.secondary} ${effects.open}`} href={effectHref(country, params, version.id)} prefetch={false}>查看详情 <ChevronRight size={15} aria-hidden="true" /></Link>
             </li>)}</ul> : <p className={effects.note}>{pages.length ? "没有匹配的页面。" : "暂无已优化页面。"}</p>}
           </section>}
       </>}

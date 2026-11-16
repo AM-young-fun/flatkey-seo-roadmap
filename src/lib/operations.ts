@@ -38,11 +38,17 @@ export function nextCollectorTime(now:Date,kind:"sheets"|"ahrefs"|"traffic"):str
 }
 
 /** Configuration evidence is distinct from a successful execution receipt. */
+function automationHours(value?: string) {
+  if (!value || !/^\d{1,2}(,\d{1,2})*$/.test(value)) return [];
+  const hours = [...new Set(value.split(",").map(Number))].sort((a, b) => a - b);
+  return hours.every(hour => hour >= 0 && hour <= 23) ? hours : [];
+}
+
 export function nextAutomationTime(rule: string, now: Date, status: string): string | null {
   if (status !== "ACTIVE") return null;
   const values = Object.fromEntries(rule.split(";").map(part => part.split("=")));
-  const hour = Number(values.BYHOUR), minute = Number(values.BYMINUTE);
-  if (!["DAILY", "WEEKLY", "MONTHLY"].includes(values.FREQ) || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  const hours = automationHours(values.BYHOUR), minute = Number(values.BYMINUTE);
+  if (!["DAILY", "WEEKLY", "MONTHLY"].includes(values.FREQ) || !hours.length || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
   const weekdays = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
   const allowed = values.BYDAY?.split(",");
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
@@ -55,8 +61,10 @@ export function nextAutomationTime(rule: string, now: Date, status: string): str
         .some(candidate => allowed.includes(weekdays[candidate.getUTCDay()]));
       if (earlierMatch) continue;
     }
-    const candidate = new Date(`${day.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
-    if (candidate > now) return candidate.toISOString();
+    for (const hour of hours) {
+      const candidate = new Date(`${day.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
+      if (candidate > now) return candidate.toISOString();
+    }
   }
   return null;
 }
@@ -64,7 +72,7 @@ export function nextAutomationTime(rule: string, now: Date, status: string): str
 const automationNotes: Record<string, string> = {
   "flatkey-5": "按已确认的周计划制作源博客，Flatkey 每天英文 2 篇，日文、巴西葡语、西班牙西语各 1 篇。GPU 为主、API 为辅。真实博客和译文按质量门槛自动发布。",
   "automation": "周五 09:00 定稿下周每日博客、优化和落地页，以及四站合计每周 2 个集群新落地页。09:30 核对，10:00 周报引用。",
-  "seo-09-30": "研究结果保存到平台的关键词和 TopicMap；搜索量 ≥10、KD＜30 优先。目标已有承接页时进入页面优化，无承接页时进入关键词页面搭建。",
+  "seo-09-30": "补齐已经排期的研究依赖，将证据写回原任务。每周四准备候选，周五定下周排期。",
   "seo-10-00": "五站技术质检；新增、改动和异常页优先。把可修复问题送工作任务，日报引用真实检查回执。",
   "seo-13-30": "扫描搜索意图并登记异常。Flatkey 每日最多优化 2 个页面，保存基线和版本。常规旧博客免审，代码改造先预览和送审。",
   "seo-14-30": "Flatkey 每日制作最多 1 个已排期落地页。独立分支部署测试环境，证据齐全后提交工作任务审批。",
@@ -81,20 +89,22 @@ const automationNotes: Record<string, string> = {
 };
 export function automationCadence(rule: string): string {
   const values = Object.fromEntries(rule.split(";").map(part => part.split("=")));
-  const hour = Number(values.BYHOUR), minute = Number(values.BYMINUTE);
-  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return "时段待核实";
-  const time = `${String(hour).padStart(2,"0")}:${String(minute).padStart(2,"0")}`;
+  const hours = automationHours(values.BYHOUR), minute = Number(values.BYMINUTE);
+  if (!hours.length || !Number.isInteger(minute) || minute < 0 || minute > 59) return "时段待核实";
+  const times = hours.map(hour => `${String(hour).padStart(2,"0")}:${String(minute).padStart(2,"0")}`);
+  const time = hours.length > 1 && hours.at(-1)! - hours[0] === hours.length - 1
+    ? `${times[0]}–${times.at(-1)} 每小时` : times.join("、");
+  if (["DAILY", "WEEKLY"].includes(values.FREQ) && values.BYDAY === "MO,TU,WE,TH,FR") return `工作日 ${time}`;
   if (values.FREQ === "DAILY") return `每日 ${time}`;
   const days: Record<string,string> = { MO:"一",TU:"二",WE:"三",TH:"四",FR:"五",SA:"六",SU:"日" };
   if (values.FREQ === "MONTHLY" && values.BYSETPOS === "1" && values.BYDAY === "MO,TU,WE,TH,FR") return `月初首个工作日 ${time}`;
-  if (values.FREQ === "WEEKLY" && values.BYDAY === "MO,TU,WE,TH,FR") return `工作日 ${time}`;
   if (values.FREQ === "WEEKLY" && values.BYDAY?.split(",").every((day: string) => days[day])) return `周${values.BYDAY.split(",").map((day: string) => days[day]).join("、")} ${time}`;
   return "时段待核实";
 }
 export const automationConfigurationVerifiedAt = automationConfig.verifiedAt;
 const automationDependencies: Record<string, string[]> = {
-  "seo-09-30": ["平台关键词与 TopicMap", "国家与语言对应"],
-  "flatkey-5": ["已审核周计划", "当地关键词证据", "CMS 发布回执"],
+  "seo-09-30": ["原排期与关联任务", "平台关键词与 TopicMap"],
+  "flatkey-5": ["正式周排期", "当地关键词证据", "CMS 发布回执"],
   "seo-13-30": ["旧页基线", "可核实内容证据", "非博客逐页版本审批"],
   "seo-14-30": ["已定落地页关键词", "功能验收", "逐页版本审批"],
   "seo-15-00": ["站点源码", "来源归因检查", "逐页版本审批"],
@@ -102,7 +112,7 @@ const automationDependencies: Record<string, string[]> = {
   "automation": ["周四研究完成", "产能与关键词缺口确认"],
   "seo-17-30": ["当天采集回执", "跨周任务与审批台账"],
   "automation-2": ["真实素材与许可证据", "去重检查", "生产导入与读回证据"],
-  "seo-09-30-2": ["截至周四的数据回执", "周四已审核下周计划"],
+  "seo-09-30-2": ["截至周四的数据回执", "周五正式下周排期"],
   "seo-10-00-2": ["周报最终快照", "平台发送门控已验收", "周报独立防重锁"],
   "seo-18-00": ["日报最终快照", "平台发送门控已验收", "防重复发送锁"],
 };
@@ -116,7 +126,7 @@ export function configurationOnlyOperationsStatus(now = new Date(), note = "执�
 
 export function configuredAutomationPlans(now: Date): OperationsStatus["plans"] {
   const ordered = [...automationConfig.tasks].sort((a, b) => {
-    const minute = (rule: string) => { const fields = Object.fromEntries(rule.split(";").map(part => part.split("="))); return Number(fields.BYHOUR) * 60 + Number(fields.BYMINUTE); };
+    const minute = (rule: string) => { const fields = Object.fromEntries(rule.split(";").map(part => part.split("="))); return automationHours(fields.BYHOUR)[0] * 60 + Number(fields.BYMINUTE); };
     return minute(a.rrule) - minute(b.rrule) || a.id.localeCompare(b.id);
   });
   return ordered.map(task => ({ id: task.id, name: task.name, location: "Codex · 本机在线执行",

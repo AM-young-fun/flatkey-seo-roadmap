@@ -5,6 +5,7 @@
 .quick { display:flex; gap:8px; flex-wrap:wrap; padding-bottom:18px; border-bottom:1px solid #edf0f4; margin-bottom:18px; }
 .quick button { height:var(--ui-control-height); padding:0 12px; background:#fff; border:1px solid var(--ui-border); border-radius:var(--ui-radius); color:#34445c; cursor:pointer; font:inherit; }
 .quick button:hover { background:#f4f7fb; border-color:var(--ui-primary); color:var(--ui-primary); }
+.quick button[aria-pressed="true"] { background:#edf3ff; border-color:#a6bff0; color:#2456ac; }
 .dates { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
 .dates label { display:grid; gap:7px; min-width:0; }
 .dates input { width:100%; min-width:0; height:var(--ui-control-height); padding:0 12px; border:1px solid var(--ui-border); border-radius:var(--ui-radius); background:#fff; font:inherit; color:inherit; box-sizing:border-box; }

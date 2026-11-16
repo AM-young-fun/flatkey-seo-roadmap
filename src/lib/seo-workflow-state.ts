@@ -79,7 +79,7 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   if (!isExecutableWorkflowPlan(plan.status)) return;
   if (plan.status === "scheduled" && tasks.some(task => task && contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status))) reject("plan_task_not_ready", "自动排期只能领取已具备研究证据的内容任务；未完成研究的候选留在工作台");
   const cadence = "cadence" in plan.targets ? plan.targets.cadence : null;
-  const daily = cadence === "daily";
+  const daily = cadence === "daily" || cadence === "weekday_pages";
   const focused = cadence !== null;
   const localDay = (task: WorkflowTask) => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
   if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "正式计划须明确四国源文额度");
@@ -96,6 +96,10 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
     if ([...perDay.values()].some(pages => pages.size > 2)) reject("plan_daily_blog_optimization_quota", daily ? "Flatkey 每天最多安排2个优化页面" : "每天最多安排2篇常规博客优化");
   }
   const landings = ready.filter(task => task.kind === "landing");
+  if (cadence === "weekday_pages" && tasks.some(task => task && ["optimization", "landing", "cluster"].includes(task.kind)
+    && [0, 6].includes(new Date(localDay(task) + "T00:00:00Z").getUTCDay()))) {
+    reject("plan_page_weekend", "页面制作与优化只可排在北京时间周一至周五");
+  }
   const flatkeyLandings = landings.filter(task => task.siteDomain === "flatkey.ai");
   if (daily && new Set(flatkeyLandings.map(localDay)).size !== flatkeyLandings.length) reject("plan_daily_landing_quota", "Flatkey 每天最多安排1个新落地页");
   if (plan.targets && "clusterLanding" in plan.targets) {
@@ -370,28 +374,13 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   return { mutation, kind, record, key: workflowKey(kind, record.id), requestHash: workflowHash(mutation) };
 }
 
-export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean }, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
+export const FIRST_OPERATIONAL_WEEK = "2026-11-16";
+
+export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean }, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
   const current = workflowWeek(now);
   const weekStart = options.week === "next" ? shiftWorkflowDay(current, 7) : options.week === "latest" ? all.filter(row => row.kind === "plan").map(row => row.record.weekStart).sort().at(-1) ?? current : !options.week || options.week === "current" ? current : options.week;
   const belongs = (row: WorkflowStoredRow) => options.pageUrl ? "pageUrl" in row.record && row.record.pageUrl === options.pageUrl : options.allHistory || row.record.weekStart === weekStart;
-  const allTasks = all.filter(row => row.kind === "task" && belongs(row)).map(row => row.record as WorkflowTask).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-  const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
-  const plansByWeek = new Map<string, WorkflowPlan>();
-  if (options.operational) {
-    const plans = all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    for (const plan of plans) {
-      if (!plansByWeek.has(plan.weekStart)) plansByWeek.set(plan.weekStart, plan);
-    }
-  }
-  const tasks = options.operational ? allTasks.filter(task => {
-    const plan = plansByWeek.get(task.weekStart);
-    return task.source === "human" || (plan && isExecutableWorkflowPlan(plan.status) && plan.taskIds.includes(task.id));
-  }) : allTasks;
-  const workWeek = options.operational ? {
-    overdueTaskIds: tasks.filter(task => dayFormat.format(new Date(task.dueAt)) < dayFormat.format(now)).map(task => task.id),
-    dependencyStatuses: Object.fromEntries(allTasks.map(task => [task.id, task.status])),
-  } : undefined;
+  const tasks = all.filter(row => row.kind === "task" && belongs(row)).map(row => row.record as WorkflowTask).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
   const taskIds = new Set(tasks.map(task => task.id));
   const plans = all.filter(row => row.kind === "plan" && row.record.weekStart === weekStart).map(row => row.record as WorkflowPlan).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const publications = all.filter(row => row.kind === "publication" && belongs(row)).map(row => row.record as WorkflowPublication).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
@@ -403,7 +392,7 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
   const issues = all.filter(row => row.kind === "issue" && (belongs(row) || !options.pageUrl && (row.record as WorkflowIssue).status !== "resolved")).map(row => row.record as WorkflowIssue);
   const runs = all.filter(row => row.kind === "run" && (options.pageUrl ? (row.record as WorkflowRun).taskIds.some(id => taskIds.has(id)) : belongs(row))).map(row => row.record as WorkflowRun).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const verified = publications.filter(row => row.status === "verified");
-  return { weekStart, weekEnd: shiftWorkflowDay(weekStart, 6), plan: plans[0] ?? null, ...(workWeek ? { workWeek } : {}), approvals, tasks, publications, historicalImports, optimizations, issues, runs, storage, generatedAt: now.toISOString(), summary: {
+  const snapshot = { weekStart, weekEnd: shiftWorkflowDay(weekStart, 6), plan: plans[0] ?? null, approvals, tasks, publications, historicalImports, optimizations, issues, runs, storage, generatedAt: now.toISOString(), summary: {
     tasks: tasks.length, blocked: tasks.filter(task => ["blocked", "failed"].includes(task.status)).length, reviewPending: tasks.filter(task => task.status === "review_pending" && task.kind !== "research" && !automaticTaskPolicy(task)).length,
     pendingApprovalItems: approvals.reduce((sum, row) => sum + row.items.filter(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready).length, 0),
     pendingApprovals: approvals.filter(row => row.items.some(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready)).length,
@@ -411,4 +400,93 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
     verifiedLandingPages: verified.filter(row => row.kind === "landing").length, optimizedPages: new Set(verified.filter(row => row.kind === "optimization").map(row => row.pageUrl)).size,
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,
   } };
+  if (!options.operational) return snapshot;
+  return operationalWorkflowSnapshot(snapshot, all, options.workList === true);
+}
+
+function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean): WorkflowSnapshot {
+  const { weekStart } = snapshot;
+  const plansByWeek = new Map<string, WorkflowPlan>();
+  for (const { kind, record } of all) {
+    if (kind !== "plan" || record.weekStart < FIRST_OPERATIONAL_WEEK || !workList && record.weekStart > weekStart) continue;
+    const plan = record as WorkflowPlan;
+    const previous = plansByWeek.get(plan.weekStart);
+    if (!previous || plan.updatedAt > previous.updatedAt || plan.updatedAt === previous.updatedAt && plan.version > previous.version) {
+      plansByWeek.set(plan.weekStart, plan);
+    }
+  }
+  const plannedIds = new Map([...plansByWeek.values()]
+    .filter(plan => isExecutableWorkflowPlan(plan.status))
+    .map(plan => [plan.weekStart, new Set(plan.taskIds)]));
+
+  const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+  const issueTasks = new Set(all.filter(row => row.kind === "issue")
+    .map(row => row.record as WorkflowIssue).filter(issue => issue.status !== "resolved").map(issue => issue.taskId));
+  const originalApprovals = approvalRows(all);
+  const originalPublications = all.filter(row => row.kind === "publication").map(row => row.record as WorkflowPublication);
+  const verifiedTasks = new Set(originalPublications
+    .filter(row => row.status === "verified" && !["translation", "backfill_translation"].includes(row.kind))
+    .map(row => JSON.stringify([row.taskId, row.contentVersion])));
+  const tasksWithPendingPostReview = new Set(originalApprovals.flatMap(approval => approval.items
+    .filter(item => item.postPublicationId && workflowApprovalEffectiveItemStatus(approval, item.id, originalApprovals) === "pending")
+    .map(item => JSON.stringify([item.taskId, item.contentVersion]))));
+  const pendingRollbacks = new Set(workflowClusterRollbackCandidates({
+    approvals: originalApprovals,
+    publications: originalPublications,
+    runs: all.filter(row => row.kind === "run").map(row => row.record as WorkflowRun),
+  }).map(row => row.taskId));
+  const scheduledTasks = tasks.filter(task => task.weekStart >= FIRST_OPERATIONAL_WEEK && (workList || task.weekStart <= weekStart) &&
+    (task.source === "human" || plannedIds.get(task.weekStart)?.has(task.id) || task.kind === "technical" && issueTasks.has(task.id)))
+    .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
+  const activeTasks = scheduledTasks.filter(task => {
+    if (task.weekStart > weekStart) return false;
+    const version = JSON.stringify([task.id, task.contentVersion]);
+    return pendingRollbacks.has(task.id) || tasksWithPendingPostReview.has(version) ||
+      !["verified", "observing"].includes(task.status) && !verifiedTasks.has(version);
+  });
+  const ids = new Set(activeTasks.map(task => task.id));
+  const visibleTasks = workList ? scheduledTasks : activeTasks;
+  const visibleTaskIds = new Set(visibleTasks.map(task => task.id));
+  const dependencies = new Set(activeTasks.flatMap(task => task.dependencies));
+  const linkedApprovals = new Set(originalApprovals.filter(approval => approval.items.some(item => ids.has(item.taskId))).map(approval => approval.id));
+  const relevantApprovals = originalApprovals.filter(approval => linkedApprovals.has(approval.id)
+    || approval.supersedesApprovalIds.some(id => linkedApprovals.has(id)));
+  const activeById = new Map(activeTasks.map(task => [task.id, task]));
+  const activeApprovalItems = Object.fromEntries(relevantApprovals.map(approval => [approval.id,
+    approval.items.filter(item => {
+      const task = activeById.get(item.taskId);
+      if (!task || !approvalItemNeedsHuman(item, [task])) return false;
+      if (!item.postPublicationId && item.codeSource && task.branchObservation && task.branchObservation.headSha !== item.codeSource.commitSha) return false;
+      return task.contentVersion === item.contentVersion || task.kind === "blog" && task.language !== item.language;
+    }).map(item => item.id),
+  ]));
+  const reviewOrReleaseTaskIds = new Set<string>();
+  const pending = relevantApprovals.map(approval => approval.items.filter(item => {
+    if (!activeApprovalItems[approval.id].includes(item.id) || !approvalReviewReadiness(item).ready) return false;
+    const status = workflowApprovalEffectiveItemStatus(approval, item.id, originalApprovals);
+    if (status === "pending" || status === "approved") reviewOrReleaseTaskIds.add(item.taskId);
+    return status === "pending";
+  }).length);
+  const pendingCount = pending.reduce((total, count) => total + count, 0);
+  return {
+    ...snapshot,
+    tasks: visibleTasks,
+    approvals: relevantApprovals,
+    publications: originalPublications.filter(row => visibleTaskIds.has(row.taskId)),
+    workWeek: {
+      overdueTaskIds: activeTasks.filter(task => task.weekStart < weekStart).map(task => task.id),
+      pendingRollbackTaskIds: activeTasks.filter(task => pendingRollbacks.has(task.id)).map(task => task.id),
+      reviewOrReleaseTaskIds: [...reviewOrReleaseTaskIds],
+      dependencyStatuses: Object.fromEntries(tasks.filter(task => dependencies.has(task.id)).map(task => [task.id, task.status])),
+      activeApprovalItems,
+    },
+    summary: {
+      ...snapshot.summary,
+      tasks: visibleTasks.length,
+      blocked: activeTasks.filter(task => ["blocked", "failed"].includes(task.status)).length,
+      reviewPending: pendingCount,
+      pendingApprovalItems: pendingCount,
+      pendingApprovals: pending.filter(count => count > 0).length,
+    },
+  };
 }

@@ -23,14 +23,17 @@ export async function GET(request: Request) {
       });
       return Response.json({ storage: "database", siteDomain: "flatkey.ai", topics, relations }, { headers: workflowHeaders });
     }
-    const operational = params.get("operational") === "1";
     const week = params.get("week") ?? "current", pageUrl = params.get("pageUrl") ?? undefined;
     if (!["current", "next", "latest"].includes(week)) workflowWeekSchema.parse(week);
     if (pageUrl) { let valid = false; try { valid = WORKFLOW_SITES.some(site => pageBelongsToSite(pageUrl, site)); } catch { /* Invalid URL. */ } if (!valid) throw new WorkflowError("invalid_page", "请选择五站正式 HTTPS 页面", 400); }
     const releaseQueue = params.get("releaseQueue") === "1";
     const rollbackQueue = params.get("rollbackQueue") === "1";
     const materialQueue = params.get("materialQueue") === "1";
-    const snapshot = await loadWorkflowSnapshot({ week, pageUrl, operational, allHistory: operational || releaseQueue || rollbackQueue || materialQueue || params.get("allHistory") === "true" }, auth.localPreview);
+    const operational = !rollbackQueue && (releaseQueue || materialQueue || params.get("operational") === "1");
+    const workList = !releaseQueue && !materialQueue && params.get("workList") === "1";
+    const snapshot = await loadWorkflowSnapshot(operational ? { operational: true, workList } : {
+      week, pageUrl, allHistory: rollbackQueue || params.get("allHistory") === "true",
+    }, auth.localPreview);
     if (rollbackQueue) return Response.json({ candidates: workflowClusterRollbackCandidates(snapshot), storage: snapshot.storage }, { headers: workflowHeaders });
     if (materialQueue) return Response.json({ candidates: approvalMaterialBacklog(snapshot.approvals, snapshot.tasks), storage: snapshot.storage }, { headers: workflowHeaders });
     if (releaseQueue) return Response.json({ candidates: workflowReleaseCandidates(snapshot), storage: snapshot.storage }, { headers: workflowHeaders });

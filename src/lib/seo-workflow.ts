@@ -94,6 +94,10 @@ export const workflowPlanSchema = z.object({
       apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(14),
       blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict(),
     }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "四国源文每周合计35篇"),
+    z.object({ cadence: z.literal("weekday_pages"), landing: z.literal(5), clusterLanding: z.literal(2),
+      apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(10),
+      blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict(),
+    }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "四国源文每周合计35篇"),
   ]),
   gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "clusterLanding", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
   evidence, notes: z.string().max(5000),
@@ -359,7 +363,14 @@ export function workflowApprovalEffectiveItemStatus(approval: WorkflowApproval, 
 export const workflowApprovalCheckSchema = z.object({ approvalId: id, itemId: id, taskId: id, pageUrl: httpsUrl, language: z.string().min(2).max(20), contentVersion: z.string().min(1).max(200) }).strict();
 export type WorkflowApprovalCheck = z.infer<typeof workflowApprovalCheckSchema>;
 export type WorkflowRecord = WorkflowApproval | WorkflowTask | WorkflowPlan | WorkflowPublication | WorkflowOptimization | WorkflowIssue | WorkflowRun | WorkflowHistoricalImport;
-export type WorkflowSnapshot = { workWeek?: { overdueTaskIds: string[]; dependencyStatuses: Record<string, WorkflowTask["status"]> }; weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; openIssues: number; lastRunAt: string | null }; };
+export type WorkflowWorkWeek = {
+  overdueTaskIds: string[];
+  pendingRollbackTaskIds: string[];
+  reviewOrReleaseTaskIds: string[];
+  dependencyStatuses: Record<string, WorkflowTask["status"]>;
+  activeApprovalItems: Record<string, string[]>;
+};
+export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; workWeek?: WorkflowWorkWeek; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; openIssues: number; lastRunAt: string | null }; };
 /** Only the reviewed code and test artifacts are eligible for a release preflight. */
 export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "tasks" | "approvals" | "publications">) {
   const tasks = new Map(snapshot.tasks.map(task => [task.id, task]));
