@@ -370,11 +370,28 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   return { mutation, kind, record, key: workflowKey(kind, record.id), requestHash: workflowHash(mutation) };
 }
 
-export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: string; pageUrl?: string; allHistory?: boolean }, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
+export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean }, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
   const current = workflowWeek(now);
   const weekStart = options.week === "next" ? shiftWorkflowDay(current, 7) : options.week === "latest" ? all.filter(row => row.kind === "plan").map(row => row.record.weekStart).sort().at(-1) ?? current : !options.week || options.week === "current" ? current : options.week;
   const belongs = (row: WorkflowStoredRow) => options.pageUrl ? "pageUrl" in row.record && row.record.pageUrl === options.pageUrl : options.allHistory || row.record.weekStart === weekStart;
-  const tasks = all.filter(row => row.kind === "task" && belongs(row)).map(row => row.record as WorkflowTask).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const allTasks = all.filter(row => row.kind === "task" && belongs(row)).map(row => row.record as WorkflowTask).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
+  const plansByWeek = new Map<string, WorkflowPlan>();
+  if (options.operational) {
+    const plans = all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    for (const plan of plans) {
+      if (!plansByWeek.has(plan.weekStart)) plansByWeek.set(plan.weekStart, plan);
+    }
+  }
+  const tasks = options.operational ? allTasks.filter(task => {
+    const plan = plansByWeek.get(task.weekStart);
+    return task.source === "human" || (plan && isExecutableWorkflowPlan(plan.status) && plan.taskIds.includes(task.id));
+  }) : allTasks;
+  const workWeek = options.operational ? {
+    overdueTaskIds: tasks.filter(task => dayFormat.format(new Date(task.dueAt)) < dayFormat.format(now)).map(task => task.id),
+    dependencyStatuses: Object.fromEntries(allTasks.map(task => [task.id, task.status])),
+  } : undefined;
   const taskIds = new Set(tasks.map(task => task.id));
   const plans = all.filter(row => row.kind === "plan" && row.record.weekStart === weekStart).map(row => row.record as WorkflowPlan).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const publications = all.filter(row => row.kind === "publication" && belongs(row)).map(row => row.record as WorkflowPublication).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
@@ -386,7 +403,7 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
   const issues = all.filter(row => row.kind === "issue" && (belongs(row) || !options.pageUrl && (row.record as WorkflowIssue).status !== "resolved")).map(row => row.record as WorkflowIssue);
   const runs = all.filter(row => row.kind === "run" && (options.pageUrl ? (row.record as WorkflowRun).taskIds.some(id => taskIds.has(id)) : belongs(row))).map(row => row.record as WorkflowRun).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const verified = publications.filter(row => row.status === "verified");
-  return { weekStart, weekEnd: shiftWorkflowDay(weekStart, 6), plan: plans[0] ?? null, approvals, tasks, publications, historicalImports, optimizations, issues, runs, storage, generatedAt: now.toISOString(), summary: {
+  return { weekStart, weekEnd: shiftWorkflowDay(weekStart, 6), plan: plans[0] ?? null, ...(workWeek ? { workWeek } : {}), approvals, tasks, publications, historicalImports, optimizations, issues, runs, storage, generatedAt: now.toISOString(), summary: {
     tasks: tasks.length, blocked: tasks.filter(task => ["blocked", "failed"].includes(task.status)).length, reviewPending: tasks.filter(task => task.status === "review_pending" && task.kind !== "research" && !automaticTaskPolicy(task)).length,
     pendingApprovalItems: approvals.reduce((sum, row) => sum + row.items.filter(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready).length, 0),
     pendingApprovals: approvals.filter(row => row.items.some(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready)).length,

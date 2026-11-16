@@ -25,6 +25,19 @@ test("working weeks are Monday-Sunday even across Friday reporting cutoff", () =
   assert.equal(workflowWeekSchema.safeParse("2026-11-13").success, false);
   assert.equal(workflowSnapshot([], { week: "next" }, "database", now).weekStart, "2026-11-16");
 });
+test("operational snapshots retain authorized tasks from prior weeks and resolve dependencies", () => {
+  const prior = task({ id: "prior", weekStart: "2026-11-02", dueAt: "2026-11-06T06:00:00Z", dependencies: ["dependency"] });
+  const excluded = task({ id: "excluded", weekStart: "2026-11-02" });
+  const dependency = task({ id: "dependency", status: "verified" });
+  const pastPlan = { weekStart: "2026-11-02", status: "scheduled", updatedAt: "2026-11-02T02:00:00Z", taskIds: ["prior"] };
+  const draft = { weekStart: "2026-11-09", status: "draft", updatedAt: "2026-11-09T02:00:00Z", taskIds: ["dependency"] };
+  const rows = [prior, excluded, dependency].map(record => ({ kind: "task", record }));
+  rows.push(...[pastPlan, draft].map(record => ({ kind: "plan", record })));
+  const snapshot = workflowSnapshot(rows, { allHistory: true, operational: true }, "database", now);
+  assert.deepEqual(snapshot.tasks.map(record => record.id), ["prior"]);
+  assert.deepEqual(snapshot.workWeek.overdueTaskIds, ["prior"]);
+  assert.equal(snapshot.workWeek.dependencyStatuses.dependency, "verified");
+});
 test("country language and Chinese keyword mismatch fail without reassigning countries", () => {
   assert.equal(workflowTaskSchema.safeParse(task({ country: "BR", language: "es-ES" })).success, false);
   assert.equal(workflowTaskSchema.safeParse(task({ keyword: "便宜模型接口" })).success, false);
