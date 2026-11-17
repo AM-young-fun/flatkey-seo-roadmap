@@ -1,8 +1,9 @@
 "use client";
 import { UiSelect } from "./UiSelect";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { closedPreset, previousRange, propertyToday, SEO_REPORT_TIME_ZONE, shiftDay, validRange, yearAgoRange, type DateRange } from "@/lib/seo-date-range";
+import { closedPreset, listDateRange, previousRange, propertyToday, seoToday, SEO_REPORT_TIME_ZONE, shiftDay, validRange, yearAgoRange, type DateRange, type ListDatePreset } from "@/lib/seo-date-range";
 import styles from "./SeoDateControl.module.css";
 
 const initialRange = (today: string): DateRange => { const end = shiftDay(today, -1); return { start: shiftDay(end, -6), end }; };
@@ -85,5 +86,68 @@ export function SeoDateControl({ value, showComparison = true }: { value: Return
       {error ? <p role="alert" className={styles.error}>{error}</p> : <p className={styles.note}>{timeZone === "Asia/Shanghai" ? "按北京时间选择已结束日" : "按洛杉矶时间统计已结束日"}</p>}
       <button type="button" className={styles.apply} onClick={() => apply({start,end})}>应用日期</button>
     </section> : null}
+  </div>;
+}
+
+const listPresets = { all: "全部", week: "本周", month: "本月" } as const;
+export const listDateParamKeys = ["range", "rangeStart", "rangeEnd"] as const;
+export function useSeoListDateRange() {
+  const params = useSearchParams();
+  const today = seoToday();
+  const choice = params.get("range");
+  const preset = choice === "week" || choice === "month" || choice === "custom" ? choice : "all";
+  const range = listDateRange(preset, today, { start: params.get("rangeStart") ?? "", end: params.get("rangeEnd") ?? "" });
+  function apply(next: ListDatePreset, custom?: DateRange) {
+    const query = new URLSearchParams(location.search);
+    listDateParamKeys.forEach(key => query.delete(key));
+    if (next !== "all") query.set("range", next);
+    if (next === "custom" && custom) {
+      query.set("rangeStart", custom.start);
+      query.set("rangeEnd", custom.end);
+    }
+    history.pushState(null, "", location.pathname + (query.size ? "?" + query : "") + location.hash);
+  }
+  return { preset, range, today, apply } as const;
+}
+
+export function SeoListDateControl({ value }: { value: ReturnType<typeof useSeoListDateRange> }) {
+  const { preset, range, today, apply } = value;
+  const [open, setOpen] = useState(false);
+  const [start, setStart] = useState(""), [end, setEnd] = useState("");
+  const [error, setError] = useState("");
+  const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); } };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  const choose = (next: ListDatePreset, custom?: DateRange) => {
+    apply(next, custom);
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const label = preset === "custom" && range ? range.start + " — " + range.end : listPresets[preset === "custom" ? "all" : preset];
+  return <div className={styles.root} ref={root}>
+    <button ref={trigger} type="button" className={styles.trigger} aria-label="筛选日期" aria-expanded={open} onClick={() => {
+      if (!open) { setStart(range?.start ?? today); setEnd(range?.end ?? today); setError(""); }
+      setOpen(!open);
+    }}>{label}<span aria-hidden="true">⌄</span></button>
+    {open ? <form className={styles.menu} aria-label="自定义日期范围" onSubmit={event => {
+      event.preventDefault();
+      if (!validRange({ start, end })) { setError("请选择有效的起止日期"); return; }
+      choose("custom", { start, end });
+    }}>
+      <div className={styles.quick}>{(Object.keys(listPresets) as (keyof typeof listPresets)[]).map(key =>
+        <button type="button" key={key} aria-pressed={preset === key} onClick={() => choose(key)}>{listPresets[key]}</button>)}</div>
+      <div className={styles.dates}>
+        <label>开始日期<input type="date" value={start} onInput={event => setStart(event.currentTarget.value)} required /></label>
+        <label>结束日期<input type="date" value={end} onInput={event => setEnd(event.currentTarget.value)} required /></label>
+      </div>
+      {error ? <p role="alert" className={styles.error}>{error}</p> : null}
+      <button type="submit" className={styles.apply}>应用日期</button>
+    </form> : null}
   </div>;
 }

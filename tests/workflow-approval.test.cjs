@@ -154,4 +154,75 @@ test('cluster review follows a verified production receipt and rejection queues 
  assert.deepEqual(workflowClusterRollbackCandidates({...snapshot,publications:[...snapshot.publications,{...liveRow.record,id:'newer',publishedAt:'2026-11-10T08:01:00Z'}]}),[]);
  assert.deepEqual(workflowClusterRollbackCandidates({...snapshot,runs:[{id:'cluster-rollback:cluster-pub',status:'completed'}]}),[]);
  assert.throws(()=>mutate({...live,siteDomain:'flatkey.ai',pageUrl:task.pageUrl},[],'record_publication','collector'),/集群站先验收/);
+ const clusterWork = review => [
+   {...taskRow,record:{...taskRow.record,weekStart:"2026-11-16",source:"human",status:"verified"}},
+   liveRow, review,
+ ];
+ const nextWeek = new Date("2026-11-23T02:15:00Z");
+ const pendingReview = workflowSnapshot(clusterWork(post),{operational:true},"database",nextWeek);
+ assert.deepEqual(pendingReview.workWeek.overdueTaskIds,[change.id]);
+ assert.deepEqual(pendingReview.workWeek.activeApprovalItems[post.record.id],["item-en"]);
+ const pendingRollback = workflowSnapshot(clusterWork(declined),{operational:true},"database",nextWeek);
+ assert.deepEqual(pendingRollback.workWeek.pendingRollbackTaskIds,[change.id]);
+ assert.deepEqual(workflowSnapshot(clusterWork(accepted),{operational:true},"database",nextWeek).tasks,[]);
+ const rollbackReceipt = {kind:"run",record:{id:"cluster-rollback:cluster-pub",status:"completed"}};
+ assert.deepEqual(workflowSnapshot([...clusterWork(declined),rollbackReceipt],{operational:true},"database",nextWeek).tasks,[]);
+});
+
+test("Monday work queue carries the original scheduled task and approval across the Beijing week boundary", () => {
+  const prior = "2026-11-09", first = "2026-11-16", next = "2026-11-23";
+  const before = new Date("2026-11-22T15:59:59Z"), after = new Date("2026-11-22T16:00:00Z");
+  const version = "a".repeat(40);
+  const codeSource = { repository: "solvea-plg/flatkey", branch: "codex/carried-page", commitSha: version };
+  const planned = (id, weekStart, patch = {}) => ({
+    kind: "task",
+    record: { ...task, id, weekStart, dueAt: weekStart + "T10:15:00+08:00", status: "ready",
+      dependencies: [], version: 1, ...patch },
+  });
+  const old = planned("pre-cutover", prior);
+  const done = planned("done", first, { status: "verified" });
+  const carry = planned("carry", first, { kind: "landing", pageType: "landing", status: "review_pending",
+    codeSource, artifactUrl: item().previewUrl, contentVersion: version, dependencies: [done.record.id], version: 4 });
+  const fresh = planned("fresh", next);
+  const candidate = planned("unscheduled", first);
+  const plan = (weekStart, taskIds) => ({ kind: "plan", record: {
+    id: "plan-" + weekStart, weekStart, taskIds, status: "scheduled", version: 1, updatedAt: weekStart + "T01:00:00Z",
+  }});
+  const cite = approval({
+    weekStart: first, status: "approved", version: 3,
+    items: [item({ id: "carried-item", taskId: "carry", codeSource, contentVersion: version })],
+    decisions: [decision({ itemIds: ["carried-item"] })],
+  });
+  const rows = [old, done, carry, fresh, candidate, { kind: "approval", record: cite },
+    plan(prior, [old.record.id]), plan(first, [done.record.id, carry.record.id]), plan(next, [fresh.record.id])];
+  const sunday = workflowSnapshot(rows, { operational: true }, "database", before);
+  assert.deepEqual(sunday.tasks.map(t => t.id), ["carry"]);
+  assert.deepEqual(workflowSnapshot(rows, { operational: true, workList: true }, "database", before).tasks.map(t => t.id), ["carry", "done", "fresh"]);
+  assert.deepEqual(workflowSnapshot(rows, { operational: true, workList: true }, "database", after).tasks.map(t => t.id), ["carry", "done", "fresh"]);
+  assert.deepEqual(sunday.workWeek.overdueTaskIds, []);
+  const monday = workflowSnapshot(rows, { operational: true }, "database", after);
+  assert.equal(monday.weekStart, next);
+  assert.deepEqual(monday.tasks.map(t => t.id), ["carry", "fresh"]);
+  assert.deepEqual(monday.workWeek.overdueTaskIds, ["carry"]);
+  assert.deepEqual(monday.workWeek.dependencyStatuses, { done: "verified" });
+  assert.deepEqual(monday.workWeek.activeApprovalItems[cite.id], ["carried-item"]);
+  assert.deepEqual(monday.tasks[0], carry.record);
+  assert.deepEqual(monday.approvals[0], cite);
+  assert.equal(workflowReleaseCandidates(monday)[0].codeSource.commitSha, version);
+  const changed = rows.map(row => row === carry ? { ...row, record: {
+    ...carry.record, branchObservation: { headSha: "b".repeat(40), observedAt: after.toISOString() },
+  } } : row);
+  const changedSnapshot = workflowSnapshot(changed, { operational: true }, "database", after);
+  assert.deepEqual(changedSnapshot.workWeek.activeApprovalItems[cite.id], []);
+  assert.deepEqual(workflowReleaseCandidates(changedSnapshot), []);
+  const superseding = { kind: "approval", record: {
+    ...cite, id: "inactive-replacement", status: "pending", decisions: [], supersedesApprovalIds: [cite.id],
+    items: [{ ...cite.items[0], taskId: done.record.id, contentVersion: "replacement" }],
+  } };
+  assert.deepEqual(workflowReleaseCandidates(workflowSnapshot([...rows, superseding], { operational: true }, "database", after)), []);
+  const shipped = { kind: "publication", record: publication({
+    taskId: carry.record.id, weekStart: first, status: "verified", contentVersion: version,
+  }) };
+  assert.deepEqual(workflowSnapshot([...rows, shipped], { operational: true }, "database", after).tasks.map(t => t.id), ["fresh"]);
+  assert.ok(workflowSnapshot(rows, { allHistory: true }, "database", after).tasks.some(t => t.id === old.record.id));
 });

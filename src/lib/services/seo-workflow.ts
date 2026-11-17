@@ -22,7 +22,7 @@ async function readLocal(directory: string): Promise<LocalState> {
 }
 function requireDatabase() { if (!process.env.DATABASE_URL) throw new WorkflowError("storage_unavailable", "执行台账尚未接通数据库，未写入任何生产记录", 503); }
 
-export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean } = {}, localPreview = false) {
+export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean } = {}, localPreview = false) {
   const directory = localDirectory(localPreview);
   if (directory) return workflowSnapshot((await readLocal(directory)).records, options, "local_preview");
   requireDatabase();

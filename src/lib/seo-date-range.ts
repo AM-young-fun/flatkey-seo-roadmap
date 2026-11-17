@@ -17,6 +17,27 @@ export function collectionDateRange(days: number, now: Date, sourceTimeZone = "A
 
 export const defaultRange = (): DateRange => { const end = shiftDay(propertyToday(), -1); return { start: shiftDay(end, -29), end }; };
 export function validRange(r: DateRange) { return [r.start, r.end].every(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d) && r.start <= r.end; }
+export type ListDatePreset = "all" | "week" | "month" | "custom";
+export function listDateRange(preset: ListDatePreset, today: string, custom: DateRange): DateRange | null {
+  if (preset === "custom") return validRange(custom) ? custom : null;
+  if (preset === "week") {
+    const start = shiftDay(today, -((new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7));
+    return { start, end: shiftDay(start, 6) };
+  }
+  if (preset === "month") {
+    const [year, month] = today.split("-").map(Number);
+    return { start: today.slice(0, 8) + "01", end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10) };
+  }
+  return null;
+}
+export function dateInListRange(value: string | null | undefined, range: DateRange | null) {
+  if (!range) return true;
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const day = value.length === 10 ? value : seoToday(date);
+  return day >= range.start && day <= range.end;
+}
 export function previousRange(r: DateRange) { const n = (Date.parse(r.end) - Date.parse(r.start)) / 86400000 + 1; return { start: shiftDay(r.start, -n), end: shiftDay(r.start, -1) }; }
 
 export function yearAgoRange(range: DateRange): DateRange {

@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-13T10:23:16.054Z",
+  "verifiedAt": "2026-11-16T03:43:10.925Z",
   "tasks": [
     {
       "id": "automation",
@@ -9,7 +9,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564898693,
+      "updated_at": 1794800319214,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -37,13 +37,13 @@
     },
     {
       "id": "flatkey-5",
-      "name": "Flatkey SEO 11:00 四国博客制作与自动发布",
+      "name": "Flatkey SEO 10:15 起每小时 四国博客领取与发布",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=11;BYMINUTE=0;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYHOUR=10,11,12,13,14,15,16,17,18,19,20,21,22,23;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564890727,
+      "updated_at": 1794796210130,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -71,13 +71,13 @@
     },
     {
       "id": "seo-09-30",
-      "name": "SEO 09:30 四国关键词研究与平台入库",
+      "name": "SEO 10:15 起每小时 已排期关键词研究跟进",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYHOUR=10,11,12,13,14,15,16,17,18,19,20,21,22,23;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564895142,
+      "updated_at": 1794800291334,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -139,13 +139,13 @@
     },
     {
       "id": "seo-13-30",
-      "name": "SEO 13:30 旧页优化与博客自动更新",
+      "name": "SEO 工作日 10:15 起每小时 页面优化",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=13;BYMINUTE=30;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=10,11,12,13,14,15,16,17,18,19,20,21,22,23;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564907274,
+      "updated_at": 1794796218778,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -162,7 +162,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=14;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564886362,
+      "updated_at": 1794800313575,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -173,13 +173,13 @@
     },
     {
       "id": "seo-14-30",
-      "name": "SEO 每日14:30 Flatkey 落地页制作与预览",
+      "name": "SEO 工作日 10:15 起每小时 Flatkey 落地页",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=14;BYMINUTE=30;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=10,11,12,13,14,15,16,17,18,19,20,21,22,23;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564854182,
+      "updated_at": 1794796194885,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -190,13 +190,13 @@
     },
     {
       "id": "seo-15-00",
-      "name": "SEO 工作日15:00 集群站维护与归因",
+      "name": "SEO 工作日 10:15 起每小时 集群站执行",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=10,11,12,13,14,15,16,17,18,19,20,21,22,23;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794564904264,
+      "updated_at": 1794796227257,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -207,13 +207,13 @@
     },
     {
       "id": "seo-16-00",
-      "name": "SEO 16:00 审批发布与上线效果监控",
+      "name": "SEO 10:15 起每小时 审批发布与监控",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYHOUR=10,11,12,13,14,15,16,17,18,19,20,21,22,23;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1794468319092,
+      "updated_at": 1794796201861,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"

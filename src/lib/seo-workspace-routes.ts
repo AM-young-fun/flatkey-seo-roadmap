@@ -22,7 +22,7 @@ export function workspaceRedirectHref(destination: string, params: WorkspaceSear
   return target.pathname + (query.size ? `?${query}` : "") + target.hash;
 }
 
-const taskFilterKeys = ["country", "taskType", "status", "q"] as const;
+const taskFilterKeys = ["country", "taskType", "status", "q", "range", "rangeStart", "rangeEnd"] as const;
 
 export function workTaskHref(task: { id: string; weekStart: string }, filters?: URLSearchParams) {
   const query = new URLSearchParams({ week: task.weekStart });
