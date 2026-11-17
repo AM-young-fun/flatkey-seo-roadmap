@@ -52,3 +52,42 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
   }
   return result;
 }
+
+const marketNames = { US: "美国", JP: "日本", ES: "西班牙", BR: "巴西" } as const;
+
+export function digestDailyRankingNotes(tasks: SerpTaskRead[], now: Date): string[] {
+  const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
+  const rows: string[] = [];
+  for (const region of ["US", "JP", "ES", "BR"] as const) {
+    const history = tasks.filter(task => task.region === region && task.checkedAt && +new Date(task.checkedAt) <= +now);
+    const visits = [...new Map(history.map(task => [task.runId, task])).values()].sort((a, b) =>
+      Number(a.runScope === "SAMPLE") - Number(b.runScope === "SAMPLE") || +new Date(b.runCreatedAt) - +new Date(a.runCreatedAt));
+    for (const run of visits) {
+      const targets = new Map<string, SerpTarget>();
+      for (const task of history.filter(row => row.runId === run.runId)) {
+        if (isOwnedBrandKeyword(task.keyword)) continue;
+        for (const value of Array.isArray(task.targetsJson) ? task.targetsJson : []) {
+          if (value?.siteDomain === "flatkey.ai" && typeof value.keywordId === "string") {
+            targets.set(value.keywordId, { keywordId: value.keywordId, keyword: task.keyword, siteDomain: value.siteDomain, targetUrls: [] });
+          }
+        }
+      }
+      const evidence = buildSerpKeywordResults([...targets.values()], history, { currentRunId: run.runId })
+        .filter(row => row.runId === run.runId && row.checkedAt && (row.status === "RANKED" || row.status === "OUTSIDE_TOP100"));
+      if (!evidence.length) continue;
+      const inTop10 = evidence.filter(row => row.rank !== null && row.rank <= 10).length;
+      const examples = evidence.filter(row => row.rank !== null && row.url)
+        .sort((a, b) => a.rank! - b.rank! || a.keyword.localeCompare(b.keyword)).slice(0, 1);
+      const dates = [...new Set(evidence.map(row => localDate.format(new Date(row.checkedAt!))))].sort();
+      const range = dates.length === 1 ? dates[0] : `${dates[0]}—${dates.at(-1)}`;
+      rows.push(`${marketNames[region]} · Google 桌面端 ${range} · ${run.runScope === "SAMPLE" ? "抽样" : "核实"} ${evidence.length}/${targets.size} 词 · 前十 ${inTop10} 词`);
+      for (const row of examples) {
+        const movement = row.previousRank !== null && row.previousRank !== row.rank ? `（此前第 ${row.previousRank} 名）` : "";
+        const page = new URL(row.url!).pathname;
+        rows.push(`  ${row.keyword} · 第 ${row.rank} 名${movement} · ${page} · ${localDate.format(new Date(row.checkedAt!))}`);
+      }
+      break;
+    }
+  }
+  return rows;
+}

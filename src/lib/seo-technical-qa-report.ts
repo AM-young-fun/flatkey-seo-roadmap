@@ -36,7 +36,7 @@ export function technicalQaReport(
     issues: issues.map(row => {
       const task = row.taskId ? linkedTasks.get(row.taskId) : undefined;
       return {
-        id: row.id, title: row.title, status: row.status, priority: row.priority, url: row.pageUrl, nextAction: row.nextAction,
+        id: row.id, title: row.title, status: row.status, priority: row.priority, url: row.pageUrl, impact: row.impact, nextAction: row.nextAction,
         taskId: row.taskId, taskWeek: task?.weekStart, issueWeek: row.weekStart,
       };
     }),

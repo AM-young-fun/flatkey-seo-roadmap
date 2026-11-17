@@ -88,3 +88,19 @@ test("collection health exits nonzero for every required failed stage, including
  assert.equal(run({BUSINESS_ONLY:"true",INVENTORY_OUTCOME:"skipped",ANALYTICS_OUTCOME:"skipped"}),0);
  assert.notEqual(run({BUSINESS_ONLY:"true",BUSINESS_OUTCOME:"failure"}),0);
 });
+
+
+test("GA4 omitted registration steps require explicit total abandonment evidence before recording zero", () => {
+ const { readFunnelCounts } = require("../scripts/server-seo-daily-acquisition.cjs");
+ const row = (step, ...values) => ({ dimensionValues: [{ value: step }], metricValues: values.map(value => ({ value })) });
+ const table = {
+  dimensionHeaders: [{ name: "funnelStepName" }],
+  metricHeaders: ["activeUsers", "funnelStepCompletionRate", "funnelStepAbandonments"].map(name => ({ name })),
+  rows: [row("1. Viewed group", "4", "0", "4")],
+ };
+ assert.deepEqual(readFunnelCounts(table), { entrants: 4, registrations: 0 });
+ assert.throws(() => readFunnelCounts({ ...table, rows: [row("1. Viewed group", "4", "0.25", "3")] }), /ga4_funnel_step_unavailable/);
+ assert.deepEqual(readFunnelCounts({ ...table, rows: [row("1. Viewed group", "4", "0.25", "3"), row("2. Registered", "1")] }),
+   { entrants: 4, registrations: 1 });
+ assert.throws(() => readFunnelCounts({ ...table, metadata: { samplingMetadatas: [{}] } }), /quality_unverified/);
+});

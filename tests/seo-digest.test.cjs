@@ -256,7 +256,7 @@ test("DingTalk daily and weekly cards show comparable data with the real dates a
  assert.match(daily.text, /Google 全站点击 5 → \*\*10\*\*（\+5 \/ \+100.0%） · 2026-11-09 → 2026-11-10/);
  assert.match(daily.text, /Google 全站曝光 50 → \*\*100\*\*/);
  assert.match(daily.text, /Google CTR 10.00% → 10.00%/);
- assert.match(daily.text, /页面组表现[\s\S]*关键词与技术异常[\s\S]*今日完成与下一步[\s\S]*数据状态/);
+ assert.match(daily.text, /页面组表现[\s\S]*过去 7 天的工作效果[\s\S]*关键词实测排名[\s\S]*技术异常[\s\S]*今日完成[\s\S]*数据状态/);
  assert.doesNotMatch(daily.text, /private-diagnostic-marker|https:/);
  assert.match(daily.detailText, /private-diagnostic-marker|待审核/);
  const weekly = buildSeoDigest({ ...input, kind: "weekly" });
@@ -293,7 +293,7 @@ test("actual verified ES optimization stays visible when the overall execution c
   publications:fixture.publications,optimizations:fixture.optimizations,
   publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
  assert.deepEqual(report.counts,fixture.expectedCounts);
- assert.match(report.text,/已核实 \/es\/blog\/gpu-server/);
+ assert.match(report.text,/优化 \*\*1 个页面\*\*/);
  assert.match(report.detailText,/今日优化 已核实 1 个页面，台账覆盖待补/);
  assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
  assert.doesNotMatch(report.text,/优化 暂无上线回执/);
@@ -416,4 +416,21 @@ test("account registrations keep UTC dates, real zero, later corrections, and in
  const week = accountRegistrationSummary({ start: "2026-11-06", end: "2026-11-12" }, [earlier, corrected]);
  assert.equal(week.missing.length, 5);
  assert.equal(week.users, null);
+});
+
+
+test("daily card shows dated release effects and only counts confirmed work in the final section", () => {
+ const date = "2026-11-17", report = buildSeoDigest({ ...base(date), notificationCompact: true, resolvedIssues: 2,
+   priorities: [{ title: "approval-private-marker", reason: "pending", action: "review" }],
+   recentPages: [
+     { day: "2026-11-10", change: "optimization", url: "https://flatkey.ai/blog/updated", title: "Updated",
+       before: { date: "2026-11-09", clicks: 4 }, latest: { date: "2026-11-15", clicks: 11 },
+       beforeVisits: null, latestVisits: null },
+     { day: "2026-11-09", change: "new", url: "https://flatkey.ai/blog/outside-window", title: "Old",
+       before: null, latest: { date: "2026-11-15", clicks: 999 }, beforeVisits: null, latestVisits: null },
+   ] });
+ assert.match(report.text, /过去 7 天上线.*2026-11-10—2026-11-16.*1 个已有上线后数据/);
+ assert.match(report.text, /优化 \/blog\/updated · Google 点击 4 → \*\*11\*\*.*2026-11-09 → 2026-11-15/);
+ assert.match(report.text, /修复 \*\*2 个问题\*\*/);
+ assert.doesNotMatch(report.text, /outside-window|approval-private-marker|下一步/);
 });

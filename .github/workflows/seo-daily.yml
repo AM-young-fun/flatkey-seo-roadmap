@@ -120,6 +120,13 @@ jobs:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
           SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: node scripts/server-seo-daily.cjs
+      - name: Archive first-touch acquisition and four same-day page funnels
+        if: ${{ !inputs.business_only && !inputs.periods_only }}
+        continue-on-error: true
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.SEO_GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/server-seo-daily-acquisition.cjs
       - name: Collect independent period users and registrations
         id: periods
         if: always() && !inputs.business_only && vars.SEO_WORKFLOW_ENABLED == 'true'
