@@ -199,6 +199,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Refresh account registrations before today's report
+        if: vars.SEO_ACCOUNT_REGISTRATION_COLLECTION_ENABLED == 'true' && !inputs.report_id
+        continue-on-error: true
+        env:
+          SEO_ACCOUNT_REGISTRATION_READ_TOKEN: ${{ secrets.SEO_ACCOUNT_REGISTRATION_READ_TOKEN }}
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_REPORT_DATE: ${{ inputs.report_date }}
+        run: node scripts/server-account-registrations.cjs --report-date="$SEO_REPORT_DATE"
       - name: Prepare or send the unified report through the original bot
         env:
           SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
