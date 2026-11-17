@@ -5,6 +5,18 @@ function enabled(job, { event = "workflow_dispatch", result = "success", unified
  const defaults = Object.fromEntries(Object.entries(workflow.on.workflow_dispatch.inputs).map(([name, config]) => [name, config.default]));
  return Boolean(vm.runInNewContext(workflow.jobs[job].if, { always: () => true, github: {ref:"refs/heads/main",event_name:event}, vars:{SEO_SERVER_COLLECTION_ENABLED:"true",SEO_UNIFIED_REPORTING_ENABLED:unified}, needs:{collect:{result}}, inputs:event === "workflow_dispatch" ? {...defaults,...inputs} : {} }));
 }
+test("scheduled collection starts at 16:00 Beijing with the last Los Angeles day closed", () => {
+ const schedule = workflow.on.schedule;
+ const config = require("../src/lib/data/seo-server-config.json");
+ assert.deepEqual(schedule.map(row => row.cron), ["0 8 * * *"]);
+ assert.equal(config.cron, schedule[0].cron);
+ for (const [date, hour] of [["2026-11-17", 0], ["2026-07-17", 1]]) {
+  const local = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23", day: "2-digit" });
+  const parts = Object.fromEntries(local.formatToParts(new Date(date + "T08:00:00Z")).map(part => [part.type, part.value]));
+  assert.equal(parts.day, date.slice(-2));
+  assert.equal(Number(parts.hour), hour);
+ }
+});
 test("manual notification opt-out uses a boolean defaulting to legacy delivery", () => {
  assert.equal(workflow.on.workflow_dispatch.inputs.send_notifications.type,"boolean");
  assert.equal(workflow.on.workflow_dispatch.inputs.send_notifications.default,true);
