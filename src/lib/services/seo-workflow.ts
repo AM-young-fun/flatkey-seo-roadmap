@@ -40,7 +40,7 @@ export async function loadWorkflowTaskDetail(taskId: string, localPreview = fals
   const taskRow = local
     ? local.find(row => row.kind === "task" && row.record.id === taskId)
     : await prisma.seoWorkflowRecord.findUnique({ where: { key: workflowKey("task", taskId) }, select }).then(row => row ? toRecord(row) : null);
-  if (!taskRow) throw new WorkflowError("task_not_found", "找不到这条任务。请返回任务列表重新选择。", 404);
+  if (!taskRow || (taskRow.record as WorkflowTask).deletedAt) throw new WorkflowError("task_not_found", "找不到这条任务。请返回任务列表重新选择。", 404);
   const task = taskRow.record as WorkflowTask;
   const where: Prisma.SeoWorkflowRecordWhereInput[] = [
     { kind: "approval", payload: { path: ["items"], array_contains: [{ taskId }] } },

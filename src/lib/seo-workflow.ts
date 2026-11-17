@@ -56,7 +56,7 @@ export const workflowCodeSourceSchema = z.object({
 }).strict();
 
 export const workflowTaskSchema = z.object({
-  id, weekStart: workflowWeekSchema, title: z.string().trim().min(1).max(500), siteDomain: site,
+  id, weekStart: workflowWeekSchema, title: z.string().trim().min(1).max(500), siteDomain: site, deletedAt: stamp.optional(),
   channel: z.enum(["website", "github", "product"]).optional(),
   kind: z.enum(["blog", "landing", "optimization", "cluster", "technical", "research", "promotion", "review"]),
   country: country.nullable(), language: language.nullable(), business: z.enum(["API", "GPU", "CLUSTER"]),

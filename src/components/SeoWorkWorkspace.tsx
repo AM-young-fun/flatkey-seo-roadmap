@@ -35,10 +35,12 @@ const legacyMeasurementIssueId = "amplitude-organic-cohorts-pending";
 const issueCategories: Record<WorkflowIssue["category"], string> = { technical: "技术", indexing: "索引", language: "语言", content: "内容", data: "数据", business: "业务", sync: "同步" };
 const stateLabel = (value: string) => statuses[value] ?? value;
 const taskStatusOptions = [
+  { value: "active", label: "未验收" },
   { value: "all", label: "全部状态" },
   { value: "scheduled", label: "排期" },
   { value: "accepted", label: "进行中" },
   { value: "review", label: "待审核" },
+  { value: "rejected", label: "已拒绝" },
   { value: "failed", label: "失败" },
   { value: "completed", label: "已验收" },
 ];
@@ -93,7 +95,7 @@ export function WorkflowStatus({ status }: { status: string }) {
 }
 
 function TaskStatus({ status }: { status: string }) {
-  const tone = { scheduled: "planned", accepted: "running", review: "review_pending", failed: "failed", completed: "completed" }[status];
+  const tone = { scheduled: "planned", accepted: "running", review: "review_pending", rejected: "failed", failed: "failed", completed: "completed" }[status];
   return <span className={styles.badge} data-state={tone}>{taskStatusLabel(status)}</span>;
 }
 
@@ -238,9 +240,15 @@ export function OptimizationHistory({ optimization }: { optimization: WorkflowOp
 }
 
 function workTaskStatus(task: WorkflowTask, data?: Pick<WorkflowSnapshot, "approvals" | "publications" | "workWeek"> | null) {
-  if (task.status === "blocked" || task.status === "failed") return "failed";
   const approvals = data?.approvals ?? [];
   const pending = pendingTaskApproval(task, approvals);
+  if (!pending && approvals.some(approval => approval.siteDomain === task.siteDomain && approval.items.some(item =>
+    item.taskId === task.id && item.contentVersion === task.contentVersion && item.pageUrl === task.pageUrl
+    && (!task.language || item.language === task.language)
+    && (!item.codeSource || !task.branchObservation || task.branchObservation.headSha === item.codeSource.commitSha)
+    && workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "rejected"
+  ))) return "rejected";
+  if (task.status === "blocked" || task.status === "failed") return "failed";
   if (pending && approvalReviewReadiness(pending.item).ready) return "review";
   if (data?.workWeek?.pendingRollbackTaskIds.includes(task.id)) return "accepted";
   if (["verified", "observing"].includes(task.status)) return "completed";
@@ -291,14 +299,14 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const site = (isTaskList ? null : params.get("site")) ?? "all";
   const business = (isTaskList ? null : params.get("business")) ?? "all";
   const language = (isTaskList ? null : params.get("language")) ?? "all";
-  const requestedStatus = params.get("status") ?? "all", tab = view;
+  const requestedStatus = params.get("status") ?? (isTaskList ? "active" : "all"), tab = view;
   const status = isTaskList ? taskFilterStatus(requestedStatus) : requestedStatus;
   const Container = embedded ? "section" : "main";
   const requestedTaskType = params.get("taskType");
   const taskType = workTaskTypes.find(option => option.value === requestedTaskType)?.value ?? "all";
   const title = workViews[view], detailedFilters = !["issues", "runs"].includes(view);
   const [query, setQuery] = useState(params.get("q") ?? ""), [monday] = useState(currentMonday);
-  const filter = (key: string, value: string) => { const params = new URLSearchParams(location.search); if (value === "all") params.delete(key); else params.set(key, value); history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash); dispatchEvent(new PopStateEvent("popstate")); };
+  const filter = (key: string, value: string) => { const params = new URLSearchParams(location.search); const defaultValue = isTaskList && key === "status" ? "active" : "all"; if (value === defaultValue) params.delete(key); else params.set(key, value); history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash); dispatchEvent(new PopStateEvent("popstate")); };
   const time = useSeoListDateRange();
   const result = useSeoRead<WorkflowSnapshot>(isTaskList ? "/api/seo/workflow?operational=1&workList=1" : `/api/seo/workflow?week=${encodeURIComponent(week)}`);
   const relatedTaskHistory = useSeoRead<WorkflowSnapshot>(view === "issues" ? "/api/seo/workflow?allHistory=true" : null);
@@ -316,7 +324,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     const type = editorialTaskType(task);
     return (taskType === "all" || type === taskType)
       && (time.preset === "week" && overdue.has(task.id) || dateInListRange(task.dueAt, time.range))
-      && (status === "all" || state === status)
+      && (status === "all" || (status === "active" ? state !== "completed" : state === status))
       && [task.title, task.keyword, task.pageUrl, task.owner, reviews.get(task.id)?.approval.title].some(value => value?.toLowerCase().includes(query.toLowerCase()));
   });
   const listedReviews = new Set<string>();
@@ -422,6 +430,26 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
 }
 
 export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: string }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  async function deleteTask(task: WorkflowTask) {
+    if (!window.confirm(`删除「${task.title}」？`)) return;
+    setDeleting(true);
+    setDeleteError("");
+    const { version, recordedAt, updatedAt, ...record } = task;
+    try {
+      const receipt = await mutateWorkflow({ requestId: crypto.randomUUID(), action: "save_task",
+        expectedVersion: version, record: { ...record, deletedAt: new Date().toISOString() } });
+      if (receipt.stored !== true) throw new Error("未确认删除，请刷新后重试。");
+      router.replace(listHref);
+      router.refresh();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "删除失败，请重试。");
+      setDeleting(false);
+    }
+  }
+
   const result = useSeoRead<WorkflowTaskDetail>(`/api/seo/workflow?taskId=${encodeURIComponent(taskId)}`);
   const task = result.data?.task;
   const pending = task ? pendingTaskApproval(task, result.data?.approvals ?? []) : null;
@@ -440,9 +468,13 @@ export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: s
           <div className={styles.toolbarActions}>
             <EditorialTaskTag task={task} />
             <TaskStatus status={workTaskStatus(task, result.data)} />
+            <button className={styles.secondary} disabled={deleting} onClick={() => void deleteTask(task)} type="button">
+              {deleting ? "正在删除…" : "删除任务"}
+            </button>
             {pendingReview ? <Link className={styles.primary} href={"/approvals?" + new URLSearchParams({ approvalId: pendingReview.approval.id, taskId: task.id, review: "1" })}>审核任务</Link> : null}
           </div>
         </div>
+        {deleteError ? <p className={styles.warning} role="alert">{deleteError}</p> : null}
         {pendingReview ? <div className={styles.detail}><ReviewChangeSummary item={pendingReview.item} /></div>
           : <TaskDetail task={task} tasks={result.data.dependencies} approvals={result.data.approvals}
               publications={result.data.publications} optimizations={result.data.optimizations} onSaved={result.retry} />}
