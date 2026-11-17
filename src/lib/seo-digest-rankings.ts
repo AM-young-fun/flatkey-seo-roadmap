@@ -72,15 +72,17 @@ export function digestDailyRankingNotes(tasks: SerpTaskRead[], now: Date): strin
           }
         }
       }
-      const evidence = buildSerpKeywordResults([...targets.values()], history, { currentRunId: run.runId })
-        .filter(row => row.runId === run.runId && row.checkedAt && (row.status === "RANKED" || row.status === "OUTSIDE_TOP100"));
-      if (!evidence.length) continue;
-      const inTop10 = evidence.filter(row => row.rank !== null && row.rank <= 10).length;
-      const examples = evidence.filter(row => row.rank !== null && row.url)
-        .sort((a, b) => a.rank! - b.rank! || a.keyword.localeCompare(b.keyword)).slice(0, 1);
-      const dates = [...new Set(evidence.map(row => localDate.format(new Date(row.checkedAt!))))].sort();
+      const results = buildSerpKeywordResults([...targets.values()], history, { currentRunId: run.runId })
+        .filter(row => row.runId === run.runId && row.checkedAt && row.captureComplete);
+      const ranked = results.filter(row => row.status === "RANKED" && row.rank !== null && row.url);
+      const outside = results.filter(row => row.status === "OUTSIDE_TOP100").length;
+      if (!ranked.length && !outside) continue;
+      const inTop10 = ranked.filter(row => row.rank! <= 10).length;
+      const uncertain = results.length - ranked.length - outside;
+      const examples = ranked.sort((a, b) => a.rank! - b.rank! || a.keyword.localeCompare(b.keyword)).slice(0, 1);
+      const dates = [...new Set(results.map(row => localDate.format(new Date(row.checkedAt!))))].sort();
       const range = dates.length === 1 ? dates[0] : `${dates[0]}—${dates.at(-1)}`;
-      rows.push(`${marketNames[region]} · Google 桌面端 ${range} · ${run.runScope === "SAMPLE" ? "抽样" : "核实"} ${evidence.length}/${targets.size} 词 · 前十 ${inTop10} 词`);
+      rows.push(`${marketNames[region]} · Google 桌面端 ${range} · ${run.runScope === "SAMPLE" ? "抽样返回" : "返回"} ${results.length}/${targets.size} 词 · 查到排名 ${ranked.length}（前十 ${inTop10}） · 确认前100外 ${outside} · 无法确认 ${uncertain}`);
       for (const row of examples) {
         const movement = row.previousRank !== null && row.previousRank !== row.rank ? `（此前第 ${row.previousRank} 名）` : "";
         const page = new URL(row.url!).pathname;
