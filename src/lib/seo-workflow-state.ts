@@ -343,7 +343,21 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   } as WorkflowRecord;
   if (previous && "siteDomain" in previous && "siteDomain" in record && previous.siteDomain !== record.siteDomain) reject("identity_changed", "记录站点不能改变");
   if (kind === "approval") assertApproval(record as WorkflowApproval, previous as WorkflowApproval | undefined, all, actor);
-  if (kind === "task") assertTask(record as WorkflowTask, previous as WorkflowTask | undefined, all, actor);
+  if (kind === "task") {
+    const task = record as WorkflowTask;
+    const oldTask = previous as WorkflowTask | undefined;
+    if (task.progress?.length || oldTask?.progress?.length) {
+      const progress = new Map((oldTask?.progress ?? []).map(entry => [entry.id, entry]));
+      for (const entry of task.progress ?? []) {
+        const saved = progress.get(entry.id);
+        if (saved && !same(saved, entry)) reject("progress_conflict", "已保存的进度回执不能改写，请记录新的核对结果");
+        progress.set(entry.id, entry);
+      }
+      task.progress = [...progress.values()]
+        .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt) || a.id.localeCompare(b.id)).slice(-100);
+    }
+    assertTask(task, oldTask, all, actor);
+  }
   if (kind === "plan") assertPlan(record as WorkflowPlan, previous as WorkflowPlan | undefined, all);
   if (kind === "publication") assertPublication(record as WorkflowPublication, previous as WorkflowPublication | undefined, all);
   if (kind === "optimization") assertOptimization(record as WorkflowOptimization, previous as WorkflowOptimization | undefined, all);

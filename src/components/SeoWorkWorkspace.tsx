@@ -10,7 +10,7 @@ import Link, { useLinkStatus } from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
-import { approvalReviewReadiness, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus } from "@/lib/seo-workflow";
+import { approvalReviewReadiness, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus, workflowTaskHasProgress } from "@/lib/seo-workflow";
 import type { WorkflowSnapshot, WorkflowTask, WorkflowTaskDetail, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
 import { WorkflowEvidence } from "./WorkflowEvidence";
@@ -106,6 +106,7 @@ async function mutateWorkflow(body: object) {
 }
 
 function TaskDetail({ task, tasks, approvals, publications, optimizations, onSaved }: { task: WorkflowTask; tasks: WorkflowTask[]; approvals: WorkflowApproval[]; publications: WorkflowPublication[]; optimizations: WorkflowOptimization[]; onSaved: () => void }) {
+  const progress = task.progress?.at(-1);
   const pageDelivery = task.kind === "technical" ? task.channel !== "github" && task.channel !== "product"
     : ["landing", "optimization", "cluster"].includes(task.kind) && (task.changeScope === "search_intent" || task.pageType !== "blog" && !/\/blog(?:\/|$)/.test(task.pageUrl ?? ""));
   return <div className={styles.detail}>
@@ -117,7 +118,8 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
     </dl>
     {task.pageUrl ? <p>正式页 · <a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a> · <Link href={pageHref(task.pageUrl, task.country)}>已上线页面数据</Link></p> : <p className={styles.muted}>目标页面尚未确定。</p>}
     {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />原因：{task.failureReason}</p> : null}
-    <h4>下一步</h4><p>{task.nextAction || "等待进度回填。"}</p>
+    {progress ? <><h4>最新进度</h4><p>{progress.summary}</p><p className={styles.muted}>{displayTime(progress.observedAt)}</p><WorkflowEvidence evidence={progress.evidence} />{progress.evidence.filter(item => !item.url).map((item, index) => <p key={index}>{item.label}</p>)}</> : null}
+    <h4>下一步</h4><p>{progress?.nextAction || task.nextAction || "等待进度回填。"}</p>
     {task.fallbackReason ? <p className={styles.warning}>本次例外：{task.fallbackReason}</p> : null}
     <h4>验收要求</h4><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul>
     <h4>前置任务</h4>{task.dependencies.length ? <ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "本周范围外，需读取前置回执"}</li>; })}</ul> : <p className={styles.muted}>未登记任务依赖。</p>}
@@ -245,7 +247,7 @@ function workTaskStatus(task: WorkflowTask, data?: Pick<WorkflowSnapshot, "appro
   const publication = data?.publications.find(row => row.taskId === task.id && row.contentVersion === task.contentVersion && row.status === "verified"
     && !["translation", "backfill_translation"].includes(row.kind));
   if (publication) return "completed";
-  return ["planned", "ready"].includes(task.status) ? "scheduled" : "accepted";
+  return workflowTaskHasProgress(task) ? "accepted" : "scheduled";
 }
 
 function multilingualReviews(data: WorkflowSnapshot | null) {
