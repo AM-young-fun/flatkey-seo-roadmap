@@ -1,6 +1,6 @@
 import type { recentPublishedPages } from "./seo-digest-recent-pages";
 import { seoToday } from "./seo-date-range";
-import { businessDigestLines, flatkeyRegistrationCount, latestBusinessPeriod, organicRegistrationComparison, type BusinessAnalytics } from "./seo-business-analytics";
+import { flatkeyRegistrationCount, latestBusinessPeriod, organicRegistrationComparison, weeklyBusinessDigestLines, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubDigestLines, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
 import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
@@ -418,7 +418,7 @@ export function buildSeoDigest(input: DigestInput) {
   const optimizations = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url)).map(row => [row.url, row])).values()];
   const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "", recorded = false) => {
     const count = `${value}${unit ? " " + unit : ""}`;
-    return coverage === "verified" ? count : value > 0 ? `至少 ${count}（已核实）` : recorded ? `已核实 ${count}` : "暂无上线回执";
+    return coverage === "verified" ? count : value > 0 || recorded ? `已核实 ${count}` : "暂无上线回执";
   };
   const review = input.reviewWorkflow ? digestReviewQueue(input.reviewWorkflow, now) : null;
   const approvalWeek = workflowWeek(new Date(input.date + "T12:00:00+08:00"));
@@ -496,7 +496,13 @@ export function buildSeoDigest(input: DigestInput) {
       lines.push(`• 巡检时间 ${qa.scheduledFor} · 覆盖 ${{ full: "完整", partial: "部分", unknown: "未核实" }[qa.coverage]}`);
       if (qa.failure) lines.push("• 缺口 · " + escaped(qa.failure));
       for (const diagnostic of qa.diagnostics ?? []) lines.push("• 复核 · " + escaped(diagnostic));
-      for (const issue of qa.issues) lines.push(`• ${issue.priority} ${link(issue.title, issue.url ?? SEO_PLATFORM + "/work")} · ${escaped(issue.nextAction)}`);
+      for (const issue of qa.issues) {
+        const issueUrl = SEO_PLATFORM + executionViewRoutes.issues + "?week=" + issue.issueWeek + "#issue-" + encodeURIComponent(issue.id);
+        const task = issue.taskId && issue.taskWeek
+          ? link("查看工作任务", SEO_PLATFORM + workTaskHref({ id: issue.taskId, weekStart: issue.taskWeek }))
+          : issue.taskId ? "已关联工作任务" : "尚未建工作任务";
+        lines.push(`• ${issue.priority} ${link(issue.title, issueUrl)} · ${task} · ${escaped(issue.nextAction)}`);
+      }
       for (const approval of qa.approvals) lines.push(`• ${link(approval.title, SEO_PLATFORM + "/approvals?approvalId=" + encodeURIComponent(approval.id))} · ${approval.status}`);
       if (Object.keys(qa.sourceDates).length) lines.push("• 来源日期 · " + Object.entries(qa.sourceDates).map(([key, value]) => `${escaped(key)} ${value ?? "待更新"}`).join(" · "));
       if (qa.nextAction) lines.push("• 下一步 · " + escaped(qa.nextAction));
@@ -530,8 +536,8 @@ export function buildSeoDigest(input: DigestInput) {
   const registrationOffset = window.kind === "weekly" ? -7 : -1;
   const organicRegistrations = organicRegistrationComparison(input.businessObservations ?? [], window.trafficStart, window.trafficEnd,
     shift(window.trafficStart, registrationOffset), shift(window.trafficEnd, registrationOffset));
-  const [businessHeading, ...businessLines] = businessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd);
-  lines.push("", businessHeading, `• Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（全渠道区间去重）`, ...businessLines);
+  lines.push("", `Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（GA4 全渠道区间去重）`);
+  if (window.kind === "weekly") lines.push("", ...weeklyBusinessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd));
   lines.push("", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, window.kind === "weekly", now));
   lines.push("", "Flatkey 四国分项（四国合计不等于全站）");
   for (const country of ["US", "JP", "BR", "ES"] as const) {

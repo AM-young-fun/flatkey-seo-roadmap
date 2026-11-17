@@ -35,15 +35,19 @@ export async function fetchGa4Journey(query: Query, business: "gpu" | "api"): Pr
     if (report.rows === undefined || Array.isArray(report.rows) && report.rows.length === 0) return { ...base, status: "unavailable", reason: "no_matching_steps_in_selected_period", steps: [] };
     if (!Array.isArray(report.rows)) throw new GoogleReadError("invalid_response", "funnel_rows_invalid");
     const index = (name: string) => report.metricHeaders.findIndex((row: { name: string }) => row.name === name);
-    if (index("activeUsers") < 0 || report.rows.length !== 3 || report.rowCount !== undefined && report.rowCount !== 3) throw new GoogleReadError("invalid_response", "funnel_steps_incomplete");
-    const steps = journeyLabels[business].map((name, i) => {
+    const stepNames = journeyLabels[business];
+    const rowCount = report.rows.length;
+    if (index("activeUsers") < 0 || rowCount > stepNames.length || report.rowCount !== undefined && report.rowCount !== rowCount) throw new GoogleReadError("invalid_response", "funnel_steps_incomplete");
+    const steps = stepNames.slice(0, rowCount).map((name, i) => {
       const row = report.rows.find((row: { dimensionValues: { value: string }[] }) => row.dimensionValues?.[0]?.value === `${i + 1}. ${name}` || row.dimensionValues?.[0]?.value === name);
       if (!row) throw new GoogleReadError("invalid_response", "funnel_step_names_unrecognized");
       const metric = (key: string) => index(key) < 0 ? null : finite(row.metricValues?.[index(key)]?.value);
       return { name, users: metric("activeUsers"), abandonments: i === 2 ? null : metric("funnelStepAbandonments"), completionRate: i === 2 ? null : metric("funnelStepCompletionRate") };
     });
     if (!steps.some(step => step.users !== null && step.users > 0)) return { ...base, status: "unavailable", reason: "no_matching_steps_in_selected_period", steps: [] };
-    return journeySchema.parse({ ...base, status: partial(report.metadata) ? "partial" : "ready", steps, ...(partial(report.metadata) ? { reason: "thresholding_sampling_or_restriction" } : {}) });
+    const qualityGap = partial(report.metadata) ? "thresholding_sampling_or_restriction"
+      : rowCount < stepNames.length ? "funnel_later_steps_not_returned" : null;
+    return journeySchema.parse({ ...base, status: qualityGap ? "partial" : "ready", steps, ...(qualityGap ? { reason: qualityGap } : {}) });
   } catch (error) { return { ...base, status: "unavailable", reason: reason(error), steps: [] }; }
 }
 export async function fetchGa4Engagement(query: Query): Promise<BusinessEngagement> {

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED, GA4_REGISTRATION_METRIC } from "./ga4-host-scope";
 import { createHash } from "node:crypto";
+import { shiftDay } from "./seo-date-range";
 
-import { journeySchema, engagementSchema } from "./seo-business-journeys";
+import { journeyLabels, journeySchema, engagementSchema } from "./seo-business-journeys";
 import { businessEventLabels } from "./seo-business-events";
 import { apiCohortSchema, cohortKinds } from "./seo-api-cohorts";
 export { businessEventLabels } from "./seo-business-events";
@@ -75,17 +76,38 @@ export function businessDigestLines(rows: BusinessAnalytics[], start: string, en
     const label = scope === "session-organic-search" ? "自然搜索归因" : "全渠道业务";
     if (!row) { lines.push(`• ${label}：${start}—${end} 尚无同区间回执，待更新。`); continue; }
     lines.push(`• ${label}：${row.start}—${row.end} · ${row.timezone} · ${row.complete ? "查询完整" : "部分数据"} · 采集 ${row.observedAt}`);
-    for (const event of ["gpu_rental_success", "first_model_success", "first_payment_completed", "sign_up"] as const) {
+    const events = new Set<BusinessAnalytics["rows"][number]["event"]>([
+      "gpu_rental_success", "first_model_success", "first_payment_completed", "sign_up",
+      ...row.rows.map(item => item.event),
+    ]);
+    for (const event of events) {
       if (event === "sign_up" && !includeRegistration) continue;
       const value = row.rows.find(item => item.event === event);
       lines.push(`  ${businessEventLabels[event]}：${value ? `${value.events} 次 / 区间去重 ${value.users} 人` : "未观测到，埋点上线及收数待核验"}`);
     }
     for (const journey of row.journeys ?? []) {
-      lines.push(`  ${journey.business === "gpu" ? "GPU" : "API"} 同用户顺序漏斗：${journey.status === "unavailable" ? "待核验（" + journey.reason + "）" : journey.steps.map(step => `${step.name} ${step.users}人`).join(" → ") + (journey.status === "partial" ? "（部分数据）" : "")}`);
+      const steps = journeyLabels[journey.business].map((name, index) => {
+        const step = journey.steps[index];
+        return step ? `${name} ${step.users}人` : `${name} 待核验`;
+      });
+      lines.push(`  ${journey.business === "gpu" ? "GPU" : "API"} 同用户顺序漏斗：${journey.status === "unavailable" ? "待核验（" + journey.reason + "）" : steps.join(" → ") + (journey.status === "partial" ? "（部分数据）" : "")}`);
     }
     if (row.engagement) lines.push(`  有效参与时长：${row.engagement.engagementSeconds === null ? "待核验" : row.engagement.engagementSeconds + "秒"}；自定义活跃停留指标：${row.engagement.activeTimeCustomMetric === "registered" ? "已注册，明细待分析" : "定义待核验"}`);
     if (row.reasons.length) lines.push(`  质量说明：${row.reasons.join("、")}`);
   }
   lines.push("不同事件人数不能相加或直接当成漏斗转化率；全渠道不能当成自然搜索效果。漏斗为所选区间内 GA4 同用户顺序行为，不等同成熟注册 cohort 转化率；完整路径及跨域身份仍须验收。");
+  return lines;
+}
+
+export function weeklyBusinessDigestLines(rows: BusinessAnalytics[], start: string, end: string) {
+  let availableEnd = end;
+  for (; availableEnd >= start; availableEnd = shiftDay(availableEnd, -1)) {
+    const organic = latestBusinessPeriod(rows, start, availableEnd, "all", "session-organic-search");
+    const allChannels = latestBusinessPeriod(rows, start, availableEnd, "all", "all-channels");
+    if (organic?.rows.length && allChannels?.rows.length) break;
+  }
+  if (availableEnd < start) return businessDigestLines(rows, start, end);
+  const lines = businessDigestLines(rows, start, availableEnd);
+  if (availableEnd !== end) lines.push(`已采集 ${start}—${availableEnd}，本周剩余日期待更新。`);
   return lines;
 }

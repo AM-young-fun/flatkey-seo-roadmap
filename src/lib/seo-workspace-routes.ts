@@ -1,3 +1,5 @@
+import { shiftDay } from "./seo-date-range";
+
 export const executionViewRoutes = {
   tasks: "/work",
   approvals: "/approvals",
@@ -31,6 +33,10 @@ export function workTaskHref(task: { id: string; weekStart: string }, filters?: 
     if (value) query.set(key, value);
   }
   return `/work/${encodeURIComponent(task.id)}?${query}`;
+}
+
+export function workPlanTaskFilters(weekStart: string) {
+  return new URLSearchParams({ range: "custom", rangeStart: weekStart, rangeEnd: shiftDay(weekStart, 6) });
 }
 
 export function workTaskListHref(filters: WorkspaceSearchParams) {

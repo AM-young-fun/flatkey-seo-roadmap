@@ -17,6 +17,7 @@ import { loadWorkflowSnapshot } from "./seo-workflow";
 import { approvalReviewReadiness, automaticTaskPolicy, isExecutableWorkflowPlan, shiftWorkflowDay, workflowApprovalEffectiveItemStatus, workflowWeek } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
 import { digestRankingNotes } from "@/lib/seo-digest-rankings";
+import { workPlanTaskFilters } from "../seo-workspace-routes";
 import { loadSerpTasks } from "./serp-results";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -126,9 +127,15 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     const matches = runs.filter(run => stages.includes(run.stage));
     if (!matches.length) return "missing";
     const expectedDays = window.kind === "weekly" ? 7 : 1;
-    const completeDays = new Set(matches.filter(run => run.status === "completed" && run.coverage === "full").map(run => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(run.scheduledFor))));
+    const completeDays = new Set(matches.filter(run => run.status === "completed" && run.coverage === "full" &&
+      run.completedAt && Date.parse(run.completedAt) <= now.getTime()).map(run => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(run.scheduledFor))));
     return completeDays.size >= expectedDays ? "verified" : "partial";
   };
+  const blogCoverage = stageCoverage(["BLOG_PUBLISH", "BLOG"]);
+  const landingCoverage = stageCoverage(["LANDING_BUILD", "LANDING"]);
+  const clusterCoverage = stageCoverage(["CLUSTER_DELIVERY", "CLUSTER"]);
+  const optimizationCoverage = stageCoverage(["OPTIMIZATION", "OLD_PAGE"]);
+  const publicationCoverages = [blogCoverage, landingCoverage, clusterCoverage];
   const versionCutoff = new Date(Math.min(monitoringAsOf.getTime(), Date.parse(window.workEnd) - 1));
   const monitoringKinds = [...new Set(verifiedPagePublications(workflow.publications, versionCutoff)
     .filter(row => row.kind === "optimization" && gscDate(new Date(row.publishedAt)) >= shiftWorkflowDay(gscDate(monitoringAsOf), -OPTIMIZATION_HISTORY_DAYS))
@@ -156,15 +163,17 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     effects: workflow.optimizations.flatMap(row => row.observations.filter(observation => Date.parse(observation.checkedAt) >= startStamp && Date.parse(observation.checkedAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(observation => digestOptimizationEffect(row, observation))),
     priorities, issues: [...new Set([...issues, ...workflow.issues.filter(issue => issue.status !== "resolved" && Date.parse(issue.firstSeenAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(issue => `${issue.siteDomain} · ${issue.title} · ${issue.nextAction}`)])],
     runNotes: [...runs.map(run => `${run.stage} · ${run.status} · ${run.completedItems}/${run.checkedItems} · ${run.failureReason ?? run.nextAction} · 来源日期 ${Object.entries(run.sourceDates).map(([source, day]) => `${source}:${day ?? "未知"}`).join("，")}`), ...collectors.map(run => `${run.kind} · ${run.status} · ${run.detail ?? "采集回执已归档"}`)],
-    publicationCoverage: stageCoverage(["BLOG_PUBLISH", "DELIVERY_VERIFY"]), optimizationCoverage: stageCoverage(["OPTIMIZATION", "DELIVERY_VERIFY"]),
+    publicationCoverage: publicationCoverages.every(coverage => coverage === "verified") ? "verified"
+      : publicationCoverages.some(coverage => coverage !== "missing") ? "partial" : "missing",
+    optimizationCoverage,
     deliveryStates: {
-      blogs: runs.some(run => ["BLOG_PUBLISH", "BLOG"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
-      landing: runs.some(run => ["LANDING_BUILD", "LANDING"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
-      cluster: runs.some(run => ["CLUSTER_DELIVERY", "CLUSTER"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
-      optimizations: runs.some(run => ["OPTIMIZATION", "OLD_PAGE"].includes(run.stage) && run.completedAt && Date.parse(run.completedAt) <= now.getTime()),
+      blogs: blogCoverage === "verified",
+      landing: landingCoverage === "verified",
+      cluster: clusterCoverage === "verified",
+      optimizations: optimizationCoverage === "verified",
     },
     nextPlanStatus: window.kind === "weekly" && nextWeek.plan && isExecutableWorkflowPlan(nextWeek.plan.status) && nextWeek.plan.taskIds.length ? nextWeek.plan.status : undefined,
-    nextPlanUrl: window.kind === "weekly" && nextWeek.plan ? `https://flatkey-seo-roadmap.vercel.app/work?week=${nextWeek.weekStart}` : undefined,
+    nextPlanUrl: window.kind === "weekly" && nextWeek.plan ? `https://flatkey-seo-roadmap.vercel.app/work?${workPlanTaskFilters(nextWeek.weekStart)}` : undefined,
   };
   return buildSeoDigest(input);
 }

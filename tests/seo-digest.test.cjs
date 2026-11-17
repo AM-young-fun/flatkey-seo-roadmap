@@ -1,6 +1,7 @@
 const { test } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), ts = require("typescript");
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { buildSeoDigest, comparableMetric, digestWindow, digestClaimable, SEO_DATA_HUB } = require("../src/lib/seo-digest.ts");
+const { technicalQaReport } = require("../src/lib/seo-technical-qa-report.ts");
 const { providerReceipt } = require("../scripts/seo-digest-dws.cjs");
 const base = (date = "2026-11-10") => ({ date, now: new Date(date + "T18:00:00+08:00"), publications: [], optimizations: [], observations: [], effects: [], priorities: [], issues: [], runNotes: [], publicationCoverage: "verified", optimizationCoverage: "verified" });
 const ga = (date, sessions, extra = {}) => ({ site: "flatkey.ai", date, sessions, source: "GA4", timezone: "America/Los_Angeles", scope: "session-organic-search", observedAt: "2026-11-10T00:00:00Z", complete: true, ...extra });
@@ -169,9 +170,7 @@ test("daily digest uses the Flatkey all-channel registration count rather than S
  assert.deepEqual(report.flatkeyRegistrations, { start: "2026-11-09", end: "2026-11-09", users: 12 });
  assert.match(report.text, /Flatkey 注册人数 12 人/);
  assert.doesNotMatch(report.text, /注册 2→3/);
- assert.match(report.text, /GA4 行为与转化/);
- assert.match(report.text, /尚无同区间回执，待更新/);
- assert.match(report.text, /全渠道不能当成自然搜索效果/);
+ assert.doesNotMatch(report.text, /GA4 行为与转化/);
 });
 test("weekly comparison uses only matching weekdays and never sums daily distinct registrations", () => {
  const rows = [ga("2026-11-12", 10, { registrations: 3 }), ga("2026-11-05", 8, { registrations: 2 }), ga("2026-11-11", 500)];
@@ -271,7 +270,7 @@ test("actual verified ES optimization stays visible when the overall execution c
   publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
  assert.deepEqual(report.counts,fixture.expectedCounts);
  assert.doesNotMatch(report.text,/优化|落地页|集群/);
- assert.match(report.detailText,/今日优化 至少 1 个页面（已核实），台账覆盖待补/);
+ assert.match(report.detailText,/今日优化 已核实 1 个页面，台账覆盖待补/);
  assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
  assert.doesNotMatch(report.text,/优化 暂无上线回执/);
 });
@@ -281,8 +280,8 @@ test("incomplete coverage reports verified lower bounds and keeps unknown zero d
  const optimization={id:"change",url:publication.url,keyword:"gpu server",changes:"title",verifiedAt:publication.verifiedAt,recordedAt:publication.recordedAt,baselineId:"baseline"};
  for(const coverage of ["missing","partial"]){
   const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage,publications:[publication],optimizations:[optimization]});
-  assert.match(report.detailText,/新增博客 至少 1 篇（已核实）/);assert.match(report.detailText,/优化 至少 1 个页面（已核实）/);
-  assert.match(report.detailText,/新增博客 至少 1 篇（已核实）/);
+  assert.match(report.detailText,/新增博客 已核实 1 篇/);assert.match(report.detailText,/优化 已核实 1 个页面/);
+  assert.match(report.detailText,/新增博客 已核实 1 篇/);
   assert.match(report.detailText,/落地页\/工具页 暂无上线回执，集群交付 暂无上线回执/);
   const unknown=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage});
   assert.match(unknown.detailText,/优化 暂无上线回执/);assert.match(unknown.detailText,/新增博客 暂无上线回执/);
@@ -354,4 +353,22 @@ test("daily and weekly reports preserve their linked plan rows outside the group
  const weekly = buildSeoDigest({ ...base("2026-11-13"), workPlan, kind: "weekly", notificationCompact: true, optimizationMonitoring: [] });
  assert.doesNotMatch(weekly.text, /关键词|计划/);
  assert.equal(weekly.workPlan.tasks.length, 3);
+});
+
+test("a daily QA receipt shows issues from its evidence and distinguishes linked work from an issue alone", () => {
+ const now = new Date("2026-11-17T10:00:00Z");
+ const observedAt = "2026-11-17T02:01:00Z";
+ const evidence = [{ artifact: "qa-summary", observedAt }];
+ const run = {
+   id: "qa", stage: "TECHNICAL_QA", scheduledFor: "2026-11-17T02:00:00Z", startedAt: "2026-11-17T02:00:00Z",
+   completedAt: "2026-11-17T02:02:00Z", failureReason: "PSI 429。", status: "partial", coverage: "partial",
+   completedItems: 182, checkedItems: 183, sourceDates: {}, nextAction: "", evidence, taskIds: [],
+ };
+ const issue = { id: "psi", weekStart: "2026-11-16", title: "PSI 限流", taskId: null, priority: "P2", status: "open", nextAction: "复查", evidence };
+ const linked = { ...issue, id: "css", title: "旧 CSS", taskId: "css-task", priority: "P1" };
+ const qa = technicalQaReport({ runs: [run], issues: [issue, linked], approvals: [], tasks: [{ id: "css-task", weekStart: "2026-11-09" }] },
+   "2026-11-16T10:00:00Z", "2026-11-17T10:00:00Z", now);
+ const report = buildSeoDigest({ ...base("2026-11-17"), now, technicalQa: qa });
+ assert.match(report.detailText, /issues\?week=2026-11-16#issue-psi\) · 尚未建工作任务/);
+ assert.match(report.detailText, /work\/css-task\?week=2026-11-09/);
 });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, RefreshCw } from "lucide-react";
-import { executionViewRoutes, workTaskHref } from "@/lib/seo-workspace-routes";
+import { executionViewRoutes, workPlanTaskFilters, workTaskHref } from "@/lib/seo-workspace-routes";
 import { seoToday, shiftDay } from "@/lib/seo-date-range";
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
 import { ReportCountryShares } from "./ReportCountryShares";
@@ -180,11 +180,16 @@ function GithubComparison({ lines }: { lines: string[] }) {
       </th>)}</tr></thead>
       <tbody>{metrics.map(metric => <tr key={metric.label}><th scope="row">{metric.label}</th>
         {repositories.map(repo => {
+          const periodNote = metric.label === "浏览次数" || metric.label === "克隆次数"
+            ? repo.details.find(line => line.startsWith(metric.label))?.split("；")[1]
+            : metric.label.startsWith("到站") ? repo.details.find(line => line.startsWith("GitHub UTM→Flatkey 到站会话 "))?.split("；")[1]
+            : undefined;
           const details = repo.details.join("\n");
           const value = metric.get(details) ?? (metric.label.startsWith("到站") && details.includes("该仓库UTM条件暂无匹配数据") ? "暂无匹配数据" : undefined);
           const [main, note] = value?.split("（") ?? [];
           return <td key={repo.href}>{!main || main === "待更新→待更新" ? "待更新" : main.replace("→", " → ")}
-            {note ? <small>{note.replace(/）$/, "")}</small> : null}</td>;
+            {note ? <small>{note.replace(/）$/, "")}</small> : periodNote
+              ? <small>{periodNote.includes("可比 0/") ? "缺少完整日期的 Traffic 回执" : periodNote.replace(/。$/, "")}</small> : null}</td>;
         })}
       </tr>)}</tbody>
     </table>
@@ -258,13 +263,14 @@ function BusinessComparison({ lines }: { lines: string[] }) {
 }
 
 const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "Flatkey 落地页关键词"], ["cluster_landing", "集群新增落地页"], ["research", "Flatkey 关键词研究"], ["cluster_work", "集群站其他任务"]] as const;
-const planStatuses: Record<string, string> = { planned: "待开始", researching: "研究中", ready: "待执行", drafting: "制作中",
+const planStatuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "待领取", drafting: "制作中",
   review_pending: "待审批", missing_materials: "待补测试材料", approved: "待发布", published: "已上线 · 待验收", verified: "已验收", observing: "已上线 · 监控中", blocked: "有阻塞", failed: "需处理" };
 function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
+  const filters = plan ? workPlanTaskFilters(plan.weekStart) : undefined;
   return <section className={reportStyles.section}>
     <h3>{weekly ? "下周工作计划" : "本周计划进度"}</h3>
     {!plan ? <p className={reportStyles.note}>工作台暂无{weekly ? "下周" : "本周"}计划记录。</p> : <>
-      <p className={reportStyles.note}>{plan.weekStart} — {shiftDay(plan.weekStart, 6)} · {plan.tasks.length && (plan.status === "scheduled" || plan.status === "reviewed") ? "已排期" : plan.tasks.length ? "候选整理中" : "尚未排期"} · <Link href={`/work?week=${plan.weekStart}`}>查看工作任务</Link></p>
+      <p className={reportStyles.note}>{plan.weekStart} — {shiftDay(plan.weekStart, 6)} · {plan.tasks.length && (plan.status === "scheduled" || plan.status === "reviewed") ? "已排期" : plan.tasks.length ? "候选整理中" : "尚未排期"} · <Link href={`/work?${filters}`}>查看该周工作任务</Link></p>
       {planKinds.map(([kind, label]) => {
         const tasks = plan.tasks.filter(task => task.kind === kind);
         if ((kind === "cluster_work" || kind === "research") && !tasks.length) return null;
@@ -278,7 +284,7 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
             <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label={label}>
               <thead><tr><th scope="col">{pageTask ? "页面 / 任务" : "关键词"}</th><th scope="col">{pageTask ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>
               <tbody>{tasks.map(task => <tr key={task.id}>
-                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart })}>{pageTask ? task.title : task.keyword ?? "关键词待补"}</Link>
+                <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: plan.weekStart }, filters)}>{pageTask ? task.title : task.keyword ?? "关键词待补"}</Link>
                   {pageTask && task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</a></small> : null}</th>
                 <td>{pageTask ? task.keyword ?? "—" : task.title}</td>
                 <td>{[task.country, task.language].filter(Boolean).join(" / ") || "—"}</td>
@@ -292,7 +298,7 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
   </section>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan, githubSection }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[] }) {
+function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan, githubSection, businessSection }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; businessSection?: string[] }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -325,7 +331,8 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
   const countries = countrySection ? parseReportComparisons(countrySection.lines) : null;
   const sites = sections.find(section => section.title.startsWith("五站自然搜索"));
   const github = githubSection?.slice(1) ?? sections.find(section => section.title.startsWith("GitHub 提示词渠道"))?.lines;
-  const business = sections.find(section => section.title.startsWith("GA4 行为与转化"));
+  const business = businessSection?.slice(1) ?? sections.find(section => section.title.startsWith("GA4 行为与转化"))?.lines;
+  const businessCoverage = business?.find(line => line.startsWith("已采集 "));
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
   const workDetails = sections.filter(section => section.lines.some(line => line.trim())
@@ -343,13 +350,16 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
       <TechnicalIssues lines={technical?.lines ?? ["尚未收到巡检回执"]} />
     </section> : null}
     <RecentPageTraffic pages={recentPages} weekly={weekly} />
-    {business ? <section className={reportStyles.section}><h3>GA4 行为与转化</h3><BusinessComparison lines={business.lines} /></section> : null}
+    {weekly && business ? <section className={reportStyles.section}>
+      <h3>GA4 行为与转化</h3><BusinessComparison lines={business} />
+      {businessCoverage ? <p className={reportStyles.note}>{businessCoverage}</p> : null}
+    </section> : null}
     <ReportWorkPlan plan={workPlan} weekly={weekly} />
     <section className={reportStyles.section}>
       <h3>{weekly ? "下周优先关注" : "明日优先关注"}</h3>
       {next?.lines.length ? items(next.lines) : <p className={reportStyles.note}>待生成</p>}
     </section>
-    {Boolean(highlights?.length || workDetails.length) ? <section className={reportStyles.section}>
+    {highlights?.length || workDetails.length ? <section className={reportStyles.section}>
       <h3>工作记录与排名明细</h3>
       <div className={reportStyles.detailSections}>
         {highlights?.length ? <section className={reportStyles.section}>
@@ -379,15 +389,15 @@ export function SeoDigestReports() {
   const selectedDate = date ?? exact?.split(":")[1] ?? (kind === "daily" ? seoToday() : null);
   const query = new URLSearchParams({ kind, saved: "1", archive: "1", ...(selectedDate ? { date: selectedDate } : {}), ...(exact ? { reportId: exact } : {}) });
   if (kind === "daily" && selectedDate === seoToday() && !exact) query.set("currentPreview", "1");
-  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[] }) | null; dates?: string[] }>("/api/seo/digest?" + query);
+  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[] }>("/api/seo/digest?" + query);
   const report = result.data?.report;
   const dates = result.data?.dates ?? [];
   const registrations = report?.flatkeyRegistrations;
   const selected = report?.date ?? selectedDate ?? dates[0] ?? "";
   const dateLabel = kind === "weekly" ? "报告周次" : "报告日期";
   const availableDates = selected && !dates.includes(selected) ? [selected, ...dates] : dates;
-  const deliveryCount = (count: number, coverage: SeoDigest["coverage"]["publications"], recorded?: boolean) =>
-    coverage === "verified" ? numberText(count) : count > 0 ? "至少 " + numberText(count) : recorded ? "已核实 0" : "暂无上线回执";
+  const deliveryCount = (count: number, coverage: SeoDigest["coverage"]["publications"]) =>
+    coverage === "verified" ? numberText(count) : count > 0 ? <>{numberText(count)}<small>已核实，台账未齐</small></> : "暂无上线回执";
   const route = (period: typeof kind, selectedDate?: string) => "/reports?" + new URLSearchParams({ period, ...(selectedDate ? { date: selectedDate } : {}) });
   return <div className={reportStyles.workspace}>
     <header className={reportStyles.pageHeader}>
@@ -422,15 +432,15 @@ export function SeoDigestReports() {
           {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
         </div></header>
         <dl className={reportStyles.metrics}>
-          <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications, report.deliveryStates?.blogs)}</dd></div>
-          <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications, report.deliveryStates?.landing)}</dd></div>
-          <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations, report.deliveryStates?.optimizations)}</dd></div>
+          <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications)}</dd></div>
+          <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications)}</dd></div>
+          <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations)}</dd></div>
           <div><dt>待审页面版本</dt><dd><Link className={reportStyles.approvalButton} href={executionViewRoutes.approvals}
             aria-label={`查看待审批页面版本：${numberText(report.approvalQueue?.pages)}`}>{numberText(report.approvalQueue?.pages)} <span aria-hidden="true">↗</span></Link></dd></div>
-          <div><dt>Flatkey 注册人数</dt><dd>{registrations?.users == null ? "待更新" : numberText(registrations.users)}</dd>
+          <div><dt>Flatkey 注册人数 · GA4</dt><dd>{registrations?.users == null ? "待更新" : numberText(registrations.users)}</dd>
             <small>{registrations ? registrations.start === registrations.end ? registrations.start : `${registrations.start} — ${registrations.end}` : "全渠道 · 区间去重"}</small></div>
         </dl>
-        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} />
+        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection} />
       </article>}
   </div>;
 }
