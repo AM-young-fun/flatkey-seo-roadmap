@@ -1,0 +1,36 @@
+name: Server SEO account registrations
+on:
+  schedule:
+    - cron: '10 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seo-account-registrations
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.SEO_ACCOUNT_REGISTRATION_COLLECTION_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Import finalized Flatkey account counts and verify the production reports
+        env:
+          SEO_ACCOUNT_REGISTRATION_READ_TOKEN: ${{ secrets.SEO_ACCOUNT_REGISTRATION_READ_TOKEN }}
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+        run: |
+          if output="$(node scripts/server-account-registrations.cjs 2>&1)"; then
+            printf '%s\n' "$output"
+          else
+            printf '%s\n' "$output" >&2
+            [[ "$output" == source_not_final_for_* ]] || exit 1
+            sleep 300
+            node scripts/server-account-registrations.cjs
+          fi
