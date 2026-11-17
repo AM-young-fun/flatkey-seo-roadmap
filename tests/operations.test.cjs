@@ -54,7 +54,7 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.scheduler.state, "UNCONFIRMED");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
-  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 10:10（仓库配置）");
+  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 16:00（仓库配置）");
   assert.ok(!status.plans.some(row => row.id === "10-30-seo"));
   const actualPlan = configuredAutomationPlans(new Date("2026-10-19T08:00:00Z")).find(row => row.id === "automation");
   assert.equal(status.plans.find(row => row.id === "automation").state, actualPlan.state);

@@ -1,5 +1,7 @@
 import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod, scheduledSerpDue } from "./serp-periods";
 import automationConfig from "./data/seo-automation-config.json";
+
+export const dailyAnalyticsCollectionTime = "16:00";
 import { seoScheduleOpensAt } from "./seo-schedule-window";
 
 export const schedulerCadence = "每日 10:10–23:55，每 5 分钟检查及续跑";
@@ -38,7 +40,7 @@ export function nextCollectorTime(now:Date,kind:"sheets"|"ahrefs"|"traffic"):str
   const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai"}).format(now);
   for(let offset=0;offset<8;offset++){
     const day=new Date(Date.parse(`${today}T00:00:00Z`)+offset*86400000).toISOString().slice(0,10);
-    const clock = kind === "sheets" ? "09:00" : kind === "ahrefs" ? "09:30" : "10:10";
+    const clock = kind === "sheets" ? "09:00" : kind === "ahrefs" ? "09:30" : dailyAnalyticsCollectionTime;
     const candidate=new Date(`${day}T${clock}:00+08:00`);if(candidate>now)return candidate.toISOString();
   }
   throw new Error("Invalid collector schedule");

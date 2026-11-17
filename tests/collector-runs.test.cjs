@@ -22,7 +22,7 @@ test("sheets precede research and server analytics uses its own daily collection
   const now=new Date("2026-10-20T03:00Z");
   assert.equal(nextCollectorTime(now,"sheets"),"2026-10-21T01:00:00.000Z");
   assert.equal(nextCollectorTime(now,"ahrefs"),"2026-10-21T01:30:00.000Z");
-  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-21T02:10:00.000Z");
+  assert.equal(nextCollectorTime(now,"traffic"),"2026-10-20T08:00:00.000Z");
 });
 test("three-table completion needs all three actual success receipts; zero changes need not mean no read",()=>{
   const base={kind:"SHEETS",periodStart:"2026-10-20",status:"COMPLETED",checkedItems:15};

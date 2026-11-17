@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { envBool } from "@/lib/env";
 import { SERP_CONFIG_ID } from "@/lib/dataforseo-serp";
-import { operationStateLabels, plannedRankingTime, schedulerState, nextCollectorTime, configuredAutomationPlans, schedulerCadence, automationConfigurationVerifiedAt, type OperationsStatus } from "@/lib/operations";
+import { operationStateLabels, plannedRankingTime, schedulerState, nextCollectorTime, configuredAutomationPlans, schedulerCadence, dailyAnalyticsCollectionTime, automationConfigurationVerifiedAt, type OperationsStatus } from "@/lib/operations";
 import { keywordCyclePlan } from "@/lib/keyword-cycle";
 import { SERP_COLLECTION_SITE } from "@/lib/serp-targets";
 import { serpPeriod } from "@/lib/serp-periods";
@@ -54,7 +54,7 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
     scheduler: { configured: Boolean(process.env.CRON_SECRET), cadence: schedulerCadence, state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
     plans: [
       { id: "rankings", name: "DataForSEO 新词与排名", location: "项目服务器 · Vercel", cadence: "隔周周四 10:10", state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "仅Flatkey：先发现业务新词，再查询已有合适页面的正式词；美国、日本、西班牙、巴西。" },
-      { id: "traffic", name: "五站 GA4 / GSC 与页面台账", location: "GitHub Actions · 服务器采集", cadence: "每日 10:10（仓库配置）", state: serverConfig.enabled ? "服务器配置已启用 · 执行见回执" : "服务器配置未启用", nextAt:serverConfig.enabled ? nextCollectorTime(now,"traffic") : null, currentExecution: serverRuns[0] ? `${state(serverRuns[0].status.toUpperCase())} · ${serverRuns[0].completedItems}/${serverRuns[0].checkedItems} 条应有数据已核对` : "已验证手动采集，后续定时执行待回执", note: `GitHub 配置核对于 ${serverConfig.verifiedAt}，状态实时变化以仓库为准；已核验工作流 ${serverConfig.lastVerifiedRun}。自然搜索与来源实际日期分别保存，回补近期数据；关键词研究和博客任务复用服务器采集结果。任何来源缺失均保留原因。` },
+      { id: "traffic", name: "五站 GA4 / GSC 与页面台账", location: "GitHub Actions · 服务器采集", cadence: `每日 ${dailyAnalyticsCollectionTime}（仓库配置）`, state: serverConfig.enabled ? "服务器配置已启用 · 执行见回执" : "服务器配置未启用", nextAt:serverConfig.enabled ? nextCollectorTime(now,"traffic") : null, currentExecution: serverRuns[0] ? `${state(serverRuns[0].status.toUpperCase())} · ${serverRuns[0].completedItems}/${serverRuns[0].checkedItems} 条应有数据已核对` : "已验证手动采集，后续定时执行待回执", note: `GitHub 配置核对于 ${serverConfig.verifiedAt}，状态实时变化以仓库为准；已核验工作流 ${serverConfig.lastVerifiedRun}。自然搜索与来源实际日期分别保存，回补近期数据；关键词研究和博客任务复用服务器采集结果。任何来源缺失均保留原因。` },
       ...configuredAutomationPlans(now),
     ], records,
   };
