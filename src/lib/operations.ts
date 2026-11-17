@@ -1,3 +1,4 @@
+import { isSeoWorkday } from "./seo-workday";
 import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod, scheduledSerpDue } from "./serp-periods";
 import automationConfig from "./data/seo-automation-config.json";
 
@@ -53,7 +54,7 @@ function automationHours(value?: string) {
   return hours.every(hour => hour >= 0 && hour <= 23) ? hours : [];
 }
 
-export function nextAutomationTime(rule: string, now: Date, status: string): string | null {
+export function nextAutomationTime(rule: string, now: Date, status: string, workdaysOnly = false): string | null {
   if (status !== "ACTIVE") return null;
   const values = Object.fromEntries(rule.split(";").map(part => part.split("=")));
   const hours = automationHours(values.BYHOUR), minute = Number(values.BYMINUTE);
@@ -72,20 +73,21 @@ export function nextAutomationTime(rule: string, now: Date, status: string): str
     }
     for (const hour of hours) {
       const candidate = new Date(`${day.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
-      if (candidate > now) return candidate.toISOString();
+      if (candidate > now && (!workdaysOnly || isSeoWorkday(candidate))) return candidate.toISOString();
     }
   }
   return null;
 }
 
 const automationNotes: Record<string, string> = {
+  "seo-16-25": "核对 16:00 本机采集与生产归档，验证日期、覆盖和缺口。",
   "seo-16-00-ga4-search-console": "本机从 Google 查询五站自然搜索、页面和搜索词数据，回看最近 14 个已结束日，写回后核对生产归档。",
-  "flatkey-5": "按已确认的周计划制作源博客，Flatkey 每天英文 2 篇，日文、巴西葡语、西班牙西语各 1 篇。GPU 为主、API 为辅。真实博客和译文按质量门槛自动发布。",
-  "automation": "周五 10:10 定稿下周每日博客、优化和落地页，以及四站合计每周 2 个集群新落地页。11:00 核对，11:30 周报引用。",
+  "flatkey-5": "按已确认的周计划执行博客、落地页及优化；普通周末和法定假日跳过，官方补班日照常。",
+  "automation": "周五 10:10 定稿下周工作日的博客、优化和落地页，并核对 ModelFit 与 RackRate 的集群页候选。11:00 核对，11:30 周报引用。",
   "seo-09-30": "补齐已经排期的研究依赖，将证据写回原任务。每周四准备候选，周五定下周排期。",
   "seo-09-00-github-traffic": "通过本机 GitHub CLI 采集两个提示词仓库的浏览和克隆，核对生产读回。",
   "seo-09-10-flatkey": "通过本机 Chrome 会话读取 Flatkey 账户系统，导入已结束的 UTC 日并核对报表。",
-  "seo-10-00": "五站技术质检；新增、改动和异常页优先。把可修复问题送工作任务，日报引用真实检查回执。",
+  "seo-10-00": "Flatkey、RackRate、ModelFit 技术质检；新增、改动和异常页优先。把可修复问题送工作任务，日报引用真实检查回执。",
   "seo-13-30": "扫描搜索意图并登记异常。Flatkey 每日最多优化 2 个页面，保存基线和版本。常规旧博客免审，代码改造先预览和送审。",
   "seo-14-30": "Flatkey 每日制作最多 1 个已排期落地页。独立分支部署测试环境，证据齐全后提交工作任务审批。",
   "seo-15-00": "四个集群站合计每周最多新增 2 个落地页。使用站点已有语言，进入 Flatkey 的引导带来源 UTM。",
@@ -143,8 +145,8 @@ export function configuredAutomationPlans(now: Date): OperationsStatus["plans"] 
     return minute(a.rrule) - minute(b.rrule) || a.id.localeCompare(b.id);
   });
   return ordered.map(task => ({ id: task.id, name: task.name, location: "Codex · 本机在线执行",
-    cadence: automationCadence(task.rrule), state: task.status === "ACTIVE" ? "配置已启用 · 成功待回执" : "配置已暂停",
-    nextAt: nextAutomationTime(task.rrule, now, task.status),
+    cadence: task.workdaysOnly ? automationCadence(task.rrule).replace(/^每日 /, "工作日 ") : automationCadence(task.rrule), state: task.status === "ACTIVE" ? "配置已启用 · 成功待回执" : "配置已暂停",
+    nextAt: nextAutomationTime(task.rrule, now, task.status, task.workdaysOnly),
     dependencies: automationDependencies[task.id] ?? [],
     note: `${automationNotes[task.id] ?? "以执行回执核对结果。"} 配置核对于 ${automationConfig.verifiedAt}，实时启停以 Codex 为准。`,
   }));

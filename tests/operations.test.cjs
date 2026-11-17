@@ -55,7 +55,7 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
   const localCollection = status.plans.find(row => row.id === "seo-16-00-ga4-search-console");
-  assert.equal(localCollection.cadence, "每日 16:00");
+  assert.equal(localCollection.cadence, "工作日 16:00");
   assert.equal(localCollection.location, "Codex · 本机在线执行");
   assert.ok(!status.plans.some(row => row.id === "10-30-seo"));
   const actualPlan = configuredAutomationPlans(new Date("2026-10-19T08:00:00Z")).find(row => row.id === "automation");
@@ -69,13 +69,17 @@ test("operational view reads metadata only and distinguishes online ranking from
 test("actual Codex configuration keeps paused tasks unscheduled and first-weekday rules respect weekends", () => {
   const rules = configuredAutomationPlans(new Date("2026-11-10T00:30:00Z"));
   assert.ok(!rules.some(row => row.id === "10-30-seo"));
-  assert.equal(rules.find(row => row.id === "seo-09-30").nextAt, "2026-11-10T02:15:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-09-30").nextAt, null);
+  assert.equal(rules.find(row => row.id === "seo-09-10-flatkey").nextAt, "2026-11-10T08:15:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-16-25").nextAt, "2026-11-10T08:25:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-14-00").nextAt, "2026-11-12T08:30:00.000Z");
+  assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=16;BYMINUTE=0", new Date("2026-09-18T09:00Z"), "ACTIVE", true), "2026-09-20T08:00:00.000Z");
   const weekdayPages = rules.find(row => row.id === "seo-14-30");
   assert.equal(weekdayPages.cadence, "工作日 10:15–23:15 每小时");
   const afterFriday = configuredAutomationPlans(new Date("2026-11-20T15:16:00Z"));
-  assert.equal(afterFriday.find(row => row.id === "seo-14-30").nextAt, "2026-11-23T02:15:00.000Z");
-  assert.equal(afterFriday.find(row => row.id === "flatkey-5").nextAt, "2026-11-21T02:15:00.000Z");
-  assert.equal(configuredAutomationPlans(new Date("2026-11-16T02:16:00Z")).find(row => row.id === "seo-16-00").nextAt, "2026-11-16T03:15:00.000Z");
+  assert.equal(afterFriday.find(row => row.id === "seo-14-30").nextAt, null);
+  assert.equal(afterFriday.find(row => row.id === "flatkey-5").nextAt, "2026-11-23T02:15:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-16-00").nextAt, null);
   for (const row of rules.filter(row => row.state === "配置已暂停")) assert.equal(row.nextAt, null);
   assert.equal(nextAutomationTime("FREQ=WEEKLY;BYDAY=FR;BYHOUR=16;BYMINUTE=30", new Date("2026-11-10T08:00:00Z"), "ACTIVE"), "2026-11-13T08:30:00.000Z");
   assert.equal(nextAutomationTime("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0", new Date("2026-10-31T08:00:00Z"), "ACTIVE"), "2026-11-02T07:00:00.000Z");

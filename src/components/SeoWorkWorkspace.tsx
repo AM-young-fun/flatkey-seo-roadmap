@@ -431,10 +431,10 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
 
 export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: string }) {
   const router = useRouter();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   async function deleteTask(task: WorkflowTask) {
-    if (!window.confirm(`删除「${task.title}」？`)) return;
     setDeleting(true);
     setDeleteError("");
     const { version, recordedAt, updatedAt, ...record } = task;
@@ -468,9 +468,12 @@ export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: s
           <div className={styles.toolbarActions}>
             <EditorialTaskTag task={task} />
             <TaskStatus status={workTaskStatus(task, result.data)} />
-            <button className={styles.secondary} disabled={deleting} onClick={() => void deleteTask(task)} type="button">
-              {deleting ? "正在删除…" : "删除任务"}
-            </button>
+            {confirmDelete ? <>
+              <button className={styles.secondary} disabled={deleting} onClick={() => setConfirmDelete(false)} type="button">取消</button>
+              <button className={styles.secondary} disabled={deleting} onClick={() => void deleteTask(task)} type="button">
+                {deleting ? "正在删除…" : "确认删除任务"}
+              </button>
+            </> : <button className={styles.secondary} onClick={() => setConfirmDelete(true)} type="button">删除任务</button>}
             {pendingReview ? <Link className={styles.primary} href={"/approvals?" + new URLSearchParams({ approvalId: pendingReview.approval.id, taskId: task.id, review: "1" })}>审核任务</Link> : null}
           </div>
         </div>

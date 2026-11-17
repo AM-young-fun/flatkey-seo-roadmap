@@ -1,3 +1,4 @@
+import { isSeoWorkday } from "./seo-workday";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
@@ -81,10 +82,28 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   if (previous && previous.weekStart !== plan.weekStart) reject("identity_changed", "计划不能改变所属工作周");
   const tasks = plan.taskIds.map(id => all.find(row => row.kind === "task" && row.record.id === id)?.record as WorkflowTask | undefined);
   if (tasks.some(task => !task || task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
+  if ("cadence" in plan.targets && plan.targets.cadence === "workdays") {
+    const targets = plan.targets;
+    const workdayCount = Array.from({ length: 7 }, (_, index) => shiftWorkflowDay(plan.weekStart, index))
+      .filter(day => isSeoWorkday(new Date(day + "T00:00:00+08:00"))).length;
+    const expectedLanguages = { en: workdayCount * 2, ja: workdayCount, "pt-BR": workdayCount, "es-ES": workdayCount };
+    if (!same(targets.blogLanguages, expectedLanguages) || targets.apiBlogs + targets.gpuBlogs !== workdayCount * 5
+      || targets.landing !== workdayCount || targets.optimizedPages !== workdayCount * 2 || targets.clusterLanding !== Math.min(2, workdayCount)) {
+      reject("plan_workday_targets", "排期额度必须与本周法定工作日和补班日一致");
+    }
+    for (const task of tasks) {
+      if (!task || task.deletedAt) reject("plan_task_deleted", "计划不能引用已删除任务");
+      if (task.siteDomain === "jev-llm.com" || task.siteDomain === "mochichatbot.com") {
+        reject("plan_monitor_only_site", "JEV 与 Mochi 仅做流量观察");
+      }
+      if (contentKinds.has(task.kind) && !isSeoWorkday(new Date(task.dueAt))) reject("plan_content_nonworkday", "内容制作及优化只安排在法定工作日或官方补班日");
+    }
+  }
   if (!isExecutableWorkflowPlan(plan.status)) return;
   if (plan.status === "scheduled" && tasks.some(task => task && contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status))) reject("plan_task_not_ready", "自动排期只能领取已具备研究证据的内容任务；未完成研究的候选留在工作台");
   const cadence = "cadence" in plan.targets ? plan.targets.cadence : null;
-  const daily = cadence === "daily" || cadence === "weekday_pages";
+  const workdays = cadence === "workdays";
+  const daily = cadence === "daily" || cadence === "weekday_pages" || workdays;
   const focused = cadence !== null;
   const localDay = (task: WorkflowTask) => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
   if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "正式计划须明确四国源文额度");
