@@ -26,13 +26,18 @@ function tasksUsingBranch(all: WorkflowStoredRow[], task: WorkflowTask) {
 }
 
 function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
+  if (previous?.deletedAt) reject("task_deleted", "该任务已删除。");
+  if (task.deletedAt) {
+    if (actor !== "human" || !previous) reject("human_task_delete_required", "请登录后删除现有任务。");
+    return;
+  }
   if (actor !== "human" && task.source === "human" && previous?.source !== "human") reject("human_task_source_required", "只有用户操作可创建明确人工目标，采集器不能伪造人工来源");
   if (previous?.branchObservation && (!task.branchObservation || Date.parse(task.branchObservation.observedAt) < Date.parse(previous.branchObservation.observedAt))) reject("branch_observation_stale", "请保留最近一次分支核对结果");
   if (previous?.codeSource && (!task.codeSource || previous.codeSource.repository !== task.codeSource.repository || previous.codeSource.branch !== task.codeSource.branch)) reject("page_branch_immutable", "同一页面任务沿用原工作分支");
   if (task.codeSource && tasksUsingBranch(all, task)) reject("page_branch_in_use", "该分支已关联另一页面任务，请使用独立分支");
   if (previous?.changeScope === "search_intent" && task.changeScope !== previous.changeScope) reject("intent_scope_immutable", "搜索意图整改需保留逐页审批");
   if (previous && (previous.channel === "product" || task.channel === "product") && previous.channel !== task.channel) reject("product_task_channel_immutable", "产品技术任务不能更换渠道；请新建独立任务");
-  const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+  const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask).filter(task => !task.deletedAt);
   const lookup = new Map(tasks.map(row => [row.id, row])); lookup.set(task.id, task);
   if (task.keyword && contentKinds.has(task.kind)) {
     const word = (value: string | null) => value?.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -139,7 +144,7 @@ const decisionInput = (decision: WorkflowApproval["decisions"][number]) => Objec
 
 function checkApprovalItemContext(item: WorkflowApproval["items"][number], siteDomain: string, all: WorkflowStoredRow[], currentPublicationId?: string) {
   const task = all.find(row => row.kind === "task" && row.record.id === item.taskId)?.record as WorkflowTask | undefined;
-  if (!task || task.siteDomain !== siteDomain || !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind)) reject("approval_task_missing", "审批项必须关联同站点真实页面任务，历史归档不能提供发布授权");
+  if (!task || task.deletedAt || task.siteDomain !== siteDomain || !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind)) reject("approval_task_missing", "审批项必须关联同站点真实页面任务，历史归档不能提供发布授权");
   if (contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status)) reject("approval_task_not_ready", "先完成关键词研究并进入制作或待审阶段，再提交页面审批");
   if (item.postPublicationId) {
     const live = all.find(row => row.kind === "publication" && row.record.id === item.postPublicationId)?.record as WorkflowPublication | undefined;
@@ -204,7 +209,7 @@ function assertApproval(value: WorkflowApproval, previous: WorkflowApproval | un
     for (const item of value.items) checkApprovalItemContext(item, value.siteDomain, all);
     if (value.status !== "draft") {
       if (value.items.some(item => item.postPublicationId) && !value.items.every(item => item.postPublicationId)) reject("approval_mode_mixed", "上线前和上线后审核不能混用同一单");
-      const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+      const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask).filter(task => !task.deletedAt);
       for (const item of value.items.filter(item => approvalItemNeedsHuman(item, tasks))) {
         const readiness = approvalReviewReadiness(item);
         if (!readiness.ready) reject("approval_preview_missing", "送审前须补齐：" + readiness.missing.join("、"));
@@ -251,7 +256,7 @@ export function checkWorkflowApproval(input: WorkflowApprovalCheck, all: Workflo
 
 function assertPublication(value: WorkflowPublication, previous: WorkflowPublication | undefined, all: WorkflowStoredRow[]) {
   const task = all.find(row => row.kind === "task" && row.record.id === value.taskId)?.record as WorkflowTask | undefined;
-  if (!task || task.siteDomain !== value.siteDomain || task.weekStart !== value.weekStart) reject("publication_task_missing", "发布记录需要对应同站点工作任务");
+  if (!task || (task.deletedAt && !previous) || task.siteDomain !== value.siteDomain || task.weekStart !== value.weekStart) reject("publication_task_missing", "发布记录需要对应同站点工作任务");
   const automatic = value.publicationPolicy;
   if (automatic === "cluster_post_review") {
     if (!value.clusterRelease || !same(task.codeSource, value.clusterRelease.codeSource) || task.channel && task.channel !== "website" || !["landing", "optimization", "cluster", "technical"].includes(task.kind) || ["planned", "researching", "blocked", "failed"].includes(task.status) || (task.branchObservation && task.branchObservation.headSha !== value.contentVersion)) reject("cluster_release_context", "集群站发布必须绑定可执行的逐页任务、独立分支和准确提交");
@@ -336,7 +341,8 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   const previous = all.find(row => row.kind === kind && row.record.id === parsed.id)?.record;
   if ((previous?.version ?? 0) !== mutation.expectedVersion) reject("version_conflict", "记录已被其他任务修改；请重新读取并保留人工变更");
   const stamp = now.toISOString();
-  const record = { ...parsed, version: (previous?.version ?? 0) + 1, recordedAt: previous?.recordedAt ?? stamp, updatedAt: stamp,
+  const deletingTask = kind === "task" && Boolean((parsed as WorkflowTask).deletedAt);
+  const record = { ...(deletingTask && previous ? { ...previous, deletedAt: stamp } : parsed), version: (previous?.version ?? 0) + 1, recordedAt: previous?.recordedAt ?? stamp, updatedAt: stamp,
     ...(kind === "approval" ? { submittedRecordedAt: (previous as WorkflowApproval | undefined)?.submittedRecordedAt ?? ((parsed as WorkflowApproval).status !== "draft" ? stamp : null), decisions: (parsed as WorkflowApproval).decisions.map((decision, index) => ({ ...decision, recordedAt: (previous as WorkflowApproval | undefined)?.decisions[index]?.recordedAt ?? stamp })) } : {}),
     ...(kind === "publication" ? { verificationRecordedAt: (previous as WorkflowPublication | undefined)?.verificationRecordedAt ?? ((parsed as WorkflowPublication).status === "verified" ? stamp : null) } : {}),
     ...(kind === "historical_import" ? { publications: (parsed as WorkflowHistoricalImport).publications.map(item => ({ ...item, verificationRecordedAt: item.verificationState === "live_verified" ? stamp : null })) } : {}),
@@ -399,7 +405,7 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
   const current = workflowWeek(now);
   const weekStart = options.week === "next" ? shiftWorkflowDay(current, 7) : options.week === "latest" ? all.filter(row => row.kind === "plan").map(row => row.record.weekStart).sort().at(-1) ?? current : !options.week || options.week === "current" ? current : options.week;
   const belongs = (row: WorkflowStoredRow) => options.pageUrl ? "pageUrl" in row.record && row.record.pageUrl === options.pageUrl : options.allHistory || row.record.weekStart === weekStart;
-  const tasks = all.filter(row => row.kind === "task" && belongs(row)).map(row => row.record as WorkflowTask).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const tasks = all.filter(row => row.kind === "task" && belongs(row)).map(row => row.record as WorkflowTask).filter(task => !task.deletedAt).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
   const taskIds = new Set(tasks.map(task => task.id));
   const plans = all.filter(row => row.kind === "plan" && row.record.weekStart === weekStart).map(row => row.record as WorkflowPlan).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const publications = all.filter(row => row.kind === "publication" && belongs(row)).map(row => row.record as WorkflowPublication).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
@@ -438,7 +444,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     .filter(plan => isExecutableWorkflowPlan(plan.status))
     .map(plan => [plan.weekStart, new Set(plan.taskIds)]));
 
-  const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+  const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask).filter(task => !task.deletedAt);
   const issueTasks = new Set(all.filter(row => row.kind === "issue")
     .map(row => row.record as WorkflowIssue).filter(issue => issue.status !== "resolved").map(issue => issue.taskId));
   const originalApprovals = approvalRows(all);
