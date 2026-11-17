@@ -242,7 +242,7 @@ test("draft page versions and submitted missing materials deduplicate by task ac
 });
 
 
-test("DingTalk summary only compares report metrics and keeps operational details in the platform", () => {
+test("DingTalk daily and weekly cards show comparable data with the real dates and a short operational summary", () => {
  const date = "2026-11-13";
  const gsc = (day, clicks, impressions) => ({ site: "flatkey.ai", date: day, source: "GSC",
    scope: "google-web", timezone: "America/Los_Angeles", complete: true, observedAt: date + "T08:00:00Z", clicks, impressions });
@@ -251,17 +251,40 @@ test("DingTalk summary only compares report metrics and keeps operational detail
  const input = { ...base(date), notificationCompact: true, observations, issues: ["private-diagnostic-marker"],
    nextPlanStatus: "scheduled", ...workflow([approval("compact-test")]) };
  const daily = buildSeoDigest(input);
- assert.match(daily.text, /自然搜索会话  10 → 0（-100%） · 11\/10 → 11\/11/);
- assert.match(daily.text, /Google 点击  5 → 10（\+100%） · 11\/09 → 11\/10/);
- assert.match(daily.text, /Google 曝光  50 → 100/);
- assert.equal(daily.text.split("\n").length, 4);
- assert.doesNotMatch(daily.text, /待审核|计划|质检|GitHub|诊断|https:/);
+ assert.match(daily.text, /\*\*Flatkey SEO 日报｜2026-11-12\*\*/);
+ assert.match(daily.text, /自然搜索会话 10 → \*\*0\*\*（-10 \/ -100.0%） · 2026-11-10 → 2026-11-11/);
+ assert.match(daily.text, /Google 全站点击 5 → \*\*10\*\*（\+5 \/ \+100.0%） · 2026-11-09 → 2026-11-10/);
+ assert.match(daily.text, /Google 全站曝光 50 → \*\*100\*\*/);
+ assert.match(daily.text, /Google CTR 10.00% → 10.00%/);
+ assert.match(daily.text, /页面组表现[\s\S]*关键词与技术异常[\s\S]*今日完成与下一步[\s\S]*数据状态/);
+ assert.doesNotMatch(daily.text, /private-diagnostic-marker|https:/);
  assert.match(daily.detailText, /private-diagnostic-marker|待审核/);
  const weekly = buildSeoDigest({ ...input, kind: "weekly" });
  assert.match(weekly.text, /2026-11-06—2026-11-12/);
- assert.match(weekly.text, /Google 点击  4 → 10（\+150%） · 可比 1\/7 天/);
- assert.match(weekly.text, /自然搜索会话  可比数据待更新/);
+ assert.match(weekly.text, /Google 全站点击 4 → \*\*10\*\*（\+6 \/ \+150.0%） · 2026-11-03 → 2026-11-10/);
+ assert.match(weekly.text, /GA4 自然搜索会话 待更新 → \*\*10\*\*/);
+ assert.match(weekly.text, /业务结果与搜索表现[\s\S]*重点页面[\s\S]*关键词与技术异常[\s\S]*上期动作复盘[\s\S]*下周优先事项/);
  assert.match(weekly.detailText, /下周事项与关键词（已排期）/);
+});
+
+
+test("daily card does not replace an unpaired latest day with an older comparison or treat a missing funnel as zero", () => {
+ const date = "2026-11-17";
+ const dailyAcquisition = { points: [
+   { date: "2026-11-15", newUsers: 80, newRegistrations: 1 },
+   { date: "2026-11-16", newUsers: 96, newRegistrations: 0 },
+ ] };
+ const pageGroups = { groups: [{ key: "gpu_compute", points: [
+   { date: "2026-11-15", totalUsers: 23, pageViews: 33, funnel: { entrants: 20, registrations: 2 }, collectedAt: "2026-11-16T12:00:00Z" },
+   { date: "2026-11-16", totalUsers: 31, pageViews: 40, funnel: null, collectedAt: "2026-11-17T12:00:00Z" },
+ ] }] };
+ const observations = [ga("2026-11-12", 30), ga("2026-11-13", 32), ga("2026-11-16", 115)];
+ const report = buildSeoDigest({ ...base(date), notificationCompact: true, dailyAcquisition, pageGroups, observations });
+ assert.match(report.text, /GA4 新用户（首次来源为自然搜索） 80 → \*\*96\*\*（\+16 \/ \+20\.0%）/);
+ assert.match(report.text, /GA4 去重注册（首次来源为自然搜索） 1 → \*\*0\*\*/);
+ assert.match(report.text, /GA4 自然搜索会话 待更新 → \*\*115\*\* · 待更新 → 2026-11-16/);
+ assert.match(report.text, /GPU 算力 · 访客 31（\+8） · 浏览 40（\+7） · 同日注册 待更新/);
+ assert.match(report.text, /模型列表 · 待补采/);
 });
 
 test("actual verified ES optimization stays visible when the overall execution coverage is missing",()=>{
@@ -270,7 +293,7 @@ test("actual verified ES optimization stays visible when the overall execution c
   publications:fixture.publications,optimizations:fixture.optimizations,
   publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
  assert.deepEqual(report.counts,fixture.expectedCounts);
- assert.doesNotMatch(report.text,/优化|落地页|集群/);
+ assert.match(report.text,/已核实 \/es\/blog\/gpu-server/);
  assert.match(report.detailText,/今日优化 已核实 1 个页面，台账覆盖待补/);
  assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
  assert.doesNotMatch(report.text,/优化 暂无上线回执/);
@@ -344,15 +367,15 @@ test("recent page comparison includes both weeks, excludes unverified and newer 
  assert.equal(recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, false).some(row => row.title === "friday"), true);
 });
 
-test("daily and weekly reports preserve their linked plan rows outside the group summary", () => {
+test("daily and weekly reports preserve linked plans and include the next scheduled tasks in the weekly card", () => {
  const tasks = ["optimization", "blog", "landing"].map((kind, i) => ({ id: kind, kind, title: kind, keyword: "local keyword",
    country: "US", language: "en", pageUrl: null, dueAt: "2026-11-13T10:00:00Z", status: i === 0 ? "verified" : "drafting", action: "" }));
  const workPlan = { weekStart: "2026-11-09", status: "reviewed", tasks };
  const report = buildSeoDigest({ ...base("2026-11-13"), workPlan, notificationCompact: true, optimizationMonitoring: [] });
  assert.deepEqual(report.workPlan.tasks, tasks);
- assert.doesNotMatch(report.text, /关键词|计划/);
+ assert.doesNotMatch(report.text, /local keyword/);
  const weekly = buildSeoDigest({ ...base("2026-11-13"), workPlan, kind: "weekly", notificationCompact: true, optimizationMonitoring: [] });
- assert.doesNotMatch(weekly.text, /关键词|计划/);
+ assert.match(weekly.text, /下周优先事项[\s\S]*local keyword US[\s\S]*截止 2026-11-13/);
  assert.equal(weekly.workPlan.tasks.length, 3);
 });
 
@@ -388,7 +411,7 @@ test("account registrations keep UTC dates, real zero, later corrections, and in
  const accountRegistrations = accountRegistrationSummary({ start: "2026-11-12", end: "2026-11-12" }, [earlier, corrected]);
  const daily = buildSeoDigest({ ...base("2026-11-13"), accountRegistrations, notificationCompact: true });
  assert.equal(daily.accountRegistrations.users, 0);
- assert.match(daily.text, /Flatkey 账户注册  0 人 · UTC/);
+ assert.match(daily.text, /Flatkey 账户注册 0 人 · UTC/);
  assert.match(daily.detailText, /Flatkey 注册人数 0 人（账户系统 · 2026-11-12 UTC/);
  const week = accountRegistrationSummary({ start: "2026-11-06", end: "2026-11-12" }, [earlier, corrected]);
  assert.equal(week.missing.length, 5);

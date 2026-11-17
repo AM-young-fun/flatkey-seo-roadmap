@@ -1,3 +1,7 @@
+import { DAILY_SEO_TRAFFIC_DEFAULTS, dailySeoPropertyDate } from "../daily-seo-traffic";
+import { DAILY_SEO_PAGE_GROUP_RULE_VERSION } from "../daily-seo-page-groups";
+import { loadDailySeoTrafficHistory } from "./daily-seo-traffic";
+import { loadDailySeoPageGroupsHistory } from "./daily-seo-page-groups";
 import { recentPublishedPages } from "../seo-digest-recent-pages";
 import { actionCardPayload, messageHash } from "../seo-digest-message.cjs";
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
@@ -63,7 +67,7 @@ function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnaps
       && workflowApprovalEffectiveItemStatus(approval, item.id, snapshot.approvals) === "pending"));
     const status = !pending ? task.status : automatic ? "ready" : canReview ? "review_pending" : "missing_materials";
     return [{ id: task.id, kind, title: task.title, pageUrl: task.pageUrl, keyword: task.keyword, country: task.country,
-      language: task.language, dueAt: task.dueAt, status, action: task.nextAction }];
+      language: task.language, owner: task.owner, dueAt: task.dueAt, status, action: task.nextAction }];
   }).sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.id.localeCompare(b.id));
   const targets = "clusterLanding" in plan.targets ? {
     blogs: plan.targets.apiBlogs + plan.targets.gpuBlogs, landing: plan.targets.landing,
@@ -80,6 +84,10 @@ export async function loadDigestWorkPlan(date: string, kind: DigestKind) {
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
   const window = digestWindow(date, kind);
   const start = shiftWorkflowDay(window.trafficStart, -15);
+  const reportHistoryEnd = [window.trafficEnd, shiftWorkflowDay(dailySeoPropertyDate(now), -1)].sort()[0];
+  const reportHistoryStart = shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1);
+  const historyQuery = { ...DAILY_SEO_TRAFFIC_DEFAULTS, start: reportHistoryStart, end: reportHistoryEnd };
+  const hasClosedHistory = reportHistoryEnd >= reportHistoryStart;
   const monitoringAsOf = new Date(Math.min(now.getTime(), Date.parse(window.readyAfter)));
   const monitoringEnd = [gscPeriodEnd(monitoringAsOf), window.trafficEnd].sort()[0];
   const monitoringStart = shiftWorkflowDay(monitoringEnd, -(OPTIMIZATION_HISTORY_DAYS + OPTIMIZATION_BASELINE_DAYS + 2));
@@ -95,8 +103,10 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
     loadAccountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
+    kind === "daily" && hasClosedHistory ? loadDailySeoTrafficHistory(historyQuery) : Promise.resolve(undefined),
+    hasClosedHistory ? loadDailySeoPageGroupsHistory({ ...historyQuery, ruleVersion: DAILY_SEO_PAGE_GROUP_RULE_VERSION }) : Promise.resolve(undefined),
   ]);
-  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档"][index]}读取失败，相关项保留缺失。`] : []);
+  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档", "GA4 首次获客日报", "GA4 页面组和同日注册漏斗"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, "database");
   const nextWeek = reads[1].status === "fulfilled" ? reads[1].value : workflowSnapshot([], { week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, "database");
   const analytics = reads[2].status === "fulfilled" ? reads[2].value : [];
@@ -153,6 +163,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
     date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
+    dailyAcquisition: reads[8].status === "fulfilled" ? reads[8].value : undefined,
+    pageGroups: reads[9].status === "fulfilled" ? reads[9].value : undefined,
     workPlan: summarizeWorkPlan(relevantPlan),
     recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly"), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
     accountRegistrations: reads[7].status === "fulfilled" ? reads[7].value : accountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
