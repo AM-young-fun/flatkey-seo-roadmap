@@ -6,6 +6,7 @@ import { runKeywordDiscoveryCycle } from "@/lib/services/keyword-cycle";
 import { loadSourceSyncHealth } from "@/lib/services/source-sync-health";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { seoScheduleOpensAt } from "@/lib/seo-schedule-window";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ function isAuthorized(request: Request): boolean {
   return Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-async function handleCron(request: Request) {
+async function handleCron(request: Request, scheduled = false) {
   if (!isAuthorized(request)) {
     return NextResponse.json(
       {
@@ -30,6 +31,9 @@ async function handleCron(request: Request) {
   }
 
   const startedAt = Date.now();
+  if (scheduled && startedAt < seoScheduleOpensAt(new Date(startedAt))) {
+    return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
+  }
   // Save an invocation receipt before doing work. This distinguishes a
   // configured cron from an invocation the project actually received.
   const checkId = randomUUID();
@@ -59,7 +63,7 @@ async function handleCron(request: Request) {
 }
 
 export async function GET(request: Request) {
-  return handleCron(request);
+  return handleCron(request, true);
 }
 
 export async function POST(request: Request) {

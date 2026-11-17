@@ -48,6 +48,11 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
   assert.equal(schedulerReceipts.length, 0);
   process.env.CRON_SECRET = "fictional-daily-secret";
   assert.equal((await POST(request("wrong"))).status, 401); assert.equal(checks, 0); assert.equal(ledgerReads.length, 0);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-17T02:09:59Z") });
+  const early = await GET(request("fictional-daily-secret"));
+  assert.equal(early.status, 204);
+  assert.equal(checks, 0); assert.equal(ledgerReads.length, 0); assert.equal(schedulerReceipts.length, 0);
+  t.mock.timers.tick(1000);
   const response = await GET(request("fictional-daily-secret")), body = await response.json();
   assert.equal(response.status, 200); assert.equal(body.status, "DISABLED"); assert.equal(body.serp.paidRequests, 0);
   assert.equal(body.sourceSync.executed, false); assert.equal(body.sourceSync.dailyCheck.confirmed, false);
@@ -57,7 +62,10 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
   assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "config", "run", "run"]);
   assert.equal(ledgerReads[2][1].where.scope, "SCHEDULED", "the coordinator must not continue the separately authorized sample");
 });
-test("Vercel has one resumable coordinator; paid starts are gated by the biweekly cycle", () => {
+test("Vercel only invokes the coordinator from 10:10 Beijing time", () => {
   const config = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
-  assert.deepEqual(config.crons, [{ path: "/api/cron/daily-rankings", schedule: "*/5 * * * *" }]);
+  assert.deepEqual(config.crons, [
+    { path: "/api/cron/daily-rankings?window=opening", schedule: "10-59/5 2 * * *" },
+    { path: "/api/cron/daily-rankings", schedule: "*/5 3-15 * * *" },
+  ]);
 });

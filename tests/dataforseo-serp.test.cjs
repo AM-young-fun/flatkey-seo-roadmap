@@ -237,7 +237,7 @@ test("an existing 10:30 server cursor starts once at Thursday 08:00 and never cr
  t.mock.timers.tick(10.5*60*60*1000);
  await runSerpMonitorCron();
  assert.equal(state.runs.length,1);assert.equal(fetches.filter(row=>row.method==="POST").length,1);
- assert.equal(state.config.nextDueAt.toISOString(),"2026-11-19T00:00:00.000Z");
+ assert.equal(state.config.nextDueAt.toISOString(),"2026-11-19T02:10:00.000Z");
 });
 
 test("status exposes only whether cron authentication is configured, never the cron secret", async () => {
@@ -862,7 +862,7 @@ require.cache[headersPath] = { id: headersPath, filename: headersPath, loaded: t
 const { GET: statusRoute, POST: mutateRoute } = require("../src/app/api/serp-monitor/route.ts");
 const { GET: cronRoute } = require("../src/app/api/cron/daily-rankings/route.ts");
 const { getAuthToken } = require("../src/lib/auth.ts");
-test("management routes require a logged-in session and only accept disabled setup; cron always requires a secret", async () => {
+test("management routes require a logged-in session and only accept disabled setup; cron always requires a secret", async t => {
   process.env.LOGIN_PWD = "fictional-serp-website-password"; process.env.DATABASE_URL = "postgresql://unused.invalid/test"; sessionToken = null;
   assert.equal((await statusRoute()).status, 401);
   const request = value => new Request("https://flatkey.test/api/serp-monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
@@ -875,6 +875,7 @@ test("management routes require a logged-in session and only accept disabled set
   delete process.env.CRON_SECRET;
   assert.equal((await cronRoute(new Request("https://flatkey.test/api/cron/serp-monitor"))).status, 401);
   process.env.CRON_SECRET = "fictional-serp-cron-secret";
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-17T02:10:00Z") });
   assert.equal((await cronRoute(new Request("https://flatkey.test/api/cron/serp-monitor", { headers: { Authorization: "Bearer fictional-serp-cron-secret" } }))).status, 200);
   assert.equal(fetches.length, 0);
 });

@@ -14,7 +14,7 @@ function collectionReceipt({ runId, attempt = "1", sha, startedAt, completedAt, 
     status:failed?"failed":partial?"partial":"completed",owner:"GitHub Actions",taskIds:[],inputVersion:sha,
     evidence:[{label:summary,url:`https://github.com/${REPOSITORY}/actions/runs/${runId}`,observedAt:completedAt}],
     failureReason:failed?(error?"采集执行失败；以工作流日志为准。":"采集或读回有失败。")+summary:partial?summary:null,
-    nextAction:failed?"排查失败源并重跑；不得补0或将失败写成成功。":partial?"保留无源数据范围说明，下一次采集继续检查。":"按每日08:30计划继续，持续核查数据日期。",
+    nextAction:failed?"排查失败源并重跑；不得补0或将失败写成成功。":partial?"保留无源数据范围说明，下一次采集继续检查。":"按每日10:10计划继续，持续核查数据日期。",
     checkedItems:result?.expected??0,completedItems:Math.max(0,(result?.expected??0)-(result?.missing??0)),costMicros:null,
     coverage:failed?"unknown":partial?"partial":"full",sourceDates:dates
   }};

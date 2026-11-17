@@ -133,7 +133,7 @@ export async function mutateCollectionControl(input: CollectionControlMutation) 
       await tx.serpMonitorConfig.upsert({ where: { id: SERP_CONFIG_ID }, create: { id: SERP_CONFIG_ID, ...data, revision: 1 }, update: { ...data, revision: { increment: 1 } } });
       await tx.dataForSeoConnection.update({ where: { siteDomain: "flatkey.ai" }, data: { scheduleEnabled: true } });
     });
-    return { action: input.action, enabled: true, message: "已开启隔周周四 08:00 自动更新。开启开关本身不提交抓取。" };
+    return { action: input.action, enabled: true, message: "已开启隔周周四 10:10 自动更新。开启开关本身不提交抓取。" };
   }
   if (approved.futureOnly) throw new ImportRequestError("定时费用预览仅允许开启计划，不能立即执行", 409);
   return runCollectionCycle(approved);
@@ -170,5 +170,5 @@ async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promi
   const progress = await runSerpMonitorCron({ allowStart: false, maxDurationMs: Math.max(0, deadline - Date.now()) });
   if (progress.status === "NEEDS_REVIEW") throw new ImportRequestError("本期执行异常，请查看原采集记录", 409);
   return { action: "runCycle", phase: progress.status === "FINISHED" ? "COMPLETE" : "SERP", finished: progress.status === "FINISHED", runId: run.id,
-    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? "本期已完成，下一期隔周周四08:00（北京时间）按付费开关执行。" : "正在按关键词已审核的目标国家查询实际排名，已提交的查询不会重复扣费。" };
+    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? "本期已完成，下一期隔周周四10:10（北京时间）按付费开关执行。" : "正在按关键词已审核的目标国家查询实际排名，已提交的查询不会重复扣费。" };
 }

@@ -14,13 +14,17 @@ test("Friday reports cover Friday through Thursday at the Shanghai day boundary"
  assert.equal(weeklyPeriods(new Date("2026-10-29T16:00:00Z")).current.end,"2026-10-29");
  assert.equal(activeReportPeriods(new Date("2026-10-29T02:00Z")).current.start,"2026-10-23");
  assert.equal(reportPeriods("2026-10-13").current.end,"2026-10-19");
- assert.equal(nextCollectorTime(new Date("2026-10-30T00:29:59Z"),"traffic"),"2026-10-30T00:30:00.000Z");
- assert.equal(nextCollectorTime(new Date("2026-10-30T00:30:00Z"),"traffic"),"2026-10-31T00:30:00.000Z");
+ assert.equal(nextCollectorTime(new Date("2026-11-20T02:09:59Z"),"traffic"),"2026-11-20T02:10:00.000Z");
+ assert.equal(nextCollectorTime(new Date("2026-11-20T02:10:00Z"),"traffic"),"2026-11-21T02:10:00.000Z");
 });
 test("both old enabled cursors converge on Thursday without mutating historical paid slots",()=>{
  for(const cursor of ["2026-11-03T02:30:00Z","2026-11-02T16:00:00Z","2026-11-05T00:00:00Z"])assert.equal(scheduledSerpDue(cursor).toISOString(),"2026-11-05T00:00:00.000Z");
  assert.equal(periodDue("2026-10-20").toISOString(),"2026-10-20T02:30:00.000Z");
- assert.equal(periodDue("2026-11-17").toISOString(),"2026-11-19T00:00:00.000Z");
+ assert.equal(periodDue("2026-11-17").toISOString(),"2026-11-19T02:10:00.000Z");
+ for (const cursor of ["2026-11-17T02:30:00Z", "2026-11-16T16:00:00Z", "2026-11-19T00:00:00Z"]) {
+  assert.equal(scheduledSerpDue(cursor).toISOString(),"2026-11-19T02:10:00.000Z");
+ }
+ assert.equal(scheduledSerpDue("2026-11-19T04:00:00Z").toISOString(),"2026-11-19T04:00:00.000Z");
 });
 const pillars=()=>({metric:"totalUsers",eventName:"page_view",ruleVersion:2,sourceUrl:"https://analytics.google.com/analytics/web/",siteUsers:{current:200,previous:100},groups:[{key:"models",users:{current:120,previous:80}},{key:"prompts",users:{current:100,previous:30}}]});
 test("each pillar share uses whole-site distinct users, allows overlap, and reports percentage points",()=>{

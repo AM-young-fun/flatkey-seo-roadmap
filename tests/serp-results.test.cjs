@@ -167,7 +167,7 @@ test("biweekly Tuesday slots retain legacy snapshots and cross month/year bounda
   assert.equal(serpPeriodFromKey("2026-10-20").label, "2026年10月第2期");
   assert.equal(nextSerpPeriodDue("2026-10-19T03:00:00Z").toISOString(), "2026-10-20T02:30:00.000Z");
   assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-05T00:00:00.000Z");
-  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-28T00:00:00.000Z");
+  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-28T02:10:00.000Z");
   assert.equal(periodDue("2026-10-2").toISOString(), "2026-10-16T02:30:00.000Z", "historical keys retain their actual dates");
   assert.equal(serpPeriodFromKey("2028-02-2").end, "2028-02-29");
   assert.throws(() => serpPeriodFromKey("2026-10-21"));

@@ -38,8 +38,8 @@ const { readRankingNotice } = require("../src/lib/services/ranking-notice.ts");
 Module._load = originalLoad;
 require.extensions[".ts"] = originalTs;
 
-const due = new Date("2026-11-19T00:00:00Z");
-const later = new Date("2026-11-19T02:00:00Z");
+const due = new Date("2026-11-19T02:10:00Z");
+const later = new Date("2026-11-19T02:30:00Z");
 const result = {
   id: "scheduled-run",
   startedAt: due,
