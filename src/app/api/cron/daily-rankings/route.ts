@@ -6,6 +6,7 @@ import { runKeywordDiscoveryCycle } from "@/lib/services/keyword-cycle";
 import { loadSourceSyncHealth } from "@/lib/services/source-sync-health";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { isSeoWorkday } from "@/lib/seo-workday";
 import { seoScheduleOpensAt } from "@/lib/seo-schedule-window";
 
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ async function handleCron(request: Request, scheduled = false) {
   }
 
   const startedAt = Date.now();
-  if (scheduled && startedAt < seoScheduleOpensAt(new Date(startedAt))) {
+  if (scheduled && (!isSeoWorkday(new Date(startedAt)) || startedAt < seoScheduleOpensAt(new Date(startedAt)))) {
     return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
   }
   // Save an invocation receipt before doing work. This distinguishes a
