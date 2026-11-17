@@ -1,9 +1,6 @@
 name: Server SEO daily collection
 run-name: ${{ inputs.report_only && format('SEO {0} {1} (send={2})', inputs.report_kind, inputs.report_date, inputs.send_report) || 'Server SEO daily collection' }}
 on:
-  schedule:
-    # 16:00 Beijing is midnight in Los Angeles in winter, and 01:00 in summer.
-    - cron: '0 8 * * *'
   workflow_dispatch:
     inputs:
       report_only:
@@ -82,7 +79,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   collect:
-    if: vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main' && !inputs.verify_dingtalk && !inputs.report_only
+    if: github.event_name == 'workflow_dispatch' && vars.SEO_SERVER_COLLECTION_ENABLED == 'true' && github.ref == 'refs/heads/main' && !inputs.verify_dingtalk && !inputs.report_only
     runs-on: ubuntu-latest
     timeout-minutes: 180
     outputs:

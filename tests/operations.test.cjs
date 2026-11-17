@@ -54,7 +54,9 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.scheduler.state, "UNCONFIRMED");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
-  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 16:00（仓库配置）");
+  const localCollection = status.plans.find(row => row.id === "seo-16-00-ga4-search-console");
+  assert.equal(localCollection.cadence, "每日 16:00");
+  assert.equal(localCollection.location, "Codex · 本机在线执行");
   assert.ok(!status.plans.some(row => row.id === "10-30-seo"));
   const actualPlan = configuredAutomationPlans(new Date("2026-10-19T08:00:00Z")).find(row => row.id === "automation");
   assert.equal(status.plans.find(row => row.id === "automation").state, actualPlan.state);
@@ -103,12 +105,17 @@ test("an advanced unfinished round is separate from the next automatic date", as
   assert.equal(due.toISOString(), "2026-10-20T02:30:00.000Z");
 });
 
-test("server collection metadata displays partial coverage and ignores unrelated malformed records", async t => {
+test("local collection metadata displays partial coverage and keeps historical GitHub records", async t => {
  const {prisma}=require("../src/lib/prisma.ts"),{collectionReceipt}=require("../scripts/server-seo-receipt.cjs");
  const {record}=collectionReceipt({runId:"123",sha:"a".repeat(40),startedAt:"2026-11-11T08:00:00Z",completedAt:"2026-11-11T08:10:00Z",result:{imported:20,expected:21,missing:0,failures:0,unavailable:1,windows:[]}});
- t.mock.method(prisma.seoWorkflowRecord,"findMany",async()=>[{payload:{...record,version:1,updatedAt:record.completedAt,recordedAt:record.completedAt}},{payload:null}]);
+ const local = { ...record, id: "local-seo-collection-test", owner: "Codex · 本机" };
+ t.mock.method(prisma.seoWorkflowRecord,"findMany",async()=>[
+  {payload:{...local,version:1,updatedAt:local.completedAt,recordedAt:local.completedAt}},
+  {payload:{...record,version:1,updatedAt:record.completedAt,recordedAt:record.completedAt}},
+  {payload:null}
+ ]);
  const status=await loadOperationsStatus(new Date("2026-11-11T09:00:00Z"));
- assert.equal(status.records.find(row=>row.id===record.id).state,"部分完成");
- assert.match(status.plans.find(row=>row.id==="traffic").currentExecution,/部分完成/);
- assert.match(status.plans.find(row=>row.id==="traffic").note,/42991831838/);
+ assert.equal(status.records.find(row=>row.id===local.id).name,"Codex · 五站本机采集");
+ assert.equal(status.records.find(row=>row.id===record.id).name,"GitHub Actions · 五站采集");
+ assert.match(status.plans.find(row=>row.id==="seo-16-00-ga4-search-console").currentExecution,/部分完成/);
 });
