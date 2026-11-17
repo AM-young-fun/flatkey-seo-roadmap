@@ -45,7 +45,7 @@ JEV 正式部署 `7d93f13389f900f76beb489107d55c6f255d2726` 已验证，包含 b
 
 工作台账使用 /api/seo/workflow 及独立claims；expectedVersion和fencing防止多会话覆盖。报告prepare不用workflow fencing；发送使用独立kind+date claim→begin→提供方回执→finish。
 
-通知复用原群内猫猫侠签名Webhook。两项发送cron只派发既有seo-daily.yml的report_only入口并跟踪该run，不调用旧本地DWS发送脚本。报告job使用原GitHub秘密SEO_DINGTALK_CONFIG与SEO_IMPORT_TOKEN，密钥不导出。send_report默认false；真实发送需数据库协议2、signed-webhook、固定群/原bot和配置指纹匹配。HTTP200且errcode0的真实WebHook接受回执随run归档并记账，不伪造processQueryKey。未知结果不自动重发；明确提供方拒绝只经严格审计恢复同一冻结报告。SEO_UNIFIED_REPORTING_ENABLED=true关闭旧日采/排名单发，博客任务不逐篇通知。平台「日/周效果总结」保存完整快照。钉钉简版卡片通过「查看详情」打开对应日期和版本。
+通知复用原群内猫猫侠签名Webhook。两项发送cron只派发既有seo-daily.yml的report_only入口并跟踪该run，不调用旧本地DWS发送脚本。报告job使用原GitHub秘密SEO_DINGTALK_CONFIG与SEO_IMPORT_TOKEN，密钥不导出。send_report默认false；真实发送需数据库协议2、signed-webhook、固定群/原bot和配置指纹匹配。HTTP200且errcode0的真实WebHook接受回执随run归档并记账，不伪造processQueryKey。未知结果不自动重发；明确提供方拒绝只经严格审计恢复同一冻结报告。SEO_UNIFIED_REPORTING_ENABLED=true关闭旧日采/排名单发，博客任务不逐篇通知。平台「日/周效果总结」保存完整快照。钉钉日报和周报卡片依次展示结论、自然搜索与注册、重点页面、关键词、技术与待办，以及各来源的实际数据日期和覆盖。周报补充上期动作复盘及下周任务。通过「查看详情」打开对应日期和冻结版本。
 
 Flatkey 注册人数采用 Console「Usage Report → 全部分组」的 `Registered` 日数据。账户系统统计已启用且已验证的新增账户，日期为 UTC。导入快照只包含结算后的日期、注册人数及来源时间。周报逐日覆盖齐全后合计，保留 GA4 自然搜索归因作为独立指标。已发报告保留精确归档，通过同日最新详情查看补录来源。
 

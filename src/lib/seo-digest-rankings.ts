@@ -39,7 +39,11 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
     const ranks = group.filter(row => row.status === "RANKED");
     result.push(`${region} · 1–3: ${ranks.filter(row => row.rank! <= 3).length}，4–10: ${ranks.filter(row => row.rank! >= 4 && row.rank! <= 10).length}，11–20: ${ranks.filter(row => row.rank! >= 11 && row.rank! <= 20).length}，21–100: ${ranks.filter(row => row.rank! >= 21).length}；采集期 ${[...new Set(group.map(row => row.periodLabel ?? "未知"))].join("、")}。`);
   }
-  if (comparable.length) result.push(`同词、同站、同国家可比子集 ${comparable.length} 项：前100 ${comparable.filter(row => row.previousRankStatus === "ranked").length}→${comparable.filter(row => row.status === "RANKED").length}；不把监控池增减算作排名增长。`);
+  if (comparable.length) {
+    const previousTop10 = comparable.filter(row => row.previousRank !== null && row.previousRank <= 10).length;
+    const currentTop10 = comparable.filter(row => row.rank !== null && row.rank <= 10).length;
+    result.push(`同词、同站、同国家可比子集 ${comparable.length} 项：前100 ${comparable.filter(row => row.previousRankStatus === "ranked").length}→${comparable.filter(row => row.status === "RANKED").length}，前10 ${previousTop10}→${currentTop10}；不把监控池增减算作排名增长。`);
+  }
   else result.push("尚无可比历史期，本期建立基线。");
   const boundary = (row: SerpKeywordResult) => (row.rank !== null && row.rank <= 10) !== (row.previousRank !== null && row.previousRank <= 10);
   for (const row of comparable.filter(row => row.movement !== "UNCHANGED").sort((a, b) => Number(boundary(b)) - Number(boundary(a)) || Math.abs((b.previousRank ?? 101) - (b.rank ?? 101)) - Math.abs((a.previousRank ?? 101) - (a.rank ?? 101))).slice(0, 6)) {
