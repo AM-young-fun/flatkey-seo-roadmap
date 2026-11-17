@@ -68,8 +68,10 @@ async function run() {
   const reportRanges = reportWindows(last);
   if (importResults && process.argv.includes("--backfill-reports")) reportRanges.push(...await archivedReportWindows(last));
   for (const range of reportRanges) {
-    const query = { ...range, country: "all", scope: "all-channels" };
-    if (!queries.has(queryKey(query))) queries.set(queryKey(query), query);
+    for (const scope of ["all-channels", "session-organic-search"]) {
+      const query = { ...range, country: "all", scope };
+      if (!queries.has(queryKey(query))) queries.set(queryKey(query), query);
+    }
   }
   let fetched = 0, imported = 0;
   const failures = [], registrations = [];

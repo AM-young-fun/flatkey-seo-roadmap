@@ -2,7 +2,7 @@ import { seoToday } from "./seo-date-range";
 import type { WorkflowSnapshot } from "./seo-workflow";
 
 export function technicalQaReport(
-  snapshot: Pick<WorkflowSnapshot, "runs" | "issues" | "approvals">, start: string, end: string, now: Date,
+  snapshot: Pick<WorkflowSnapshot, "runs" | "issues" | "approvals" | "tasks">, start: string, end: string, now: Date,
 ) {
   const cutoff = Math.min(now.getTime(), Date.parse(end));
   const run = snapshot.runs.filter(row => row.stage === "TECHNICAL_QA"
@@ -17,10 +17,15 @@ export function technicalQaReport(
     .sort((a, b) => Date.parse(b.completedAt!) - Date.parse(a.completedAt!))[0];
   const collection = latestReceipt("SERVER_COLLECTION"), inspection = latestReceipt("GSC_URL_INSPECTION");
   const cleared = [
-    ...(collection ? [/^(?:未取得|缺).*(?:采集回执|服务器采集回执)/] : []),
+    ...(collection ? [/^(?:未取得|缺).*(?:采集回执|服务器采集回执)/, /^GitHub 日采列表最新为/] : []),
     ...(inspection?.status === "completed" ? [/^(?:未取得|缺).*GSC.*URL Inspection/] : []),
+    ...(collection && inspection?.status === "completed" ? [/^当日采集与 GSC URL Inspection 尚未在台账读回/] : []),
   ];
   const failure = run.failureReason?.split(/(?<=[。；])\s*/).filter(line => !cleared.some(pattern => pattern.test(line))).join("") || null;
+  const qaArtifacts = new Set(run.evidence.flatMap(item => item.artifact ? [item.artifact] : []));
+  const issues = snapshot.issues.filter(issue => (issue.taskId && taskIds.has(issue.taskId)) || issue.evidence.some(item =>
+    item.artifact && qaArtifacts.has(item.artifact) && Date.parse(item.observedAt) <= cutoff));
+  const linkedTasks = new Map(snapshot.tasks.map(task => [task.id, task]));
   const diagnostics = [
     ...(collection ? [`服务器采集 · ${technicalQaStatus[collection.status]}${collection.failureReason ? "：" + collection.failureReason : ""}`] : []),
     ...(inspection ? [`GSC 收录抽查 · ${inspection.completedItems}/${inspection.checkedItems} 已取得回执${inspection.failureReason ? "：" + inspection.failureReason : ""}`] : []),
@@ -28,9 +33,13 @@ export function technicalQaReport(
   return {
     id: run.id, status: run.status, checked: run.checkedItems, completed: run.completedItems, coverage: run.coverage,
     scheduledFor: run.scheduledFor, failure, diagnostics, nextAction: run.nextAction, sourceDates: run.sourceDates,
-    issues: snapshot.issues.filter(row => row.taskId && taskIds.has(row.taskId)).map(row => ({
-      id: row.id, title: row.title, status: row.status, priority: row.priority, url: row.pageUrl, nextAction: row.nextAction,
-    })),
+    issues: issues.map(row => {
+      const task = row.taskId ? linkedTasks.get(row.taskId) : undefined;
+      return {
+        id: row.id, title: row.title, status: row.status, priority: row.priority, url: row.pageUrl, nextAction: row.nextAction,
+        taskId: row.taskId, taskWeek: task?.weekStart, issueWeek: row.weekStart,
+      };
+    }),
     approvals: snapshot.approvals.filter(row => row.submittedRecordedAt && Date.parse(row.submittedRecordedAt) <= cutoff
       && row.items.some(item => taskIds.has(item.taskId) && (row.siteDomain === "flatkey.ai" || item.postPublicationId))).map(row => ({ id: row.id, title: row.title, status: row.status })),
   };

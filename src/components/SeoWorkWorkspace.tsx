@@ -56,6 +56,11 @@ const workTaskTypes = [
   { value: "blog-update", label: "优化博客" },
   { value: "landing-create", label: "制作落地页" },
   { value: "landing-update", label: "优化页面" },
+  { value: "research", label: "关键词研究" },
+  { value: "technical", label: "技术修复" },
+  { value: "cluster", label: "集群交付" },
+  { value: "promotion", label: "推广与内链" },
+  { value: "review", label: "复盘" },
 ];
 function editorialTaskType(task: WorkflowTask) {
   const blog = task.pageType === "blog" || /\/blog(?:\/|$)/.test(task.pageUrl ?? "");
@@ -63,7 +68,7 @@ function editorialTaskType(task: WorkflowTask) {
   if (task.kind === "landing") return "landing-create";
   if (task.kind === "optimization") return blog ? "blog-update" : "landing-update";
   if (task.kind === "cluster" && task.pageUrl) return blog ? "blog-update" : "landing-update";
-  return null;
+  return task.kind;
 }
 function EditorialTaskTag({ task }: { task: WorkflowTask }) {
   const type = editorialTaskType(task);
@@ -300,7 +305,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const tasks = taskScope.filter(task => {
     const state = workTaskStatus(task, data);
     const type = editorialTaskType(task);
-    return type && (taskType === "all" || type === taskType)
+    return (taskType === "all" || type === taskType)
       && (time.preset === "week" && overdue.has(task.id) || dateInListRange(task.dueAt, time.range))
       && (status === "all" || state === status)
       && [task.title, task.keyword, task.pageUrl, task.owner, reviews.get(task.id)?.approval.title].some(value => value?.toLowerCase().includes(query.toLowerCase()));

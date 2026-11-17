@@ -69,7 +69,7 @@
 .metrics > div { padding: 14px 16px; }
 .metrics dt { color: #52647b; font-size: 13px; }
 .metrics dd { margin: 4px 0 0; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.metrics small { color: #52647b; }
+.metrics small { display: block; color: #52647b; font-size: 12px; font-weight: 400; }
 .sections { display: grid; gap: 12px; min-width: 0; }
 .section { padding: 16px 20px; min-width: 0; }
 .section h3 { margin: 0 0 10px; font-size: 16px; color: #152943; }

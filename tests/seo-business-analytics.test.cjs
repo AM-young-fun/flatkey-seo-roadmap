@@ -3,7 +3,7 @@ const root = path.resolve(__dirname, ".."), load = Module._load, resolve = Modul
 Module._resolveFilename = function(name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 Module._load = function(name, ...rest) { return name === "server-only" ? {} : load.call(this, name, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
-const { businessAnalyticsSchema, latestBusinessPeriod, businessDigestLines } = require("../src/lib/seo-business-analytics.ts");
+const { businessAnalyticsSchema, latestBusinessPeriod, businessDigestLines, weeklyBusinessDigestLines } = require("../src/lib/seo-business-analytics.ts");
 const { fetchGa4Business } = require("../src/lib/services/ga4-business.ts");
 const fixture = (extra={}) => ({ hostScope:"production-hosts-v1",version:1,siteDomain:"flatkey.ai",propertyId:"541304395",source:"google-api",start:"2026-11-01",end:"2026-11-07",timezone:"America/Los_Angeles",country:"all",scope:"session-organic-search",observedAt:"2026-11-09T12:00:00Z",distinctOverWholePeriod:true,complete:true,reasons:[],rows:[{event:"gpu_rental_success",events:12,users:7}],...extra });
 const provider = (extra={}) => ({ dimensionHeaders:[{name:"eventName"}],metricHeaders:[{name:"eventCount"},{name:"totalUsers"}],rows:[{dimensionValues:[{value:"gpu_rental_success"}],metricValues:[{value:"12"},{value:"7"}]}],rowCount:1,metadata:{timeZone:"America/Los_Angeles"},...extra });
@@ -76,4 +76,33 @@ test("legacy shared-property business totals are hidden without production hostn
  const legacy=fixture({hostScope:undefined});const row=latestBusinessPeriod([legacy],legacy.start,legacy.end,"all",legacy.scope);
  assert.equal(row.complete,false);assert.deepEqual(row.rows,[]);assert.match(row.reasons[0],/无生产域名归属的旧汇总已排除/);
  assert.doesNotMatch(businessDigestLines([legacy],legacy.start,legacy.end).join("\n"),/12 次/);
+});
+
+test("weekly behavior shows actual same-window data when the final day is not yet collected", () => {
+ const organic = fixture({ start: "2026-11-06", end: "2026-11-11", observedAt: "2026-11-13T16:00:00Z",
+   rows: [{ event: "page_view", events: 80, users: 45 }] });
+ const full = { ...organic, scope: "all-channels", rows: [{ event: "first_model_success", events: 11, users: 11 }] };
+ const text = weeklyBusinessDigestLines([organic, full], "2026-11-06", "2026-11-12").join("\n");
+ assert.match(text, /页面浏览：80 次 \/ 区间去重 45 人/);
+ assert.match(text, /API 首次成功使用：11 次 \/ 区间去重 11 人/);
+ assert.match(text, /已采集 2026-11-06—2026-11-11，本周剩余日期待更新/);
+ assert.doesNotMatch(text, /尚无同区间回执/);
+});
+
+test("Google returning only the first two funnel steps keeps their verified users", async t => {
+ process.env.SEO_GA4_ACCESS_TOKEN = "fixture-only";
+ const groupHeaders = ["activeUsers", "funnelStepCompletionRate", "funnelStepAbandonments", "funnelStepAbandonmentRate"];
+ const report = { funnelTable: { dimensionHeaders: [{ name: "funnelStepName" }],
+   metricHeaders: [...groupHeaders, ...groupHeaders].map(name => ({ name })),
+   rows: [
+     { dimensionValues: [{ value: "1. 注册" }], metricValues: ["20", "0.35", "13", "0.65"].map(value => ({ value })) },
+     { dimensionValues: [{ value: "2. 首次成功使用" }], metricValues: ["7", "0", "7", "1"].map(value => ({ value })) },
+   ],
+ } };
+ t.mock.method(globalThis, "fetch", async () => Response.json(report));
+ const journey = await fetchGa4Journey(journeyQuery, "api");
+ assert.equal(journey.status, "partial");
+ assert.deepEqual(journey.steps.map(step => step.users), [20, 7]);
+ const row = fixture({ ...journeyQuery, journeys: [journey], country: "all" });
+ assert.match(businessDigestLines([row], row.start, row.end).join("\n"), /注册 20人 → 首次成功使用 7人 → 首次付款 待核验/);
 });

@@ -1,13 +1,9 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
-const path = require("node:path");
-const Module = require("node:module");
 const ts = require("typescript");
-const file = path.resolve(__dirname, "../src/lib/seo-workspace-routes.ts");
-const compiled = new Module(file, module);
-compiled._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-const { workspaceRedirectHref, executionViewRoutes, workTaskHref, workTaskListHref } = compiled.exports;
+require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
+const { workspaceRedirectHref, executionViewRoutes, workTaskHref, workTaskListHref, workPlanTaskFilters } = require("../src/lib/seo-workspace-routes.ts");
 
 test("legacy execution views return to their actionable workspace", () => {
   assert.equal(executionViewRoutes.deliveries, "/deliveries");
@@ -60,4 +56,9 @@ test("task detail uses its recorded week and restores the available list filters
   assert.equal(detail.searchParams.get("week"), "2026-11-09");
   const list = workTaskListHref(Object.fromEntries(detail.searchParams));
   assert.equal(list, "/work?country=ES&taskType=optimization&q=servidor+gpu&range=custom&rangeStart=2026-11-16&rangeEnd=2026-11-20");
+});
+
+test("report task links carry the date range the work list reads", () => {
+  const filters = workPlanTaskFilters("2026-11-16");
+  assert.equal(workTaskListHref(Object.fromEntries(filters)), "/work?range=custom&rangeStart=2026-11-16&rangeEnd=2026-11-22");
 });
