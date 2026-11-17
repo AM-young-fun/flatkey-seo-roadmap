@@ -376,6 +376,11 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
 
 export const FIRST_OPERATIONAL_WEEK = "2026-11-16";
 
+function isCodexTrackedTask(task: WorkflowTask) {
+  return task.kind === "technical" && task.channel === "product" && task.source === "automation" &&
+    task.sourceRowId === task.id && /^codex-thread:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(task.id);
+}
+
 export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean }, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
   const current = workflowWeek(now);
   const weekStart = options.week === "next" ? shiftWorkflowDay(current, 7) : options.week === "latest" ? all.filter(row => row.kind === "plan").map(row => row.record.weekStart).sort().at(-1) ?? current : !options.week || options.week === "current" ? current : options.week;
@@ -435,11 +440,15 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     publications: originalPublications,
     runs: all.filter(row => row.kind === "run").map(row => row.record as WorkflowRun),
   }).map(row => row.taskId));
-  const scheduledTasks = tasks.filter(task => task.weekStart >= FIRST_OPERATIONAL_WEEK && (workList || task.weekStart <= weekStart) &&
-    (task.source === "human" || plannedIds.get(task.weekStart)?.has(task.id) || task.kind === "technical" && issueTasks.has(task.id)))
+  const scheduledTasks = tasks.filter(task => {
+    if (task.weekStart < FIRST_OPERATIONAL_WEEK || (!workList && task.weekStart > weekStart)) return false;
+    if (isCodexTrackedTask(task)) return workList;
+    return task.source === "human" || plannedIds.get(task.weekStart)?.has(task.id) ||
+      task.kind === "technical" && issueTasks.has(task.id);
+  })
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
   const activeTasks = scheduledTasks.filter(task => {
-    if (task.weekStart > weekStart) return false;
+    if (task.weekStart > weekStart || isCodexTrackedTask(task)) return false;
     const version = JSON.stringify([task.id, task.contentVersion]);
     return pendingRollbacks.has(task.id) || tasksWithPendingPostReview.has(version) ||
       !["verified", "observing"].includes(task.status) && !verifiedTasks.has(version);

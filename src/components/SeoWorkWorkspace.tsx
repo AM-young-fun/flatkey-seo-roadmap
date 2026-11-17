@@ -37,7 +37,7 @@ const stateLabel = (value: string) => statuses[value] ?? value;
 const taskStatusOptions = [
   { value: "all", label: "全部状态" },
   { value: "scheduled", label: "排期" },
-  { value: "accepted", label: "受理中" },
+  { value: "accepted", label: "进行中" },
   { value: "review", label: "待审核" },
   { value: "failed", label: "失败" },
   { value: "completed", label: "已验收" },
@@ -110,7 +110,7 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
     </dl>
     {task.pageUrl ? <p>正式页 · <a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a> · <Link href={pageHref(task.pageUrl, task.country)}>已上线页面数据</Link></p> : <p className={styles.muted}>目标页面尚未确定。</p>}
     {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />原因：{task.failureReason}</p> : null}
-    <h4>下一步</h4><p>{task.nextAction || "Codex 领取后核对任务并更新进度。"}</p>
+    <h4>下一步</h4><p>{task.nextAction || "等待进度回填。"}</p>
     {task.fallbackReason ? <p className={styles.warning}>本次例外：{task.fallbackReason}</p> : null}
     <h4>验收要求</h4><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul>
     <h4>前置任务</h4>{task.dependencies.length ? <ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "本周范围外，需读取前置回执"}</li>; })}</ul> : <p className={styles.muted}>未登记任务依赖。</p>}

@@ -38,6 +38,19 @@ test("operational snapshots retain authorized tasks from prior weeks and resolve
   assert.deepEqual(snapshot.workWeek.overdueTaskIds, ["prior"]);
   assert.equal(snapshot.workWeek.dependencyStatuses.dependency, "verified");
 });
+
+test("an existing Codex task is tracked in the work list without entering the execution queue", () => {
+  const id = "codex-thread:01a1e745-3d1e-77c0-b5ef-5a248d92cfe4";
+  const record = task({ id, sourceRowId: id, weekStart: "2026-11-16", dueAt: "2026-11-17T06:00:00Z",
+    kind: "technical", channel: "product", pageType: "technical", status: "drafting",
+    country: null, language: null, keyword: null, research: null });
+  const tracked = row(save(record, [], "save_task", "collector"));
+  const plan = { kind: "plan", record: { weekStart: record.weekStart, status: "scheduled", taskIds: [id] } };
+  const checkAt = new Date("2026-11-17T07:00:00Z");
+  const records = [tracked, plan];
+  assert.deepEqual(workflowSnapshot(records, { operational: true, workList: true }, "database", checkAt).tasks.map(item => item.id), [id]);
+  assert.deepEqual(workflowSnapshot(records, { operational: true }, "database", checkAt).tasks, []);
+});
 test("country language and Chinese keyword mismatch fail without reassigning countries", () => {
   assert.equal(workflowTaskSchema.safeParse(task({ country: "BR", language: "es-ES" })).success, false);
   assert.equal(workflowTaskSchema.safeParse(task({ keyword: "便宜模型接口" })).success, false);
