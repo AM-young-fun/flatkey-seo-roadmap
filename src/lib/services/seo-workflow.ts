@@ -3,9 +3,9 @@ import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval } from "@/lib/seo-workflow";
+import { ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
-import { prepareWorkflowMutation, workflowHash, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
+import { prepareWorkflowMutation, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -28,6 +28,45 @@ export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: s
   requireDatabase();
   const rows = await prisma.seoWorkflowRecord.findMany({ orderBy: { updatedAt: "desc" } });
   return workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database");
+}
+
+export async function loadWorkflowTaskDetail(taskId: string, localPreview = false): Promise<WorkflowTaskDetail> {
+  const directory = localDirectory(localPreview);
+  const local = directory ? (await readLocal(directory)).records : null;
+  const toRecord = (row: { kind: string; payload: Prisma.JsonValue }): WorkflowStoredRow =>
+    ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord });
+  const select = { kind: true, payload: true } as const;
+  if (!local) requireDatabase();
+  const taskRow = local
+    ? local.find(row => row.kind === "task" && row.record.id === taskId)
+    : await prisma.seoWorkflowRecord.findUnique({ where: { key: workflowKey("task", taskId) }, select }).then(row => row ? toRecord(row) : null);
+  if (!taskRow) throw new WorkflowError("task_not_found", "找不到这条任务。请返回任务列表重新选择。", 404);
+  const task = taskRow.record as WorkflowTask;
+  const where: Prisma.SeoWorkflowRecordWhereInput[] = [
+    { kind: "approval", payload: { path: ["items"], array_contains: [{ taskId }] } },
+    { kind: { in: ["publication", "optimization"] }, payload: { path: ["taskId"], equals: taskId } },
+  ];
+  const dependencies = new Set(task.dependencies);
+  if (dependencies.size) where.push({ kind: "task", recordId: { in: [...dependencies] } });
+  const related = local ? local.filter(({ kind, record }) => {
+    if (kind === "task") return dependencies.has(record.id);
+    if (kind === "approval") return (record as WorkflowApproval).items.some(item => item.taskId === taskId);
+    return (kind === "publication" || kind === "optimization") && (record as WorkflowPublication | WorkflowOptimization).taskId === taskId;
+  }) : (await prisma.seoWorkflowRecord.findMany({ where: { OR: where }, select, orderBy: { updatedAt: "desc" } })).map(toRecord);
+  const approvals = related.filter(row => row.kind === "approval").map(row => row.record as WorkflowApproval);
+  const approvalIds = new Set(approvals.map(row => row.id));
+  const replacements = approvalIds.size === 0 ? [] : local
+    ? local.filter(row => row.kind === "approval" && (row.record as WorkflowApproval).supersedesApprovalIds?.some(id => approvalIds.has(id)))
+    : (await prisma.seoWorkflowRecord.findMany({
+      where: { kind: "approval", OR: [...approvalIds].map(id => ({ payload: { path: ["supersedesApprovalIds"], array_contains: [id] } })) }, select,
+    })).map(toRecord);
+  return {
+    storage: local ? "local_preview" : "database", task,
+    dependencies: related.filter(row => row.kind === "task").map(row => row.record as WorkflowTask),
+    approvals: [...approvals, ...replacements.filter(row => !approvalIds.has(row.record.id)).map(row => row.record as WorkflowApproval)],
+    publications: related.filter(row => row.kind === "publication").map(row => row.record as WorkflowPublication),
+    optimizations: related.filter(row => row.kind === "optimization").map(row => row.record as WorkflowOptimization),
+  };
 }
 
 async function saveLocalWorkflow(input: unknown, actor: WorkflowActor, directory: string) {

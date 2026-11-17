@@ -7,7 +7,7 @@ Module._resolveFilename = function(name, parent, ...rest) { return resolve.call(
 Module._load = function(name, ...rest) { return name === "server-only" ? {} : load.call(this, name, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { prisma } = require("../src/lib/prisma.ts");
-const { saveWorkflowMutation, loadWorkflowSnapshot, mutateWorkflowClaim } = require("../src/lib/services/seo-workflow.ts");
+const { saveWorkflowMutation, loadWorkflowSnapshot, loadWorkflowTaskDetail, mutateWorkflowClaim } = require("../src/lib/services/seo-workflow.ts");
 const { buildSeoDigest } = require("../src/lib/seo-digest.ts");
 const { saveSeoDigest, claimDigest, beginDigestAttempt, finishDigestAttempt } = require("../src/lib/services/seo-digest.ts");
 const { workflowWeek } = require("../src/lib/seo-workflow.ts");
@@ -52,6 +52,36 @@ test("real PostgreSQL permits one owner per scheduled stage, fences expired owne
  assert.equal(second.fencingToken, first.fencingToken + 1);
  await assert.rejects(mutateWorkflowClaim({ ...command, action: "renew", owner: first.owner, fencingToken: first.fencingToken }), /失效/);
  await assert.rejects(mutateWorkflowClaim({ ...command, action: "complete", owner: "new-owner", fencingToken: second.fencingToken, status: "completed", evidence }), /先保存/);
+});
+test("real PostgreSQL task details only return linked records, including cross-week supersession", async () => {
+ const target = "detail-target-" + nonce, dependency = "detail-dependency-" + nonce;
+ const approvalId = "detail-approval-" + nonce;
+ const row = (kind, id, body, date = weekStart) => ({
+   kind, key: kind + ":" + id, recordId: id, weekStart: date, version: 1, status: "ready",
+   payload: { id, weekStart: date, ...body },
+ });
+ const records = [
+   row("task", target, { dependencies: [dependency] }),
+   row("task", dependency, { dependencies: [] }, "2026-11-09"),
+   row("approval", approvalId, { items: [{ id: "item-one", taskId: target, language: "en" }], supersedesApprovalIds: [] }),
+   row("approval", "detail-replacement-" + nonce, { items: [{ taskId: "unrelated" }], supersedesApprovalIds: [approvalId] }),
+   row("approval", "detail-other-" + nonce, { items: [{ taskId: "unrelated" }], supersedesApprovalIds: [] }),
+   row("publication", "detail-publication-" + nonce, { taskId: target }),
+   row("optimization", "detail-opt-" + nonce, { taskId: target }),
+   row("optimization", "detail-other-opt-" + nonce, { taskId: "unrelated" }),
+ ];
+ try {
+   await prisma.seoWorkflowRecord.createMany({ data: records });
+   const result = await loadWorkflowTaskDetail(target);
+   assert.equal(result.task.id, target);
+   assert.deepEqual(result.dependencies.map(row => row.id), [dependency]);
+   assert.deepEqual(result.approvals.map(row => row.id), [approvalId, "detail-replacement-" + nonce]);
+   assert.deepEqual(result.publications.map(row => row.id), ["detail-publication-" + nonce]);
+   assert.deepEqual(result.optimizations.map(row => row.id), ["detail-opt-" + nonce]);
+   await assert.rejects(loadWorkflowTaskDetail("missing-" + nonce), error => error.code === "task_not_found" && error.status === 404);
+ } finally {
+   await prisma.seoWorkflowRecord.deleteMany({ where: { key: { in: records.map(row => row.key) } } });
+ }
 });
 test("actual notification ledger rejects concurrent send and any retry after unknown delivery", async () => {
  process.env.SEO_UNIFIED_REPORTING_ENABLED = "true";

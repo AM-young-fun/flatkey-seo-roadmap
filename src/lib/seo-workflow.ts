@@ -28,7 +28,8 @@ export function workflowContentLanguage(domain: string, market: keyof typeof WOR
   return preferred && options.includes(preferred) ? preferred : options.includes(WORKFLOW_MARKETS[market]) ? WORKFLOW_MARKETS[market] : options[0];
 }
 export const WORKFLOW_STATUSES = ["planned", "researching", "ready", "drafting", "review_pending", "approved", "published", "verified", "observing", "blocked", "failed"] as const;
-const id = z.string().trim().min(1).max(160).regex(/^[a-zA-Z0-9_.:-]+$/);
+export const workflowRecordIdSchema = z.string().trim().min(1).max(160).regex(/^[a-zA-Z0-9_.:-]+$/);
+const id = workflowRecordIdSchema;
 const stamp = z.iso.datetime({ offset: true });
 export const workflowWeekSchema = z.iso.date().refine(value => new Date(value + "T00:00:00Z").getUTCDay() === 1, "工作周从周一开始");
 const site = z.enum(WORKFLOW_SITES);
@@ -371,6 +372,10 @@ export type WorkflowWorkWeek = {
   activeApprovalItems: Record<string, string[]>;
 };
 export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; workWeek?: WorkflowWorkWeek; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; openIssues: number; lastRunAt: string | null }; };
+export type WorkflowTaskDetail = Pick<WorkflowSnapshot, "approvals" | "publications" | "optimizations" | "storage"> & {
+  task: WorkflowTask;
+  dependencies: WorkflowTask[];
+};
 /** Only the reviewed code and test artifacts are eligible for a release preflight. */
 export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "tasks" | "approvals" | "publications">) {
   const tasks = new Map(snapshot.tasks.map(task => [task.id, task]));

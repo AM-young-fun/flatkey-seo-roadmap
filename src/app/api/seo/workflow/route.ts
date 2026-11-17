@@ -1,14 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { approvalMaterialBacklog } from "@/lib/seo-approval-display";
-import { workflowWeekSchema, pageBelongsToSite, workflowReleaseCandidates, workflowClusterRollbackCandidates, WORKFLOW_SITES } from "@/lib/seo-workflow";
+import { workflowRecordIdSchema, workflowWeekSchema, pageBelongsToSite, workflowReleaseCandidates, workflowClusterRollbackCandidates, WORKFLOW_SITES } from "@/lib/seo-workflow";
 import { WorkflowError } from "@/lib/seo-workflow-state";
 import { authorizeWorkflow, readWorkflowBody, workflowErrorResponse, workflowHeaders } from "@/lib/seo-workflow-http";
-import { loadWorkflowSnapshot, saveWorkflowMutation } from "@/lib/services/seo-workflow";
+import { loadWorkflowSnapshot, loadWorkflowTaskDetail, saveWorkflowMutation } from "@/lib/services/seo-workflow";
 
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const auth = await authorizeWorkflow(request), params = new URL(request.url).searchParams;
+    if (params.has("taskId")) {
+      const detail = await loadWorkflowTaskDetail(workflowRecordIdSchema.parse(params.get("taskId")), auth.localPreview);
+      return Response.json(detail, { headers: workflowHeaders });
+    }
     if (params.get("topicMap") === "flatkey.ai") {
       if (!process.env.DATABASE_URL) throw new WorkflowError("storage_unavailable", "TopicMap 数据库不可用", 503);
       const topics = await prisma.topic.findMany({
