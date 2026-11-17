@@ -22,7 +22,7 @@ import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { approvalReviewReadiness, automaticTaskPolicy, isExecutableWorkflowPlan, shiftWorkflowDay, workflowApprovalEffectiveItemStatus, workflowWeek } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
-import { digestRankingNotes } from "@/lib/seo-digest-rankings";
+import { digestDailyRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { workPlanTaskFilters } from "../seo-workspace-routes";
 import { loadSerpTasks } from "./serp-results";
 
@@ -99,7 +99,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       { kind: { in: pageArchiveKinds } },
     ] }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(window.workStart), lt: new Date(Math.min(now.getTime(), Date.parse(window.workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
-    kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
+    kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", kind === "daily" ? shiftWorkflowDay(date, -42) : window.workStart.slice(0, 10), date),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
     loadAccountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
@@ -175,7 +175,12 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       originals: archive.publications.filter(page => page.kind === "source_blog").length, translations: archive.publications.filter(page => page.kind === "translation").length,
       liveVerified: archive.publications.filter(page => page.verificationState === "live_verified").length, artifactOnly: archive.publications.filter(page => page.verificationState === "artifact_verified").length,
       unknownFirstVerification: archive.publications.filter(page => !page.firstVerifiedAt).length, pendingEvidence: archive.auditBacklog.pending, pendingRevisions: archive.pendingRevisions.count })),
-    rankingNotes: reads[4].status === "fulfilled" ? digestRankingNotes(reads[4].value, window.workStart, window.workEnd) : [],
+    rankingNotes: reads[4].status !== "fulfilled" ? [] : kind === "daily"
+      ? digestDailyRankingNotes(reads[4].value, now)
+      : digestRankingNotes(reads[4].value, window.workStart, window.workEnd),
+    resolvedIssues: reads[0].status === "fulfilled" ? workflow.issues.filter(issue => issue.status === "resolved" && issue.resolvedAt
+      && issue.resolutionEvidence.length && Date.parse(issue.resolvedAt) >= (kind === "daily" ? Date.parse(date + "T00:00:00+08:00") : startStamp)
+      && Date.parse(issue.resolvedAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).length : null,
     effects: workflow.optimizations.flatMap(row => row.observations.filter(observation => Date.parse(observation.checkedAt) >= startStamp && Date.parse(observation.checkedAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(observation => digestOptimizationEffect(row, observation))),
     priorities, issues: [...new Set([...issues, ...workflow.issues.filter(issue => issue.status !== "resolved" && Date.parse(issue.firstSeenAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).map(issue => `${issue.siteDomain} · ${issue.title} · ${issue.nextAction}`)])],
     runNotes: [...runs.map(run => `${run.stage} · ${run.status} · ${run.completedItems}/${run.checkedItems} · ${run.failureReason ?? run.nextAction} · 来源日期 ${Object.entries(run.sourceDates).map(([source, day]) => `${source}:${day ?? "未知"}`).join("，")}`), ...collectors.map(run => `${run.kind} · ${run.status} · ${run.detail ?? "采集回执已归档"}`)],

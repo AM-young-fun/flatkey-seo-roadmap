@@ -48,6 +48,7 @@ export type DigestInput = {
   notificationCompact?: boolean;
   dailyAcquisition?: DailySeoTrafficHistory;
   pageGroups?: DailySeoPageGroupsHistory;
+  resolvedIssues?: number | null;
   workPlan?: DigestWorkPlan;
   date: string; kind?: DigestKind; now?: Date; observations: DigestObservation[];
   pageObservations?: AnalyticsObservation[];
@@ -287,11 +288,47 @@ function cardPageGroups(input: DigestInput, window: ReturnType<typeof digestWind
   });
 }
 
+function dailyWorkEffectLines(recent: DigestInput["recentPages"], date: string) {
+  const start = shift(date, -7), end = shift(date, -1);
+  const pages = (recent ?? []).filter(row => row.day >= start && row.day <= end);
+  const evidence = pages.filter(page => page.latest || page.latestVisits)
+    .sort((a, b) => a.day.localeCompare(b.day) || a.url.localeCompare(b.url));
+  const lines = [`过去 7 天上线（北京时间 ${start}—${end}） · 已核实 ${pages.length} 个页面 · ${evidence.length} 个已有上线后数据`];
+  for (const page of evidence.slice(0, 4)) {
+    const path = shortCardText(new URL(page.url).pathname, 64);
+    const search = !page.latest ? "" : page.before
+      ? ` · Google 点击 ${cardComparison(page.before.clicks, page.latest.clicks)}（${page.before.date} → ${page.latest.date}）`
+      : ` · ${page.latest.date} Google 点击 ${cardNumber(page.latest.clicks)}`;
+    const ga4 = !page.latestVisits ? "" : page.beforeVisits
+      ? ` · 自然搜索会话 ${cardComparison(page.beforeVisits.visits, page.latestVisits.visits)}（${page.beforeVisits.date} → ${page.latestVisits.date}）`
+      : ` · ${page.latestVisits.date} 自然搜索会话 ${cardNumber(page.latestVisits.visits)}`;
+    lines.push(`• ${page.day} ${page.change === "new" ? "新上线" : "优化"} ${path}${search}${ga4}`);
+  }
+  if (!evidence.length) lines.push("• 暂无可核实的上线后日数据。");
+  return lines;
+}
+
+function dailyTechnicalLines(qa: DigestInput["technicalQa"]) {
+  if (!qa) return ["• 尚未收到当天的技术巡检结果。"];
+  const lines = [`• 已检查 ${qa.completed}/${qa.checked} 项${qa.status === "completed" ? "，巡检完成。" : "，以下项目仍有缺口。"}`];
+  const performance = /PSI|429/.test([qa.failure, ...qa.issues.map(issue => issue.title)].join(" "));
+  if (performance) lines.push("• GPU 页面移动端速度还没有测出。Google 的测速请求达到限额，无法判断这些页面当前的加载速度。");
+  for (const issue of qa.issues.filter(issue => issue.status !== "resolved" && !/PSI|429/.test(issue.title)).slice(0, performance ? 1 : 2)) {
+    const description = /Googlebot|robots\.txt|\/api\//i.test(issue.title + " " + (issue.impact ?? ""))
+      ? `${shortCardText(issue.title.split(/[:：]|GET 200/)[0].trim(), 55)}可以打开，但 Google 抓取规则挡住了它，可能影响搜索收录。`
+      : [shortCardText(issue.title, 65), issue.impact && shortCardText(issue.impact, 96)].filter(Boolean).join("。");
+    lines.push("• " + description);
+  }
+  const inspection = qa.diagnostics?.find(note => note.startsWith("GSC 收录抽查"))?.match(/(\d+)\/(\d+)/);
+  if (inspection) lines.push(`• Google 收录抽查已返回 ${inspection[1]}/${inspection[2]} 个页面的检查结果。`);
+  return lines;
+}
+
 function detailedNotification(title: string, input: DigestInput, window: ReturnType<typeof digestWindow>, now: Date, {
-  pagePerformance, publications, optimizations, registrations, focus,
+  pagePerformance, completed, optimizations, registrations, focus,
 }: {
   pagePerformance: ReturnType<typeof digestTopPages>;
-  publications: DigestPublication[];
+  completed: { blogs: number; optimized: number; newPages: number; fixed: number | null };
   optimizations: DigestOptimization[];
   registrations: ReturnType<typeof organicRegistrationComparison>;
   focus: string[];
@@ -319,13 +356,16 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const ctrDelta = previousCtr !== null && currentCtr !== null && clicks.timezone && clicks.timezone === impressions.timezone
     ? `（${formatDelta((currentCtr - previousCtr) * 100)} 个百分点）` : "";
   const heading = acquisition === null ? `自然搜索会话 ${sessions.label}` : `自然搜索新用户 ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}`;
+  const headlineRegistration = weekly || currentAcquisition?.newRegistrations == null
+    ? cardComparison(registrations.previous, registrations.current)
+    : cardComparison(previousAcquisition?.newRegistrations ?? null, currentAcquisition.newRegistrations);
   const bestPage = pagePerformance.find(ranking => ranking.source === "GSC")?.flatkey;
   const pageChanges = bestPage?.modules.flatMap(module => module.pages).filter(page => page.difference !== null)
     .sort((a, b) => Math.abs(b.difference!) - Math.abs(a.difference!)).slice(0, 3) ?? [];
-  const pageSummary = pageChanges[0];
+  const pageSummary = weekly ? pageChanges[0] : undefined;
   const pagePath = (url: string) => shortCardText(new URL(url).pathname, 58);
   const lines = [`**${title}**`, "",
-    `**${weekly ? "本周" : "今日"}结论** ${heading} · GA4 自然搜索去重注册 ${cardComparison(registrations.previous, registrations.current)}`,
+    `**${weekly ? "本周" : "今日"}结论** ${heading} · GA4 自然搜索去重注册 ${headlineRegistration}`,
     ...(pageSummary ? [`重点页面 ${pagePath(pageSummary.url)} · Google 点击 ${cardComparison(pageSummary.previous, pageSummary.value)}`] : []),
     `**统计期** ${dateLabel}（洛杉矶）｜对比 ${previousLabel}`,
     `**生成** ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间）`,
@@ -335,24 +375,36 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       `• GA4 去重注册（${scope}） ${cardComparison(previousAcquisition?.newRegistrations ?? null, currentAcquisition?.newRegistrations ?? null)}`);
   }
   lines.push(`• GA4 自然搜索会话 ${sessions.label} · ${cardCoverage(sessions)}`,
-    `• GA4 自然搜索会话归因去重注册 ${cardComparison(registrations.previous, registrations.current)}`,
+    ...(weekly || registrations.previous !== null || registrations.current !== null
+      ? [`• GA4 自然搜索会话归因去重注册 ${cardComparison(registrations.previous, registrations.current)}`] : []),
     `• Google 全站点击 ${clicks.label} · ${cardCoverage(clicks)}`,
     `• Google 全站曝光 ${impressions.label}${cardCoverage(clicks) === cardCoverage(impressions) ? "" : " · " + cardCoverage(impressions)}`,
     `• Google CTR ${previousCtr === null ? "待更新" : formatCtr(previousCtr)} → ${currentCtr === null ? "待更新" : formatCtr(currentCtr)}${ctrDelta}`);
   if (input.accountRegistrations) lines.push(`• Flatkey 账户注册 ${cardNumber(input.accountRegistrations.users)}${input.accountRegistrations.users === null ? "" : " 人"} · UTC`);
 
-  lines.push("", `**2. ${weekly ? "重点页面" : "页面组表现"}**`);
+  lines.push("", weekly ? "**2. 重点页面**" : "**页面组表现**");
   const groups = cardPageGroups(input, window);
   if (groups.length) lines.push(...groups.map(row => "• " + row));
   else lines.push("• 页面组同日注册漏斗的可比数据待更新");
-  if (pageChanges.length) {
+  if (weekly && pageChanges.length) {
     const dates = bestPage?.comparisonDates?.length ? bestPage.comparisonDates : bestPage?.date ? [bestPage.date] : [];
     lines.push(`Google 页面点击（本期 ${dateCoverage(dates)}）`,
       ...pageChanges.map(page => `• ${pagePath(page.url)} · ${cardComparison(page.previous, page.value)}`));
   }
 
-  lines.push("", "**3. 关键词与技术异常**");
   const rankingNotes = input.rankingNotes ?? [];
+  if (!weekly) {
+    lines.push("", "**2. 过去 7 天的工作效果**", ...dailyWorkEffectLines(input.recentPages, input.date));
+    lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 120))
+      : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
+    lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
+    lines.push("", "**4. 今日完成**", `• 已核实上线 **${completed.blogs} 篇文章**，优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
+    const groups = input.pageGroups?.groups.filter(group => group.points.some(point => point.date === window.trafficEnd && point.funnel)).length ?? 0;
+    lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · 当日注册漏斗 ${groups}/4 组`);
+    return lines.join("  \n");
+  }
+
+  lines.push("", "**3. 关键词与技术异常**");
   if (!rankingNotes.length) lines.push("• 本期暂无新的关键词实测回执");
   else {
     lines.push("• " + shortCardText(rankingNotes[0], 125));
@@ -390,19 +442,8 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       lines.push("• 下周正式排期待确认");
       for (const row of focus.slice(0, 2)) lines.push("• 待核对 " + shortCardText(row));
     }
-  } else {
-    lines.push("", "**4. 今日完成与下一步**");
-    if (optimizations.length || publications.length) {
-      const receipts = [...optimizations.map(row => `${pagePath(row.url)} · ${shortCardText(row.changes, 56)}`),
-        ...publications.map(row => `${shortCardText(row.title, 50)} · 已上线`)];
-      lines.push(...receipts.slice(0, 2).map(row => "• 已核实 " + row));
-    } else lines.push("• 当前无已核实的发布或优化回执");
-    lines.push(...focus.slice(0, 2).map((row, index) => `${index + 1}. ${shortCardText(row)}`));
   }
-  const funnelCount = input.pageGroups?.groups.filter(group => group.points.some(point => point.date === window.trafficEnd && point.funnel)).length ?? 0;
-  const coverage = weekly ? ` · GA4 会话本期覆盖 ${sessions.dates.length}/7 日 · GSC 点击本期覆盖 ${clicks.dates.length}/7 日`
-    : ` · 当日漏斗 ${funnelCount}/4 组`;
-  lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"}${coverage}`);
+  lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · GA4 会话本期覆盖 ${sessions.dates.length}/7 日 · GSC 点击本期覆盖 ${clicks.dates.length}/7 日`);
   return lines.join("  \n");
 }
 function confirmedInWindow(row: { verifiedAt: string; recordedAt: string }, start: number, end: number) {
@@ -708,7 +749,7 @@ export function buildSeoDigest(input: DigestInput) {
   for (const country of ["US", "JP", "BR", "ES"] as const) {
     lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, window.kind))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, window.kind))}；曝光 ${metricText(comparableMetric(input.observations, "flatkey.ai", "impressions", input.date, country, window.kind))}`);
   }
-  if (!thisWeek && input.rankingNotes?.length) lines.push("", "关键词实测（本期实际回执）", ...input.rankingNotes.map(note => "• " + escaped(note)));
+  if (!thisWeek && input.rankingNotes?.length) lines.push("", window.kind === "weekly" ? "关键词实测（本期实际回执）" : "关键词实测（核对各条采集日期）", ...input.rankingNotes.map(note => "• " + escaped(note)));
   const nextPlanScheduled = isExecutableWorkflowPlan(input.nextPlanStatus ?? (input.workPlan?.tasks.length ? input.workPlan.status : undefined));
   lines.push("", window.kind === "weekly" ? `下周事项与关键词（${nextPlanScheduled ? "已排期" : "尚未排期"}）` : "明日优先关注");
   if (input.nextPlanUrl) lines.push(link("查看下周完整工作计划", input.nextPlanUrl));
@@ -741,7 +782,12 @@ export function buildSeoDigest(input: DigestInput) {
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
   const detailText = lines.join("\n");
   const text = input.notificationCompact ? detailedNotification(title, input, window, now, {
-    pagePerformance, publications: verifiedDeliveries, optimizations, registrations: organicRegistrations, focus: nextFocus,
+    pagePerformance, completed: {
+      blogs: originals.filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
+      optimized: optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
+      newPages: [...landingPages, ...clusterPages].filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
+      fixed: input.resolvedIssues ?? null,
+    }, optimizations, registrations: organicRegistrations, focus: nextFocus,
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
