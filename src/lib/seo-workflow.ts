@@ -39,6 +39,12 @@ const httpsUrl = z.url().max(3000).refine(value => { const url = new URL(value);
 export const workflowEvidenceSchema = z.object({ label: z.string().trim().min(1).max(300), url: httpsUrl.optional(), artifact: z.string().trim().min(1).max(2000).optional(), observedAt: stamp }).strict()
   .refine(value => Boolean(value.url || value.artifact), "证据需要来源链接或产物路径");
 const evidence = z.array(workflowEvidenceSchema).max(100);
+const taskProgress = z.object({
+  id, sessionId: id, observedAt: stamp,
+  summary: z.string().trim().min(1).max(1000),
+  nextAction: z.string().trim().max(1000),
+  evidence: z.array(workflowEvidenceSchema).min(1).max(10),
+}).strict();
 const approval = z.object({ kind: z.enum(["explicit", "standing_new_blog"]), approvedBy: z.string().trim().min(1).max(200), approvedAt: stamp, contentVersion: z.string().min(1).max(200), evidence: evidence.min(1) }).strict();
 const research = z.object({ volume: z.number().int().nonnegative().nullable(), kd: z.number().min(0).max(100).nullable(), businessValue: z.number().int().min(0).max(3).nullable(), exceptionReason: z.string().trim().max(2000).nullable(), intent: z.string().trim().max(2000), observedAt: stamp, evidence: evidence.min(1) }).strict();
 
@@ -60,6 +66,7 @@ export const workflowTaskSchema = z.object({
   branchObservation: z.object({ headSha: z.string().regex(/^[a-f0-9]{40}$/), observedAt: stamp }).strict().optional(),
   owner: z.string().trim().min(1).max(200), dueAt: stamp, status: z.enum(WORKFLOW_STATUSES),
   dependencies: z.array(id).max(100), evidence, nextAction: z.string().trim().max(3000),
+  progress: z.array(taskProgress).max(100).optional(),
   contentVersion: z.string().trim().max(200).nullable(), artifactUrl: httpsUrl.nullable().default(null),
   acceptanceCriteria: z.array(z.string().trim().min(1).max(1000)).min(1).max(30),
   research: research.nullable().default(null), approval: approval.nullable().default(null),
@@ -349,6 +356,15 @@ export const WORKFLOW_SCHEMAS = { approval: workflowApprovalSchema, plan: workfl
 export type WorkflowKind = keyof typeof WORKFLOW_SCHEMAS;
 type Stored<T> = T & { version: number; updatedAt: string; recordedAt: string };
 export type WorkflowTask = Stored<z.infer<typeof workflowTaskSchema>>;
+
+export function workflowTaskHasProgress(task: WorkflowTask): boolean {
+  if (task.progress?.length) return true;
+  if (task.status === "planned" || task.status === "ready") return false;
+  if (task.artifactUrl || task.codeSource || (task.contentVersion && task.evidence.length)) return true;
+  if (task.status === "approved" || task.status === "published") return true;
+  return (task.kind === "technical" || task.kind === "research") &&
+    task.evidence.some(item => Date.parse(item.observedAt) > Date.parse(task.recordedAt) && !item.artifact?.startsWith("issue:"));
+}
 export type WorkflowPlan = Stored<z.infer<typeof workflowPlanSchema>>;
 export type WorkflowApproval = Stored<Omit<z.infer<typeof workflowApprovalSchema>, "decisions"> & { decisions: (z.infer<typeof workflowApprovalDecisionSchema> & { recordedAt: string })[] }> & { submittedRecordedAt: string | null };
 export type WorkflowPublication = Stored<z.infer<typeof workflowPublicationSchema>> & { verificationRecordedAt: string | null };

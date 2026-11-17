@@ -2,7 +2,7 @@ const assert = require("node:assert/strict"), { test } = require("node:test"), f
 const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename;
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
-const { workflowTaskSchema, workflowWeek, workflowWeekSchema } = require("../src/lib/seo-workflow.ts");
+const { workflowTaskHasProgress, workflowTaskSchema, workflowWeek, workflowWeekSchema } = require("../src/lib/seo-workflow.ts");
 const { prepareWorkflowMutation, workflowSnapshot } = require("../src/lib/seo-workflow-state.ts");
 const now = new Date("2026-11-10T10:00:00Z"), evidence = [{ label: "来源及验收", url: "https://flatkey.ai/docs", observedAt: "2026-11-09T01:00:00Z" }];
 const approval = { kind: "explicit", approvedBy: "负责人", approvedAt: "2026-11-10T07:00:00Z", contentVersion: "v1", evidence };
@@ -50,6 +50,20 @@ test("an existing Codex task is tracked in the work list without entering the ex
   const records = [tracked, plan];
   assert.deepEqual(workflowSnapshot(records, { operational: true, workList: true }, "database", checkAt).tasks.map(item => item.id), [id]);
   assert.deepEqual(workflowSnapshot(records, { operational: true }, "database", checkAt).tasks, []);
+});
+
+test("claiming a task does not count as progress and older clients preserve saved receipts", () => {
+  const claim = row(save(task({ status: "drafting", contentVersion: null })));
+  assert.equal(workflowTaskHasProgress(claim.record), false);
+  const progress = { id: "commit-checkpoint", sessionId: "existing-session", observedAt: now.toISOString(),
+    summary: "Preview built and tested", nextAction: "Review the existing preview", evidence };
+  const checkpoint = row(save({ ...strip(claim.record), progress: [progress] }, [claim], "save_task", "collector", 1));
+  assert.equal(workflowTaskHasProgress(checkpoint.record), true);
+  const { progress: _, ...legacyRecord } = strip(checkpoint.record);
+  const later = save({ ...legacyRecord, nextAction: "Review scheduled" }, [checkpoint], "save_task", "human", 2);
+  assert.deepEqual(later.record.progress, [progress]);
+  assert.throws(() => save({ ...legacyRecord, progress: [{ ...progress, summary: "Changed historical fact" }] },
+    [checkpoint], "save_task", "collector", 2), /不能改写/);
 });
 test("country language and Chinese keyword mismatch fail without reassigning countries", () => {
   assert.equal(workflowTaskSchema.safeParse(task({ country: "BR", language: "es-ES" })).success, false);
