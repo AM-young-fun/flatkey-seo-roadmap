@@ -79,6 +79,7 @@ export function nextAutomationTime(rule: string, now: Date, status: string): str
 }
 
 const automationNotes: Record<string, string> = {
+  "seo-16-00-ga4-search-console": "本机从 Google 查询五站自然搜索、页面和搜索词数据，回看最近 14 个已结束日，写回后核对生产归档。",
   "flatkey-5": "按已确认的周计划制作源博客，Flatkey 每天英文 2 篇，日文、巴西葡语、西班牙西语各 1 篇。GPU 为主、API 为辅。真实博客和译文按质量门槛自动发布。",
   "automation": "周五 10:10 定稿下周每日博客、优化和落地页，以及四站合计每周 2 个集群新落地页。11:00 核对，11:30 周报引用。",
   "seo-09-30": "补齐已经排期的研究依赖，将证据写回原任务。每周四准备候选，周五定下周排期。",
@@ -114,6 +115,7 @@ export function automationCadence(rule: string): string {
 }
 export const automationConfigurationVerifiedAt = automationConfig.verifiedAt;
 const automationDependencies: Record<string, string[]> = {
+  "seo-16-00-ga4-search-console": ["本机 Codex 在线", "Google 只读授权", "生产数据读回"],
   "seo-09-30": ["原排期与关联任务", "平台关键词与 TopicMap"],
   "flatkey-5": ["正式周排期", "当地关键词证据", "CMS 发布回执"],
   "seo-13-30": ["旧页基线", "可核实内容证据", "非博客逐页版本审批"],

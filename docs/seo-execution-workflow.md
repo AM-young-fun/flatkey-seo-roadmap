@@ -56,7 +56,7 @@ JEV 正式部署 `7d93f13389f900f76beb489107d55c6f255d2726` 已验证，包含 b
 | 周五11:30 | seo-10-00-2 | 独立项目cron：最终周报 |
 | 每月首个工作日15:00 | seo-2 | 月度复盘与资源分配 |
 
-服务器 GA4/GSC 日采为北京时间10:10，先于周五周报；Vercel 排名协调每天 10:10–23:55 每五分钟检查，付费排名隔周周四 10:10 开始。local cron需电脑与Codex可用；heartbeat绑定会话忙时会排队，不能承诺精确起跑。
+五站 GA4/GSC 由本机 Codex 每天北京时间 16:00 采集；Vercel 排名协调每天 10:10–23:55 每五分钟检查，付费排名隔周周四 10:10 开始。local cron需电脑与Codex可用；heartbeat绑定会话忙时会排队，不能承诺精确起跑。
 
 ## 关键词和周计划契约
 
@@ -114,7 +114,9 @@ Actions执行scripts/server-seo-digest-send.cjs --kind=daily|weekly --date=YYYY-
 
 切换先验收日报/周报预览、真实交付和优化台账、三表/数据基础、实际任务启停，再预检取得旧Webhook配置指纹并更新数据库控制。SEO_UNIFIED_REPORTING_ENABLED=true关闭旧日采及排名单发；逐篇博客通知停止。一次只有一条相应kind的群消息。SEO_WORKFLOW_ENABLED控制区间去重采集，SEO_GA4_BUSINESS_COLLECTION_ENABLED控制GA4业务链采集；代码已写不等于业务事实已入库。
 
-## 仅采集验收（不发群）
+## 本机采集与验收（不发群）
+
+本机任务 `seo-16-00-ga4-search-console` 直接查询 Google，沿用生产导入和逐条读回。历史补采按明确日期和国家范围续跑。GitHub 的 `SEO_SERVER_COLLECTION_ENABLED` 已关闭，日报周报仍走原有独立发送入口。下列 GitHub 手动采集命令仅作为历史运维记录。
 
 每日定时采集与手动默认均只刷新各属性时区内最近14个已结束日；保留数据库全部旧历史，不删除或把窗口外日期记为缺失。每次在日志和采集回执中记录实际各站GA4/GSC起止日与窗口大小。月度复盘发现历史缺口时，可显式选择手动 `lookback_days=90` 回填；脚本仅接受14或90，其他输入在请求前拒绝。90日回填仍须单独验收，不用每天重复90日读取替代增量。
 

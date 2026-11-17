@@ -5,11 +5,12 @@ function enabled(job, { event = "workflow_dispatch", result = "success", unified
  const defaults = Object.fromEntries(Object.entries(workflow.on.workflow_dispatch.inputs).map(([name, config]) => [name, config.default]));
  return Boolean(vm.runInNewContext(workflow.jobs[job].if, { always: () => true, github: {ref:"refs/heads/main",event_name:event}, vars:{SEO_SERVER_COLLECTION_ENABLED:"true",SEO_UNIFIED_REPORTING_ENABLED:unified}, needs:{collect:{result}}, inputs:event === "workflow_dispatch" ? {...defaults,...inputs} : {} }));
 }
-test("scheduled collection starts at 16:00 Beijing with the last Los Angeles day closed", () => {
- const schedule = workflow.on.schedule;
- const config = require("../src/lib/data/seo-server-config.json");
- assert.deepEqual(schedule.map(row => row.cron), ["0 8 * * *"]);
- assert.equal(config.cron, schedule[0].cron);
+test("local collection at 16:00 Beijing starts after the prior Los Angeles day closes", () => {
+ const config = require("../src/lib/data/seo-automation-config.json");
+ const local = config.tasks.find(task => task.id === "seo-16-00-ga4-search-console");
+ assert.equal(workflow.on.schedule, undefined);
+ assert.equal(local.rrule, "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0");
+ assert.equal(local.status, "ACTIVE");
  for (const [date, hour] of [["2026-11-17", 0], ["2026-07-17", 1]]) {
   const local = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23", day: "2-digit" });
   const parts = Object.fromEntries(local.formatToParts(new Date(date + "T08:00:00Z")).map(part => [part.type, part.value]));
@@ -41,10 +42,10 @@ test("notification opt-out also suppresses explicit verification and cannot send
  for(const job of ["collect","notify","verify-dingtalk"])assert.equal(enabled(job,job==="notify"?{...options,result:"skipped"}:options),false);
  assert.equal(enabled("verify-dingtalk",{inputs:{verify_dingtalk:true,send_notifications:true}}),true);
 });
-test("scheduled collection keeps the existing behavior and unified reporting still disables old notifications", () => {
- assert.equal(enabled("collect",{event:"schedule"}),true);
- assert.equal(enabled("notify",{event:"schedule"}),true);assert.equal(enabled("verify-dingtalk",{event:"schedule"}),false);
- assert.equal(enabled("notify",{event:"schedule",unified:"true"}),false);
+test("there is no scheduled GitHub collection and unified reporting still disables old notifications", () => {
+ assert.equal(enabled("collect",{event:"schedule"}),false);
+ assert.equal(enabled("notify",{event:"schedule",result:"skipped"}),false);
+ assert.equal(enabled("verify-dingtalk",{event:"schedule"}),false);
  assert.equal(enabled("notify",{unified:"true"}),false);
  assert.equal(enabled("notify",{result:"skipped"}),false);
 });

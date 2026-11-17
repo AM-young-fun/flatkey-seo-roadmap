@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-17T03:48:43.566Z",
+  "verifiedAt": "2026-11-17T09:28:37Z",
   "tasks": [
     {
       "id": "automation",
@@ -319,6 +319,27 @@
       "model": "gpt-6.1-sol",
       "reasoning_effort": "medium",
       "updated_at": 1794886939376,
+      "target": {
+        "type": "project",
+        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
+      },
+      "cwds": [
+        "/Users/mantou/project/front/flatkey-seo-roadmap",
+        "/Users/mantou/project/front/flatkey",
+        "/Users/mantou/project/front/rackrate",
+        "/Users/mantou/project/front/modelfit",
+        "/Users/mantou/project/front/blogger"
+      ]
+    },
+    {
+      "id": "seo-16-00-ga4-search-console",
+      "name": "SEO 每日16:00 五站 GA4 与 Search Console 本机采集",
+      "kind": "cron",
+      "status": "ACTIVE",
+      "rrule": "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0",
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "updated_at": 1794907764011,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
