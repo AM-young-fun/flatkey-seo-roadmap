@@ -8,6 +8,5 @@ export default async function Page({ params, searchParams }: {
   searchParams: Promise<WorkspaceSearchParams>;
 }) {
   const [{ taskId }, filters] = await Promise.all([params, searchParams]);
-  const week = typeof filters.week === "string" ? filters.week : "current";
-  return <WorkTaskPage taskId={taskId} week={week} listHref={workTaskListHref(filters)} />;
+  return <WorkTaskPage taskId={taskId} listHref={workTaskListHref(filters)} />;
 }

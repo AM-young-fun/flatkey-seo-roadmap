@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { approvalReviewReadiness, pageBelongsToSite, reviewPreviewUrl, workflowCodeSourceSchema, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowPublication, type WorkflowTask } from "@/lib/seo-workflow";
+import { workTaskHref } from "@/lib/seo-workspace-routes";
 import styles from "./SeoWorkWorkspace.module.css";
 
 type Props = {
@@ -13,8 +14,7 @@ type Props = {
 };
 
 export function PageDeliveryActions({ task, approvals, publications, mutate, onSaved }: Props) {
-  const taskHref = new URL("/work?" + new URLSearchParams({ week: task.weekStart }), "https://flatkey-seo-roadmap.vercel.app");
-  taskHref.hash = "task-" + task.id;
+  const taskHref = new URL(workTaskHref(task), "https://flatkey-seo-roadmap.vercel.app");
   const taskApprovals = approvals.flatMap(approval => approval.items.filter(item => item.taskId === task.id).map(item => ({ approval, item })));
   const approved = taskApprovals.find(({ approval, item }) =>
     item.contentVersion === task.contentVersion && approvalReviewReadiness(item).ready &&
