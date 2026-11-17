@@ -313,11 +313,20 @@ function dailyTechnicalLines(qa: DigestInput["technicalQa"]) {
   const lines = [`• 已检查 ${qa.completed}/${qa.checked} 项${qa.status === "completed" ? "，巡检完成。" : "，以下项目仍有缺口。"}`];
   const performance = /PSI|429/.test([qa.failure, ...qa.issues.map(issue => issue.title)].join(" "));
   if (performance) lines.push("• GPU 页面移动端速度还没有测出。Google 的测速请求达到限额，无法判断这些页面当前的加载速度。");
-  for (const issue of qa.issues.filter(issue => issue.status !== "resolved" && !/PSI|429/.test(issue.title)).slice(0, performance ? 1 : 2)) {
-    const description = /Googlebot|robots\.txt|\/api\//i.test(issue.title + " " + (issue.impact ?? ""))
-      ? `${shortCardText(issue.title.split(/[:：]|GET 200/)[0].trim(), 55)}可以打开，但 Google 抓取规则挡住了它，可能影响搜索收录。`
-      : [shortCardText(issue.title, 65), issue.impact && shortCardText(issue.impact, 96)].filter(Boolean).join("。");
-    lines.push("• " + description);
+  const issues = qa.issues.filter(issue => issue.status !== "resolved" && !/PSI|429/.test(issue.title))
+    .sort((a, b) => a.priority.localeCompare(b.priority)).slice(0, 2);
+  for (const issue of issues) {
+    const details = issue.title + " " + (issue.impact ?? "");
+    const assets = details.match(/(\d+)\/(\d+) 返回 200/);
+    if (assets && /旧样式/.test(issue.title)) {
+      lines.push(`• 抽查 ${assets[2]} 个旧版样式文件，有 ${Number(assets[2]) - Number(assets[1])} 个打不开。仍使用缓存旧页面的访客可能看到样式异常。`);
+    } else if (/Googlebot|robots\.txt|\/api\//i.test(details)) {
+      const page = shortCardText(issue.title.split(/[:：]|GET 200/)[0].trim(), 55);
+      lines.push(`• ${page}可以打开，但网站规则阻止了 Google 抓取，可能影响搜索收录。`);
+    } else {
+      const title = shortCardText(issue.title.replace(/404/g, "打不开"), 65);
+      lines.push("• " + [title, issue.impact && shortCardText(issue.impact, 96)].filter(Boolean).join("。"));
+    }
   }
   const inspection = qa.diagnostics?.find(note => note.startsWith("GSC 收录抽查"))?.match(/(\d+)\/(\d+)/);
   if (inspection) lines.push(`• Google 收录抽查已返回 ${inspection[1]}/${inspection[2]} 个页面的检查结果。`);
@@ -395,7 +404,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const rankingNotes = input.rankingNotes ?? [];
   if (!weekly) {
     lines.push("", "**2. 过去 7 天的工作效果**", ...dailyWorkEffectLines(input.recentPages, input.date));
-    lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 120))
+    lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 180))
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
     lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
     lines.push("", "**4. 今日完成**", `• 已核实上线 **${completed.blogs} 篇文章**，优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
