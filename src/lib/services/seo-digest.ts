@@ -2,6 +2,8 @@ import { recentPublishedPages } from "../seo-digest-recent-pages";
 import { actionCardPayload, messageHash } from "../seo-digest-message.cjs";
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
+import { accountRegistrationSummary } from "../seo-account-registrations";
+import { loadAccountRegistrationSummary } from "./seo-account-registrations";
 import { loadGithubChannels } from "./seo-github-channel";
 import { getSeoReportingControl } from "./seo-reporting-control";
 import { webhookReceiptSchema, type WebhookReceipt } from "../seo-webhook-receipt";
@@ -92,8 +94,9 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", window.workStart.slice(0, 10), date),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
+    loadAccountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
   ]);
-  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档"][index]}读取失败，相关项保留缺失。`] : []);
+  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: workflowWeek(new Date(date + "T12:00:00+08:00")), allHistory: true }, "database");
   const nextWeek = reads[1].status === "fulfilled" ? reads[1].value : workflowSnapshot([], { week: shiftWorkflowDay(workflowWeek(new Date(date + "T12:00:00+08:00")), 7) }, "database");
   const analytics = reads[2].status === "fulfilled" ? reads[2].value : [];
@@ -152,6 +155,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
     workPlan: summarizeWorkPlan(relevantPlan),
     recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly"), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
+    accountRegistrations: reads[7].status === "fulfilled" ? reads[7].value : accountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
     businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
     githubObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
     reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,

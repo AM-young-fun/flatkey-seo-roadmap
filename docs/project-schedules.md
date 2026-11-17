@@ -17,7 +17,7 @@ JEV 正式部署 `7d93f13389f900f76beb489107d55c6f255d2726` 已验证，包含 b
 | 北京时间 | 事项 | 执行与依赖 |
 |---|---|---|
 | 每日08:30 | 五站GA4/GSC服务器采集 | 既有GitHub Actions，最近14个结束日；独立于本机定时任务 |
-| 原每日09:00 | 旧协作表同步（已退役） | 关键词及 TopicMap 在平台维护，GitHub 提示词渠道按真实日期和权限保留数据 |
+| 每日09:00 | GitHub 提示词渠道 Traffic | 本机 Codex 使用已登录的 GitHub CLI，归档两个仓库的浏览及克隆 UTC 日桶并验证读回。关键词及 TopicMap 在平台维护。 |
 | 每日09:30 | 四国关键词研究、周计划缺口补证 | US/en、JP/ja、BR/pt-BR、ES/es-ES；研究结果保存平台，关联 TopicMap 和工作任务 |
 | 每日10:00 | 五站基础技术巡检 | 新、改、异常页优先深审；问题入工作任务，可修复项按站点走测试审批或上线后审核，质检结果进入日报 |
 | 每日10:30 | Prompt 素材核验与自动导入 | 检查来源、许可、素材、模型及去重，保存真实发布回执 |
@@ -43,6 +43,10 @@ JEV 正式部署 `7d93f13389f900f76beb489107d55c6f255d2726` 已验证，包含 b
 工作台账使用 /api/seo/workflow 及独立claims；expectedVersion和fencing防止多会话覆盖。报告prepare不用workflow fencing；发送使用独立kind+date claim→begin→提供方回执→finish。
 
 通知复用原群内猫猫侠签名Webhook。两项发送cron只派发既有seo-daily.yml的report_only入口并跟踪该run，不调用旧本地DWS发送脚本。报告job使用原GitHub秘密SEO_DINGTALK_CONFIG与SEO_IMPORT_TOKEN，密钥不导出。send_report默认false；真实发送需数据库协议2、signed-webhook、固定群/原bot和配置指纹匹配。HTTP200且errcode0的真实WebHook接受回执随run归档并记账，不伪造processQueryKey。未知结果不自动重发；明确提供方拒绝只经严格审计恢复同一冻结报告。SEO_UNIFIED_REPORTING_ENABLED=true关闭旧日采/排名单发，博客任务不逐篇通知。平台「日/周效果总结」保存完整快照。钉钉简版卡片通过「查看详情」打开对应日期和版本。
+
+Flatkey 注册人数采用 Console「Usage Report → 全部分组」的 `Registered` 日数据。账户系统统计已启用且已验证的新增账户，日期为 UTC。导入快照只包含结算后的日期、注册人数及来源时间。周报逐日覆盖齐全后合计，保留 GA4 自然搜索归因作为独立指标。已发报告保留精确归档，通过同日最新详情查看补录来源。
+
+使用现有 SEO 导入凭据运行 `node scripts/import-flatkey-account-registrations.cjs /path/to/snapshot.json`。快照字段为 `version: 1`、`source: "flatkey-console-usage-report"`、`timezone: "UTC"`、`group: "all"`、`observedAt` 和 `days: [{ date, registered }]`。导入后核对数据库回执和区间结果，当前未结算日留在账户控制台。
 
 完整操作说明见 [SEO执行流程](seo-execution-workflow.md)。下方仅历史，不作为当前指令。
 

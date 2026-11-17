@@ -1,5 +1,6 @@
 import type { recentPublishedPages } from "./seo-digest-recent-pages";
 import { seoToday } from "./seo-date-range";
+import type { AccountRegistrationSummary } from "./seo-account-registrations";
 import { flatkeyRegistrationCount, latestBusinessPeriod, organicRegistrationComparison, weeklyBusinessDigestLines, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubDigestLines, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
@@ -48,6 +49,7 @@ export type DigestInput = {
   pageObservations?: AnalyticsObservation[];
   recentPages?: ReturnType<typeof recentPublishedPages>;
   businessObservations?: BusinessAnalytics[];
+  accountRegistrations?: AccountRegistrationSummary;
   githubObservations?: GithubChannel[];
   publications: DigestPublication[]; optimizations: DigestOptimization[];
   effects: { url: string; comparison: string; evidence: string; judgment: string }[];
@@ -235,6 +237,10 @@ function compactNotification(
     const shortDate = (day: string) => day.slice(5).replace("-", "/");
     pair(label, row.previous, row.current, row.previousDates[0] && row.dates[0]
       ? `${shortDate(row.previousDates[0])} → ${shortDate(row.dates[0])}` : "");
+  }
+  if (input.accountRegistrations) {
+    const count = input.accountRegistrations.users;
+    lines.push(`• Flatkey 账户注册  ${count === null ? "待更新" : number(count) + " 人"} · UTC`);
   }
   if (registrations.previous !== null && registrations.current !== null) {
     pair("自然搜索注册", registrations.previous, registrations.current);
@@ -536,7 +542,14 @@ export function buildSeoDigest(input: DigestInput) {
   const registrationOffset = window.kind === "weekly" ? -7 : -1;
   const organicRegistrations = organicRegistrationComparison(input.businessObservations ?? [], window.trafficStart, window.trafficEnd,
     shift(window.trafficStart, registrationOffset), shift(window.trafficEnd, registrationOffset));
-  lines.push("", `Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（GA4 全渠道区间去重）`);
+  const accountRegistrations = input.accountRegistrations;
+  if (accountRegistrations) {
+    const { start, end, users, missing } = accountRegistrations;
+    lines.push("", `Flatkey 注册人数 ${users === null ? "待更新" : users + " 人"}（账户系统 · ${start === end ? start : start + "—" + end} UTC · 全部分组）`);
+    if (missing.length) lines.push(`账户报表待补 UTC 日 ${missing.join("、")}。`);
+  } else {
+    lines.push("", `Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（GA4 全渠道区间去重）`);
+  }
   if (window.kind === "weekly") lines.push("", ...weeklyBusinessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd));
   lines.push("", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, window.kind === "weekly", now));
   lines.push("", "Flatkey 四国分项（四国合计不等于全站）");
@@ -585,7 +598,7 @@ export function buildSeoDigest(input: DigestInput) {
     deliveryStates: input.deliveryStates,
     weeklyHighlights, weeklyTraffic, workPlan: input.workPlan,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
-    flatkeyRegistrations, organicRegistrations,
+    flatkeyRegistrations, accountRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };
 }
 export type SeoDigest = ReturnType<typeof buildSeoDigest>;
