@@ -1,6 +1,7 @@
 const { test } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), ts = require("typescript");
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { buildSeoDigest, comparableMetric, digestWindow, digestClaimable, SEO_DATA_HUB } = require("../src/lib/seo-digest.ts");
+const { accountRegistrationSnapshotSchema, accountRegistrationSummary } = require("../src/lib/seo-account-registrations.ts");
 const { technicalQaReport } = require("../src/lib/seo-technical-qa-report.ts");
 const { providerReceipt } = require("../scripts/seo-digest-dws.cjs");
 const base = (date = "2026-11-10") => ({ date, now: new Date(date + "T18:00:00+08:00"), publications: [], optimizations: [], observations: [], effects: [], priorities: [], issues: [], runNotes: [], publicationCoverage: "verified", optimizationCoverage: "verified" });
@@ -371,4 +372,25 @@ test("a daily QA receipt shows issues from its evidence and distinguishes linked
  const report = buildSeoDigest({ ...base("2026-11-17"), now, technicalQa: qa });
  assert.match(report.detailText, /issues\?week=2026-11-16#issue-psi\) · 尚未建工作任务/);
  assert.match(report.detailText, /work\/css-task\?week=2026-11-09/);
+});
+
+test("account registrations keep UTC dates, real zero, later corrections, and incomplete weeks", () => {
+ const earlier = {
+   version: 1, source: "flatkey-console-usage-report", timezone: "UTC", group: "all",
+   observedAt: "2026-11-13T05:00:00Z", days: [{ date: "2026-11-11", registered: 7 }, { date: "2026-11-12", registered: 0 }],
+ };
+ const corrected = { ...earlier, observedAt: "2026-11-14T05:00:00Z", days: [{ date: "2026-11-11", registered: 8 }] };
+ assert.ok(accountRegistrationSnapshotSchema.safeParse(earlier).success);
+ assert.equal(accountRegistrationSnapshotSchema.safeParse({ ...earlier, group: "plg" }).success, false);
+ assert.equal(accountRegistrationSnapshotSchema.safeParse({ ...earlier, days: [{ date: "2026-11-13", registered: 1 }] }).success, false);
+ assert.equal(accountRegistrationSnapshotSchema.safeParse({ ...earlier, days: [...earlier.days, earlier.days[0]] }).success, false);
+ assert.equal(accountRegistrationSummary({ start: "2026-11-11", end: "2026-11-12" }, [corrected, earlier]).users, 8);
+ const accountRegistrations = accountRegistrationSummary({ start: "2026-11-12", end: "2026-11-12" }, [earlier, corrected]);
+ const daily = buildSeoDigest({ ...base("2026-11-13"), accountRegistrations, notificationCompact: true });
+ assert.equal(daily.accountRegistrations.users, 0);
+ assert.match(daily.text, /Flatkey 账户注册  0 人 · UTC/);
+ assert.match(daily.detailText, /Flatkey 注册人数 0 人（账户系统 · 2026-11-12 UTC/);
+ const week = accountRegistrationSummary({ start: "2026-11-06", end: "2026-11-12" }, [earlier, corrected]);
+ assert.equal(week.missing.length, 5);
+ assert.equal(week.users, null);
 });

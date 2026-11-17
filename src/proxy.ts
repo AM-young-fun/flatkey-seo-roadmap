@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   // These two GET handlers validate the database-backed research key.
   if (hasResearchReadHeader(request)) return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/review-assets" || /^\/api\/seo\/review-assets\/[a-f0-9]{64}$/.test(request.nextUrl.pathname)) return NextResponse.next();
-  if (["/api/seo/workflow", "/api/seo/workflow/claims", "/api/seo/workflow/approval-check", "/api/seo/workflow/history", "/api/seo/digest", "/api/seo/reporting-control", "/api/seo/periods", "/api/seo/business", "/api/seo/registrations", "/api/seo/github"].includes(request.nextUrl.pathname)) return NextResponse.next();
+  if (["/api/seo/workflow", "/api/seo/workflow/claims", "/api/seo/workflow/approval-check", "/api/seo/workflow/history", "/api/seo/digest", "/api/seo/reporting-control", "/api/seo/periods", "/api/seo/business", "/api/seo/registrations", "/api/seo/account-registrations", "/api/seo/github"].includes(request.nextUrl.pathname)) return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/optimization-plans") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/ranking-notice") return NextResponse.next();
   // These endpoints check their own dedicated credentials, even when page
