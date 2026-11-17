@@ -2,7 +2,7 @@ name: Server SEO daily collection
 run-name: ${{ inputs.report_only && format('SEO {0} {1} (send={2})', inputs.report_kind, inputs.report_date, inputs.send_report) || 'Server SEO daily collection' }}
 on:
   schedule:
-    - cron: '30 0 * * *'
+    - cron: '10 2 * * *'
   workflow_dispatch:
     inputs:
       report_only:

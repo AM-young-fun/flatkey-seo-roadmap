@@ -1,5 +1,8 @@
 import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod, scheduledSerpDue } from "./serp-periods";
 import automationConfig from "./data/seo-automation-config.json";
+import { seoScheduleOpensAt } from "./seo-schedule-window";
+
+export const schedulerCadence = "每日 10:10–23:55，每 5 分钟检查及续跑";
 
 export type OperationsStatus = {
   checkedAt: string;
@@ -7,7 +10,7 @@ export type OperationsStatus = {
   executionEvidence?: "available" | "unavailable";
   evidenceNote?: string;
   controls: { enabled: boolean; emergencyStopped: boolean; maxRunCostMicros: number; maxMonthCostMicros: number; discoveryMaxCostMicros: number };
-  scheduler: { configured: boolean; cadence: "每5分钟检查及续跑任务"; state: "UNCONFIRMED" | "HEALTHY" | "OVERDUE" | "ERROR"; lastStartedAt: string | null; lastCompletedAt: string | null };
+  scheduler: { configured: boolean; cadence: string; state: "UNCONFIRMED" | "HEALTHY" | "OVERDUE" | "ERROR"; lastStartedAt: string | null; lastCompletedAt: string | null };
   plans: { id: string; name: string; location: string; cadence: string; state: string; nextAt: string | null; note: string; dependencies?: string[]; currentExecution?: string }[];
   records: { id: string; name: string; state: string; startedAt: string; completedAt: string | null; detail: string; failedDiscoveryId?: string }[];
 };
@@ -15,7 +18,11 @@ export type OperationsStatus = {
 export function schedulerState(last: { startedAt: Date; completedAt: Date | null; status: string } | null, now: Date): OperationsStatus["scheduler"]["state"] {
   if (!last) return "UNCONFIRMED";
   if (last.status === "FAILED" || last.status === "NEEDS_REVIEW") return "ERROR";
-  if (now.getTime() - last.startedAt.getTime() > 75 * 60_000) return "OVERDUE";
+  const grace = 75 * 60_000;
+  const opensAt = seoScheduleOpensAt(now);
+  const previousLastSlot = opensAt - (10 * 60 + 15) * 60_000; // 23:55 Shanghai on the previous day.
+  const expectedCheckAt = now.getTime() <= opensAt + grace ? previousLastSlot : now.getTime();
+  if (last.startedAt.getTime() < expectedCheckAt - grace) return "OVERDUE";
   // A started check is not proof of a successfully completed invocation.
   return last.completedAt ? "HEALTHY" : "UNCONFIRMED";
 }
@@ -31,7 +38,7 @@ export function nextCollectorTime(now:Date,kind:"sheets"|"ahrefs"|"traffic"):str
   const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai"}).format(now);
   for(let offset=0;offset<8;offset++){
     const day=new Date(Date.parse(`${today}T00:00:00Z`)+offset*86400000).toISOString().slice(0,10);
-    const clock = kind === "sheets" ? "09:00" : kind === "ahrefs" ? "09:30" : "08:30";
+    const clock = kind === "sheets" ? "09:00" : kind === "ahrefs" ? "09:30" : "10:10";
     const candidate=new Date(`${day}T${clock}:00+08:00`);if(candidate>now)return candidate.toISOString();
   }
   throw new Error("Invalid collector schedule");
@@ -71,8 +78,10 @@ export function nextAutomationTime(rule: string, now: Date, status: string): str
 
 const automationNotes: Record<string, string> = {
   "flatkey-5": "按已确认的周计划制作源博客，Flatkey 每天英文 2 篇，日文、巴西葡语、西班牙西语各 1 篇。GPU 为主、API 为辅。真实博客和译文按质量门槛自动发布。",
-  "automation": "周五 09:00 定稿下周每日博客、优化和落地页，以及四站合计每周 2 个集群新落地页。09:30 核对，10:00 周报引用。",
+  "automation": "周五 10:10 定稿下周每日博客、优化和落地页，以及四站合计每周 2 个集群新落地页。11:00 核对，11:30 周报引用。",
   "seo-09-30": "补齐已经排期的研究依赖，将证据写回原任务。每周四准备候选，周五定下周排期。",
+  "seo-09-00-github-traffic": "通过本机 GitHub CLI 采集两个提示词仓库的浏览和克隆，核对生产读回。",
+  "seo-09-10-flatkey": "通过本机 Chrome 会话读取 Flatkey 账户系统，导入已结束的 UTC 日并核对报表。",
   "seo-10-00": "五站技术质检；新增、改动和异常页优先。把可修复问题送工作任务，日报引用真实检查回执。",
   "seo-13-30": "扫描搜索意图并登记异常。Flatkey 每日最多优化 2 个页面，保存基线和版本。常规旧博客免审，代码改造先预览和送审。",
   "seo-14-30": "Flatkey 每日制作最多 1 个已排期落地页。独立分支部署测试环境，证据齐全后提交工作任务审批。",
@@ -83,8 +92,8 @@ const automationNotes: Record<string, string> = {
   "seo-2": "月初首个工作日复盘业务转化、市场投入和付费查询成本；形成任务，不另发月报群消息。",
   "seo-17-30": "补同步下午回执，用实际来源日期生成报告预览；来源失败也保留缺失说明。",
   "automation-2": "核对来源许可、素材、模型和去重后自动导入合格 Prompt；记录真实上线与 GitHub 渠道证据。",
-  "seo-09-30-2": "周五09:30生成上周五至本周四的周报预览，核对下周已定事项和数据截止日，不发群消息。",
-  "seo-10-00-2": "周五10:00发送周报；与当天18:00日报分别防重。需平台门控、发送凭据和最终快照验收通过。",
+  "seo-09-30-2": "周五11:00生成上周五至本周四的周报预览，核对下周已定事项和数据截止日，不发群消息。",
+  "seo-10-00-2": "周五11:30发送周报；与当天18:00日报分别防重。需平台门控、发送凭据和最终快照验收通过。",
   "seo-18-00": "每天18:00发日报，周五也发；简版含优化效果、技术质检与待审批数，结尾链接该日平台详情。",
 };
 export function automationCadence(rule: string): string {
@@ -120,7 +129,7 @@ const automationDependencies: Record<string, string[]> = {
 export function configurationOnlyOperationsStatus(now = new Date(), note = "执行记录暂不可读取；以下仅为已回读的自动化配置"): OperationsStatus {
   return { checkedAt: now.toISOString(), automationConfigurationVerifiedAt, executionEvidence: "unavailable", evidenceNote: note,
     controls: { enabled: false, emergencyStopped: false, maxRunCostMicros: 0, maxMonthCostMicros: 0, discoveryMaxCostMicros: 0 },
-    scheduler: { configured: false, cadence: "每5分钟检查及续跑任务", state: "UNCONFIRMED", lastStartedAt: null, lastCompletedAt: null },
+    scheduler: { configured: false, cadence: schedulerCadence, state: "UNCONFIRMED", lastStartedAt: null, lastCompletedAt: null },
     plans: configuredAutomationPlans(now), records: [] };
 }
 

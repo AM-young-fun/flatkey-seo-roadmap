@@ -34,6 +34,10 @@ test("configured schedule and unfinished heartbeat cannot masquerade as successf
   assert.equal(schedulerState({ ...last, completedAt: now, status: "COMPLETED" }, now), "HEALTHY");
   assert.equal(schedulerState({ ...last, startedAt: new Date("2026-10-19T06:00:00Z"), completedAt: now, status: "COMPLETED" }, now), "OVERDUE");
   assert.equal(schedulerState({ ...last, status: "NEEDS_REVIEW" }, now), "ERROR");
+  const priorRun = { startedAt: new Date("2026-11-16T15:55:00Z"), completedAt: new Date("2026-11-16T15:56:00Z"), status: "COMPLETED" };
+  assert.equal(schedulerState(priorRun, new Date("2026-11-17T02:09:59Z")), "HEALTHY");
+  assert.equal(schedulerState(priorRun, new Date("2026-11-18T02:09:59Z")), "OVERDUE");
+  assert.equal(schedulerState(priorRun, new Date("2026-11-17T03:26:00Z")), "OVERDUE");
   assert.equal(plannedRankingTime(now, null), "2026-10-20T02:30:00.000Z");
   assert.equal(plannedRankingTime(now, new Date("2026-11-03T02:30:00Z")), "2026-11-05T00:00:00.000Z");
   const due = new Date("2026-10-20T02:30:00Z");
@@ -50,7 +54,7 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.scheduler.state, "UNCONFIRMED");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
-  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 08:30（仓库配置）");
+  assert.equal(status.plans.find(row => row.id === "traffic").cadence, "每日 10:10（仓库配置）");
   assert.ok(!status.plans.some(row => row.id === "10-30-seo"));
   const actualPlan = configuredAutomationPlans(new Date("2026-10-19T08:00:00Z")).find(row => row.id === "automation");
   assert.equal(status.plans.find(row => row.id === "automation").state, actualPlan.state);

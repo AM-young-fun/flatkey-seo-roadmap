@@ -24,9 +24,12 @@ function biweeklyPeriod(start: string): SerpPeriod {
   const firstDay = `${start.slice(0, 7)}-01`;
   const firstSlot = addDays(ANCHOR, Math.ceil((Date.parse(`${firstDay}T00:00:00Z`) - Date.parse(`${ANCHOR}T00:00:00Z`)) / (14 * DAY)) * 14);
   const part = Math.round((parsed - Date.parse(`${firstSlot}T00:00:00Z`)) / (14 * DAY)) + 1;
-  // Keep the Tuesday period IDs and paid ledgers; future execution moves
-  // two days later to Thursday 08:00 Shanghai, retaining the 14-day phase.
-  const dueAt = start >= "2026-11-03" ? new Date(`${addDays(start, 2)}T08:00:00+08:00`).toISOString() : `${start}T02:30:00.000Z`;
+  // Keep the Tuesday IDs and recorded November 5 slot. The next
+  // scheduled Thursday starts at 10:10 Shanghai.
+  const clock = start >= "2026-11-17" ? "10:10" : "08:00";
+  const dueAt = start >= "2026-11-03"
+    ? new Date(`${addDays(start, 2)}T${clock}:00+08:00`).toISOString()
+    : `${start}T02:30:00.000Z`;
   return { key: start, label: `${year}年${month}月第${part}期`, start, end: addDays(start, 13), dueAt };
 }
 export function serpPeriod(value: Date | string = new Date()): SerpPeriod {
@@ -52,12 +55,18 @@ export function periodDue(key: string): Date {
   return new Date(serpPeriodFromKey(key).dueAt);
 }
 
-// Interpret a persisted 10:30 cursor using its original period key. This
+// Interpret a persisted schedule cursor using its original period key. This
 // lets an already-enabled future schedule move without touching its gates,
 // budget, revision, or an unfinished/completed paid ledger.
 export function scheduledSerpDue(value: Date | string): Date {
   const date = new Date(value), key = storedSerpPeriod(date).key;
-  return key >= "2026-11-03" && [ `${key}T02:30:00.000Z`, new Date(`${key}T00:00:00+08:00`).toISOString() ].includes(date.toISOString()) ? periodDue(key) : date;
+  if (key < "2026-11-03") return date;
+  const previousSlots = [
+    `${key}T02:30:00.000Z`,
+    new Date(`${key}T00:00:00+08:00`).toISOString(),
+    `${addDays(key, 2)}T00:00:00.000Z`,
+  ];
+  return previousSlots.includes(date.toISOString()) ? periodDue(key) : date;
 }
 
 // The next fixed slot belongs to the next reporting period, never completion

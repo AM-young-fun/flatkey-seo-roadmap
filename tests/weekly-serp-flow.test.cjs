@@ -69,5 +69,5 @@ test("Friday reports include the Thursday capture and intervening Fridays retain
  let result=await loadWeeklySerp(reportPeriods("2026-10-30"));
  assert.equal(result.ranking.captureWeek,true);assert.equal(result.ranking.waiting,true);assert.equal(result.ranking.nextCaptureAt,"2026-11-05T00:00:00.000Z");
  run=null;result=await loadWeeklySerp(reportPeriods("2026-11-06"));
- assert.equal(result.ranking.captureWeek,false);assert.equal(result.ranking.status,"NOT_SCHEDULED");assert.equal(result.ranking.nextCaptureAt,"2026-11-19T00:00:00.000Z");
+ assert.equal(result.ranking.captureWeek,false);assert.equal(result.ranking.status,"NOT_SCHEDULED");assert.equal(result.ranking.nextCaptureAt,"2026-11-19T02:10:00.000Z");
 });
