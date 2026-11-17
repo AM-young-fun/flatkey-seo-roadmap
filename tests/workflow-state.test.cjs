@@ -181,3 +181,24 @@ test("daily plans accept the new quotas, and reject duplicate daily Flatkey land
   const excess = [first, ...clusters];
   assert.throws(() => save(plan(excess, 0), excess, "save_plan"), { code: "plan_cluster_landing_quota" });
 });
+
+test("new content plans use statutory workdays and exclude traffic-only sites", () => {
+  const make = (weekStart, days, tasks = []) => {
+    const targets = { cadence: "workdays", landing: days, clusterLanding: Math.min(2, days), apiBlogs: days, gpuBlogs: days * 4,
+      optimizedPages: days * 2, blogLanguages: { en: days * 2, ja: days, "pt-BR": days, "es-ES": days } };
+    return { id: "workday-plan", weekStart, title: "Workday schedule", status: "scheduled", taskIds: tasks.map(t => t.record.id),
+      owner: "AI", preparedAt: now.toISOString(), reviewedAt: null, reviewedBy: null, targets, evidence, notes: "",
+      gaps: Object.entries({ landing: days, clusterLanding: targets.clusterLanding, apiBlogs: days, gpuBlogs: days * 4,
+        optimizedPages: days * 2, blogEn: days * 2, blogJa: days, blogPt: days, blogEs: days }).map(([category, count]) => ({ category, count, reason: "No qualified candidate" })) };
+  };
+  const normalWeek = "2026-11-09";
+  assert.equal(save(make(normalWeek, 5), [], "save_plan").record.targets.gpuBlogs, 20);
+  assert.throws(() => save(make(normalWeek, 7), [], "save_plan"), { code: "plan_workday_targets" });
+  const weekend = { kind: "task", record: task({ kind: "blog", dueAt: "2026-11-14T06:00:00Z" }) };
+  assert.throws(() => save(make(normalWeek, 5, [weekend]), [weekend], "save_plan"), { code: "plan_content_nonworkday" });
+  const mochi = { kind: "task", record: task({ siteDomain: "mochichatbot.com", kind: "technical" }) };
+  assert.throws(() => save(make(normalWeek, 5, [mochi]), [mochi], "save_plan"), { code: "plan_monitor_only_site" });
+  const makeupWeek = "2026-09-14";
+  const makeup = { kind: "task", record: task({ weekStart: makeupWeek, dueAt: "2026-09-20T06:00:00Z" }) };
+  assert.equal(save(make(makeupWeek, 6, [makeup]), [makeup], "save_plan").record.targets.landing, 6);
+});
