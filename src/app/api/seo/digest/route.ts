@@ -1,3 +1,5 @@
+import { loadRegistrationPeriods } from "@/lib/services/seo-registration-period";
+import { registrationCorrection } from "@/lib/seo-registration-correction";
 import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -6,7 +8,7 @@ import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
 import { shiftDay } from "@/lib/seo-date-range";
-import { flatkeyRegistrationCount, organicRegistrationComparison, weeklyBusinessDigestLines } from "@/lib/seo-business-analytics";
+import { flatkeyRegistrationCount, weeklyBusinessDigestLines } from "@/lib/seo-business-analytics";
 import { githubDigestLines } from "@/lib/seo-github-channel";
 import { loadGithubChannels } from "@/lib/services/seo-github-channel";
 import { loadBusinessAnalytics } from "@/lib/services/seo-business-analytics";
@@ -89,7 +91,7 @@ export async function GET(request: Request) {
       if (archive && report && !explicitId) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
-        const previousStart = shiftDay(trafficStart, offset), previousEnd = shiftDay(trafficEnd, offset);
+        const previousStart = shiftDay(trafficStart, offset);
         const accountRange = { start: trafficStart, end: trafficEnd };
         const [observations, recentPages, workPlan, github, accountRegistrations] = await Promise.all([
           loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
@@ -101,13 +103,11 @@ export async function GET(request: Request) {
         ]);
         const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);
         const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
-        const organicRegistrations = observations.length
-          ? organicRegistrationComparison(observations, trafficStart, trafficEnd, previousStart, previousEnd)
-          : report.organicRegistrations;
+        const registrationPeriods = await loadRegistrationPeriods(previousStart, trafficEnd);
         const githubSection = github.length ? githubDigestLines(github, trafficStart, trafficEnd, kind === "weekly", new Date()) : undefined;
         const businessSection = kind === "weekly" && observations.some(row => row.start === trafficStart && row.country === "all" && row.hostScope === GA4_HOST_SCOPE && row.rows.length)
           ? weeklyBusinessDigestLines(observations, trafficStart, trafficEnd) : undefined;
-        return Response.json({ report: { ...report, flatkeyRegistrations, accountRegistrations, organicRegistrations, recentPages, workPlan, githubSection, businessSection }, dates }, { headers });
+        return Response.json({ report: registrationCorrection({ ...report, flatkeyRegistrations, accountRegistrations, recentPages, workPlan, githubSection, businessSection }, registrationPeriods), dates }, { headers });
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }
