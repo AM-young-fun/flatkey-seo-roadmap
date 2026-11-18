@@ -5,6 +5,7 @@ Module._load=function(name,...rest){
  if(name==='@/lib/auth')return {AUTH_COOKIE_NAME:'session',isAuthEnabled:()=>true,isValidAuthToken:async()=>false};
  if(name.includes('services/import-tokens'))return {authenticateImportToken:async req=>req.headers.get('authorization')==='Bearer fixture'};
  if(name.includes('seo-analytics-access'))return {authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>false,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
+ if(name.includes('services/seo-registration-period'))return {loadRegistrationPeriods:async()=>[],saveRegistrationPeriod:async input=>require('../src/lib/seo-registration-period.ts').registrationPeriodSchema.parse(input)};
  if(name.includes('services/seo-business-analytics'))return {loadBusinessAnalytics:async()=>[],loadRecentMatureCohortPeriods:async()=>[],saveBusinessAnalytics:async input=>require('../src/lib/seo-business-analytics.ts').businessAnalyticsSchema.parse(input)};
  if(name.includes('services/seo-github-channel'))return {loadGithubChannels:async()=>[],saveGithubChannel:async input=>require('../src/lib/seo-github-channel.ts').githubChannelSchema.parse(input)};
  return name==='server-only'?{}:load.call(this,name,...rest);
@@ -29,4 +30,16 @@ test('only exact screenshot asset routes delegate to their own strict authorizat
  const origin='https://flatkey.test';
  for(const endpoint of ['/api/seo/review-assets','/api/seo/review-assets/'+'a'.repeat(64)])assert.equal((await proxy(new NextRequest(origin+endpoint))).headers.get('x-middleware-next'),'1');
  for(const endpoint of ['/api/seo/review-assets/admin','/api/seo/review-assets-private','/api/seo/review-assets/'+'a'.repeat(64)+'/admin'])assert.equal((await proxy(new NextRequest(origin+endpoint,{headers:{authorization:'Bearer fixture'}}))).status,401);
+});
+
+test('registration period import delegates exact route to its own token check and keeps neighboring paths protected',async()=>{
+ const endpoint='https://flatkey.test/api/traffic/registrations',route=require('../src/app/api/traffic/registrations/route.ts');
+ assert.equal((await proxy(new NextRequest(endpoint,{headers:{authorization:'Bearer fixture'}}))).headers.get('x-middleware-next'),'1');
+ assert.equal((await proxy(new NextRequest(endpoint+'/admin',{headers:{authorization:'Bearer fixture'}}))).status,401);
+ for(const headers of [{},{authorization:'Bearer wrong'}]){
+  assert.equal((await route.POST(new Request(endpoint,{method:'POST',headers,body:'{}'}))).status,401);
+  assert.equal((await route.GET(new Request(endpoint+'?start=2026-11-06&end=2026-11-12',{headers}))).status,401);
+ }
+ assert.equal((await route.GET(new Request(endpoint+'?start=2026-11-06&end=2026-11-12',{headers:{authorization:'Bearer fixture'}}))).status,200);
+ assert.equal((await route.POST(new Request(endpoint,{method:'POST',headers:{authorization:'Bearer fixture'},body:'{}'}))).status,400);
 });

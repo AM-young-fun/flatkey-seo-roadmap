@@ -29,6 +29,8 @@ export async function proxy(request: NextRequest) {
   if (["/api/seo/workflow", "/api/seo/workflow/claims", "/api/seo/workflow/approval-check", "/api/seo/workflow/history", "/api/seo/digest", "/api/seo/reporting-control", "/api/seo/periods", "/api/seo/business", "/api/seo/registrations", "/api/seo/account-registrations", "/api/seo/github"].includes(request.nextUrl.pathname)) return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/optimization-plans") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/ranking-notice") return NextResponse.next();
+  // The handler accepts collector credentials and rejects unauthenticated reads/writes.
+  if (request.nextUrl.pathname === "/api/traffic/registrations") return NextResponse.next();
   // These endpoints check their own dedicated credentials, even when page
   // login is disabled. Those credentials cannot access management routes.
   if (request.nextUrl.pathname === IMPORT_API_PATH || request.nextUrl.pathname === SOURCE_SYNC_API_PATH || request.nextUrl.pathname === KEYWORD_EXPORT_API_PATH || request.nextUrl.pathname === "/api/collectors/runs" || request.nextUrl.pathname === "/api/seo/analytics/import" || request.nextUrl.pathname === "/api/seo/pages" || request.nextUrl.pathname === "/api/seo/weekly-actions" || request.nextUrl.pathname === DAILY_SEO_TRAFFIC_API_PATH || request.nextUrl.pathname === DAILY_SEO_PAGE_GROUPS_API_PATH) return NextResponse.next();
