@@ -1,9 +1,10 @@
+import { registrationPeriodComparison, registrationPeriodSelection, type RegistrationPeriod } from "./seo-registration-period";
 import type { DailySeoTrafficHistory } from "./daily-seo-traffic";
 import { DAILY_SEO_PAGE_GROUPS, type DailySeoPageGroupsHistory } from "./daily-seo-page-groups";
 import type { recentPublishedPages } from "./seo-digest-recent-pages";
 import { seoToday } from "./seo-date-range";
 import type { AccountRegistrationSummary } from "./seo-account-registrations";
-import { flatkeyRegistrationCount, latestBusinessPeriod, organicRegistrationComparison, weeklyBusinessDigestLines, type BusinessAnalytics } from "./seo-business-analytics";
+import { flatkeyRegistrationCount, weeklyBusinessDigestLines, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubDigestLines, type GithubChannel } from "./seo-github-channel";
 import { digestTopPages } from "./seo-digest-pages";
 import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
@@ -45,6 +46,7 @@ export type DigestWorkPlan = {
 };
 
 export type DigestInput = {
+  registrationPeriods?: RegistrationPeriod[];
   notificationCompact?: boolean;
   dailyAcquisition?: DailySeoTrafficHistory;
   pageGroups?: DailySeoPageGroupsHistory;
@@ -186,11 +188,9 @@ function weeklyTrafficRows(input: DigestInput, window: ReturnType<typeof digestW
     });
   };
   const clicks = pair("clicks"), impressions = pair("impressions"), positions = pair("position");
-  const registration = (start: string, end: string) => latestBusinessPeriod(input.businessObservations ?? [], start, end, "all", "session-organic-search");
-  const previousRegistration = registration(shift(window.trafficStart, -7), shift(window.trafficEnd, -7));
-  const currentRegistration = registration(window.trafficStart, window.trafficEnd);
-  const users = (period: typeof currentRegistration) => period?.complete ? period.rows.find(item => item.event === "sign_up")?.users ?? null : null;
-  const previousUsers = users(previousRegistration), currentUsers = users(currentRegistration);
+  const { previous: previousUsers, current: currentUsers } = registrationPeriodComparison(input.registrationPeriods ?? [], window.trafficStart, window.trafficEnd, shift(window.trafficStart, -7), shift(window.trafficEnd, -7));
+  const registrationSelection = registrationPeriodSelection(input.registrationPeriods ?? [], window.trafficStart, window.trafficEnd, shift(window.trafficStart, -7), shift(window.trafficEnd, -7));
+  const registrationDates = registrationSelection.current ? `${registrationSelection.previous?.start ?? "待更新"}—${registrationSelection.previous?.end ?? "待更新"} → ${registrationSelection.current.start}—${registrationSelection.current.end}（洛杉矶，首次获客；仅覆盖已入库日期）` : dates;
   const ctr = (side: "previous" | "current") => {
     const numerator = clicks[side], denominator = impressions[side];
     if (!numerator || !denominator || numerator.timezone !== denominator.timezone) return null;
@@ -199,8 +199,8 @@ function weeklyTrafficRows(input: DigestInput, window: ReturnType<typeof digestW
   const previousCtr = ctr("previous"), currentCtr = ctr("current");
   const previousPosition = positions.previous?.value, currentPosition = positions.current?.value;
   return [row("自然搜索会话", pair("sessions"), "sessions"),
-    { label: "自然搜索去重注册用户", previous: count(previousUsers), current: count(currentUsers), change: previousRegistration?.timezone === currentRegistration?.timezone ? change(previousUsers, currentUsers) : "—",
-      dates },
+    { label: "自然搜索去重注册用户", previous: count(previousUsers), current: count(currentUsers), change: change(previousUsers, currentUsers),
+      dates: registrationDates },
     row("Google 自然搜索点击", clicks, "clicks"), row("Google 自然搜索曝光", impressions, "impressions"),
     { label: "Google 自然搜索点击率", previous: previousCtr ? formatCtr(previousCtr.value) : "待更新", current: currentCtr ? formatCtr(currentCtr.value) : "待更新",
       change: previousCtr?.value == null || currentCtr?.value == null || previousCtr.timezone !== currentCtr.timezone
@@ -339,7 +339,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   pagePerformance: ReturnType<typeof digestTopPages>;
   completed: { blogs: number; optimized: number; newPages: number; fixed: number | null };
   optimizations: DigestOptimization[];
-  registrations: ReturnType<typeof organicRegistrationComparison>;
+  registrations: ReturnType<typeof registrationPeriodComparison>;
   focus: string[];
 }) {
   const weekly = window.kind === "weekly";
@@ -385,7 +385,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   }
   lines.push(`• GA4 自然搜索会话 ${sessions.label} · ${cardCoverage(sessions)}`,
     ...(weekly || registrations.previous !== null || registrations.current !== null
-      ? [`• GA4 自然搜索会话归因去重注册 ${cardComparison(registrations.previous, registrations.current)}`] : []),
+      ? [`• GA4 首次自然搜索获客去重注册 ${cardComparison(registrations.previous, registrations.current)}`] : []),
     `• Google 全站点击 ${clicks.label} · ${cardCoverage(clicks)}`,
     `• Google 全站曝光 ${impressions.label}${cardCoverage(clicks) === cardCoverage(impressions) ? "" : " · " + cardCoverage(impressions)}`,
     `• Google CTR ${previousCtr === null ? "待更新" : formatCtr(previousCtr)} → ${currentCtr === null ? "待更新" : formatCtr(currentCtr)}${ctrDelta}`);
@@ -742,8 +742,11 @@ export function buildSeoDigest(input: DigestInput) {
   }
   const flatkeyRegistrations = flatkeyRegistrationCount(input.businessObservations ?? [], window.trafficStart, window.trafficEnd);
   const registrationOffset = window.kind === "weekly" ? -7 : -1;
-  const organicRegistrations = organicRegistrationComparison(input.businessObservations ?? [], window.trafficStart, window.trafficEnd,
+  const organicRegistrations = registrationPeriodComparison(input.registrationPeriods ?? [], window.trafficStart, window.trafficEnd,
     shift(window.trafficStart, registrationOffset), shift(window.trafficEnd, registrationOffset));
+  const registrationCoverage = registrationPeriodSelection(input.registrationPeriods ?? [], window.trafficStart, window.trafficEnd, shift(window.trafficStart, registrationOffset), shift(window.trafficEnd, registrationOffset));
+  const registrationCoverageNote = registrationCoverage.current ? `SEO 注册覆盖 ${registrationCoverage.current.start}—${registrationCoverage.current.end}（America/Los_Angeles，首次获客 Organic Search，区间去重；采集 ${registrationCoverage.current.observedAt}）` : "SEO 注册：同区间首次自然搜索获客去重数据待更新";
+  lines.push("", registrationCoverageNote);
   const accountRegistrations = input.accountRegistrations;
   if (accountRegistrations) {
     const { start, end, users, missing } = accountRegistrations;
@@ -799,7 +802,7 @@ export function buildSeoDigest(input: DigestInput) {
     }, optimizations, registrations: organicRegistrations, focus: nextFocus,
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
-  return { id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,

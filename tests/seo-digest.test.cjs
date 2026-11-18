@@ -328,10 +328,12 @@ test("natural-search registrations compare verified distinct GA4 users without u
  const businessObservations = [organic("2026-11-11", "2026-11-11", 5), organic("2026-11-12", "2026-11-12", 0),
    organic("2026-11-12", "2026-11-12", 15, { scope: "all-channels" }),
    organic("2026-11-06", "2026-11-12", 17), organic("2026-10-30", "2026-11-05", 11)];
- const input = { ...base(date), businessObservations };
+ const registrationPeriods = businessObservations.filter(row => row.scope === "session-organic-search").map(row => ({ start: row.start, end: row.end, users: row.rows[0].users, observedAt: row.observedAt }));
+ const input = { ...base(date), businessObservations, registrationPeriods };
+ assert.deepEqual(buildSeoDigest({ ...input, registrationPeriods: [] }).organicRegistrations, { previous: null, current: null });
  assert.deepEqual(buildSeoDigest(input).organicRegistrations, { previous: 5, current: 0 });
  assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly" }).organicRegistrations, { previous: 11, current: 17 });
- assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly", businessObservations: businessObservations.slice(0, 3) }).organicRegistrations, { previous: null, current: null });
+ assert.deepEqual(buildSeoDigest({ ...input, kind: "weekly", registrationPeriods: registrationPeriods.slice(0, 2) }).organicRegistrations, { previous: null, current: null });
 });
 test("Friday platform reports remind only unfinished weekly and overdue approvals", () => {
  const date = "2026-11-13";

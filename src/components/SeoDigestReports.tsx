@@ -427,7 +427,9 @@ export function SeoDigestReports() {
         {dates.length ? <Link className={styles.secondary} href={route(kind, dates[0])}>查看最近一份{kindLabel}</Link> : null}
       </div> : <article className={reportStyles.report}>
         <header className={reportStyles.reportHeader}><div><h2>{report.title}</h2>
-        <p>生成于 {shanghaiStamp(report.generatedAt)}（北京时间）</p></div>
+        <p>生成于 {shanghaiStamp(report.generatedAt)}（北京时间）</p>
+        {report.registrationCoverageNote ? <p>{report.registrationCoverageNote}</p> : null}
+        {"registrationCorrection" in report && report.registrationCorrection ? <p>SEO 注册已按首次自然搜索获客口径补采；当前详情包含事后修订，原发送快照保留。</p> : null}</div>
         <div className={styles.toolbarActions}>
           {exact ? <Link className={styles.secondary} href={route(kind, report.date)}>查看最新详情</Link> : null}
           {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
