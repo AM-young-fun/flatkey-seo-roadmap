@@ -87,7 +87,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const start = shiftWorkflowDay(window.trafficStart, -15);
   const reportHistoryEnd = [window.trafficEnd, shiftWorkflowDay(dailySeoPropertyDate(now), -1)].sort()[0];
   const reportHistoryStart = shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1);
-  const historyQuery = { ...DAILY_SEO_TRAFFIC_DEFAULTS, start: reportHistoryStart, end: reportHistoryEnd };
+  const historyQuery = { ...DAILY_SEO_TRAFFIC_DEFAULTS, start: kind === "daily" ? shiftWorkflowDay(window.trafficStart, -30) : reportHistoryStart, end: reportHistoryEnd };
   const hasClosedHistory = reportHistoryEnd >= reportHistoryStart;
   const monitoringAsOf = new Date(Math.min(now.getTime(), Date.parse(window.readyAfter)));
   const monitoringEnd = [gscPeriodEnd(monitoringAsOf), window.trafficEnd].sort()[0];

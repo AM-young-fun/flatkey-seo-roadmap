@@ -3,6 +3,7 @@
 const fs = require('node:fs/promises'), path = require('node:path'), crypto = require('node:crypto');
 const { actionCardPayload, digestSnapshotId, messageHash } = require('../src/lib/seo-digest-message.cjs');
 const { signedWebhook } = require('./seo-alert.cjs');
+const { verifyDailySendReadiness } = require('../src/lib/seo-daily-send-readiness.cjs');
 const ORIGIN = 'https://flatkey-seo-roadmap.vercel.app', REPO = 'AM-young-fun/flatkey-seo-roadmap';
 const GROUP = 'cid7d5au0J8RAKDDxMR+VNh1w==', BOT = 'tFmSJLB0+A1WmEX9zMnH2w==';
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -60,6 +61,15 @@ async function run() {
   if (!process.argv.includes('--send')) { console.log(JSON.stringify({ status: 'preflight_only', reportId: report.id, webhookConfigSha256: config.fingerprint, transport: 'signed-webhook' })); return; }
   const { control } = await api('/api/seo/reporting-control');
   if (!control.enabled || control.transport !== 'signed-webhook' || control.destination !== GROUP || control.robotCode !== BOT || control.webhookConfigSha256 !== config.fingerprint) throw Error('webhook_control_binding_unverified');
+  if (kind === 'daily') {
+    const propertyToday = new Intl.DateTimeFormat('en-CA', {timeZone:'America/Los_Angeles'}).format(new Date());
+    const end = new Date(Date.parse(propertyToday+'T00:00:00Z')-3*86400000).toISOString().slice(0,10);
+    const start = new Date(Date.parse(end+'T00:00:00Z')-7*86400000).toISOString().slice(0,10);
+    const query = '?start='+start+'&end='+end;
+    const [daily,pages] = await Promise.all([api('/api/traffic/daily'+query),api('/api/traffic/daily/groups'+query)]);
+    const readiness = verifyDailySendReadiness(report,daily,pages,end);
+    await write('.source-readiness.json',{verifiedAt:new Date().toISOString(),...readiness});
+  }
   const owner = `github-webhook-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
   const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook', messageFormat: 'actionCard', ...(revision ? { revision: true } : {}) });
   if (revision && claim.id !== `seo-digest-delivery:${kind}:${date}:revision`) throw Error('revision_claim_binding_mismatch');

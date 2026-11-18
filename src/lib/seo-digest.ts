@@ -258,19 +258,30 @@ function cardCoverage(metric: ReturnType<typeof cardTraffic>) {
   return `${dateCoverage(metric.previousDates) || "待更新"} → ${dateCoverage(metric.dates) || "待更新"}`;
 }
 
+export function latestVerifiedDailyPoint<T extends { date: string }>(points: readonly T[] | undefined, end: string, valid: (point: T) => boolean): T | undefined {
+  return points?.filter(point => point.date <= end && valid(point)).sort((a, b) => b.date.localeCompare(a.date))[0];
+}
+function dailyEvidenceEnd(now: Date, requested: string) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(now);
+  return [requested, shift(today, -3)].sort()[0];
+}
 function cardPageGroups(input: DigestInput, window: ReturnType<typeof digestWindow>) {
   const groups = input.pageGroups?.groups ?? [];
   if (window.kind === "daily") {
     return DAILY_SEO_PAGE_GROUPS.map(({ key, name }) => {
       const points = groups.find(group => group.key === key)?.points;
-      const current = points?.find(point => point.date === window.trafficEnd);
-      const previous = points?.find(point => point.date === shift(window.trafficEnd, -1));
-      if (!current?.collectedAt && !previous?.collectedAt) return `${name} · 待补采`;
+      const cutoff = dailyEvidenceEnd(input.now ?? new Date(), window.trafficEnd);
+      const current = latestVerifiedDailyPoint(points, cutoff, point => point.totalUsers !== null && point.pageViews !== null);
+      const funnelPoint = latestVerifiedDailyPoint(points, cutoff, point => !!point.funnel);
+      const previous = points?.find(point => point.date === shift(current?.date ?? cutoff, -1));
+      const previousFunnel = points?.find(point => point.date === shift(funnelPoint?.date ?? cutoff, -1));
+      if (!current && !funnelPoint) return `${name} · 待补采`;
       const delta = (before: number | null = null, after: number | null = null) => {
         if (before === null || after === null) return cardNumber(after);
         return `${cardNumber(after)}（${after === before ? "持平" : formatDelta(after - before)}）`;
       };
-      return `${name} · 访客 ${delta(previous?.totalUsers, current?.totalUsers)} · 浏览 ${delta(previous?.pageViews, current?.pageViews)} · 同日注册 ${delta(previous?.funnel?.registrations, current?.funnel?.registrations)}`;
+      const dates = `流量 ${current?.date ?? "待补采"} / 漏斗 ${funnelPoint?.date ?? "待补采"}（洛杉矶）`;
+      return `${name} · 访客 ${delta(previous?.totalUsers, current?.totalUsers)} · 浏览 ${delta(previous?.pageViews, current?.pageViews)} · 同日注册 ${delta(previousFunnel?.funnel?.registrations, funnelPoint?.funnel?.registrations)} · ${dates}${current?.date !== window.trafficEnd || funnelPoint?.date !== window.trafficEnd ? `；${window.trafficEnd} 待核验` : ""}`;
     });
   }
   return groups.flatMap(group => {
@@ -351,8 +362,11 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const clicks = cardTraffic(input, window, "clicks");
   const impressions = cardTraffic(input, window, "impressions");
   const scope = "首次来源为自然搜索";
-  const currentAcquisition = input.dailyAcquisition?.points.find(point => point.date === window.trafficEnd);
-  const previousAcquisition = input.dailyAcquisition?.points.find(point => point.date === previousEnd);
+  const acquisitionEnd = dailyEvidenceEnd(now, window.trafficEnd);
+  const currentAcquisition = latestVerifiedDailyPoint(input.dailyAcquisition?.points, acquisitionEnd,
+    point => point.newUsers !== null && point.newRegistrations !== null);
+  const previousAcquisition = input.dailyAcquisition?.points.find(point => point.date === shift(currentAcquisition?.date ?? acquisitionEnd, -1));
+  const acquisitionDates = currentAcquisition ? ` · ${previousAcquisition?.date ?? "上期缺失"} → ${currentAcquisition.date}（洛杉矶）${currentAcquisition.date !== window.trafficEnd ? `；${window.trafficEnd} 待核验，展示最近已核实日` : ""}` : "";
   const acquisition = weekly ? null : currentAcquisition?.newUsers ?? null;
   const ctr = (side: "current" | "previous") => {
     const dates = side === "current" ? "dates" : "previousDates";
@@ -380,11 +394,11 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     `**生成** ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间）`,
     "", `**1. ${weekly ? "业务结果与搜索表现" : "全站自然搜索"}**`];
   if (!weekly) {
-    lines.push(`• GA4 新用户（${scope}） ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}`,
-      `• GA4 去重注册（${scope}） ${cardComparison(previousAcquisition?.newRegistrations ?? null, currentAcquisition?.newRegistrations ?? null)}`);
+    lines.push(`• GA4 新用户（${scope}） ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}${acquisitionDates}`,
+      `• GA4 去重注册（${scope}） ${cardComparison(previousAcquisition?.newRegistrations ?? null, currentAcquisition?.newRegistrations ?? null)}${acquisitionDates}`);
   }
   lines.push(`• GA4 自然搜索会话 ${sessions.label} · ${cardCoverage(sessions)}`,
-    ...(weekly || registrations.previous !== null || registrations.current !== null
+    ...(weekly
       ? [`• GA4 首次自然搜索获客去重注册 ${cardComparison(registrations.previous, registrations.current)}`] : []),
     `• Google 全站点击 ${clicks.label} · ${cardCoverage(clicks)}`,
     `• Google 全站曝光 ${impressions.label}${cardCoverage(clicks) === cardCoverage(impressions) ? "" : " · " + cardCoverage(impressions)}`,
@@ -408,8 +422,8 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
     lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
     lines.push("", "**4. 今日完成**", `• 已核实上线 **${completed.blogs} 篇文章**，优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
-    const groups = input.pageGroups?.groups.filter(group => group.points.some(point => point.date === window.trafficEnd && point.funnel)).length ?? 0;
-    lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · 当日注册漏斗 ${groups}/4 组`);
+    const groups = input.pageGroups?.groups.filter(group => latestVerifiedDailyPoint(group.points, acquisitionEnd, point => point.totalUsers !== null && point.pageViews !== null && !!point.funnel)).length ?? 0;
+    lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · 获客/注册截至 ${currentAcquisition?.date ?? "待更新"} · 最近已核实页面组 ${groups}/4 组（各组日期见上）`);
     return lines.join("  \n");
   }
 

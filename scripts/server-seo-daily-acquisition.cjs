@@ -30,7 +30,12 @@ async function api(origin, path, credential, payload) {
     headers: { Authorization: "Bearer " + credential, "content-type": "application/json" },
     ...(payload ? { body: JSON.stringify(payload) } : {}), signal: AbortSignal.timeout(45_000) });
   if (!response.ok) throw Error((origin === ga ? "ga4" : "archive") + "_" + response.status);
-  return response.json();
+  const result = await response.json();
+  if (origin === ga && process.env.SEO_ACQUISITION_OUTPUT) {
+    const folder=process.env.SEO_ACQUISITION_OUTPUT; fs.mkdirSync(folder,{recursive:true});
+    fs.appendFileSync(folder+"/google-queries.ndjson",JSON.stringify({path,payload,result,observedAt:new Date().toISOString()})+"\n");
+  }
+  return result;
 }
 
 async function core(token, dateRanges, metrics, dimensionFilter) {
@@ -81,7 +86,7 @@ async function run() {
   const credential = process.env.SEO_IMPORT_TOKEN;
   if (!credential) throw Error("missing_seo_import_token");
   const token = await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
-  const end = shiftDailySeoDate(dailySeoPropertyDate(), -1);
+  const end = process.env.SEO_ACQUISITION_END || shiftDailySeoDate(dailySeoPropertyDate(), -3);
   const start = shiftDailySeoDate(end, -1);
   const dates = [start, end];
   const dateRanges = [{ startDate: start, endDate: end }];
@@ -122,13 +127,19 @@ async function run() {
   const base = { ...cohort, collectedAt, sources };
   const daily = dailySeoTrafficSchema.parse({ ...base, kind: "daily-seo-traffic", requestId: batchId("acquisition"), points });
   const pages = dailySeoPageGroupsSchema.parse({ ...base, kind: "daily-seo-page-groups", ruleVersion: 1, requestId: batchId("page-groups"), groups: pageGroups });
+  const output = process.env.SEO_ACQUISITION_OUTPUT || require("node:path").join(process.env.RUNNER_TEMP || ".local", "seo-acquisition-"+collectedAt.replace(/[:.]/g,"-"));
+  fs.mkdirSync(output, {recursive:true});
+  fs.writeFileSync(output+"/payloads.json",JSON.stringify({daily,pages},null,2));
+  if (!process.argv.includes("--import")) { console.log(JSON.stringify({status:"preview_only",daily,pages})); return; }
   const result = await api(destination, "/api/traffic/daily", credential, daily);
   const groupResult = await api(destination, "/api/traffic/daily/groups", credential, pages);
   if (result.requestId !== daily.requestId || groupResult.requestId !== pages.requestId) throw Error("archive_receipt_not_bound");
+  fs.writeFileSync(output+"/receipts.json",JSON.stringify({result,groupResult},null,2));
   const query = "?start=" + start + "&end=" + end;
   const [saved, savedGroups] = await Promise.all([
     api(destination, "/api/traffic/daily" + query, credential), api(destination, "/api/traffic/daily/groups" + query, credential),
   ]);
+  fs.writeFileSync(output+"/readback.json",JSON.stringify({saved,savedGroups},null,2));
   const matching = (savedRows, rows, keys) => rows.every(row => savedRows.some(savedRow => savedRow.date === row.date &&
     keys.every(key => row[key] === null || savedRow[key] === row[key]) &&
     (!row.funnel || savedRow.funnel?.entrants === row.funnel.entrants && savedRow.funnel.registrations === row.funnel.registrations)));

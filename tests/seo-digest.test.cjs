@@ -279,11 +279,11 @@ test("daily card does not replace an unpaired latest day with an older compariso
    { date: "2026-11-16", totalUsers: 31, pageViews: 40, funnel: null, collectedAt: "2026-11-17T12:00:00Z" },
  ] }] };
  const observations = [ga("2026-11-12", 30), ga("2026-11-13", 32), ga("2026-11-16", 115)];
- const report = buildSeoDigest({ ...base(date), notificationCompact: true, dailyAcquisition, pageGroups, observations });
+ const report = buildSeoDigest({ ...base(date), now:new Date("2026-11-19T18:00:00+08:00"), notificationCompact: true, dailyAcquisition, pageGroups, observations });
  assert.match(report.text, /GA4 新用户（首次来源为自然搜索） 80 → \*\*96\*\*（\+16 \/ \+20\.0%）/);
  assert.match(report.text, /GA4 去重注册（首次来源为自然搜索） 1 → \*\*0\*\*/);
  assert.match(report.text, /GA4 自然搜索会话 待更新 → \*\*115\*\* · 待更新 → 2026-11-16/);
- assert.match(report.text, /GPU 算力 · 访客 31（\+8） · 浏览 40（\+7） · 同日注册 待更新/);
+ assert.match(report.text, /GPU 算力 · 访客 31（\+8） · 浏览 40（\+7） · 同日注册 2 · 流量 2026-11-16 \/ 漏斗 2026-11-15/);
  assert.match(report.text, /模型列表 · 待补采/);
 });
 
@@ -435,4 +435,16 @@ test("daily card shows dated release effects and only counts confirmed work in t
  assert.match(report.text, /优化 \/blog\/updated · Google 点击 4 → \*\*11\*\*.*2026-11-09 → 2026-11-15/);
  assert.match(report.text, /修复 \*\*2 个问题\*\*/);
  assert.doesNotMatch(report.text, /outside-window|approval-private-marker|下一步/);
+});
+
+test("daily cards retain older verified sources with explicit dates instead of losing every metric", () => {
+ const current={date:"2026-11-15",newUsers:124,newRegistrations:14};
+ const previous={date:"2026-11-14",newUsers:101,newRegistrations:10};
+ const points=[previous,current,{date:"2026-11-17",newUsers:null,newRegistrations:null}];
+ const funnel={entrants:1,registrations:0,collectedAt:"2026-11-18T08:00:00Z",sources:["https://analytics.google.com/"]};
+ const report=buildSeoDigest({...base("2026-11-18"),notificationCompact:true,dailyAcquisition:{points},pageGroups:{groups:[{key:"gpu_compute",points:[{date:"2026-11-14",totalUsers:1,pageViews:2,funnel,collectedAt:funnel.collectedAt},{date:"2026-11-15",totalUsers:null,pageViews:null,funnel:null}]}]}});
+ assert.match(report.text,/GA4 新用户.*101 → \*\*124\*\*.*2026-11-14 → 2026-11-15/);
+ assert.match(report.text,/GA4 去重注册.*10 → \*\*14\*\*.*2026-11-15/);
+ assert.match(report.text,/GPU 算力 · 访客 1 · 浏览 2 · 同日注册 0 · 流量 2026-11-14 \/ 漏斗 2026-11-14（洛杉矶）；2026-11-17 待核验/);
+ assert.match(report.text,/最近已核实页面组 1\/4/);
 });
