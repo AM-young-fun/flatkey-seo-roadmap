@@ -58,3 +58,16 @@ test("explicit human target does not need an additional weekly approval; collect
  const human={kind:prepared.kind,record:prepared.record};
  assert.equal(save(pub(),[human],"record_publication").record.publicationPolicy,"auto_blog");
 });
+
+ test("ModelFit US English CMS blog receipt preserves plan, route and version guards",()=>{
+ const url="https://modelfit.cc/blog/cuda-out-of-memory";
+ assert.equal(automaticPageRoute(url,"modelfit.cc"),"blog");
+ for(const path of ["/calculator","/ja/blog/test","/en/blog/test","/prompts/image/test","/blog/test?x=1","//blog/test","/blog/test/"])assert.equal(automaticPageRoute("https://modelfit.cc"+path,"modelfit.cc"),null);
+ assert.equal(automaticPageRoute("https://rackrate.org/blog/test","rackrate.org"),null);
+ const t=save(task({siteDomain:"modelfit.cc",pageUrl:url}));
+ const p=pub({siteDomain:"modelfit.cc",pageUrl:url});
+ assert.throws(()=>save(p,[t],"record_publication"),/本周最新计划已排期/);
+ assert.equal(save(p,[t,plan],"record_publication").record.siteDomain,"modelfit.cc");
+ for(const patch of [{language:"ja"},{country:"JP"},{kind:"translation"},{pageUrl:"https://modelfit.cc/calculator"}])assert.equal(workflowPublicationSchema.safeParse({...p,...patch}).success,false);
+ assert.equal(automaticTaskPolicy(task({siteDomain:"modelfit.cc",pageUrl:url,codeSource:{}})),null);
+ });

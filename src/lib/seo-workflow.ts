@@ -195,12 +195,12 @@ const BLOG_LOCALES = new Set(["en", "zh", "es", "fr", "pt", "ru", "ja", "vi", "d
 export function automaticPageRoute(pageUrl: string, siteDomain: string): "blog" | "prompt" | null {
   try {
     const url = new URL(pageUrl);
-    if (siteDomain !== "flatkey.ai" || url.protocol !== "https:" || url.hostname !== siteDomain || url.port || url.username || url.password || url.search || url.hash) return null;
+    if (!["flatkey.ai", "modelfit.cc"].includes(siteDomain) || url.protocol !== "https:" || url.hostname !== siteDomain || url.port || url.username || url.password || url.search || url.hash) return null;
     if (url.pathname.includes("//")) return null;
     const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length && BLOG_LOCALES.has(parts[0])) parts.shift();
+    if (siteDomain === "flatkey.ai" && parts.length && BLOG_LOCALES.has(parts[0])) parts.shift();
     if (parts.length === 2 && parts[0] === "blog" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[1]) && !url.pathname.endsWith("/")) return "blog";
-    if (parts.length === 3 && parts[0] === "prompts" && ["image", "video"].includes(parts[1]) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[2]) && !url.pathname.endsWith("/")) return "prompt";
+    if (siteDomain === "flatkey.ai" && parts.length === 3 && parts[0] === "prompts" && ["image", "video"].includes(parts[1]) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[2]) && !url.pathname.endsWith("/")) return "prompt";
   } catch { /* Unknown routes retain individual approval. */ }
   return null;
 }
@@ -241,6 +241,7 @@ export const workflowPublicationSchema = z.object({
     if (value.approvalId !== null || value.approvalItemId !== null) fail("自动发布不伪造人工审批；审批字段必须为空");
     const expectedRoute = value.publicationPolicy === "auto_blog" ? "blog" : "prompt";
     if (automaticPageRoute(value.pageUrl, value.siteDomain) !== expectedRoute || (value.publicationPolicy === "auto_prompt" ? value.kind !== "prompt" : !["source_blog", "translation", "backfill_translation", "optimization"].includes(value.kind))) fail("自动发布仅限已支持的真实博客或提示词详情路径");
+    if (value.siteDomain === "modelfit.cc" && (value.language !== "en" || value.country !== "US" || !["source_blog", "optimization"].includes(value.kind))) fail("ModelFit自动博客仅支持US/en源文及常规更新");
     const write = value.automaticWrite;
     if (!write || write.contentVersion !== value.contentVersion || write.publishedAt !== value.publishedAt || Date.parse(write.verifiedAt) < Date.parse(write.publishedAt) || write.operation === "update" && (!write.baseContentVersion || write.baseContentVersion === value.contentVersion) || write.operation === "create" && write.baseContentVersion !== null) fail("自动发布需要实际写入版本及读回回执；修改须绑定改前版本");
     if (value.publicationPolicy === "auto_prompt" && write?.operation !== "create") fail("提示词定时导入只能create-only");
