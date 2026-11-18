@@ -22,7 +22,7 @@ export function WeeklyActionPlan({ periodStart }: { periodStart?: string }) {
     {!periodStart ? <p><button type="button" className={styles.textButton} aria-pressed={week === "current"} onClick={() => setWeek("current")}>本周</button> · <button type="button" className={styles.textButton} aria-pressed={week === "next"} onClick={() => setWeek("next")}>下周</button></p> : null}
     {data ? <>
       <p className={styles.workWeek}><strong>工作周 {data.weekStart} — {data.weekEnd}</strong>{data.plan ? <WorkflowStatus status={data.plan.status} /> : <span>尚未排期</span>}</p>
-      <p className={styles.meta}>周一至周日 · 周四 16:30 自动排期下周事项 · {tasks.length} 项已登记</p>
+      <p className={styles.meta}>北京时间 · 周一至周日 · 周四 16:30 自动排期下周事项 · {tasks.length} 项已登记</p>
       {tasks.length ? <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th scope="col">关键词 / 任务</th><th scope="col">交付日 / 页面</th><th scope="col">状态与下一步</th></tr></thead><tbody>
         {tasks.slice(0, expanded ? tasks.length : 5).map(task => <tr key={task.id}><td data-label="关键词 / 任务"><Link href={workTaskHref(task, new URLSearchParams(country === "all" ? {} : { country }))}><strong>{task.keyword ?? task.title}</strong></Link><small>{task.country ?? "全站"} · {task.language ?? "不适用"} · {task.business}</small></td><td data-label="交付日 / 页面">{shanghaiStamp(task.dueAt)}{task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl}</a></small> : <small>目标页待确定</small>}</td><td data-label="状态与下一步"><WorkflowStatus status={task.status} /><p>{task.nextAction || "待补充"}</p></td></tr>)}
       </tbody></table></div> : <p className={styles.empty}>尚无该范围的工作事项。周四自动核对候选证据并安排下周任务。</p>}
