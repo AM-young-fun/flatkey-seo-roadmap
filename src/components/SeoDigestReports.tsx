@@ -392,8 +392,6 @@ export function SeoDigestReports() {
   const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[] }>("/api/seo/digest?" + query);
   const report = result.data?.report;
   const dates = result.data?.dates ?? [];
-  const accountRegistrations = report?.accountRegistrations;
-  const registrations = accountRegistrations ?? report?.flatkeyRegistrations;
   const selected = report?.date ?? selectedDate ?? dates[0] ?? "";
   const dateLabel = kind === "weekly" ? "报告周次" : "报告日期";
   const availableDates = selected && !dates.includes(selected) ? [selected, ...dates] : dates;
@@ -440,9 +438,9 @@ export function SeoDigestReports() {
           <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations)}</dd></div>
           <div><dt>待审页面版本</dt><dd><Link className={reportStyles.approvalButton} href={executionViewRoutes.approvals}
             aria-label={`查看待审批页面版本：${numberText(report.approvalQueue?.pages)}`}>{numberText(report.approvalQueue?.pages)} <span aria-hidden="true">↗</span></Link></dd></div>
-          <div><dt>Flatkey 注册人数 · {accountRegistrations ? "账户系统" : "GA4"}</dt><dd>{registrations?.users == null ? "待更新" : numberText(registrations.users)}</dd>
-            <small>{registrations ? registrations.start === registrations.end ? registrations.start : `${registrations.start} — ${registrations.end}` : "全渠道 · 区间去重"}{accountRegistrations ? " UTC" : ""}</small>
-            {accountRegistrations?.missing.length ? <small title={accountRegistrations.missing.join("、")}>缺 {accountRegistrations.missing.length} 日账户回执</small> : null}</div>
+          <div><dt>SEO 注册人数 · GA4</dt><dd>{report.organicRegistrations?.current == null ? "待更新" : numberText(report.organicRegistrations.current)}</dd>
+            <small>首次获客为自然搜索 · 区间去重</small>
+            <small>America/Los_Angeles</small></div>
         </dl>
         <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection} />
       </article>}
