@@ -5,6 +5,7 @@ import { Input, Select, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { useKeywordOkr } from "@/components/useKeywordOkr";
 import { dashboardStore } from "@/lib/dashboard-client";
+import { seoToday } from "@/lib/seo-date-range";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordContentTask, type KeywordOkrMutation, type KeywordOkrMutationResponse } from "@/lib/keyword-okr";
 import type { PageTaskMergeResult, PageTaskMergeSummary } from "@/lib/keyword-page-tasks";
 import { matchesPageTask, pageTaskChecklist, PAGE_TASK_LABELS, PAGE_TASK_SITE_LABELS, PAGE_TASK_STATUS_LABELS, pageTasksCsv, primaryPageTaskUrl } from "@/lib/keyword-page-task-view";
@@ -129,7 +130,7 @@ export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof u
       const checklist = pageTaskChecklist(task);
       return checklist.requirements.length ? <div className="evidenceSummary"><ol className="contentPlanChecklist">{checklist.requirements.slice(0, 2).map((text, index) => <li key={index}>{text}</li>)}</ol><small>{checklist.requirements.length} 项具体要求 · {checklist.acceptance.length} 项验收，展开查看逐词清单</small></div> : <span className="okrReason">{task.reason}</span>;
     } },
-    { title: "负责人 / 截止", key: "owner", width: 140, render: (_, task) => <div className="evidenceSummary"><span>{task.owner ?? "待安排负责人"}</span><small>{task.dueAt ? `截止 ${task.dueAt.slice(0, 10)}` : "截止时间待安排"}</small></div> },
+    { title: "负责人 / 截止（北京时间）", key: "owner", width: 140, render: (_, task) => <div className="evidenceSummary"><span>{task.owner ?? "待安排负责人"}</span><small>{task.dueAt ? `截止 ${seoToday(new Date(task.dueAt))}` : "截止时间待安排"}</small></div> },
   ];
 
   if (section === "tasks" && okr.error) return <div className="loadError" role="alert"><span>{okr.error}</span><button onClick={refresh}>重新加载</button></div>;

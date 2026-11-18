@@ -85,7 +85,7 @@ function TaskLinkIndicator() {
   </span>;
 }
 const siteName = (domain: string) => sites.find(site => site.value === domain)?.label ?? domain;
-const displayTime = (value: string | null | undefined) => value ? shanghaiStamp(value) : "待记录";
+const displayTime = (value: string | null | undefined) => value ? `${shanghaiStamp(value)} 北京时间` : "待记录";
 const shiftDay = (day: string, offset: number) => new Date(Date.parse(day + "T00:00:00Z") + offset * 86_400_000).toISOString().slice(0, 10);
 const currentMonday = () => { const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date()); return shiftDay(today, -((new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7)); };
 const pageHref = (url: string, country: string | null) => "/pages?" + new URLSearchParams({ pageUrl: url, ...(country ? { country } : {}) });
@@ -216,7 +216,7 @@ function IssueTaskForm({ issue, weekStart, existingTask, onSaved }: { issue: Wor
     <p className={styles.muted}>保留原问题 {issue.id}（版本 {issue.version}）。此任务不强填国家、语言或关键词；创建后仍需实际执行与恢复验收。</p>
     {savedTask ? <p>已保存任务：<Link href={workTaskHref(savedTask)}>{savedTask.title}</Link></p> : <div className={styles.formGrid}>
       <label>负责人<input required value={owner} maxLength={200} disabled={busy || Boolean(attempt.current)} onChange={event => setOwner(event.target.value)} /></label>
-      <label>计划交付日<input type="date" required min={weekStart} max={shiftDay(weekStart, 6)} value={due} disabled={busy || Boolean(attempt.current)} onChange={event => setDue(event.target.value)} /></label>
+      <label>计划交付日（北京时间 16:00）<input type="date" required min={weekStart} max={shiftDay(weekStart, 6)} value={due} disabled={busy || Boolean(attempt.current)} onChange={event => setDue(event.target.value)} /></label>
       <label>业务线<UiSelect aria-label="问题任务业务线" value={business} onChange={setBusiness} disabled={busy || Boolean(attempt.current)} options={["API", "GPU", "CLUSTER"].map(value => ({ value, label: value === "CLUSTER" ? "集群" : value }))} /></label>
       <label className={styles.spanAll}>执行步骤<textarea required maxLength={3000} rows={3} value={nextAction} disabled={busy || Boolean(attempt.current)} onChange={event => setNextAction(event.target.value)} /></label>
     </div>}
@@ -392,6 +392,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       </section> : null}
       {tab === "tasks" ? <section className={styles.listPanel} aria-labelledby="work-list-title">
         <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2><span className={styles.count}>{taskRows.length} 项</span></div>
+        <p className={styles.muted}>任务排期、日期筛选与执行时间均按北京时间（UTC+8）。</p>
         <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={workTaskTypes} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><SeoListDateControl value={time} /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={taskStatusOptions} /></div>
         {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
           const review = reviews.get(task.id);
