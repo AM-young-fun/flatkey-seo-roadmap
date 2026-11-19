@@ -41,7 +41,7 @@ def read_report(path, property_id, finalized_through):
     observed_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat().replace("+00:00", "Z")
     return {
         "kind": "gsc-pages", "date": day.isoformat(), "observedAt": observed_at,
-        "source": "browser-export", "complete": bool(rows) and len(rows) < 1000 and day <= finalized_through,
+        "source": "browser-export", "complete": False,
         "property": property_id, "rows": rows,
     }
 

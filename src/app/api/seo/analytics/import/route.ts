@@ -1,3 +1,5 @@
+import { correctAnalytics } from "@/lib/services/analytics-correction";
+import { AnalyticsCorrectionConflict, assertAnalyticsImportQuality } from "@/lib/analytics-correction";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -28,12 +30,14 @@ export async function POST(request: Request) {
       chunks.push(Buffer.from(value));
     }
     const input: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (input && typeof input === "object" && "action" in input) return Response.json(await correctAnalytics(input), { headers });
     const batch = Array.isArray(input);
     const inputs: unknown[] = batch ? input : [input];
     if (inputs.length < 1 || inputs.length > 100) throw new Error("日期无效");
     const latest = new Map<string, { kind: string; row: AnalyticsObservation }>();
     for (const entry of inputs) {
       const row = analyticsObservationSchema.parse(entry);
+      assertAnalyticsImportQuality(row);
       const site = clusterDomainForProperty(row.property);
       const today = row.kind === "ga4-site" || row.kind === "ga4-pages" ? siteReportToday(site) : propertyToday();
       if (row.date >= today || Date.parse(row.observedAt) > Date.now() + 300000) throw new Error("日期无效");
@@ -84,7 +88,8 @@ export async function POST(request: Request) {
     const row = records[0].payload;
     return Response.json({ stored: Boolean(stored), date: row.date, kind: row.kind }, { headers });
   } catch (error) {
-    const bad = error instanceof SyntaxError || error instanceof Error && (error.name === "ZodError" || error.message === "日期无效");
+    if (error instanceof AnalyticsCorrectionConflict || error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ message: error instanceof AnalyticsCorrectionConflict ? error.message : "correction_conflict" }, { status: 409, headers });
+    const bad = error instanceof SyntaxError || error instanceof Error && (error.name === "ZodError" || (error.message === "日期无效" || error.message === "browser_page_completeness_unverified"));
     return Response.json({ message: bad ? "报表日期或字段无效" : "归档失败" }, { status: bad ? 400 : 503, headers });
   }
 }
@@ -94,6 +99,10 @@ export async function GET(request: Request) {
     return Response.json({ message: "需要采集凭据" }, { status: 401, headers });
   }
   const params = new URL(request.url).searchParams;
+  if (params.get("requestId")) {
+    const audit = await prisma.seoWorkflowEvent.findUnique({ where: { requestId: params.get("requestId")! } });
+    return Response.json({ audit: audit?.kind === "analytics-correction" ? audit : null }, { headers });
+  }
   const start = params.get("start") ?? "";
   const end = params.get("end") ?? "";
   const days = (Date.parse(end) - Date.parse(start)) / 86400000;
