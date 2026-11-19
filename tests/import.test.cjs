@@ -640,8 +640,8 @@ const { weeklyPeriods, reportPeriods, registrationRate, relativeChange } = requi
 const { compareCaptures } = require("../src/lib/daily-changes.ts");
 test("weekly reporting uses adjacent completed Tuesday-Monday periods in Shanghai", () => {
   assert.deepEqual(weeklyPeriods(new Date("2026-10-14T02:30:00Z")), { current: { start: "2026-10-06", end: "2026-10-12" }, previous: { start: "2026-09-29", end: "2026-10-05" } });
-  assert.equal(weeklyPeriods(new Date("2026-10-12T15:59:00Z")).current.end, "2026-10-05");
-  assert.equal(weeklyPeriods(new Date("2026-10-12T16:00:00Z")).current.end, "2026-10-12");
+  assert.equal(weeklyPeriods(new Date("2026-10-12T15:59:00Z"), "Asia/Shanghai").current.end, "2026-10-05");
+  assert.equal(weeklyPeriods(new Date("2026-10-12T16:00:00Z"), "Asia/Shanghai").current.end, "2026-10-12");
   assert.equal(registrationRate(0, 0), null);
   assert.equal(registrationRate(100, 20), 0.2);
   assert.equal(relativeChange(20, 0), null);

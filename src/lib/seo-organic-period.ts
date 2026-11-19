@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { shiftWorkflowDay } from "./seo-workflow";
+import { weeklyReportRange, WEEKLY_REPORT_SWITCH_DATE } from "./seo-date-range";
 
 export const organicPeriodSchema = z.object({
   hostScope: z.literal("production-hosts-v1").optional(), siteDomain: z.literal("flatkey.ai"), propertyId: z.literal("541304395"),
@@ -22,15 +23,18 @@ export const organicPeriodId = (row: OrganicPeriod) => `organic-period:${createH
 export function organicReportWindows(date: string, lastClosed: string) {
   z.iso.date().parse(date); z.iso.date().parse(lastClosed);
   const weekday = new Date(date + "T00:00:00Z").getUTCDay();
-  // On Friday prepare the closing week; other days refresh the ongoing Fri–Thu interval.
-  const start = shiftWorkflowDay(date, weekday === 5 ? -7 : -((weekday + 2) % 7));
+  // New reports refresh the same closing Thu–Wed week, including Friday revisions.
+  // Earlier daily runs retain their historical ongoing Fri–Thu collection windows.
+  const start = date >= WEEKLY_REPORT_SWITCH_DATE ? weeklyReportRange(date).start
+    : shiftWorkflowDay(date, weekday === 5 ? -7 : -((weekday + 2) % 7));
   const end = [shiftWorkflowDay(start, 6), lastClosed].sort()[0];
   if (end < start) return [];
   return [{ start, end }, { start: shiftWorkflowDay(start, -7), end: shiftWorkflowDay(end, -7) }];
 }
 
 export function compareOrganicPeriods(rows: OrganicPeriod[], date: string) {
-  const currentStart = shiftWorkflowDay(date, -7), currentEnd = shiftWorkflowDay(date, -1);
+  const { start: currentStart, end: currentEnd } = date >= WEEKLY_REPORT_SWITCH_DATE ? weeklyReportRange(date)
+    : { start: shiftWorkflowDay(date, -7), end: shiftWorkflowDay(date, -1) };
   const valid = rows.filter(row => row.hostScope === "production-hosts-v1" && row.country === "all" && row.complete && row.distinctOverWholePeriod && row.scope === "session-organic-search");
   const current = valid.filter(row => row.start === currentStart && row.end <= currentEnd)
     .sort((a, b) => b.end.localeCompare(a.end) || b.observedAt.localeCompare(a.observedAt));

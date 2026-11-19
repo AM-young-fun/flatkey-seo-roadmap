@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { weeklyEvidenceSchema } from "@/lib/weekly-evidence-schema";
 import { weeklySnapshotAt } from "@/lib/weekly-cutoff";
-import { isWeeklyPeriod, reportPeriods, weeklyPeriods } from "@/lib/weekly-traffic";
+import { isThursdayReport, isWeeklyPeriod, reportPeriods, weeklyPeriods, WEEKLY_REPORT_TIMEZONE } from "@/lib/weekly-traffic";
 
 export const MAX_IMPORT_BYTES = 2_000_000;
 export const IMPORT_API_PATH = "/api/rankings/import";
@@ -143,7 +143,8 @@ export const rankingImportSchema = z
         try {
           const periods = reportPeriods(row.publishForWeek);
           const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(row.collectedAt));
-          if (new Date(day).getUTCDay() !== 2 || row.publishForWeek > weeklyPeriods(new Date(row.collectedAt)).current.start || ![periods.previous.end, periods.current.end].includes(row.date)) issue("关键词环比仅在周二发布已结束周期，使用上期与本期的周一数据");
+          const thursday = isThursdayReport(row.publishForWeek);
+          if (new Date(day).getUTCDay() !== (thursday ? 4 : 2) || row.publishForWeek > weeklyPeriods(new Date(row.collectedAt), thursday ? WEEKLY_REPORT_TIMEZONE : "Asia/Shanghai").current.start || ![periods.previous.end, periods.current.end].includes(row.date)) issue("关键词环比须在报告整理日使用已结束周期的端点数据；新周期为洛杉矶周四至周三");
         } catch { issue("关键词环比发布周期无效"); }
       }
       if (row.top10 + row.top30 + row.top50 + row.top100 > row.totalKeywords) issue("排名区间必须互不重叠，数量之和不能超过报告关键词总数");
@@ -171,12 +172,17 @@ export const rankingImportSchema = z
     }).strict().superRefine((row, ctx) => {
       if (row.analysis?.trafficScope === "organic_search") ctx.addIssue({code:"custom",message:"全渠道周报导入不能使用自然搜索汇总，自然搜索日报请使用独立导入入口"});
       if (row.analysis && (row.analysis.totals.current.newUsers !== row.newUsers || row.analysis.totals.current.newRegistrations !== row.newRegistrations)) ctx.addIssue({code:"custom",message:"渠道与漏斗分析必须属于本次流量汇总"});
-      if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为周五至周四的连续 7 天；历史周二至周一报告保留兼容" });
+      if (!isWeeklyPeriod(row.periodStart, row.periodEnd)) ctx.addIssue({ code: "custom", message: "周报必须为洛杉矶周四至周三的连续 7 天；历史周二、周五报告保留兼容" });
+      const thursday = isThursdayReport(row.periodStart);
+      if (thursday && row.timezone !== WEEKLY_REPORT_TIMEZONE) ctx.addIssue({code:"custom",message:"新周报须使用 America/Los_Angeles 统计时区"});
       let closedEnd: string;
       try { closedEnd = new Date(Date.parse(new Intl.DateTimeFormat("en-CA", {timeZone:row.timezone}).format(new Date(row.collectedAt))) - 86400000).toISOString().slice(0,10); } catch { ctx.addIssue({ code: "custom", message: "报告时区或采集时间无效" }); return; }
       const cutoff = row.analysis?.reportingCutoff;
-      if (cutoff && ((cutoff.kind === "FRIDAY_1010_SNAPSHOT" ? row.periodStart < "2026-10-16" || new Date(row.periodStart).getUTCDay() !== 5 : row.periodStart < "2026-10-20" || new Date(row.periodStart).getUTCDay() !== 2) || Date.parse(cutoff.scheduledAt) !== Date.parse(weeklySnapshotAt(row.periodEnd)) || Date.parse(row.collectedAt) < Date.parse(cutoff.scheduledAt))) ctx.addIssue({code:"custom",message:"快照须匹配报告起始星期，并在该期结束后北京时间10:10或之后采集，不能提前截数"});
-      if ((!cutoff && row.periodEnd > closedEnd) || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报或明确标记的10:10快照，采集时间不能在未来" });
+      const cutoffPeriodMatches = !cutoff || (cutoff.kind === "THURSDAY_1630_SNAPSHOT" ? thursday
+        : cutoff.kind === "FRIDAY_1010_SNAPSHOT" ? row.periodStart >= "2026-10-16" && new Date(row.periodStart).getUTCDay() === 5
+        : row.periodStart >= "2026-10-20" && new Date(row.periodStart).getUTCDay() === 2);
+      if (cutoff && (!cutoffPeriodMatches || Date.parse(cutoff.scheduledAt) !== Date.parse(weeklySnapshotAt(row.periodEnd)) || Date.parse(row.collectedAt) < Date.parse(cutoff.scheduledAt))) ctx.addIssue({code:"custom",message:"快照须匹配报告周期及整理时间；新周期在北京时间周四16:30后采集，不能提前截数"});
+      if (((!cutoff || thursday) && row.periodEnd > closedEnd) || Date.parse(row.collectedAt) > Date.now() + 300000) ctx.addIssue({ code: "custom", message: "只能导入已结束的周报或兼容的历史快照，采集时间不能在未来" });
     })).max(52).default([]),
   })
   .strict()

@@ -7,7 +7,7 @@ import { GA4_HOST_SCOPE } from "@/lib/ga4-host-scope";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
-import { shiftDay } from "@/lib/seo-date-range";
+import { shiftDay, weeklyReportDate } from "@/lib/seo-date-range";
 import { flatkeyRegistrationCount, weeklyBusinessDigestLines } from "@/lib/seo-business-analytics";
 import { githubDigestLines } from "@/lib/seo-github-channel";
 import { loadGithubChannels } from "@/lib/services/seo-github-channel";
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     const rawDate = params.get("date");
     const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? beijingDay());
     const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
-    if (date && kind === "weekly" && new Date(date + "T00:00:00Z").getUTCDay() !== 5) return Response.json({ message: "周报日期必须是北京时间周五" }, { status: 400, headers });
+    if (date && kind === "weekly" && weeklyReportDate(date) !== date) return Response.json({ message: "周报日期须为北京时间周四整理日或周五修订日；旧期仅支持周五" }, { status: 400, headers });
     if (params.get("saved") === "1") {
       const explicitId = params.get("reportId");
       if (explicitId) reportId.parse(explicitId);
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
     }
     if (input.action === "delivery_status") return Response.json({ delivery: await prisma.seoDigestDelivery.findUnique({ where: { id: input.id } }) }, { headers });
     if (input.action === "prepare") {
-      if (input.kind === "weekly" && new Date(input.date + "T00:00:00Z").getUTCDay() !== 5) return Response.json({ message: "周报日期必须是北京时间周五" }, { status: 400, headers });
+      if (input.kind === "weekly" && weeklyReportDate(input.date) !== input.date) return Response.json({ message: "周报日期须为北京时间周四整理日或周五修订日；旧期仅支持周五" }, { status: 400, headers });
       return Response.json({ report: await saveSeoDigest(await generateSeoDigest(input.date, new Date(), input.kind)) }, { headers });
     }
     if (input.action === "claim") return Response.json(await claimDigest(input.reportId, input.owner, new Date(), input.transport, input.messageFormat, input.revision), { headers });

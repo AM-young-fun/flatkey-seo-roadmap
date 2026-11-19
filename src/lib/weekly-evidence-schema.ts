@@ -11,7 +11,7 @@ export const weeklyEvidenceSchema = z.object({
   complete:z.literal(true),
   trafficScope:z.enum(["all_users","organic_search"]).optional(),
   channelDimension:z.enum(["firstUserDefaultChannelGroup","firstUserPrimaryChannelGroup"]).optional(),
-  reportingCutoff:z.object({kind:z.enum(["TUESDAY_1010_SNAPSHOT", "FRIDAY_1010_SNAPSHOT"]),scheduledAt:z.iso.datetime({offset:true})}).strict().optional(),
+  reportingCutoff:z.object({kind:z.enum(["TUESDAY_1010_SNAPSHOT", "FRIDAY_1010_SNAPSHOT", "THURSDAY_1630_SNAPSHOT"]),scheduledAt:z.iso.datetime({offset:true})}).strict().optional(),
   pageVisitors:weeklyPageVisitorsSchema.optional(),
   pageTrends:pageTrafficHistorySchema.optional(),
   codexSummary:z.object({preparedAt:z.iso.datetime({offset:true}).refine(value=>Date.parse(value)<=Date.now()+300000),text:z.string().trim().min(1).max(800).optional(),findings:z.array(z.object({title:z.string().trim().min(1).max(80),evidence:z.string().trim().min(1).max(500),action:z.string().trim().min(1).max(300),level:z.enum(["issue","finding","unresolved"])}).strict()).min(1).max(6)}).strict().optional(),

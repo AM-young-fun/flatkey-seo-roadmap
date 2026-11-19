@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
       report_kind:
-        description: Report kind (weekly covers previous Friday through Thursday)
+        description: Report kind (weekly covers Los Angeles Thursday through Wednesday)
         type: choice
         options: [daily, weekly]
         default: daily

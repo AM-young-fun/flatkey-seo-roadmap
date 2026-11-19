@@ -6,6 +6,24 @@ test("Friday's not-yet-closed source day yields equal shorter weekly windows",()
  assert.deepEqual(organicReportWindows("2026-11-13","2026-11-11"),[{start:"2026-11-06",end:"2026-11-11"},{start:"2026-10-30",end:"2026-11-04"}]);
  assert.deepEqual(organicReportWindows("2026-11-14","2026-11-12"),[]);
 });
+test("Thursday preparation and Friday revisions collect the same Los Angeles Thu–Wed intervals",()=>{
+ const expected=[{start:"2026-11-12",end:"2026-11-18"},{start:"2026-11-05",end:"2026-11-11"}];
+ assert.deepEqual(organicReportWindows("2026-11-19","2026-11-18"),expected);
+ assert.deepEqual(organicReportWindows("2026-11-20","2026-11-19"),expected);
+ assert.deepEqual(organicReportWindows("2026-11-19","2026-11-17"),[
+  {start:"2026-11-12",end:"2026-11-17"},{start:"2026-11-05",end:"2026-11-10"},
+ ]);
+ assert.deepEqual(organicReportWindows("2026-11-26","2026-11-25"),[
+  {start:"2026-11-19",end:"2026-11-25"},{start:"2026-11-12",end:"2026-11-18"},
+ ]);
+});
+test("new weekly comparison does not mix historical Friday starts into the Thursday week",()=>{
+ const current=period("2026-11-12","2026-11-18"),previous=period("2026-11-05","2026-11-11");
+ const old=period("2026-11-06","2026-11-12");
+ assert.equal(compareOrganicPeriods([current,old],"2026-11-20"),null);
+ assert.equal(compareOrganicPeriods([current,previous],"2026-11-19").previous,previous);
+ assert.equal(compareOrganicPeriods([current,previous],"2026-11-20").current,current);
+});
 test("weekly distinct registrations require a full-range query with matching weekdays",()=>{
  const current=period("2026-11-06","2026-11-08"), wrong=period("2026-10-30","2026-11-02");
  assert.equal(compareOrganicPeriods([current,wrong],"2026-11-13"),null);
