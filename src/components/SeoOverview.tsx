@@ -15,7 +15,7 @@ import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
 export function SeoOverview() {
-  const context = useSeoRange();
+  const context = useSeoRange("America/Los_Angeles");
   const [country] = useSeoCountry();
   const [module, setModule] = useState<OverviewPageModule>("all");
   useEffect(() => {
