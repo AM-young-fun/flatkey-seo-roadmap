@@ -110,9 +110,13 @@ export async function GET(request: Request) {
     return Response.json({ message: "日期范围无效" }, { status: 400, headers });
   }
   const kind = params.get("kind");
+  const siteMetrics = params.get("projection") === "site-metrics";
+  if (siteMetrics && (!kind || !/^(?:ga4|gsc)-site(?::(?:US|JP|ES|BR))?(?::(?:rackrate\.org|modelfit\.cc|jev-llm\.com|mochichatbot\.com))?$/.test(kind))) {
+    return Response.json({ message: "指标投影仅支持明确的站点指标范围" }, { status: 400, headers });
+  }
   const rows = await prisma.seoAnalyticsDay.findMany({
     where: { date: { gte: start, lte: end }, ...(kind ? { kind } : {}) },
-    select: { kind: true, date: true, observedAt: true, complete: true, ...(kind && start === end ? { payload: true } : {}) },
+    select: { kind: true, date: true, observedAt: true, complete: true, ...(kind && (start === end || siteMetrics) ? { payload: true } : {}) },
     orderBy: [{ date: "desc" }, { kind: "asc" }],
   });
   // Small metadata projection avoids transferring full 90-day query payloads.
