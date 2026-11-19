@@ -18,6 +18,8 @@ const same = (a: unknown, b: unknown) => workflowHash(a) === workflowHash(b);
 const contentKinds = new Set(["blog", "landing", "optimization", "cluster"]);
 const beforePublication = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
 const productionStates = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
+// 2026-11-19 user decision: transfer the existing total landing capacity to the two satellite sites.
+const clusterOnlyLandingWeek = "2026-11-23";
 
 function tasksUsingBranch(all: WorkflowStoredRow[], task: WorkflowTask) {
   return all.some(({ kind, record }) => {
@@ -32,6 +34,10 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   if (task.deletedAt) {
     if (actor !== "human" || !previous) reject("human_task_delete_required", "请登录后删除现有任务。");
     return;
+  }
+  if (task.weekStart >= clusterOnlyLandingWeek && task.siteDomain === "flatkey.ai" && task.kind === "landing"
+    && productionStates.has(task.status) && previous?.status !== task.status) {
+    reject("flatkey_new_landing_stopped", "Flatkey 暂停新建落地页；保留原任务历史，不能换站点或新建替代任务");
   }
   if (actor !== "human" && task.source === "human" && previous?.source !== "human") reject("human_task_source_required", "只有用户操作可创建明确人工目标，采集器不能伪造人工来源");
   if (previous?.branchObservation && (!task.branchObservation || Date.parse(task.branchObservation.observedAt) < Date.parse(previous.branchObservation.observedAt))) reject("branch_observation_stale", "请保留最近一次分支核对结果");
@@ -95,14 +101,20 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
     const workdayCount = Array.from({ length: 7 }, (_, index) => shiftWorkflowDay(plan.weekStart, index))
       .filter(day => isSeoWorkday(new Date(day + "T00:00:00+08:00"))).length;
     const expectedLanguages = { en: workdayCount * 2, ja: workdayCount, "pt-BR": workdayCount, "es-ES": workdayCount };
+    const clusterOnly = plan.weekStart >= clusterOnlyLandingWeek;
+    const expectedLanding = clusterOnly ? 0 : workdayCount;
+    const expectedClusterLanding = Math.min(2, workdayCount) + (clusterOnly ? workdayCount : 0);
     if (!same(targets.blogLanguages, expectedLanguages) || targets.apiBlogs + targets.gpuBlogs !== workdayCount * 5
-      || targets.landing !== workdayCount || targets.optimizedPages !== workdayCount * 2 || targets.clusterLanding !== Math.min(2, workdayCount)) {
+      || targets.landing !== expectedLanding || targets.optimizedPages !== workdayCount * 2 || targets.clusterLanding !== expectedClusterLanding) {
       reject("plan_workday_targets", "排期额度必须与本周法定工作日和补班日一致");
     }
     for (const task of tasks) {
       if (!task || task.deletedAt) reject("plan_task_deleted", "计划不能引用已删除任务");
       if (task.siteDomain === "jev-llm.com" || task.siteDomain === "mochichatbot.com") {
         reject("plan_monitor_only_site", "JEV 与 Mochi 仅做流量观察");
+      }
+      if (clusterOnly && task.kind === "landing" && !["rackrate.org", "modelfit.cc"].includes(task.siteDomain)) {
+        reject("plan_landing_site", "新落地页额度仅分配 RackRate 和 ModelFit；Flatkey 原任务保留待研究历史，不转移身份");
       }
       if (contentKinds.has(task.kind) && !isSeoWorkday(new Date(task.dueAt))) reject("plan_content_nonworkday", "内容制作及优化只安排在法定工作日或官方补班日");
     }
@@ -142,7 +154,7 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   if (daily && new Set(flatkeyLandings.map(localDay)).size !== flatkeyLandings.length) reject("plan_daily_landing_quota", "Flatkey 每天最多安排1个新落地页");
   if (plan.targets && "clusterLanding" in plan.targets) {
     const count = landings.length - flatkeyLandings.length;
-    if (count > plan.targets.clusterLanding) reject("plan_cluster_landing_quota", "四个集群站合计每周最多安排2个新落地页");
+    if (count > plan.targets.clusterLanding) reject("plan_cluster_landing_quota", `集群站新落地页不能超过本周 ${plan.targets.clusterLanding} 个额度`);
     const gap = plan.gaps.filter(row => row.category === "clusterLanding").reduce((sum, row) => sum + row.count, 0);
     if (plan.targets.clusterLanding - count > gap) reject("plan_cluster_landing_gap_unrecorded", "集群落地页缺口须写入计划");
   }

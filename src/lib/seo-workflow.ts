@@ -114,7 +114,7 @@ export const workflowPlanSchema = z.object({
       apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(10),
       blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict(),
     }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "四国源文每周合计35篇"),
-    z.object({ cadence: z.literal("workdays"), landing: z.number().int().min(0).max(7), clusterLanding: z.number().int().min(0).max(2),
+    z.object({ cadence: z.literal("workdays"), landing: z.number().int().min(0).max(7), clusterLanding: z.number().int().min(0).max(9),
       apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.number().int().min(0).max(14),
       blogLanguages: z.object({ en: z.number().int().min(0).max(14), ja: z.number().int().min(0).max(7),
         "pt-BR": z.number().int().min(0).max(7), "es-ES": z.number().int().min(0).max(7) }).strict(),
