@@ -43,3 +43,5 @@ test('registration period import delegates exact route to its own token check an
  assert.equal((await route.GET(new Request(endpoint+'?start=2026-11-06&end=2026-11-12',{headers:{authorization:'Bearer fixture'}}))).status,200);
  assert.equal((await route.POST(new Request(endpoint,{method:'POST',headers:{authorization:'Bearer fixture'},body:'{}'}))).status,400);
 });
+
+test('basic analytics health reaches its own credential handler but nested or private paths stay protected',async()=>{const endpoint='https://flatkey.test/api/seo/analytics/health';assert.equal((await proxy(new NextRequest(endpoint))).headers.get('x-middleware-next'),'1');assert.equal((await proxy(new NextRequest(endpoint+'/admin'))).status,401);assert.equal((await proxy(new NextRequest(endpoint+'-private'))).status,401)});
