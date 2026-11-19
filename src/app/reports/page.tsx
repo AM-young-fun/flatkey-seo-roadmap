@@ -1,3 +1,6 @@
+import { BasicAnalyticsHealth } from "@/components/BasicAnalyticsHealth";
+import { collectionDateRange } from "@/lib/seo-date-range";
+import { seoCountry } from "@/lib/seo";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,6 +22,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   return <main className={workspace.shell}>
     <Suspense fallback={<ReportLoading label="正在读取日／周效果总结" />}>
       <PageHeader active="reports" />
+      <details><summary>基础数据监控（近14个已结束日）</summary><BasicAnalyticsHealth range={collectionDateRange(14, new Date())} country={seoCountry(typeof params.country === "string" ? params.country : null)} /></details>
       <SeoDigestReports />
     </Suspense>
   </main>;
