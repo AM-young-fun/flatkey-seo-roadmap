@@ -14,7 +14,7 @@ const { resolveCohortCollectionGate, collectOptionalApiCohorts } = require("./se
 const { resolveRegistrationCollectionGate } = require("./seo-registration-capability.cjs");
 const { businessAnalyticsSchema, businessAnalyticsId, flatkeyRegistrationCount } = require("../src/lib/seo-business-analytics.ts");
 const { organicReportWindows } = require("../src/lib/seo-organic-period.ts");
-const { shiftDay, propertyToday, validRange } = require("../src/lib/seo-date-range.ts");
+const { shiftDay, propertyToday, validRange, weeklyReportRange, WEEKLY_REPORT_SWITCH_DATE } = require("../src/lib/seo-date-range.ts");
 const { enrichGithubReferrals } = require("../src/lib/services/ga4-github-referrals.ts");
 const { githubChannelSchema, githubChannelId } = require("../src/lib/seo-github-channel.ts");
 
@@ -28,11 +28,13 @@ async function platformRead(route) {
   return response.json();
 }
 
-function reportWindows(last) {
+function reportWindows(last, reportDate) {
   const days = Array.from({ length: 4 }, (_, index) => shiftDay(last, -index));
-  const latestThursday = shiftDay(last, -((new Date(last + "T00:00:00Z").getUTCDay() + 3) % 7));
+  const latestEnd = reportDate >= WEEKLY_REPORT_SWITCH_DATE ? weeklyReportRange(reportDate).end
+    : shiftDay(last, -((new Date(last + "T00:00:00Z").getUTCDay() + 3) % 7));
   return [...days.map(day => ({ start: day, end: day })),
-    ...[latestThursday, shiftDay(latestThursday, -7)].map(end => ({ start: shiftDay(end, -6), end }))];
+    ...[latestEnd, shiftDay(latestEnd, -7)].filter(end => end <= last)
+      .map(end => ({ start: shiftDay(end, -6), end }))];
 }
 
 async function archivedReportWindows(last) {
@@ -41,9 +43,10 @@ async function archivedReportWindows(last) {
     if (!Array.isArray(dates)) throw Error("business_report_archive_invalid");
     return dates.flatMap(date => {
       if (typeof date !== "string" || !validRange({ start: date, end: date })) return [];
-      const end = shiftDay(date, -1);
+      const range = kind === "daily" ? { start: shiftDay(date, -1), end: shiftDay(date, -1) } : weeklyReportRange(date);
+      const { end } = range;
       if (end > last || end < shiftDay(last, -89)) return [];
-      return [{ start: kind === "daily" ? end : shiftDay(date, -7), end }];
+      return [range];
     });
   }));
   return groups.flat();
@@ -65,7 +68,7 @@ async function run() {
     const query = { ...range, country, scope };
     queries.set(queryKey(query), query);
   }
-  const reportRanges = reportWindows(last);
+  const reportRanges = reportWindows(last, today);
   if (importResults && process.argv.includes("--backfill-reports")) reportRanges.push(...await archivedReportWindows(last));
   for (const range of reportRanges) {
     for (const scope of ["all-channels", "session-organic-search"]) {
@@ -141,7 +144,7 @@ async function run() {
     }
   }
   if (importResults && process.argv.includes("--backfill-reports")) {
-    const weeklyEnd = reportWindows(last).find(range => range.start !== range.end).end;
+    const weeklyEnd = reportWindows(last, today).find(range => range.start !== range.end).end;
     for (const [kind, date] of [["daily", shiftDay(last, 1)], ["weekly", shiftDay(weeklyEnd, 1)]]) {
       const { report } = await platformRead("/api/seo/digest?" + new URLSearchParams({ saved: "1", archive: "1", kind, date }));
       console.log(JSON.stringify({ kind: "registration-report-readback", reportKind: kind, date,
@@ -153,3 +156,4 @@ async function run() {
   if (githubReferrals.errors.length) process.exitCode = 1;
 }
 if (require.main === module) run().catch(error => { console.error(JSON.stringify({ error: error.code || "business_collection_failed" })); process.exitCode = 1; });
+module.exports = { reportWindows };

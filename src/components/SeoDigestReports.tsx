@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, RefreshCw } from "lucide-react";
 import { executionViewRoutes, workPlanTaskFilters, workTaskHref } from "@/lib/seo-workspace-routes";
-import { seoToday, shiftDay } from "@/lib/seo-date-range";
+import { seoToday, shiftDay, weeklyReportDate, weeklyReportRange, WEEKLY_REPORT_SWITCH_DATE } from "@/lib/seo-date-range";
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
 import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
@@ -14,7 +14,6 @@ import { UiSelect } from "./UiSelect";
 import styles from "./SeoWorkWorkspace.module.css";
 import reportStyles from "./SeoDigestReports.module.css";
 
-const friday = (date: string) => shiftDay(date, -((new Date(date + "T00:00:00Z").getUTCDay() + 2) % 7));
 const reportDateLabel = (date: string) => new Intl.DateTimeFormat("zh-CN", {
   timeZone: "UTC", year: "numeric", month: "short", day: "numeric", weekday: "short",
 }).format(new Date(date + "T00:00:00Z"));
@@ -41,28 +40,47 @@ const reportModules = [["home", "首页"], ["blog", "博客"], ["models", "模�
 
 const sectionTitles = /^(统计与交付口径|已核实新增页面|内容交付|待审批页面|待补材料|已上线优化|历史交付归档|往期优化变化|优化效果监控|SEO 技术质检|五站自然搜索|Google 点击 ·|自然搜索访问（会话） ·|GA4 行为与转化|GitHub 提示词渠道|Flatkey 四国分项|关键词实测|下周事项与关键词|明日优先关注|数据与执行情况|新增博客|交付|搜索表现|待处理|本期交付|今日交付|关键变化|优化监控|重点效果|下一步|下周重点)/;
 
-function TrafficCell({ metric, coverage }: { metric?: Pick<ReportMetric, "previous" | "current"> & Partial<Pick<ReportMetric, "period" | "note">>; coverage?: string }) {
+function TrafficCell({ metric, coverage, canCompare = true, delta }: {
+  metric?: Pick<ReportMetric, "previous" | "current"> & Partial<Pick<ReportMetric, "period" | "note">>;
+  coverage?: string; canCompare?: boolean; delta?: string;
+}) {
   const current = metric?.current ?? null, previous = metric?.previous ?? null;
   if (current === null) return <td className={reportStyles.trafficMissing} title={metric?.note || undefined}>待更新</td>;
+  const change = delta ?? trafficChange(previous, current);
+  const sourceCoverage = coverage || metric?.period || metric?.note;
   return <td title={coverage || metric?.period || undefined}>
     <strong>{numberText(current)}</strong>
-    {previous !== null ? <span className={reportStyles.delta} title={`上期 ${numberText(previous)}`} aria-label={`上期 ${numberText(previous)}，变化 ${trafficChange(previous, current)}`}
-      data-tone={current === previous ? "neutral" : current > previous ? "increase" : "decrease"}>{trafficChange(previous, current)}</span> : null}
+    {canCompare && previous !== null && change ? <span className={reportStyles.delta} title={`上期 ${numberText(previous)}`} aria-label={`上期 ${numberText(previous)}，变化 ${change}`}
+      data-tone={current === previous ? "neutral" : current > previous ? "increase" : "decrease"}>{change}</span> : null}
+    {!canCompare ? <small>{sourceCoverage || "阶段值，整周覆盖待核验"}</small> : null}
   </td>;
 }
 
-function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
+export function SearchTraffic({ groups, countries, rankings, organicRegistrations, completeWeekRequired = false, organicRegistrationCanCompare, registrationCoverageNote }: {
   groups: ReturnType<typeof parseReportComparisons>;
   countries: ReturnType<typeof parseReportComparisons>;
   rankings: SeoDigest["pagePerformance"];
   organicRegistrations?: SeoDigest["organicRegistrations"];
+  completeWeekRequired?: boolean;
+  organicRegistrationCanCompare?: boolean;
+  registrationCoverageNote?: string;
 }) {
   const ga4 = rankings.find(ranking => ranking.source === "GA4")?.flatkey;
   const gsc = rankings.find(ranking => ranking.source === "GSC")?.flatkey;
-  const coverage = (row: typeof ga4) => row?.comparisonDates?.length && row.comparisonDates.length < (row.periodDays ?? 1)
-    ? `同星期可比 ${row.comparisonDates.length}/${row.periodDays} 天：${row.comparisonDates.join("、")}` : undefined;
+  const coverage = (row: typeof ga4) => completeWeekRequired
+    ? `同星期已核对 ${row?.comparisonDates?.length ?? 0}/7 天${row?.comparisonDates?.length ? `：${row.comparisonDates.join("、")}` : "；整周覆盖待核验"}`
+    : row?.comparisonDates?.length && row.comparisonDates.length < (row.periodDays ?? 1)
+      ? `同星期可比 ${row.comparisonDates.length}/${row.periodDays} 天：${row.comparisonDates.join("、")}` : undefined;
   const flatkeyTotals = groups?.find(group => group.name === "flatkey.ai");
   const metric = (group: typeof flatkeyTotals, label: string) => group?.metrics.find(row => row.label === label);
+  const total = (group: typeof flatkeyTotals, label: string) => {
+    const row = metric(group, label);
+    return { metric: row, ...(completeWeekRequired ? {
+      canCompare: Boolean(row?.delta) && !/阶段值|不计算周环比/.test(row?.note ?? ""),
+      delta: row?.delta ?? "",
+    } : {}) };
+  };
+  const moduleComparable = (row: typeof ga4) => !completeWeekRequired || row?.comparisonDates?.length === 7;
 
   return <section className={reportStyles.section}>
     <h3>自然搜索</h3>
@@ -71,18 +89,19 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
         <thead><tr><th scope="col">站点 / 模块</th><th scope="col">自然访问 · GA4</th><th scope="col">Google 点击 · GSC</th><th scope="col">Google 曝光 · GSC</th><th scope="col">自然搜索注册 · GA4</th></tr></thead>
         <tbody>
           <tr className={reportStyles.trafficGroup}><th scope="row">Flatkey 全站</th>
-            <TrafficCell metric={metric(flatkeyTotals, "自然会话")} />
-            <TrafficCell metric={metric(flatkeyTotals, "Google 点击")} />
-            <TrafficCell metric={metric(flatkeyTotals, "曝光")} />
+            <TrafficCell {...total(flatkeyTotals, "自然会话")} />
+            <TrafficCell {...total(flatkeyTotals, "Google 点击")} />
+            <TrafficCell {...total(flatkeyTotals, "曝光")} />
             {organicRegistrations?.current == null
               ? <td className={reportStyles.trafficMissing}>未核实<small>GA4 未返回可核验的注册人数</small></td>
-              : <TrafficCell metric={organicRegistrations} />}
+              : <TrafficCell metric={organicRegistrations} canCompare={!completeWeekRequired || organicRegistrationCanCompare === true}
+                coverage={registrationCoverageNote} />}
           </tr>
           {reportModules.map(([id, label]) => <tr key={id} className={reportStyles.trafficModule}>
             <th scope="row">{label}</th>
-            <TrafficCell metric={ga4?.modules.find(module => module.id === id)} coverage={coverage(ga4)} />
-            <TrafficCell metric={gsc?.modules.find(module => module.id === id)} coverage={coverage(gsc)} />
-            <TrafficCell metric={gsc?.modules.find(module => module.id === id)?.impressions} coverage={coverage(gsc)} />
+            <TrafficCell metric={ga4?.modules.find(module => module.id === id)} coverage={coverage(ga4)} canCompare={moduleComparable(ga4)} />
+            <TrafficCell metric={gsc?.modules.find(module => module.id === id)} coverage={coverage(gsc)} canCompare={moduleComparable(gsc)} />
+            <TrafficCell metric={gsc?.modules.find(module => module.id === id)?.impressions} coverage={coverage(gsc)} canCompare={moduleComparable(gsc)} />
             <td className={reportStyles.trafficMissing}>—</td>
           </tr>)}
         </tbody>
@@ -91,9 +110,9 @@ function SearchTraffic({ groups, countries, rankings, organicRegistrations }: {
             const group = groups?.find(row => row.name === site);
             return <tr key={site}>
               <th scope="row">{name}</th>
-              <TrafficCell metric={metric(group, "自然会话")} />
-              <TrafficCell metric={metric(group, "Google 点击")} />
-              <TrafficCell metric={metric(group, "曝光")} />
+              <TrafficCell {...total(group, "自然会话")} />
+              <TrafficCell {...total(group, "Google 点击")} />
+              <TrafficCell {...total(group, "曝光")} />
               <td className={reportStyles.trafficMissing}>—</td>
             </tr>;
           })}
@@ -298,7 +317,7 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
   </section>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan, githubSection, businessSection }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; businessSection?: string[] }) {
+function ReportSections({ text, rankings, recentPages, weekly, highlights, organicRegistrations, workPlan, githubSection, businessSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; highlights?: string[]; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; businessSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -340,7 +359,8 @@ function ReportSections({ text, rankings, recentPages, weekly, highlights, organ
     && !(weekly && section.title.startsWith("历史交付归档"))
     && !/^(统计与交付口径|已核实新增页面|内容交付|交付$|本期交付|今日交付|优化效果监控|优化监控|数据与执行情况|数据基础|Google 点击 ·|自然搜索访问（会话） ·)/.test(section.title));
   return <div className={reportStyles.sections}>
-    <SearchTraffic groups={sites ? parseReportComparisons(sites.lines) : null} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations} />
+    <SearchTraffic groups={sites ? parseReportComparisons(sites.lines) : null} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations}
+      completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={registrationCoverageNote} />
     {github ? <section className={reportStyles.section}>
       <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
     </section> : null}
@@ -383,8 +403,12 @@ export function SeoDigestReports() {
   const requestedDate = params.get("date") ?? "";
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && Number.isFinite(Date.parse(requestedDate + "T00:00:00Z"))
     && new Date(requestedDate + "T00:00:00Z").toISOString().slice(0, 10) === requestedDate;
-  const date = valid ? kind === "weekly" ? friday(requestedDate) : requestedDate : null;
-  const formatPeriod = (day: string) => kind === "weekly" ? `${shiftDay(day, -7)} — ${shiftDay(day, -1)}` : reportDateLabel(day);
+  const date = valid ? kind === "weekly" ? weeklyReportDate(requestedDate) : requestedDate : null;
+  const formatPeriod = (day: string) => {
+    if (kind !== "weekly") return reportDateLabel(day);
+    const range = weeklyReportRange(day);
+    return `${range.start} — ${range.end}${day >= WEEKLY_REPORT_SWITCH_DATE ? " · 洛杉矶" : ""}`;
+  };
   const exact = params.get("reportId");
   const selectedDate = date ?? exact?.split(":")[1] ?? (kind === "daily" ? seoToday() : null);
   const query = new URLSearchParams({ kind, saved: "1", archive: "1", ...(selectedDate ? { date: selectedDate } : {}), ...(exact ? { reportId: exact } : {}) });
@@ -426,6 +450,7 @@ export function SeoDigestReports() {
       </div> : <article className={reportStyles.report}>
         <header className={reportStyles.reportHeader}><div><h2>{report.title}</h2>
         <p>生成于 {shanghaiStamp(report.generatedAt)}（北京时间）</p>
+        {kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE ? <p>统计周期：{formatPeriod(report.date)}；北京时间周四 16:30 开始整理，供审核。</p> : null}
         {report.registrationCoverageNote ? <p>{report.registrationCoverageNote}</p> : null}
         {"registrationCorrection" in report && report.registrationCorrection ? <p>SEO 注册已按首次自然搜索获客口径补采；当前详情包含事后修订，原发送快照保留。</p> : null}</div>
         <div className={styles.toolbarActions}>
@@ -442,7 +467,8 @@ export function SeoDigestReports() {
             <small>首次获客为自然搜索 · 区间去重</small>
             <small>America/Los_Angeles</small></div>
         </dl>
-        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection} />
+        <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection}
+          completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} />
       </article>}
   </div>;
 }

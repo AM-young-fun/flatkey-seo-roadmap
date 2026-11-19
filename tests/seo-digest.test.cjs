@@ -139,6 +139,78 @@ test("Friday has a 10am weekly report and an independent 6pm daily report", () =
  assert.throws(()=>digestWindow("2026-11-12","weekly"),/周五/);
  assert.ok(weekly.text.endsWith(`[数据基础](${SEO_DATA_HUB})`));
 });
+test("new weekly drafts use the same closed LA Thursday-Wednesday period on Thursday and Friday", () => {
+ const thursday = digestWindow("2026-11-19", "weekly"), friday = digestWindow("2026-11-20", "weekly");
+ assert.deepEqual(thursday, friday);
+ assert.equal(thursday.trafficStart, "2026-11-12"); assert.equal(thursday.trafficEnd, "2026-11-18");
+ assert.equal(thursday.workStart, "2026-11-12T08:00:00.000Z"); assert.equal(thursday.workEnd, "2026-11-19T08:00:00.000Z");
+ assert.equal(thursday.readyAfter, "2026-11-19T16:30:00+08:00");
+ const before = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", now: new Date("2026-11-19T16:29:59+08:00") });
+ const ready = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", now: new Date("2026-11-19T16:30:00+08:00"), notificationCompact: true });
+ assert.equal(before.preliminary, true); assert.equal(ready.preliminary, false);
+ assert.deepEqual(ready.reportPeriod, { start: "2026-11-12", end: "2026-11-18", timezone: "America/Los_Angeles" });
+ assert.match(ready.text, /统计期\*\* 2026-11-12—2026-11-18（洛杉矶）/);
+ assert.match(ready.text, /待用户审核/); assert.match(ready.detailText, /洛杉矶时间，结束时刻不含/);
+ assert.equal(buildSeoDigest({ ...base("2026-11-13"), kind: "weekly" }).reportPeriod, undefined);
+ assert.throws(() => digestWindow("2026-11-21", "weekly"), /周四或周五/);
+});
+test("LA weekly work boundaries follow DST without changing the Beijing preparation hour", () => {
+ const summer = digestWindow("2027-07-01", "weekly"), spring = digestWindow("2027-03-18", "weekly"), autumn = digestWindow("2027-11-11", "weekly");
+ assert.equal(summer.workEnd, "2027-07-01T07:00:00.000Z");
+ assert.equal(summer.readyAfter, "2027-07-01T16:30:00+08:00");
+ assert.equal((Date.parse(spring.workEnd) - Date.parse(spring.workStart)) / 3600000, 167);
+ assert.equal((Date.parse(autumn.workEnd) - Date.parse(autumn.workStart)) / 3600000, 169);
+});
+test("weekly deliveries are counted using exact LA boundaries and actual verification receipt time", () => {
+ const publication = (id, stamp) => ({ id, title: id, url: "https://flatkey.ai/blog/" + id, kind: "source", publishedAt: stamp, verifiedAt: stamp, recordedAt: stamp });
+ const report = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", publications: [
+  publication("before", "2026-11-12T07:59:59Z"), publication("start", "2026-11-12T08:00:00Z"),
+  publication("last", "2026-11-19T07:59:59Z"), publication("after", "2026-11-19T08:00:00Z"),
+ ] });
+ assert.equal(report.counts.originals, 2);
+});
+test("new LA weeks keep stage values but do not compute a weekly change from six days", () => {
+ const rows = Array.from({ length: 14 }, (_, i) => ga(new Date(Date.parse("2026-11-05T00:00:00Z") + i * 86400000).toISOString().slice(0, 10), i < 7 ? 10 : 20));
+ const partial = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", notificationCompact: true, observations: rows.filter(row => row.date !== "2026-11-18") });
+ const metric = partial.weeklyTraffic.find(row => row.label === "自然搜索会话");
+ assert.equal(metric.current, "120"); assert.equal(metric.previous, "60"); assert.equal(metric.change, "—");
+ assert.match(metric.dates, /阶段值不计算周环比/); assert.doesNotMatch(partial.text, /100\.0%/);
+ const full = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", notificationCompact: true, observations: rows });
+ assert.match(full.text, /自然搜索会话 70 → \*\*140\*\*（\+70 \/ \+100\.0%）/);
+});
+test("new LA weeks reject other property-day timezones and keep UTC account registration separately labelled", () => {
+ const rows = [ga("2026-11-05", 10, { site: "rackrate.org", timezone: "Asia/Shanghai" }), ga("2026-11-12", 20, { site: "rackrate.org", timezone: "Asia/Shanghai" })];
+ const metric = comparableMetric(rows, "rackrate.org", "sessions", "2026-11-19", "all", "weekly");
+ assert.equal(metric.current, null); assert.match(metric.reason, /不能代替洛杉矶统计周期/);
+ const report = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", notificationCompact: true, observations: rows,
+  accountRegistrations: { start: "2026-11-12", end: "2026-11-18", users: 15, missing: [] } });
+ assert.match(report.text, /UTC（独立来源日桶，非洛杉矶周合计）/);
+ assert.match(report.detailText, /不计入洛杉矶统计期合计/);
+});
+test("new weekly registration stages show their covered dates without a weekly percentage", () => {
+ const registrationPeriods = [
+  { start: "2026-11-05", end: "2026-11-09", users: 10, observedAt: "2026-11-18T00:00:00Z" },
+  { start: "2026-11-12", end: "2026-11-16", users: 20, observedAt: "2026-11-19T08:00:00Z" },
+ ];
+ const report = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", notificationCompact: true, registrationPeriods });
+ assert.match(report.text, /首次自然搜索获客去重注册 10 → \*\*20\*\* · 2026-11-05—2026-11-09 → 2026-11-12—2026-11-16（覆盖待齐，不计算周环比）/);
+ assert.doesNotMatch(report.text, /100\.0%/);
+ assert.equal(report.weeklyTraffic.find(row => row.label === "自然搜索去重注册用户").change, "—");
+ assert.equal(report.organicRegistrationCanCompare, false);
+ const complete = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", registrationPeriods: registrationPeriods.map(row => ({ ...row,
+  end: row.start === "2026-11-12" ? "2026-11-18" : "2026-11-11" })) });
+ assert.equal(complete.organicRegistrationCanCompare, true);
+ assert.equal(buildSeoDigest({ ...base("2026-11-13"), kind: "weekly" }).organicRegistrationCanCompare, undefined);
+});
+test("new weekly detail does not present a one-day page leaderboard change as a weekly percentage", () => {
+ const page = (date, clicks) => ({ kind: "gsc-pages", property: "sc-domain:flatkey.ai", source: "google-api", date,
+  observedAt: "2026-11-19T08:00:00Z", complete: true, rows: [{ url: "https://flatkey.ai/blog/page", clicks, impressions: clicks * 10, position: 3 }] });
+ const report = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", notificationCompact: true,
+  pageObservations: [page("2026-11-16", 10), page("2026-11-17", 20)] });
+ assert.equal(report.pagePerformance[0].modules.find(row => row.id === "blog").pages[0].percentage, 100);
+ assert.doesNotMatch(report.detailText, /100\.0%/);
+ assert.doesNotMatch(report.text, /100\.0%/);
+});
 test("late verification is counted in the next window, sources and translations remain separate", () => {
  const rows = [
   { id: "a", title: "source", url: "https://flatkey.ai/blog/a", kind: "source", publishedAt: "2026-11-09T17:58:00+08:00", verifiedAt: "2026-11-09T18:05:00+08:00", recordedAt: "2026-11-09T18:05:00+08:00" },
@@ -367,6 +439,18 @@ test("recent page comparison includes both weeks, excludes unverified and newer 
  assert.equal(weekly[0].before.clicks, 1);
  assert.equal(weekly[0].latest.clicks, 3);
  assert.equal(recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, false).some(row => row.title === "friday"), true);
+});
+test("recent weekly pages use the LA publication day and do not include Thursday work or observations", () => {
+ const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");
+ const page = (name, stamp) => ({ pageUrl: "https://flatkey.ai/" + name, siteDomain: "flatkey.ai", title: name, kind: "landing",
+  publishedAt: stamp, verifiedAt: stamp, verificationRecordedAt: stamp, status: "verified", automaticWrite: { operation: "create" } });
+ const publications = [page("previous", "2026-11-12T07:59:59Z"), page("start", "2026-11-12T08:00:00Z"),
+  page("last", "2026-11-19T07:59:59Z"), page("after", "2026-11-19T08:00:00Z")];
+ const window = digestWindow("2026-11-19", "weekly");
+ const weekly = recentPublishedPages({ approvals: [], publications }, [], "2026-11-19", new Date("2026-11-19T08:30:00Z"), true, window);
+ assert.deepEqual(weekly.map(row => [row.title, row.day, row.cohort]), [
+  ["last", "2026-11-18", "current"], ["start", "2026-11-12", "current"], ["previous", "2026-11-11", "previous"],
+ ]);
 });
 
 test("daily and weekly reports preserve linked plans and include the next scheduled tasks in the weekly card", () => {

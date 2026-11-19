@@ -1,7 +1,37 @@
 // Dedicated first-acquisition registration evidence. Never sums daily users.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto'), assert = require('node:assert/strict');
+const Module = require('node:module'), ts = require('typescript');
+// Reuse the web report calendar without installing a process-wide TS loader.
+const calendarPath = path.join(__dirname, '../src/lib/seo-date-range.ts');
+const calendarModule = new Module(calendarPath, module);
+calendarModule.filename = calendarPath; calendarModule.paths = module.paths;
+calendarModule._compile(ts.transpileModule(fs.readFileSync(calendarPath, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, calendarPath);
+const { weeklyReportRange, WEEKLY_REPORT_SWITCH_DATE } = calendarModule.exports;
 const origin = process.env.SEO_PLATFORM_ORIGIN || 'https://flatkey-seo-roadmap.vercel.app';
 const shift = (d,n) => new Date(Date.parse(d+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
+
+function registrationReportWindows(beijingToday, eligibleEnd, archive = {}) {
+  const windows = new Map();
+  const add = (start,end) => { if (start <= end && end <= eligibleEnd) windows.set(start + ':' + end, {start,end}); };
+  const addReport = (date,kind) => {
+    const {start,end} = kind === 'weekly' ? weeklyReportRange(date) : {start:shift(date,-1),end:shift(date,-1)};
+    const closed = [end,eligibleEnd].sort()[0];
+    if (start > closed) return;
+    const offset = kind === 'weekly' ? -7 : -1;
+    add(start,closed); add(shift(start,offset),shift(closed,offset));
+  };
+  for (const kind of ['daily','weekly']) for (const date of archive[kind] ?? []) addReport(date,kind);
+  addReport(beijingToday,'daily');
+  const weekday = new Date(beijingToday + 'T00:00:00Z').getUTCDay();
+  const newCalendar = beijingToday >= WEEKLY_REPORT_SWITCH_DATE;
+  // Refresh the closing LA report even before its first archive exists, and
+  // retain the early partial-window collection for the next preparation day.
+  if (newCalendar) addReport(beijingToday,'weekly');
+  addReport(shift(beijingToday,((newCalendar ? 4 : 5)-weekday+7)%7),'weekly');
+  add(eligibleEnd,eligibleEnd); add(shift(eligibleEnd,-1),shift(eligibleEnd,-1));
+  return [...windows.values()];
+}
+
 async function main() {
   const importing = process.argv.includes('--import'), token = process.env.SEO_IMPORT_TOKEN;
   assert.ok(token, 'missing_import_token');
@@ -28,27 +58,15 @@ async function main() {
   save('property',{property:p,streams:s});
   const propertyToday=new Intl.DateTimeFormat('en-CA',{timeZone:p.timeZone}).format(new Date()),eligibleEnd=shift(propertyToday,-3);
   const beijingToday=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
-  const windows=new Map();
-  const add=(start,end)=>{if(start<=end&&end<=eligibleEnd)windows.set(start+':'+end,{start,end});};
-  const addReport=(date,kind)=>{
-    const start=shift(date,kind==='weekly'?-7:-1),end=shift(date,-1),closed=[end,eligibleEnd].sort()[0];
-    if(start>closed)return;
-    add(start,closed);add(shift(start,kind==='weekly'?-7:-1),shift(closed,kind==='weekly'?-7:-1));
-  };
   const archive={};
   for(const kind of ['daily','weekly']){
     const result=await request(origin+'/api/seo/digest?'+new URLSearchParams({kind,saved:'1',archive:'1'}),{headers:platformHeaders});
     archive[kind]=result.dates??[];
-    for(const date of archive[kind])addReport(date,kind);
   }
-  addReport(beijingToday,'daily');
-  // Prepare the next Friday's covered interval before its morning snapshot.
-  const weekday=new Date(beijingToday+'T00:00:00Z').getUTCDay();
-  addReport(shift(beijingToday,(5-weekday+7)%7),'weekly');
-  add(eligibleEnd,eligibleEnd);add(shift(eligibleEnd,-1),shift(eligibleEnd,-1));
-  save('manifest',{archive,eligibleEnd,windows:[...windows.values()],policy:'48h holdback; partial weeks compare matching covered dates; not a provider finality flag'});
+  const windows=registrationReportWindows(beijingToday,eligibleEnd,archive);
+  save('manifest',{archive,eligibleEnd,windows,policy:'48h holdback; partial weeks compare matching covered dates; not a provider finality flag'});
   const receipts=[],missing=[];
-  for(const {start,end} of windows.values()){
+  for(const {start,end} of windows){
     const query={dateRanges:[{startDate:start,endDate:end}],metrics:[{name:'totalUsers'},{name:'eventCount'}],dimensionFilter:{andGroup:{expressions:[['firstUserPrimaryChannelGroup','Organic Search'],['eventName','sign_up_success']].map(([fieldName,value])=>({filter:{fieldName,stringFilter:{matchType:'EXACT',value,caseSensitive:true}}}))}},limit:'1'};
     const result=await request('https://analyticsdata.googleapis.com/v1beta/properties/541304395:runReport',{method:'POST',headers:googleHeaders,body:JSON.stringify(query)});
     save(start+'_'+end+'-source',{query,result});
@@ -71,4 +89,5 @@ async function main() {
   }
   const summary={verifiedAt:new Date().toISOString(),mode:importing?'import':'dry-run',eligibleEnd,receipts,missing,output};save('summary',summary);console.log(JSON.stringify(summary));
 }
-main().catch(error=>{console.error(error.message);process.exitCode=1;});
+module.exports = { registrationReportWindows };
+if (require.main === module) main().catch(error=>{console.error(error.message);process.exitCode=1;});

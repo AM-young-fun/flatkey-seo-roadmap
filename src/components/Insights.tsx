@@ -159,7 +159,7 @@ function WeeklyPillarVisitors({ data }: { data: InsightData | null }) {
   const periods = data?.periods;
   const rows = pageVisitorRows(data?.pageVisitors, Boolean(data?.pageVisitors && !data.draft));
   return <section className="dailyPanel" aria-label="核心业务自然搜索访客占比"><h2>模型详情与 Prompt Library 自然搜索访客占比</h2>
-    <p className="chartNote">Flatkey · {data?.reportingCutoff ? `${data.reportingCutoff.kind === "FRIDAY_1010_SNAPSHOT" ? "周五" : "周二"}10:10截数快照 · 区间去重访客` : "整周去重访客"} · 自然搜索新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
+    <p className="chartNote">Flatkey · {data?.reportingCutoff ? `${data.reportingCutoff.kind === "THURSDAY_1630_SNAPSHOT" ? "周四16:30整理快照" : `${data.reportingCutoff.kind === "FRIDAY_1010_SNAPSHOT" ? "周五" : "周二"}10:10截数快照`} · 区间去重访客` : "整周去重访客"} · 自然搜索新老访客 · 每周更新{periods ? ` · 本期 ${periods.current.start}—${periods.current.end}` : ""}</p>
     <div className="siteTrafficTable"><table><thead><tr><th>页面类型</th><th>本周占比</th><th>上周占比</th><th>占比变化</th><th>上周访客量</th><th>本周访客量</th><th>增减人数</th><th>环比</th></tr></thead><tbody>{rows.map(row => <tr key={row.key}>
       <th>{row.name}<small>{row.scope}</small></th>
       <td><strong>{row.currentShare == null ? "待采集" : pct(row.currentShare)}</strong></td>

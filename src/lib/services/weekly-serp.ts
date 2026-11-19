@@ -5,13 +5,19 @@ import { loadSerpTargetCohort } from "@/lib/services/serp-targets";
 import { REGION_CODES } from "@/lib/seo";
 import { serpPeriod } from "@/lib/serp-periods";
 import { weeklyKeywordComparison, type WeeklyPageRank, type WeeklyRankingReport } from "@/lib/weekly-keyword-comparison";
-import type { reportPeriods } from "@/lib/weekly-traffic";
+import { isThursdayReport, WEEKLY_REPORT_TIMEZONE, type reportPeriods } from "@/lib/weekly-traffic";
 import { timedRead } from "@/lib/read-profile";
 
 const nextDay = (value: string) => new Date(Date.parse(`${value}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
 export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) {
   const publicationDay = nextDay(periods.current.end), previousPublicationDay = nextDay(periods.previous.end);
-  const slot = serpPeriod(`${publicationDay}T02:30:00Z`), captureWeek = slot.start === publicationDay || (new Date(periods.current.start).getUTCDay() === 5 && slot.dueAt.slice(0,10) >= periods.current.start && slot.dueAt.slice(0,10) <= periods.current.end);
+  const slot = serpPeriod(`${publicationDay}T02:30:00Z`);
+  // Reporting calendars never move the independent paid collection slot.
+  const captureDay = isThursdayReport(periods.current.start)
+    ? new Intl.DateTimeFormat("en-CA", {timeZone:WEEKLY_REPORT_TIMEZONE}).format(new Date(slot.dueAt))
+    : slot.dueAt.slice(0,10);
+  const captureWeek = slot.start === publicationDay ||
+    ([4,5].includes(new Date(periods.current.start).getUTCDay()) && captureDay >= periods.current.start && captureDay <= periods.current.end);
   const cohort = await timedRead("weekly.cohort", () => loadSerpTargetCohort());
   const previousSlot = serpPeriod(`${previousPublicationDay}T02:30:00Z`);
   const [run, previousRun] = await timedRead("weekly.run-metadata", () => Promise.all([slot,previousSlot].map(period=>prisma.serpMonitorRun.findUnique({where:{periodKey_scope:{periodKey:period.key,scope:"SCHEDULED"}}}))));
@@ -67,7 +73,7 @@ export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) 
     hadPrevious ||= market.previous.some(item => item.status === "RANKED" || item.status === "OUTSIDE_TOP100");
     for (const item of market.current) if (item.captureComplete && item.checkedAt) {
       dates.push(item.checkedAt); capturedWords.add(item.keyword.normalize("NFKC").toLowerCase().trim());
-      fresh ||= new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Shanghai"}).format(new Date(item.checkedAt)) >= periods.current.start;
+      fresh ||= new Intl.DateTimeFormat("en-CA", {timeZone:isThursdayReport(periods.current.start) ? WEEKLY_REPORT_TIMEZONE : "Asia/Shanghai"}).format(new Date(item.checkedAt)) >= periods.current.start;
     }
     add(market.current, market.region, periods.current.end); add(market.previous, market.region, periods.previous.end);
   }

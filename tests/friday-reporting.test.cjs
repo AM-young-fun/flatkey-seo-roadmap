@@ -9,9 +9,9 @@ const {weeklyPageVisitorsSchema,pageVisitorRows}=require("../src/lib/weekly-page
 const {rankingImportSchema}=require("../src/lib/ranking-import.ts");
 const {collectorRunSchema}=require("../src/lib/collector-runs.ts");
 test("Friday reports cover Friday through Thursday at the Shanghai day boundary",()=>{
- assert.deepEqual(weeklyPeriods(new Date("2026-10-30T02:10:00Z")),{current:{start:"2026-10-23",end:"2026-10-29"},previous:{start:"2026-10-16",end:"2026-10-22"}});
- assert.equal(weeklyPeriods(new Date("2026-10-29T15:59:59Z")).current.end,"2026-10-22");
- assert.equal(weeklyPeriods(new Date("2026-10-29T16:00:00Z")).current.end,"2026-10-29");
+ assert.deepEqual(weeklyPeriods(new Date("2026-10-30T02:10:00Z"),"Asia/Shanghai"),{current:{start:"2026-10-23",end:"2026-10-29"},previous:{start:"2026-10-16",end:"2026-10-22"}});
+ assert.equal(weeklyPeriods(new Date("2026-10-29T15:59:59Z"),"Asia/Shanghai").current.end,"2026-10-22");
+ assert.equal(weeklyPeriods(new Date("2026-10-29T16:00:00Z"),"Asia/Shanghai").current.end,"2026-10-29");
  assert.equal(activeReportPeriods(new Date("2026-10-29T02:00Z")).current.start,"2026-10-23");
  assert.equal(reportPeriods("2026-10-13").current.end,"2026-10-19");
  assert.equal(nextCollectorTime(new Date("2026-11-20T07:59:59Z"),"traffic"),"2026-11-20T08:00:00.000Z");

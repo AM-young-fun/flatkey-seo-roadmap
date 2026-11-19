@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), ts = require("typescript");
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-const { collectionDateRange, seoToday } = require("../src/lib/seo-date-range.ts");
+const { collectionDateRange, seoToday, weeklyReportDate, weeklyReportRange } = require("../src/lib/seo-date-range.ts");
 const { reportCountryShares } = require("../src/lib/seo-report-comparisons.ts");
 const { approvalPreview } = require("../src/lib/seo-approval-display.ts");
 
@@ -12,6 +12,18 @@ test("collection is filed under Beijing today and closed source days retain thei
   assert.equal(collectionDateRange(14, now, "Asia/Shanghai").end, "2026-11-12");
   assert.equal(collectionDateRange(14, now).end, "2026-11-11");
   assert.equal(collectionDateRange(14, new Date("2026-11-13T08:01:00Z")).end, "2026-11-12");
+});
+
+test("weekly archive selection keeps historical Fridays and new Thursday review dates readable", () => {
+  assert.equal(weeklyReportDate("2026-11-13"), "2026-11-13");
+  assert.deepEqual(weeklyReportRange("2026-11-13"), { start: "2026-11-06", end: "2026-11-12" });
+  assert.equal(weeklyReportDate("2026-11-19"), "2026-11-19");
+  assert.equal(weeklyReportDate("2026-11-20"), "2026-11-20");
+  assert.equal(weeklyReportDate("2026-11-21"), "2026-11-19");
+  for (const date of ["2026-11-19", "2026-11-20", "2026-11-21"]) {
+    assert.deepEqual(weeklyReportRange(date), { start: "2026-11-12", end: "2026-11-18" });
+  }
+  assert.deepEqual(weeklyReportRange("2026-11-26"), { start: "2026-11-19", end: "2026-11-25" });
 });
 
 test("country shares require four values with the same periods", () => {

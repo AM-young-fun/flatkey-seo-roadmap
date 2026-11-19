@@ -7,6 +7,23 @@ export const propertyToday = (timeZone = "America/Los_Angeles") => new Intl.Date
 export const SEO_REPORT_TIME_ZONE = "Asia/Shanghai";
 export const seoToday = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: SEO_REPORT_TIME_ZONE }).format(now);
 
+export const WEEKLY_REPORT_SWITCH_DATE = "2026-11-19";
+
+// Keep an exact Friday archive address readable after preparation moves to Thursday.
+export function weeklyReportDate(date: string): string {
+  const weekday = new Date(date + "T00:00:00Z").getUTCDay();
+  const current = date >= WEEKLY_REPORT_SWITCH_DATE;
+  if (current && weekday === 5) return date;
+  return shiftDay(date, -((weekday - (current ? 4 : 5) + 7) % 7));
+}
+
+export function weeklyReportRange(date: string): DateRange {
+  const weekday = new Date(date + "T00:00:00Z").getUTCDay();
+  const anchor = date >= WEEKLY_REPORT_SWITCH_DATE
+    ? shiftDay(date, -((weekday - 4 + 7) % 7)) : weeklyReportDate(date);
+  return { start: shiftDay(anchor, -7), end: shiftDay(anchor, -1) };
+}
+
 export function collectionDateRange(days: number, now: Date, sourceTimeZone = "America/Los_Angeles"): DateRange {
     const requestedEnd = shiftDay(seoToday(now), -1);
     const sourceToday = new Intl.DateTimeFormat("en-CA", { timeZone: sourceTimeZone }).format(now);

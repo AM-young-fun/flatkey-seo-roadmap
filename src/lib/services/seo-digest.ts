@@ -49,7 +49,7 @@ export async function loadRecentDigestPages(date: string, kind: DigestKind, now 
     const parsed = analyticsObservationSchema.safeParse(payload);
     return parsed.success ? scopedAnalytics([parsed.data]) : [];
   });
-  return recentPublishedPages(workflow, pages, date, now, kind === "weekly");
+  return recentPublishedPages(workflow, pages, date, now, kind === "weekly", digestWindow(date, kind));
 }
 
 function summarizeWorkPlan(snapshot: Awaited<ReturnType<typeof loadWorkflowSnapshot>>): DigestWorkPlan | undefined {
@@ -89,7 +89,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const reportHistoryStart = shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1);
   const historyQuery = { ...DAILY_SEO_TRAFFIC_DEFAULTS, start: kind === "daily" ? shiftWorkflowDay(window.trafficStart, -30) : reportHistoryStart, end: reportHistoryEnd };
   const hasClosedHistory = reportHistoryEnd >= reportHistoryStart;
-  const monitoringAsOf = new Date(Math.min(now.getTime(), Date.parse(window.readyAfter)));
+  const monitoringAsOf = window.workTimezone === "America/Los_Angeles" ? now
+    : new Date(Math.min(now.getTime(), Date.parse(window.readyAfter)));
   const monitoringEnd = [gscPeriodEnd(monitoringAsOf), window.trafficEnd].sort()[0];
   const monitoringStart = shiftWorkflowDay(monitoringEnd, -(OPTIMIZATION_HISTORY_DAYS + OPTIMIZATION_BASELINE_DAYS + 2));
   const reads = await Promise.allSettled([
@@ -143,7 +144,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     if (!matches.length) return "missing";
     const expectedDays = window.kind === "weekly" ? 7 : 1;
     const completeDays = new Set(matches.filter(run => run.status === "completed" && run.coverage === "full" &&
-      run.completedAt && Date.parse(run.completedAt) <= now.getTime()).map(run => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(run.scheduledFor))));
+      run.completedAt && Date.parse(run.completedAt) <= now.getTime()).map(run => new Intl.DateTimeFormat("en-CA", { timeZone: window.workTimezone ?? "Asia/Shanghai" }).format(new Date(run.scheduledFor))));
     return completeDays.size >= expectedDays ? "verified" : "partial";
   };
   const blogCoverage = stageCoverage(["BLOG_PUBLISH", "BLOG"]);
@@ -169,7 +170,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     dailyAcquisition: reads[8].status === "fulfilled" ? reads[8].value : undefined,
     pageGroups: reads[9].status === "fulfilled" ? reads[9].value : undefined,
     workPlan: summarizeWorkPlan(relevantPlan),
-    recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly"), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
+    recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly", window), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
     accountRegistrations: reads[7].status === "fulfilled" ? reads[7].value : accountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
     businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
     githubObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
@@ -220,7 +221,7 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     if (report.date !== beijingDay(now)) throw new DigestError("自动通知仅发送当天报告；历史报告保留归档");
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
     const expected = digestWindow(report.date, report.kind);
-    if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${report.kind === "weekly" ? "周五10:00" : "18:00"} 前的草稿不能发送，请刷新最终快照`);
+    if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${report.kind === "weekly" ? expected.workTimezone === "America/Los_Angeles" ? "周四16:30" : "周五10:00" : "18:00"} 前的草稿不能发送，请刷新最终快照`);
     const originalId = `seo-digest-delivery:${report.kind}:${report.date}`;
     const id = revision ? originalId + ":revision" : originalId;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
