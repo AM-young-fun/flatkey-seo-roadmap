@@ -138,7 +138,7 @@ async function run() {
           const base = { ...common, ...(flatkey ? { hostScope: report.hostScope } : {}), property: site.ga4, scope: "session-organic-search", observedAt: report.fetchedAt };
           await newestDays(report.daily, async day => {
             expectDay(base, "ga4-site", day.date);
-            const sessions = flatkey ? (report.quality.siteSessions.complete ? day.sessions : null) : day.sessions;
+            const sessions = day.sessions;
             const registrations = flatkey && report.quality.siteRegistrations.complete ? day.registrations : null;
             if (sessions === null && registrations === null) return;
             const old = saved.get(recordKey({ ...base, kind: "ga4-site" }) + ":" + day.date);
@@ -184,6 +184,7 @@ async function run() {
               const oldPages = saved.get(recordKey({ ...base, kind: "gsc-pages" }) + ":" + date);
               if (!oldPages?.complete || date >= shiftDay(gscEnd, -13)) {
                 const report = await fetchGscDailyPages(date, { ...options, totals: pageDates[date] });
+                if (report.state === "partial") qualityIssues.push({ site: site.domain, country: country ?? "all", metric: "gscPageCoverage", date, reasons: [report.completeness] });
                 if (report.state !== "unavailable") await save({ ...base, kind: "gsc-pages", observedAt: report.fetchedAt,
                   complete: report.state === "final", rows: report.pages.map(({ url, clicks, impressions, position }) => ({ url, clicks, impressions, position })) });
               }

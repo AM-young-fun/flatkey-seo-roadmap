@@ -248,6 +248,8 @@ export async function fetchGa4Organic(range: DateRange, country?: SearchRegionCo
     coreReport(id, token, range, false, true, country),
     coreReport(id, token, range, true, false, country),
   ]);
+  const verifiedSessions = await verifiedSessionDates(range, id, GA4_TIMEZONE, siteSessions, token);
+  const sessionsByDate = new Map(verifiedSessions.daily.map(day => [day.date, day.sessions]));
   // hostName is event-scoped. At signup it can be console.flatkey.ai while
   // landingPage still describes a website entry. Until a session landing-host
   // dimension/funnel is verified, that pair must never create a conversion URL.
@@ -255,7 +257,7 @@ export async function fetchGa4Organic(range: DateRange, country?: SearchRegionCo
     quality: { complete: false, reasons: ["landing_host_attribution_unverified"] } };
   const daily: Ga4OrganicDay[] = [];
   for (let date = range.start; date <= range.end; date = shiftDay(date, 1)) {
-    daily.push({ date, sessions: siteSessions.count(date), registrations: siteRegistrations.count(date), registrationEvents: siteRegistrations.count(date, 1),
+    daily.push({ date, sessions: sessionsByDate.get(date) ?? null, registrations: siteRegistrations.count(date), registrationEvents: siteRegistrations.count(date, 1),
       ...(siteRegistrations.quality.complete ? { registrationEvidence: siteRegistrations.values.has(date) ? "reported_daily_row" as const : "missing_daily_row" as const } : {}) });
   }
   const pages = [...new Set([...pageSessions.values.keys(), ...pageRegistrations.values.keys()])].sort().map(key => ({
@@ -274,7 +276,7 @@ export async function fetchGa4Organic(range: DateRange, country?: SearchRegionCo
     daily,
     pages,
     quality: {
-      siteSessions: siteSessions.quality,
+      siteSessions: verifiedSessions.quality,
       siteRegistrations: siteRegistrations.quality,
       pageSessions: pageSessions.quality,
       pageRegistrations: pageRegistrations.quality,
@@ -323,6 +325,10 @@ export async function fetchGa4SiteSessions(range: DateRange, property: string, t
   }
   const token = await accessToken();
   const report = await coreReport(property, token, range, false, false, country, timezone);
+  return verifiedSessionDates(range, property, timezone, report, token);
+}
+
+async function verifiedSessionDates(range: DateRange, property: string, timezone: string, report: Awaited<ReturnType<typeof coreReport>>, token: string) {
   const dates: string[] = [];
   for (let date = range.start; date <= range.end; date = shiftDay(date, 1)) dates.push(date);
   const missing = dates.filter(date => !report.values.has(date));

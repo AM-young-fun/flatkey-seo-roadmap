@@ -140,6 +140,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
   const site = records.filter(row => row.kind === "ga4-site");
   const gaPages = records.filter(row => row.kind === "ga4-pages");
   const gsPages = records.filter(row => row.kind === "gsc-pages");
+  const gsSite = records.filter(row => row.kind === "gsc-site");
   const byDate = new Map(site.map(row => [row.date, row]));
   const status = (rows: AnalyticsObservation[], required: number, message: string) => {
     const through = rows.map(row => row.date).sort().at(-1) ?? null;
@@ -166,7 +167,7 @@ export function analyticsView(range: DateRange, urls: string[], observations: An
     ga4: { ...status(ga4Reports, dates.length, observations.some(row => row.kind === "ga4-site" && row.property === "541304395" && row.hostScope !== GA4_HOST_SCOPE) ? GA4_HOST_UNVERIFIED : "缺失不计为零。注册未返回当日记录时保持未知；历史事件缺少正式域名或来源时无法归属。逐页注册的跨域入口归因尚未核实。"),
       sessionsStatus: status(ga4SessionReports, dates.length, "部分入口会话尚未取得可核实报表").status,
       registrationsStatus: status(ga4Reports, dates.length, "注册归因待核实").status },
-    gsc: status(gsPages, dates.length, "仅显示已取得的 GSC 网页搜索数据；延迟、导出上限及未返回页面保留缺失。"),
+    gsc: status(urls.length ? gsPages : gsSite, dates.length, "仅显示已取得的 GSC 网页搜索数据；延迟、导出上限及未返回页面保留缺失。"),
     daily: dates.map(date => ({ date, sessions: byDate.get(date)?.sessions ?? null, registrations: byDate.get(date)?.registrations ?? null })),
     pages: urls.map(url => {
       const path = pageKey(url);
