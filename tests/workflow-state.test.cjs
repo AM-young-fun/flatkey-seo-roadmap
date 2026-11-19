@@ -203,6 +203,28 @@ test("new content plans use statutory workdays and exclude traffic-only sites", 
   assert.equal(save(make(makeupWeek, 6, [makeup]), [makeup], "save_plan").record.targets.landing, 6);
 });
 
+test("next-week landing capacity transfers to RackRate and ModelFit without rewriting historical quotas", () => {
+  const weekStart = "2026-11-23";
+  const targets = { cadence: "workdays", landing: 0, clusterLanding: 7, apiBlogs: 7, gpuBlogs: 18,
+    optimizedPages: 10, blogLanguages: { en: 10, ja: 5, "pt-BR": 5, "es-ES": 5 } };
+  const plan = (tasks = [], patch = {}) => ({ id: "cluster-only-plan", weekStart, title: "两站落地页排期", status: "scheduled",
+    taskIds: tasks.map(t => t.record.id), owner: "AI", preparedAt: now.toISOString(), reviewedAt: null, reviewedBy: null,
+    targets: { ...targets, ...patch }, evidence, notes: "", gaps: Object.entries({ apiBlogs: 7, gpuBlogs: 18, optimizedPages: 10,
+      blogEn: 10, blogJa: 5, blogPt: 5, blogEs: 5, clusterLanding: 7 }).map(([category, count]) => ({ category, count, reason: "证据未通过先留缺口" })) });
+  assert.equal(save(plan(), [], "save_plan").record.targets.clusterLanding, 7);
+  assert.throws(() => save(plan([], { landing: 5, clusterLanding: 2 }), [], "save_plan"), { code: "plan_workday_targets" });
+  const landing = (id, siteDomain) => ({ kind: "task", record: task({ id, siteDomain, weekStart,
+    pageUrl: `https://${siteDomain}/new-${id}`, dueAt: "2026-11-23T06:00:00Z", keyword: id }) });
+  const seven = Array.from({ length: 7 }, (_, i) => landing("site-page-" + i, i % 2 ? "rackrate.org" : "modelfit.cc"));
+  assert.equal(save(plan(seven), seven, "save_plan").record.taskIds.length, 7);
+  const eight = [...seven, landing("excess", "rackrate.org")];
+  assert.throws(() => save(plan(eight), eight, "save_plan"), { code: "plan_cluster_landing_quota" });
+  const flatkey = landing("flatkey-stopped", "flatkey.ai");
+  assert.throws(() => save(plan([flatkey]), [flatkey], "save_plan"), { code: "plan_landing_site" });
+  assert.throws(() => save(flatkey.record), { code: "flatkey_new_landing_stopped" });
+  assert.equal(save({ ...flatkey.record, status: "researching" }).record.status, "researching");
+});
+
 // The user-facing Chinese brief is independent from target page language and executor instructions.
 test("Chinese task briefs survive saves without changing original research or instructions", () => {
  const original = task({ nextAction: "按原英文稿制作页面", research: { ...task().research, intent: "API integration" } });
