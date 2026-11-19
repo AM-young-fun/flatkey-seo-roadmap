@@ -49,6 +49,11 @@ test("organic GA4 queries preserve a clean sessions denominator, and thresholded
     const channel = {
       filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { matchType: "EXACT", value: "Organic Search", caseSensitive: true } },
     };
+    if (!query.dimensions) {
+      assert.deepEqual(query.dimensionFilter.andGroup.expressions[0].andGroup.expressions, [channel, host]);
+      assert.deepEqual(query.dimensionFilter.andGroup.expressions[1].filter.inListFilter.values, ["20251021"]);
+      return { rows: [[[], [0]]], rowCount: 1, metadata: { timeZone: "America/Los_Angeles" } };
+    }
     const page = query.dimensions.some(({ name }) => name === "landingPage");
     const registration = query.metrics.some(({ name }) => name === "totalUsers");
     const dimensions = page ? ["20251020", "/models", "flatkey.ai"] : ["20251020"];
@@ -268,4 +273,18 @@ test("a clean empty daily registration response never becomes a week of fake zer
   assert.equal(report.daily.length,7);
   assert.ok(report.daily.every(row=>row.registrations===null && row.registrationEvents===null && row.registrationEvidence==="missing_daily_row"));
   assert.equal(report.daily[0].sessions,12);
+});
+
+test("Flatkey omitted dates remain unknown when scalar proof fails, while independently observed sessions survive", async t => {
+  useMockGoogle(t, query => {
+    if (!query.dimensions) throw new Error("scalar unavailable");
+    const page = query.dimensions.some(d => d.name === "landingPage");
+    if (query.metrics.some(m => m.name === "totalUsers")) return { rows: [], metadata: { timeZone: "America/Los_Angeles" } };
+    return { rows: [[page ? ["20251020", "/models", "flatkey.ai"] : ["20251020"], [19]]], metadata: { timeZone: "America/Los_Angeles" } };
+  });
+  const report = await fetchGa4Organic({ start: "2025-10-20", end: "2025-10-21" });
+  assert.equal(report.daily[0].sessions, 19);
+  assert.equal(report.daily[1].sessions, null);
+  assert.equal(report.quality.siteSessions.complete, false);
+  assert.ok(report.quality.siteSessions.reasons.includes("zero_confirmation_unavailable"));
 });

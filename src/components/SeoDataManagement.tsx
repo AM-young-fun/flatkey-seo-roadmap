@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BasicAnalyticsHealth } from "./BasicAnalyticsHealth";
 import { useState } from "react";
 import { PageHeader } from "./PageHeader";
 import { useSeoCountry } from "./useSeoCountry";
@@ -38,11 +39,13 @@ export function SeoDataManagement() {
   return <main className={shell.shell}>
     <PageHeader active="manage" />
     <div className={shell.titleRow}><h1 className={shell.title}>数据管理</h1><button className={styles.button} type="button" onClick={refresh}>刷新状态</button></div>
+    <BasicAnalyticsHealth range={range} country={country} />
     <section className={styles.section} aria-labelledby="source-heading">
       <h2 id="source-heading">每日数据</h2>
       <p className={styles.note}>近 30 个已结束日 · {range.start} 至 {range.end}</p>
       {analytics.data ? <div className={styles.sources}>
-        <SeoAnalyticsStatus name="自然搜索访问与注册 · GA4" source={analytics.data.ga4} />
+        <SeoAnalyticsStatus name="自然搜索访问 · GA4" source={{ ...analytics.data.ga4, status: analytics.data.ga4.sessionsStatus ?? analytics.data.ga4.status, reason: analytics.data.ga4.sessionsStatus === "ready" ? null : analytics.data.ga4.reason }} />
+        <SeoAnalyticsStatus name="注册 · GA4" source={{ ...analytics.data.ga4, status: analytics.data.ga4.registrationsStatus ?? analytics.data.ga4.status }} />
         <SeoAnalyticsStatus name="搜索表现 · GSC" source={analytics.data.gsc} />
       </div> : analytics.error ? <p role="alert">{analytics.error}</p> : <p className={styles.note}>正在读取数据状态…</p>}
       <Link className={styles.link} href={"/?" + new URLSearchParams({ ...range, country })}>查看流量趋势 →</Link>

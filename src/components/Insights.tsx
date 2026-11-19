@@ -1,4 +1,5 @@
 "use client";
+import { BasicAnalyticsHealth } from "./BasicAnalyticsHealth";
 import { UiSelect } from "./UiSelect";
 import { WeeklyDailySummary } from "./WeeklyDailySummary";
 import { ClusterSiteTable } from "./SeoClusterReport";
@@ -7,7 +8,7 @@ import { PageTrafficCharts } from "./PageTrafficCharts";
 
 import type { PageTrafficSeries } from "@/lib/page-traffic-history";
 import { useEffect, useState } from "react";
-import { propertyToday, shiftDay, validRange } from "@/lib/seo-date-range";
+import { propertyToday, shiftDay, validRange, collectionDateRange } from "@/lib/seo-date-range";
 import { SessionSeoReport } from "./SessionSeoReport";
 import { PageHeader } from "@/components/PageHeader";
 import { useSeoCountry } from "./useSeoCountry";
@@ -251,6 +252,7 @@ export function TrafficReport() {
         ]} />
       </div>
     </div>
+    <details><summary>基础数据监控（近14个已结束日）</summary><BasicAnalyticsHealth range={collectionDateRange(14, new Date())} country={country} /></details>
     {mode === "day" ? <>
       <label className={styles.dayPicker}>日期
         <input aria-label="日总结日期" type="date" value={day} max={shiftDay(today, -1)}

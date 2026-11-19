@@ -17,8 +17,8 @@ export function prepareAnalyticsCorrection(input: unknown, saved: { payload: unk
   const command = analyticsCorrectionSchema.parse(input);
   if (command.action === "create_missing_ga4") {
     const row = command.observation;
-    if (row.kind !== "ga4-site" || !["558899190", "558978062"].includes(row.property) || row.source !== "google-api"
-        || row.sessions !== 0 || row.registrations !== null || row.complete || row.country) throw new Error("Invalid zero backfill scope");
+    if (row.kind !== "ga4-site" || !["558899190", "558978062", "555043733", "561876347"].includes(row.property) || row.source !== "google-api"
+        || row.sessions !== 0 || row.registrations !== null || row.complete) throw new Error("Invalid zero backfill scope");
     if (saved) throw new AnalyticsCorrectionConflict("archive_already_exists");
     return { kind: analyticsStorageKind(row.kind, row.country, clusterDomainForProperty(row.property)), date: row.date, payload: row, observedAt: new Date(row.observedAt), complete: false };
   }
