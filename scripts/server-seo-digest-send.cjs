@@ -58,6 +58,15 @@ async function run() {
   await write('.md', payload.actionCard.text);
   await write('.action-card.json', payload);
   await write('.preflight.json', { version: 1, transport: 'signed-webhook', messageFormat: 'actionCard', payloadSha256, destination: GROUP, robotCode: BOT, webhookConfigSha256: config.fingerprint, reportId: report.id, reportHash: report.hash, preliminary: report.preliminary, repository: REPO, workflowRunId: process.env.GITHUB_RUN_ID });
+  const checkedAt = new Date();
+  const beijingToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(checkedAt);
+  const thursday = day => new Date(day + 'T00:00:00Z').getUTCDay() === 4;
+  if (kind === 'daily' && (thursday(beijingToday) || thursday(date))) {
+    const skipped = { status: 'archive_only_thursday', reportId: report.id, reportDate: date, beijingDate: beijingToday, checkedAt: checkedAt.toISOString(), reason: 'Thursday daily reports are archived without group delivery.' };
+    await write('.delivery-skipped.json', skipped);
+    console.log(JSON.stringify(skipped));
+    return;
+  }
   if (!process.argv.includes('--send')) { console.log(JSON.stringify({ status: 'preflight_only', reportId: report.id, webhookConfigSha256: config.fingerprint, transport: 'signed-webhook' })); return; }
   const { control } = await api('/api/seo/reporting-control');
   if (!control.enabled || control.transport !== 'signed-webhook' || control.destination !== GROUP || control.robotCode !== BOT || control.webhookConfigSha256 !== config.fingerprint) throw Error('webhook_control_binding_unverified');
