@@ -28,3 +28,12 @@ test('historical Friday archives and pre-switch next-Friday collection retain th
   assert.ok(has(rows,'2026-11-06','2026-11-08'));
   assert.ok(has(rows,'2026-10-30','2026-11-01'));
 });
+
+test('latest closed day covers the complete Thursday week and independent previous week',()=>{
+ const rows=registrationReportWindows('2026-11-19','2026-11-18');
+ assert.ok(has(rows,'2026-11-18','2026-11-18'));
+ assert.ok(has(rows,'2026-11-17','2026-11-17'));
+ assert.ok(has(rows,'2026-11-12','2026-11-18'));
+ assert.ok(has(rows,'2026-11-05','2026-11-11'));
+ assert.ok(rows.every(row=>row.end<='2026-11-18'));
+});

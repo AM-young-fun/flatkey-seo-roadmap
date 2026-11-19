@@ -303,7 +303,7 @@ export function latestVerifiedDailyPoint<T extends { date: string }>(points: rea
 }
 function dailyEvidenceEnd(now: Date, requested: string) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(now);
-  return [requested, shift(today, -3)].sort()[0];
+  return [requested, shift(today, -1)].sort()[0];
 }
 function cardPageGroups(input: DigestInput, window: ReturnType<typeof digestWindow>) {
   const groups = input.pageGroups?.groups ?? [];
@@ -439,6 +439,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     `**${weekly ? "本周" : "今日"}结论** ${heading} · GA4 自然搜索去重注册 ${headlineRegistration}`,
     ...(pageSummary ? [`重点页面 ${pagePath(pageSummary.url)} · Google 点击 ${cardComparison(pageSummary.previous, pageSummary.value, pageCanCompare)}`] : []),
     `**统计期** ${dateLabel}（洛杉矶）｜对比 ${previousLabel}`,
+    "**数据说明** 使用各来源最近已结束日的有效数据；GA4 最新数据可能继续更新，实际覆盖日期见各项。",
     `**生成** ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间）`,
     ...(weekly && window.workTimezone === "America/Los_Angeles" ? ["**审核** 周报草稿，待用户审核；各来源实际覆盖日期见下方"] : []),
     "", `**1. ${weekly ? "业务结果与搜索表现" : "全站自然搜索"}**`];

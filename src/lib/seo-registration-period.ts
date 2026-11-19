@@ -12,7 +12,7 @@ export const registrationPeriodSchema = z.object({
   sources: z.array(z.url().refine(value => new URL(value).hostname === "analytics.google.com" && new URL(value).protocol === "https:" && !new URL(value).username && !new URL(value).password)).min(1).max(5),
 }).strict().superRefine((row, ctx) => {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: row.timezone }).format(new Date(row.observedAt));
-  const eligibleEnd = new Date(Date.parse(today + "T00:00:00Z") - 3 * 86400000).toISOString().slice(0, 10);
+  const eligibleEnd = new Date(Date.parse(today + "T00:00:00Z") - 86400000).toISOString().slice(0, 10);
   if (row.start > row.end || Date.parse(row.end) - Date.parse(row.start) > 366 * 86400000 || row.end > eligibleEnd || Date.parse(row.observedAt) > Date.now() + 300000 || row.users > row.events)
     ctx.addIssue({ code: "custom", message: "注册区间、采集时间或去重人数无效" });
 });
