@@ -26,8 +26,8 @@ async function exercise(options={}){
   analyticsObservationSchema:{parse:x=>x},analyticsStorageKind:(kind,country,site)=>[kind,country,site].filter(Boolean).join(":"),
   clusterDomainForProperty:p=>p===cluster.ga4||p===cluster.gsc?cluster.domain:undefined,
   fetchGa4Organic:async(range,country)=>main(range,country),
-  fetchGa4SiteSessions:async(range,_property,_timezone,country)=>{google.push({source:"GA4",site:cluster.domain,country:country??"all",range:{...range}});return{fetchedAt:stamp,quality:{complete:true,reasons:[]},daily:options.clusterEmpty?[]:dates(range).map(date=>({date,sessions:1}))}},
-  fetchGa4SitePages:async range=>({fetchedAt:stamp,quality:{complete:true,reasons:[]},pages:dates(range).map(date=>({date,hostname:cluster.domain,path:"/gpu",sessions:1,registrations:null}))}),
+  fetchGa4SiteSessions:async(range,_property,_timezone,country)=>{google.push({source:"GA4",site:cluster.domain,country:country??"all",range:{...range}});return{fetchedAt:stamp,quality:{complete:true,reasons:[]},daily:options.clusterEmpty?[]:dates(range).map(date=>({date,sessions:options.clusterZeros?0:1}))}},
+  fetchGa4SitePages:async range=>({fetchedAt:stamp,quality:{complete:true,reasons:[]},pages:options.clusterZeros?[]:dates(range).map(date=>({date,hostname:cluster.domain,path:"/gpu",sessions:1,registrations:null}))}),
   fetchGscDateCoverage:async(start,end,o)=>{google.push({source:"GSC",site:o.property,country:o.country??"all",range:{start,end}});return options.gscDays?Object.fromEntries(dates({start,end}).slice(-options.gscDays).map(date=>[date,{clicks:1,impressions:2,position:3}])):{}},
   fetchGscDailyPages:async(date,o)=>{if(!options.gscDays)throw Error("unexpected GSC page query");return{state:"final",fetchedAt:stamp,pages:[{url:(o.property===cluster.gsc?"https://rackrate.org":"https://flatkey.ai")+"/page",clicks:1,impressions:2,position:3}]}},
   fetchGscDailyPageQueries:async(_date,o)=>{if(!options.gscDays)throw Error("unexpected GSC keyword query");if(options.failQuery&&!failedQuery){failedQuery=true;throw Object.assign(new Error("query transport failure"),{code:"unavailable"})}return{property:o.property,observedAt:stamp,complete:true,rows:[]}},
@@ -75,6 +75,16 @@ test("manual ninety-day backfill is bounded to exactly ninety ended days per tim
  assert.equal(r.posted.filter(x=>x.property==="541304395"&&!x.country&&x.kind==="ga4-pages").length,90);
  assert.equal(r.posted.filter(x=>x.property===cluster.ga4&&!x.country&&x.kind==="ga4-pages").length,90);
  assert.ok(r.store.has("ga4-site:2025-01-01"));assert.equal(r.active,0);
+});
+test("confirmed zero-session dates survive daily import and production readback without inventing registrations",async()=>{
+ const r=await exercise({clusterZeros:true});assert.equal(r.error,undefined);
+ const site=r.posted.filter(x=>x.kind==="ga4-site"&&x.property===cluster.ga4&&!x.country);
+ assert.equal(site.length,14);assert.equal(new Set(site.map(x=>x.date)).size,14);
+ assert.ok(site.every(x=>x.sessions===0&&x.registrations===null&&x.complete===false));
+ const pages=r.posted.filter(x=>x.kind==="ga4-pages"&&x.property===cluster.ga4&&!x.country);
+ assert.equal(pages.length,14);assert.ok(pages.every(x=>x.rows.length===0&&x.sessionsComplete===true));
+ for(const row of site)assert.ok(r.readbacks.includes("ga4-site:"+cluster.domain+":"+row.date));
+ assert.equal(r.active,0);assert.equal(r.readbacks.length,r.posted.length);
 });
 test("invalid windows fail before any provider or production request",async()=>{
  for(const window of ["","0","13","15","91","14.0","14x"," 14","-14"]){

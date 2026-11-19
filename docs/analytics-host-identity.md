@@ -23,3 +23,11 @@ API 示例（必须使用现有平台登录或授权采集凭据）：
 ```
 
 这些代码与测试完成不等于生产采集已运行；部署、数据回填与抽样对账需要真实运行回执。
+
+## 集群自然会话的零值日期
+
+日表省略日期不直接视为零。`fetchGa4SiteSessions` 对遗漏日期最多追加一次无日期维度的 `sessions` 汇总查询，保留原属性、Organic Search、国家和主机筛选，并以 `date` 列表只限定遗漏日期。只有响应明确返回一行总数 `0`、字段及属性时区匹配，且没有阈值、采样、截断等质量限制时，才将这些日期逐一输出为 `sessions: 0`。总数非零、无显式计数、质量受限或请求失败均保留 `null`，同时保留日表中已核实的正数。
+
+服务器定时入口 `.github/workflows/seo-daily.yml` → `scripts/server-seo-daily.cjs` 和本机采集包装器共用此函数。零值日期沿用正常的生产归档与逐条读回流程，不因数值为零而跳过；未核实的注册指标仍是 `null`，整体 `complete=false` 不能单独用来判断自然会话缺失。此修复不修改任何 GA4、GTM、GSC 配置或网站埋点。
+
+Google 的零值行与维度筛选规则见 [runReport](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/properties/runReport) 和 [FilterExpression](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/FilterExpression)。

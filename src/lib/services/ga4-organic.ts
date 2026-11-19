@@ -75,6 +75,7 @@ type ReportQuery = {
   orderBys?: { dimension: { dimensionName: string } }[];
   limit?: string;
   offset?: string;
+  keepEmptyRows?: boolean;
 };
 
 const exact = (fieldName: string, value: string) => ({
@@ -227,6 +228,7 @@ async function coreReport(
   return {
     values,
     quality,
+    dimensionFilter: query.dimensionFilter,
     // Missing signup rows cannot establish zero: older server events can lack
     // hostname/source attribution and therefore be excluded by the query.
     // An explicit returned row with value 0 remains a measured zero.
@@ -319,9 +321,43 @@ export async function fetchGa4SiteSessions(range: DateRange, property: string, t
   if (!/^\d+$/.test(property) || !validRange(range) || range.end >= propertyToday(timezone)) {
     throw new RangeError("GA4 属性或日期无效");
   }
-  const report = await coreReport(property, await accessToken(), range, false, false, country, timezone);
-  return { fetchedAt: new Date().toISOString(), quality: report.quality,
-    daily: [...report.values].map(([date, values]) => ({ date, sessions: report.quality.complete ? values[0] : null })) };
+  const token = await accessToken();
+  const report = await coreReport(property, token, range, false, false, country, timezone);
+  const dates: string[] = [];
+  for (let date = range.start; date <= range.end; date = shiftDay(date, 1)) dates.push(date);
+  const missing = dates.filter(date => !report.values.has(date));
+  const reasons = new Set(report.quality.reasons);
+  let confirmedZero = false;
+  if (report.quality.complete && missing.length) {
+    // Date reports can omit zero rows. One scalar over just the omitted dates
+    // proves they are all zero only if its nonnegative sessions total is 0.
+    // Keep the original property/channel/country/host scope; never use an
+    // unfiltered total, a metadata-only response or a quality-limited report.
+    try {
+      const confirmation = await requestReport(property, token, "runReport", {
+        dateRanges: [{ startDate: range.start, endDate: range.end }],
+        metrics: [{ name: "sessions" }],
+        dimensionFilter: { andGroup: { expressions: [report.dimensionFilter, {
+          filter: { fieldName: "date", inListFilter: { values: missing.map(date => date.replaceAll("-", "")), caseSensitive: true } },
+        }] } },
+        keepEmptyRows: true,
+      });
+      for (const reason of qualityReasons(confirmation)) reasons.add(reason);
+      const rows = confirmation.rows ?? [];
+      confirmedZero = confirmation.metadata?.timeZone === timezone && reasons.size === 0
+        && confirmation.rowCount === 1 && rows.length === 1
+        && (rows[0].dimensionValues ?? []).length === 0 && rows[0].metricValues?.length === 1
+        && metric(rows[0], 0) === 0;
+    } catch {
+      // A confirmation failure must not discard independently observed days.
+      reasons.add("zero_confirmation_unavailable");
+    }
+    if (!confirmedZero) reasons.add("missing_dates_unverified");
+  }
+  return { fetchedAt: new Date().toISOString(),
+    quality: { complete: report.quality.complete && (!missing.length || confirmedZero), reasons: [...reasons] },
+    daily: dates.map(date => ({ date, sessions: report.quality.complete
+      ? report.values.get(date)?.[0] ?? (confirmedZero ? 0 : null) : null })) };
 }
 
 /** Cluster page sessions retain host identity; unverified conversion events stay null. */
