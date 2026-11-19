@@ -28,7 +28,6 @@ const languages = [{ value: "en", label: "英语" }, { value: "ja", label: "日�
 const markets = { US: "美国", JP: "日本", BR: "巴西", ES: "西班牙" };
 const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审批", missing_materials: "待补测试材料", approved: "已批准，待发布", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "候选整理中", scheduled: "已自动排期", reviewed: "已排期", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
 const taskKinds: Record<string, string> = { blog: "博客", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", technical: "技术修复", research: "关键词研究", promotion: "推广与内链", review: "复盘" };
-const pageTypes: Record<string, string> = { blog: "博客", landing: "落地页", tool: "工具", comparison: "比较页", tutorial: "教程", pricing: "价格页", integration: "接入页", technical: "技术项", other: "其他" };
 const publicationKinds: Record<string, string> = { source_blog: "源文", translation: "翻译", backfill_translation: "历史补译", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", prompt: "提示词" };
 const stageNames: Record<string, string> = { SHEETS: "三表校验与同步", KEYWORD_RESEARCH: "关键词研究", TECHNICAL_QA: "五站技术巡检", BLOG: "博客发布与验收", OLD_PAGE: "旧页优化", LANDING: "落地页制作", CLUSTER: "集群交付", DELIVERY: "交付验收与续跑", WEEKLY_CANDIDATES: "下周候选证据", WEEKLY_PLAN: "下周计划定稿", REPORT_PREVIEW: "报告准备", REPORT_SEND: "群通知", MONTHLY_REVIEW: "月度投入复盘" };
 const legacyMeasurementIssueId = "amplitude-organic-cohorts-pending";
@@ -111,29 +110,52 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
   const progress = task.progress?.at(-1);
   const pageDelivery = task.kind === "technical" ? task.channel !== "github" && task.channel !== "product"
     : ["landing", "optimization", "cluster"].includes(task.kind) && (task.changeScope === "search_intent" || task.pageType !== "blog" && !/\/blog(?:\/|$)/.test(task.pageUrl ?? ""));
+  const relatedOptimizations = optimizations.filter(row => row.taskId === task.id);
+  const evidence = [...(task.research?.evidence ?? []), ...relatedOptimizations.flatMap(row => [...row.baseline.evidence, ...row.evidence]), ...task.evidence, ...(progress?.evidence ?? [])]
+    .filter((item, index, all) => all.findIndex(other => other.label === item.label && other.url === item.url && other.artifact === item.artifact) === index);
+  const previewUrl = task.artifactUrl;
+  const action = task.nextAction.trim();
   return <div className={styles.detail}>
     <dl className={styles.metadata}>
-      <div><dt>任务类型 / 页面类型</dt><dd>{taskKinds[task.kind]} / {pageTypes[task.pageType]}</dd></div>
-      <div><dt>业务 / 语言</dt><dd>{task.business} / {task.language ?? "不适用"}</dd></div>
-      <div><dt>负责人 / 交付日</dt><dd>{task.owner} / {displayTime(task.dueAt)}</dd></div>
-      <div><dt>内容版本</dt><dd>{task.contentVersion ?? "尚未制作"}</dd></div>
+      <div><dt>类型</dt><dd>{workTaskTypes.find(item => item.value === editorialTaskType(task))?.label ?? taskKinds[task.kind]}</dd></div>
+      <div><dt>业务</dt><dd>{siteName(task.siteDomain)} · {task.business}{task.language ? ` · ${task.language}` : ""}</dd></div>
+      <div><dt>时间</dt><dd>{displayTime(task.dueAt)}</dd></div>
+      <div><dt>预览地址</dt><dd>{previewUrl ? <a href={previewUrl} target="_blank" rel="noreferrer">{previewUrl} ↗</a> : "暂未生成"}</dd></div>
     </dl>
-    {task.pageUrl ? <p>正式页 · <a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a> · <Link href={pageHref(task.pageUrl, task.country)}>已上线页面数据</Link></p> : <p className={styles.muted}>目标页面尚未确定。</p>}
-    {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />原因：{task.failureReason}</p> : null}
-    {progress ? <><h4>最新进度</h4><p>{progress.summary}</p><p className={styles.muted}>{displayTime(progress.observedAt)}</p><WorkflowEvidence evidence={progress.evidence} />{progress.evidence.filter(item => !item.url).map((item, index) => <p key={index}>{item.label}</p>)}</> : null}
-    <h4>下一步</h4><p>{progress?.nextAction || task.nextAction || "等待进度回填。"}</p>
-    {task.fallbackReason ? <p className={styles.warning}>本次例外：{task.fallbackReason}</p> : null}
-    <h4>验收要求</h4><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul>
-    <h4>前置任务</h4>{task.dependencies.length ? <ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "本周范围外，需读取前置回执"}</li>; })}</ul> : <p className={styles.muted}>未登记任务依赖。</p>}
-    <h4>关键词研究</h4>{task.research ? <><p>月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p><p>{task.research.intent}</p>{task.research.exceptionReason ? <p>例外理由：{task.research.exceptionReason}</p> : null}<WorkflowEvidence evidence={task.research.evidence} /></> : <p className={styles.muted}>{task.kind === "technical" ? "技术与数据任务不要求主关键词；按验收要求执行。" : "研究证据待补，不能视为合格制作输入。"}</p>}
-    <WorkflowEvidence heading="交付证据" evidence={task.evidence} />
-    {task.approval ? <p className={styles.muted}>历史任务审核：{task.approval.approvedBy} · {displayTime(task.approval.approvedAt)} · 版本 {task.approval.contentVersion}。此记录不作为当前页面发布授权。</p> : null}
-    {pageDelivery || approvals.some(approval => approval.items.some(item => item.taskId === task.id)) ? <h4>页面交付</h4> : null}
-    {approvals.filter(approval => approval.items.some(item => item.taskId === task.id)).map(approval => <p key={approval.id}><Link href={`/approvals?approvalId=${encodeURIComponent(approval.id)}`}>{approval.title} →</Link></p>)}
-    {pageDelivery ? <PageDeliveryActions key={`${task.id}:${task.version}`} task={task} approvals={approvals} publications={publications} mutate={mutateWorkflow} onSaved={onSaved} /> : null}
-    {optimizations.filter(row => row.taskId === task.id).map(row => <OptimizationHistory key={row.id} optimization={row} />)}
-    <p className={styles.muted}>最近记录 {displayTime(task.updatedAt)}</p>
+    <section className={styles.taskContent} aria-label="任务内容">
+      <h3>任务内容</h3>
+      {task.pageUrl ? <p>目标页面：<a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a></p> : null}
+      <h4>为什么做</h4>
+      {relatedOptimizations.map(row => <p key={row.id}>{row.objective}</p>)}
+      {task.research ? <>
+        <p>{task.keyword ? `目标词「${task.keyword}」` : "关键词研究"}{task.research.intent.trim() !== action ? `：${task.research.intent}` : ""}</p>
+        <p>月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p>
+        {task.research.exceptionReason ? <p>{task.research.exceptionReason}</p> : null}
+      </> : !relatedOptimizations.length ? <p className={styles.muted}>任务原因与数据依据待补充。</p> : null}
+      {relatedOptimizations.map(({ id, baseline }) => <div key={id}>
+        <p className={styles.muted}>{baseline.source} · {baseline.periodStart} — {baseline.periodEnd} · {markets[baseline.country]} · {baseline.device} · {baseline.timezone} · 来源截至 {baseline.sourceDate} · 数据{{ complete: "完整", partial: "部分覆盖", missing: "缺失", unverified: "未核实", not_connected: "未接入" }[baseline.dataStatus]}</p>
+        <p>点击 {numberText(baseline.clicks)} · 曝光 {numberText(baseline.impressions)} · CTR {baseline.ctr == null ? "待补" : `${(baseline.ctr * 100).toFixed(2)}%`} · 平均排名 {baseline.averagePosition?.toFixed(1) ?? "待补"} · 自然访问 {numberText(baseline.organicVisits)}</p>
+      </div>)}
+      {task.kind === "optimization" && !relatedOptimizations.length ? <p className={styles.muted}>页面优化前的数据基线待补充，尚不能据此判断问题和预期效果。</p> : null}
+      <WorkflowEvidence evidence={evidence} />
+      {evidence.filter(item => !item.url).map((item, index) => <p className={styles.muted} key={index}>{item.label} · {displayTime(item.observedAt)}</p>)}
+      <h4>怎么做</h4><p className={styles.taskDescription}>{action || "具体处理方案待补充。"}</p>
+      {task.acceptanceCriteria.length ? <><p><strong>完成标准</strong></p><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul></> : null}
+      {progress ? <p className={styles.taskDescription}><strong>当前进展：</strong>{progress.summary}{progress.nextAction && progress.nextAction !== action ? `\n接下来：${progress.nextAction}` : ""}</p> : null}
+      {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />{task.failureReason}</p> : null}
+      {task.fallbackReason ? <p className={styles.muted}>{task.fallbackReason}</p> : null}
+    </section>
+    <details className={styles.taskSupporting}><summary>执行记录与交付</summary>
+      <p className={styles.muted}>负责人 {task.owner} · 内容版本 {task.contentVersion ?? "尚未制作"} · 最近记录 {displayTime(task.updatedAt)}</p>
+      {task.pageUrl ? <p><Link href={pageHref(task.pageUrl, task.country)}>查看已上线页面数据 →</Link></p> : null}
+      {task.dependencies.length ? <><h4>前置任务</h4><ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "待核实"}</li>; })}</ul></> : null}
+      {task.approval ? <p className={styles.muted}>历史任务审核：{task.approval.approvedBy} · {displayTime(task.approval.approvedAt)} · 版本 {task.approval.contentVersion}。此记录不作为当前页面发布授权。</p> : null}
+      {approvals.filter(approval => approval.items.some(item => item.taskId === task.id)).map(approval => <p key={approval.id}><Link href={`/approvals?approvalId=${encodeURIComponent(approval.id)}`}>{approval.title} →</Link></p>)}
+      {pageDelivery ? <PageDeliveryActions key={`${task.id}:${task.version}`} task={task} approvals={approvals} publications={publications} mutate={mutateWorkflow} onSaved={onSaved} /> : null}
+      {relatedOptimizations.map(row => <OptimizationHistory key={row.id} optimization={row} />)}
+    </details>
   </div>;
+
 }
 
 function OptimizationComparison({ comparison }: { comparison: NonNullable<WorkflowOptimization["observations"][number]["comparison"]> }) {
@@ -438,7 +460,7 @@ export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: s
   async function deleteTask(task: WorkflowTask) {
     setDeleting(true);
     setDeleteError("");
-    const { version, recordedAt, updatedAt, ...record } = task;
+    const { version, recordedAt: _recordedAt, updatedAt: _updatedAt, ...record } = task;
     try {
       const receipt = await mutateWorkflow({ requestId: crypto.randomUUID(), action: "save_task",
         expectedVersion: version, record: { ...record, deletedAt: new Date().toISOString() } });
