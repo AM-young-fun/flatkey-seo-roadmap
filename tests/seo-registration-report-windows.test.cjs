@@ -37,3 +37,12 @@ test('latest closed day covers the complete Thursday week and independent previo
  assert.ok(has(rows,'2026-11-05','2026-11-11'));
  assert.ok(rows.every(row=>row.end<='2026-11-18'));
 });
+
+test('overview 7/30/90-day presets collect independent exact current and previous periods',()=>{
+ const rows=registrationReportWindows('2026-11-19','2026-11-18');
+ for(const days of [7,30,90]){
+  const shift=n=>new Date(Date.parse('2026-11-18T00:00:00Z')+n*86400000).toISOString().slice(0,10);
+  assert.ok(has(rows,shift(1-days),'2026-11-18'));
+  assert.ok(has(rows,shift(1-2*days),shift(-days)));
+ }
+});
