@@ -12,6 +12,7 @@ import { technicalQaSummary, type TechnicalQaReport } from "./seo-technical-qa-r
 import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
+import type { ReviewedDigestBody } from "./seo-reviewed-digest";
 import { z } from "zod";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, workflowWeek, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
@@ -887,7 +888,7 @@ export function buildSeoDigest(input: DigestInput) {
     flatkeyRegistrations, accountRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };
 }
-export type SeoDigest = ReturnType<typeof buildSeoDigest>;
+export type SeoDigest = ReturnType<typeof buildSeoDigest> & { reviewedBody?: ReviewedDigestBody };
 
 /** Transport ambiguity is terminal for automatic retries. A human must reconcile the provider receipt. */
 export function digestClaimable(row: { status: string; leaseUntil: Date | null; attemptedAt: Date | null }, now = new Date()) {

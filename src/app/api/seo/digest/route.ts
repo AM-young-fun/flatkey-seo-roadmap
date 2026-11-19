@@ -18,11 +18,14 @@ import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, gene
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
 import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
+import { reviewedDigestCommandSchema, ReviewedDigestError } from "@/lib/seo-reviewed-digest";
+import { saveReviewedSeoDigest } from "@/lib/services/seo-reviewed-digest";
 
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
 const mutation = z.discriminatedUnion("action", [
+  reviewedDigestCommandSchema,
   z.object({ action: z.literal("confirm_provider_rejection"), incidentId: z.literal("2026-11-11-dingtalk-1001") }).strict(),
   z.object({ action: z.literal("read_saved"), reportId }).strict(),
   z.object({ action: z.literal("delivery_status"), id: z.string().regex(/^seo-digest-delivery:(daily|weekly):\d{4}-\d{2}-\d{2}(?::revision)?$/) }).strict(),
@@ -32,7 +35,7 @@ const mutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("finish"), reportId: z.string().min(1).max(200), reportHash: z.string().regex(/^[a-f0-9]{64}$/), destination: z.string().min(1).max(200), robotCode: z.string().min(1).max(200), id: z.string().min(1).max(200), owner: z.string().min(1).max(200), fencingToken: z.number().int().positive(), status: z.enum(["DELIVERED", "UNKNOWN"]), processQueryKey: z.string().min(1).max(2000).optional(), webhookReceipt: webhookReceiptSchema.optional(), errorCode: z.string().max(1000).optional() }).strict(),
 ]);
 function errorResponse(error: unknown) {
-  return Response.json({ message: error instanceof DigestError || error instanceof DigestRecoveryError ? error.message : error instanceof z.ZodError ? "日报周报参数无效" : "无法完成报告操作" }, { status: error instanceof DigestError || error instanceof DigestRecoveryError ? error.status : error instanceof z.ZodError || error instanceof SyntaxError ? 400 : 503, headers });
+  return Response.json({ message: error instanceof DigestError || error instanceof DigestRecoveryError || error instanceof ReviewedDigestError ? error.message : error instanceof z.ZodError ? "日报周报参数无效" : "无法完成报告操作" }, { status: error instanceof DigestError || error instanceof DigestRecoveryError || error instanceof ReviewedDigestError ? error.status : error instanceof z.ZodError || error instanceof SyntaxError ? 400 : 503, headers });
 }
 export async function GET(request: Request) {
   if (!await auth(request) && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
@@ -88,7 +91,7 @@ export async function GET(request: Request) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
         if (fresh) return Response.json({ report: fresh, dates }, { headers });
       }
-      if (archive && report && !explicitId) {
+      if (archive && report && !explicitId && !report.reviewedBody) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
         const previousStart = shiftDay(trafficStart, offset);
@@ -120,6 +123,7 @@ export async function POST(request: Request) {
     const text = await request.text();
     if (text.length > 8000) return Response.json({ message: "请求过大" }, { status: 413, headers });
     const input = mutation.parse(JSON.parse(text));
+    if (input.action === "save_reviewed") return Response.json({ report: await saveReviewedSeoDigest(input) }, { headers });
     if (input.action === "confirm_provider_rejection") return Response.json(await confirmKnownDigestRejection(input.incidentId), { headers });
     if (input.action === "read_saved") {
       const saved = await prisma.seoReportVersion.findUnique({ where: { id: input.reportId } });
