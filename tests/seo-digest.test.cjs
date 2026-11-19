@@ -532,3 +532,15 @@ test("daily cards retain older verified sources with explicit dates instead of l
  assert.match(report.text,/GPU 算力 · 访客 1 · 浏览 2 · 同日注册 0 · 流量 2026-11-14 \/ 漏斗 2026-11-14（洛杉矶）；2026-11-17 待核验/);
  assert.match(report.text,/最近已核实页面组 1\/4/);
 });
+
+test('daily preview uses the latest closed LA day, ignores ongoing day, and retains missing values',()=>{
+ const report=buildSeoDigest({...base('2026-11-19'),notificationCompact:true,dailyAcquisition:{points:[
+ {date:'2026-11-16',newUsers:171,newRegistrations:11},
+ {date:'2026-11-17',newUsers:138,newRegistrations:15},
+ {date:'2026-11-18',newUsers:128,newRegistrations:2},
+ {date:'2026-11-19',newUsers:999,newRegistrations:999}]}});
+ assert.match(report.text,/GA4 去重注册（首次来源为自然搜索） 15 → \*\*2\*\*/);
+ assert.match(report.text,/获客\/注册截至 2026-11-18/);
+ assert.doesNotMatch(report.text,/999/);
+ assert.match(report.text,/最新数据可能继续更新/);
+});

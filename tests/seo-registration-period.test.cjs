@@ -28,3 +28,8 @@ test('partial weeks compare an independently deduplicated matching previous inte
  assert.deepEqual(registrationPeriodComparison([current,fullPrevious],'2026-11-06','2026-11-12','2026-10-30','2026-11-05'),{current:8,previous:null});
  assert.deepEqual(registrationPeriodComparison([current,fullPrevious,matchedPrevious],'2026-11-06','2026-11-12','2026-10-30','2026-11-05'),{current:8,previous:5});
 });
+
+test('latest closed LA day is accepted without artificial 48h holdback; ongoing day stays rejected',()=>{
+ assert.equal(registrationPeriodSchema.safeParse(fixture({start:'2026-11-17',end:'2026-11-18',observedAt:'2026-11-19T09:30:00Z'})).success,true);
+ assert.equal(registrationPeriodSchema.safeParse(fixture({start:'2026-11-18',end:'2026-11-19',observedAt:'2026-11-19T09:30:00Z'})).success,false);
+});

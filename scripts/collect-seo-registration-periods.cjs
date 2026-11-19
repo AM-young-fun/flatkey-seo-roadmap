@@ -56,7 +56,7 @@ async function main() {
   assert.equal(s.dataStreams[0].name,'properties/541304395/dataStreams/15056169010');
   assert.equal(s.dataStreams[0].webStreamData.measurementId,'G-30RCEP2CVH');assert.equal(s.dataStreams[0].webStreamData.defaultUri,'https://flatkey.ai');
   save('property',{property:p,streams:s});
-  const propertyToday=new Intl.DateTimeFormat('en-CA',{timeZone:p.timeZone}).format(new Date()),eligibleEnd=shift(propertyToday,-3);
+  const propertyToday=new Intl.DateTimeFormat('en-CA',{timeZone:p.timeZone}).format(new Date()),eligibleEnd=shift(propertyToday,-1);
   const beijingToday=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
   const archive={};
   for(const kind of ['daily','weekly']){
@@ -64,7 +64,7 @@ async function main() {
     archive[kind]=result.dates??[];
   }
   const windows=registrationReportWindows(beijingToday,eligibleEnd,archive);
-  save('manifest',{archive,eligibleEnd,windows,policy:'48h holdback; partial weeks compare matching covered dates; not a provider finality flag'});
+  save('manifest',{archive,eligibleEnd,windows,policy:'Latest closed LA day; quality-checked current values may be revised; partial weeks compare matching covered dates'});
   const receipts=[],missing=[];
   for(const {start,end} of windows){
     const query={dateRanges:[{startDate:start,endDate:end}],metrics:[{name:'totalUsers'},{name:'eventCount'}],dimensionFilter:{andGroup:{expressions:[['firstUserPrimaryChannelGroup','Organic Search'],['eventName','sign_up_success']].map(([fieldName,value])=>({filter:{fieldName,stringFilter:{matchType:'EXACT',value,caseSensitive:true}}}))}},limit:'1'};

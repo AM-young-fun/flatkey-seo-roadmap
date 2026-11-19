@@ -86,7 +86,7 @@ async function run() {
   const credential = process.env.SEO_IMPORT_TOKEN;
   if (!credential) throw Error("missing_seo_import_token");
   const token = await getGoogleReadAccessToken("https://www.googleapis.com/auth/analytics.readonly");
-  const end = process.env.SEO_ACQUISITION_END || shiftDailySeoDate(dailySeoPropertyDate(), -3);
+  const end = process.env.SEO_ACQUISITION_END || shiftDailySeoDate(dailySeoPropertyDate(), -1);
   const start = shiftDailySeoDate(end, -1);
   const dates = [start, end];
   const dateRanges = [{ startDate: start, endDate: end }];
