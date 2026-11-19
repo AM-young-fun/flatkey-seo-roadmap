@@ -145,6 +145,13 @@ async function run() {
     (!row.funnel || savedRow.funnel?.entrants === row.funnel.entrants && savedRow.funnel.registrations === row.funnel.registrations)));
   if (!matching(saved.points, points, ["newUsers", "newRegistrations"]) || !pageGroups.every(group =>
     matching(savedGroups.groups.find(savedGroup => savedGroup.key === group.key)?.points ?? [], group.points, ["totalUsers", "pageViews"]))) throw Error("archive_readback_mismatch");
+  // The same daily collector must refresh the independently deduplicated
+  // report periods as well as the overview's daily trend. No notification path.
+  const periodRun = require("node:child_process").spawnSync(process.execPath,
+    [require("node:path").join(__dirname, "collect-seo-registration-periods.cjs"), "--import"],
+    { env: process.env, encoding: "utf8", timeout: 120000 });
+  fs.writeFileSync(output + "/registration-periods.log", (periodRun.stdout || "") + (periodRun.stderr || ""));
+  if (periodRun.status !== 0) throw Error("registration_period_collection_failed");
   console.log(JSON.stringify({ start, end, points, groups: pageGroups.map(group => ({
     key: group.key, points: group.points.map(({ date, totalUsers, pageViews, funnel, missingReason }) =>
       ({ date, totalUsers, pageViews, registrations: funnel?.registrations ?? null, missingReason })),
