@@ -1,3 +1,4 @@
+import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
 import { isSeoWorkday } from "./seo-workday";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
@@ -76,6 +77,13 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
     if (!publications.some(row => ["published", "verified"].includes(row.status))) reject("publication_missing", "上线状态必须关联真实发布记录");
     if (["verified", "observing"].includes(task.status) && !publications.some(row => row.status === "verified")) reject("verification_missing", "已验收状态需要正式页验收回执");
   }
+  const enteringReady = previous && ["planned", "researching"].includes(previous.status) && productionStates.has(task.status);
+  const rescheduled = previous && (previous.dueAt !== task.dueAt || previous.weekStart !== task.weekStart);
+  const briefChanged = previous && !same(previous.brief, task.brief);
+  if (actor === "collector" && taskNeedsChineseBrief(task) && (!previous || enteringReady || rescheduled || briefChanged)) {
+    const problems = workflowTaskBriefProblems(task);
+    if (problems.length) reject("task_brief_incomplete", problems.join("；"));
+  }
 }
 
 function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[]) {
@@ -100,6 +108,12 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
     }
   }
   if (!isExecutableWorkflowPlan(plan.status)) return;
+  const previousIds = new Set(previous && isExecutableWorkflowPlan(previous.status) ? previous.taskIds : []);
+  for (const task of tasks) {
+    if (!task || previousIds.has(task.id) || !taskNeedsChineseBrief(task)) continue;
+    const problems = workflowTaskBriefProblems(task);
+    if (problems.length) reject("plan_task_brief_incomplete", `任务「${task.title}」不能正式排期：${problems.join("；")}`);
+  }
   if (plan.status === "scheduled" && tasks.some(task => task && contentKinds.has(task.kind) && ["planned", "researching"].includes(task.status))) reject("plan_task_not_ready", "自动排期只能领取已具备研究证据的内容任务；未完成研究的候选留在工作台");
   const cadence = "cadence" in plan.targets ? plan.targets.cadence : null;
   const workdays = cadence === "workdays";

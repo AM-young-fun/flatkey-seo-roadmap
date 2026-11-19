@@ -70,6 +70,9 @@ export const workflowTaskSchema = z.object({
   brief: z.object({
     reason: z.string().trim().min(1).max(3000).refine(value => /[\u3400-\u9fff]/u.test(value), "任务原因须用中文说明数据对应的具体问题"),
     plan: z.string().trim().min(1).max(3000).refine(value => /[\u3400-\u9fff]/u.test(value), "任务方案须用中文说明对应的处理动作"),
+    problem: z.string().trim().min(1).max(2000).optional(),
+    actions: z.array(z.object({ target: z.string().trim().min(1).max(1000), change: z.string().trim().min(1).max(2000), verify: z.string().trim().min(1).max(2000) }).strict()).min(1).max(20).optional(),
+    evidence: evidence.min(1).optional(),
   }).strict().optional(),
   progress: z.array(taskProgress).max(100).optional(),
   contentVersion: z.string().trim().max(200).nullable(), artifactUrl: httpsUrl.nullable().default(null),
