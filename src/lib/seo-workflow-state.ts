@@ -1,6 +1,6 @@
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
 import { isSeoWorkday } from "./seo-workday";
-import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, workflowClusterRollbackCandidates } from "./seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, pageBelongsToSite, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
@@ -495,8 +495,20 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     publications: originalPublications,
     runs: all.filter(row => row.kind === "run").map(row => row.record as WorkflowRun),
   }).map(row => row.taskId));
+  // The scheduling cutover must not hide an already shipped cluster version awaiting human review.
+  const legacyPostReviewVersions = new Set(originalApprovals.flatMap(approval => approval.items
+    .filter(item => item.postPublicationId && workflowApprovalEffectiveItemStatus(approval, item.id, originalApprovals) === "pending"
+      && originalPublications.some(publication => publication.id === item.postPublicationId
+        && publication.publicationPolicy === "cluster_post_review" && publication.status === "verified"
+        && publication.siteDomain === approval.siteDomain
+        && publication.taskId === item.taskId && publication.contentVersion === item.contentVersion
+        && publication.pageUrl === item.pageUrl && publication.language === item.language))
+    .map(item => JSON.stringify([item.taskId, item.contentVersion, approval.siteDomain, item.pageUrl, item.language]))));
   const scheduledTasks = tasks.filter(task => {
-    if (task.weekStart < FIRST_OPERATIONAL_WEEK || (!workList && task.weekStart > weekStart)) return false;
+    if (!workList && task.weekStart > weekStart) return false;
+    if (task.weekStart < FIRST_OPERATIONAL_WEEK) return ["rackrate.org", "modelfit.cc"].includes(task.siteDomain)
+      && !!task.pageUrl && pageBelongsToSite(task.pageUrl, task.siteDomain)
+      && legacyPostReviewVersions.has(JSON.stringify([task.id, task.contentVersion, task.siteDomain, task.pageUrl, task.language]));
     if (isCodexTrackedTask(task)) return workList;
     return task.source === "human" || plannedIds.get(task.weekStart)?.has(task.id) ||
       task.kind === "technical" && issueTasks.has(task.id);

@@ -159,6 +159,22 @@ test('cluster review follows a verified production receipt and rejection queues 
    liveRow, review,
  ];
  const nextWeek = new Date("2026-11-23T02:15:00Z");
+ const legacyWork = review => [taskRow, liveRow, review];
+ const legacyReview = workflowSnapshot(legacyWork(post),{operational:true},"database",nextWeek);
+ assert.deepEqual(legacyReview.tasks.map(t=>t.id),[change.id]);
+ assert.equal(legacyReview.tasks[0].weekStart,'2026-11-09','retain original week instead of rescheduling');
+ assert.deepEqual(legacyReview.workWeek.activeApprovalItems[post.record.id],["item-en"]);
+ assert.equal(legacyReview.summary.pendingApprovalItems,1);
+ assert.deepEqual(workflowSnapshot(legacyWork(accepted),{operational:true},"database",nextWeek).tasks,[]);
+ for (const patch of [{status:'published'},{contentVersion:'other'},{taskId:'other'},{pageUrl:'https://rackrate.org/compare'},{language:'ja'},{id:'other'},{publicationPolicy:undefined}]) {
+   const invalid=[taskRow,{...liveRow,record:{...liveRow.record,...patch}},post];
+   assert.deepEqual(workflowSnapshot(invalid,{operational:true},"database",nextWeek).tasks,[],JSON.stringify(patch));
+ }
+ assert.deepEqual(workflowSnapshot([taskRow,post],{operational:true},"database",nextWeek).tasks,[]);
+ for (const patch of [{contentVersion:'other'},{pageUrl:'https://rackrate.org/compare'},{language:'ja'},{siteDomain:'mochichatbot.com',pageUrl:'https://mochichatbot.com/'}]) {
+   assert.deepEqual(workflowSnapshot([{...taskRow,record:{...taskRow.record,...patch}},liveRow,post],{operational:true},"database",nextWeek).tasks,[],JSON.stringify(patch));
+ }
+ assert.deepEqual(workflowSnapshot([{...taskRow,record:{...taskRow.record,deletedAt:time.toISOString()}},liveRow,post],{operational:true},"database",nextWeek).tasks,[]);
  const pendingReview = workflowSnapshot(clusterWork(post),{operational:true},"database",nextWeek);
  assert.deepEqual(pendingReview.workWeek.overdueTaskIds,[change.id]);
  assert.deepEqual(pendingReview.workWeek.activeApprovalItems[post.record.id],["item-en"]);
