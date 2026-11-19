@@ -29,3 +29,8 @@ test('overview UI uses canonical period and organic daily APIs without all-chann
  assert.ok(!source.includes('/api/seo/registrations?'));assert.ok(!source.includes('全渠道'));
  assert.ok(source.includes('所选区间去重'));assert.ok(source.includes('overviewRegistrationChange'));
 });
+
+test('overview date presets use the same LA day boundary as report registration periods',()=>{
+ const source=fs.readFileSync(require('path').join(__dirname,'../src/components/SeoOverview.tsx'),'utf8');
+ assert.ok(source.includes('useSeoRange("America/Los_Angeles")'));
+});
