@@ -6,7 +6,7 @@ const { workflowTaskHasProgress, workflowTaskSchema, workflowWeek, workflowWeekS
 const { prepareWorkflowMutation, workflowSnapshot } = require("../src/lib/seo-workflow-state.ts");
 const now = new Date("2026-11-10T10:00:00Z"), evidence = [{ label: "来源及验收", url: "https://flatkey.ai/docs", observedAt: "2026-11-09T01:00:00Z" }];
 const approval = { kind: "explicit", approvedBy: "负责人", approvedAt: "2026-11-10T07:00:00Z", contentVersion: "v1", evidence };
-const task = (patch = {}) => ({ id: "task-1", weekStart: "2026-11-09", title: "API integration", siteDomain: "flatkey.ai", kind: "landing", country: "US", language: "en", business: "API", pageType: "integration", keyword: "model api integration", pageUrl: "https://flatkey.ai/integrations/test", owner: "AI", dueAt: "2026-11-10T06:00:00Z", status: "ready", dependencies: [], evidence, nextAction: "制作", contentVersion: "v1", acceptanceCriteria: ["实际接口可运行"], research: { volume: 20, kd: 10, businessValue: 3, exceptionReason: null, intent: "integrate", observedAt: "2026-11-09T01:00:00Z", evidence }, approval: null, source: "automation", ...patch });
+const task = (patch = {}) => ({ id: "task-1", weekStart: "2026-11-09", title: "接口接入说明优化", brief: require("./fixtures/chinese-task-brief.cjs")(evidence), siteDomain: "flatkey.ai", kind: "landing", country: "US", language: "en", business: "API", pageType: "integration", keyword: "model api integration", pageUrl: "https://flatkey.ai/integrations/test", owner: "AI", dueAt: "2026-11-10T06:00:00Z", status: "ready", dependencies: [], evidence, nextAction: "制作", contentVersion: "v1", acceptanceCriteria: ["实际接口可运行"], research: { volume: 20, kd: 10, businessValue: 3, exceptionReason: null, intent: "integrate", observedAt: "2026-11-09T01:00:00Z", evidence }, approval: null, source: "automation", ...patch });
 function save(record, all = [], action = "save_task", actor = "human", expectedVersion = 0, requestId = "request-1") { return prepareWorkflowMutation({ requestId, action, expectedVersion, record }, all, actor, now); }
 const row = result => ({ kind: result.kind, record: result.record });
 const strip = value => Object.fromEntries(Object.entries(value).filter(([key]) => !["version", "updatedAt", "recordedAt", "verificationRecordedAt"].includes(key)));
@@ -205,9 +205,9 @@ test("new content plans use statutory workdays and exclude traffic-only sites", 
 
 // The user-facing Chinese brief is independent from target page language and executor instructions.
 test("Chinese task briefs survive saves without changing original research or instructions", () => {
- const original = task({ nextAction: "Write the English page", research: { ...task().research, intent: "API integration" } });
+ const original = task({ nextAction: "按原英文稿制作页面", research: { ...task().research, intent: "API integration" } });
  const first = save(original);
- const brief = { reason: "历史 GSC 有 67 次曝光但没有点击，需核查摘要是否回答目标查询，不能仅凭数据确定原因。", plan: "先对照搜索结果核对标题和首屏，再补充直接回答并按同口径观察。" };
+ const brief = { ...require("./fixtures/chinese-task-brief.cjs")(evidence), reason: "历史 GSC 有 67 次曝光但没有点击，需核查摘要是否回答目标查询，不能仅凭数据确定原因。", plan: "先对照搜索结果核对标题和首屏，再补充直接回答并按同口径观察。" };
  const updated = save({ ...strip(first.record), brief }, [row(first)], "save_task", "collector", 1, "brief-request");
  assert.deepEqual(updated.record.brief, brief);
  assert.deepEqual(updated.record.research, first.record.research);
@@ -218,4 +218,43 @@ test("Chinese task briefs survive saves without changing original research or in
  assert.deepEqual(legacySaved.record.brief, brief);
  assert.equal(workflowTaskSchema.safeParse({ ...original, brief: { reason: "volume 100 KD 0", plan: "Improve page" } }).success, false);
  assert.equal(workflowTaskSchema.safeParse(original).success, true);
+});
+
+
+test("automatic task creation requires Chinese evidence, a specific problem and verifiable changes", () => {
+ const auto = record => save(record, [], "save_task", "collector");
+ const valid = task();
+ assert.equal(auto(valid).record.language, "en");
+ for (const patch of [
+   { brief: undefined },
+   { title: "Optimize the GPU page" },
+   { brief: { ...valid.brief, reason: "月搜索量100，KD为0，业务价值为2分。" } },
+   { brief: { ...valid.brief, problem: "优化页面提高排名" } },
+   { brief: { ...valid.brief, evidence: undefined } },
+   { brief: { ...valid.brief, actions: [{ target: "页面首屏", change: "补充具体规格与用途的直接回答", verify: "提高排名" }] } },
+   { brief: { ...valid.brief, plan: "日本語で標準 Attention と比較し、シーケンス長や精度をそろえて検証する。" } },
+ ]) assert.throws(() => auto(task(patch)), error => error.code === "task_brief_incomplete", JSON.stringify(patch));
+});
+
+test("legacy progress survives but automatic promotion, rescheduling and brief regression require the new standard", () => {
+ const legacy = row(save(task({ brief: undefined, status: "planned" })));
+ const write = patch => save({ ...strip(legacy.record), ...patch }, [legacy], "save_task", "collector", 1, "legacy-promote");
+ assert.equal(write({ nextAction: "继续按原任务补充来源证据" }).record.status, "planned");
+ assert.throws(() => write({ status: "ready" }), error => error.code === "task_brief_incomplete");
+ assert.throws(() => write({ dueAt: "2026-11-11T06:00:00Z" }), error => error.code === "task_brief_incomplete");
+ const current = row(save(task()));
+ assert.throws(() => save({ ...strip(current.record), brief: { reason: "搜索量100，KD0", plan: "提高页面排名" } }, [current], "save_task", "collector", 1, "regression"), error => error.code === "task_brief_incomplete");
+});
+
+test("formal scheduling checks newly included tasks without blocking unchanged historical plans", () => {
+ const legacy = row(save(task({ brief: undefined })));
+ const targets = { cadence: "focused", landing: 3, apiBlogs: 0, gpuBlogs: 20, optimizedPages: 14, blogLanguages: { en: 5, ja: 5, "pt-BR": 5, "es-ES": 5 } };
+ const plan = { id: "brief-plan", weekStart: "2026-11-09", title: "候选计划", status: "draft", taskIds: [legacy.record.id], owner: "AI", preparedAt: now.toISOString(), reviewedAt: null, reviewedBy: null, targets, evidence, notes: "", gaps: Object.entries({ landing: 2, gpuBlogs: 20, optimizedPages: 14, blogEn: 5, blogJa: 5, blogPt: 5, blogEs: 5 }).map(([category,count]) => ({ category,count,reason:"缺少已核实候选" })) };
+ const draft = row(save(plan, [legacy], "save_plan"));
+ assert.throws(() => save({ ...strip(draft.record), status: "scheduled" }, [legacy, draft], "save_plan", "collector", 1, "schedule"), error => error.code === "plan_task_brief_incomplete");
+ const historical = { kind: "plan", record: { ...draft.record, status: "scheduled" } };
+ assert.equal(save({ ...strip(historical.record), notes: "只补充运行说明" }, [legacy,historical], "save_plan", "collector", 1, "historical-update").record.status, "scheduled");
+ const qualified = row(save(task({ id: "qualified" })));
+ const addition = { ...strip(historical.record), taskIds: [...historical.record.taskIds, qualified.record.id], gaps: plan.gaps.map(gap => gap.category === "landing" ? {...gap,count:1} : gap) };
+ assert.equal(save(addition, [legacy,qualified,historical], "save_plan", "collector", 1, "add-qualified").record.taskIds.length,2);
 });

@@ -28,7 +28,7 @@ test("product cannot disguise a content task or become source-blog publication",
   assert.equal(workflowPublicationSchema.safeParse(publication).success, false);
 });
 test("product approval must reference a product technical task; channel cannot change after submission", () => {
-  const ordinary = mutate({ ...task, channel: "website" }, "save_task");
+  const ordinary = mutate({ ...task, channel: "website", title: "官网技术核查", brief: require("./fixtures/chinese-task-brief.cjs")(evidence), nextAction: "核对官网准确版本", acceptanceCriteria: ["核对测试证据"] }, "save_task");
   assert.throws(() => mutate(approval, "save_approval", [{ kind: "task", record: ordinary.record }]), /同渠道技术任务/);
   const t = mutate(task, "save_task"), rows = [{ kind: "task", record: t.record }];
   assert.throws(() => mutate({ ...task, channel: "website" }, "save_task", rows, 1), /不能更换渠道/);

@@ -27,7 +27,7 @@ async function harness(t, input = fixture()) {
     rows = rows.filter(row => !(row.kind === prepared.kind && row.record.id === prepared.record.id)); rows.push({ kind: prepared.kind, record: prepared.record });
     return prepared;
   }
-  mutate({ id: "prompt-task", weekStart: input.weekStart, title: "Prompt release fixture", siteDomain: "flatkey.ai", kind: "technical", country: null, language: null, business: "API", pageType: "other", keyword: null, pageUrl: null, owner: "AI", dueAt: time.toISOString(), status: "ready", dependencies: [], evidence, nextAction: "Review", contentVersion: input.contentVersion, acceptanceCriteria: ["Exact qualified content"], source: "automation" }, "save_task");
+  mutate({ id: "prompt-task", weekStart: input.weekStart, title: "官网提示词素材入库测试", brief: require("./fixtures/chinese-task-brief.cjs")(evidence), siteDomain: "flatkey.ai", kind: "technical", country: null, language: null, business: "API", pageType: "other", keyword: null, pageUrl: null, owner: "AI", dueAt: time.toISOString(), status: "ready", dependencies: [], evidence, nextAction: "核对素材与准确版本", contentVersion: input.contentVersion, acceptanceCriteria: ["核对内容和精确版本"], source: "automation" }, "save_task");
   const publicRow = () => { const copy = { ...parsed.item }; delete copy._seo_review; return { ...copy, contentVersion: input.contentVersion, createdAt, importCreatedAt: time.toISOString() }; };
   let checkCount = 0;
   const fetchImpl = async (url, opts) => {
