@@ -202,3 +202,20 @@ test("new content plans use statutory workdays and exclude traffic-only sites", 
   const makeup = { kind: "task", record: task({ weekStart: makeupWeek, dueAt: "2026-09-20T06:00:00Z" }) };
   assert.equal(save(make(makeupWeek, 6, [makeup]), [makeup], "save_plan").record.targets.landing, 6);
 });
+
+// The user-facing Chinese brief is independent from target page language and executor instructions.
+test("Chinese task briefs survive saves without changing original research or instructions", () => {
+ const original = task({ nextAction: "Write the English page", research: { ...task().research, intent: "API integration" } });
+ const first = save(original);
+ const brief = { reason: "历史 GSC 有 67 次曝光但没有点击，需核查摘要是否回答目标查询，不能仅凭数据确定原因。", plan: "先对照搜索结果核对标题和首屏，再补充直接回答并按同口径观察。" };
+ const updated = save({ ...strip(first.record), brief }, [row(first)], "save_task", "collector", 1, "brief-request");
+ assert.deepEqual(updated.record.brief, brief);
+ assert.deepEqual(updated.record.research, first.record.research);
+ assert.equal(updated.record.nextAction, original.nextAction);
+ assert.equal(updated.record.language, "en");
+ const { brief: _brief, ...legacyUpdate } = strip(updated.record);
+ const legacySaved = save(legacyUpdate, [row(updated)], "save_task", "collector", 2, "legacy-brief-request");
+ assert.deepEqual(legacySaved.record.brief, brief);
+ assert.equal(workflowTaskSchema.safeParse({ ...original, brief: { reason: "volume 100 KD 0", plan: "Improve page" } }).success, false);
+ assert.equal(workflowTaskSchema.safeParse(original).success, true);
+});

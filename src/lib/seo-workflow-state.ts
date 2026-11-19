@@ -371,6 +371,8 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   if (kind === "task") {
     const task = record as WorkflowTask;
     const oldTask = previous as WorkflowTask | undefined;
+    // Older executors may omit the display-only Chinese brief on progress updates.
+    if (!task.brief && oldTask?.brief) task.brief = oldTask.brief;
     if (task.progress?.length || oldTask?.progress?.length) {
       const progress = new Map((oldTask?.progress ?? []).map(entry => [entry.id, entry]));
       for (const entry of task.progress ?? []) {

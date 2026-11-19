@@ -114,7 +114,7 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
   const evidence = [...(task.research?.evidence ?? []), ...relatedOptimizations.flatMap(row => [...row.baseline.evidence, ...row.evidence]), ...task.evidence, ...(progress?.evidence ?? [])]
     .filter((item, index, all) => all.findIndex(other => other.label === item.label && other.url === item.url && other.artifact === item.artifact) === index);
   const previewUrl = task.artifactUrl;
-  const action = task.nextAction.trim();
+  const action = task.brief?.plan ?? task.nextAction.trim();
   return <div className={styles.detail}>
     <dl className={styles.metadata}>
       <div><dt>类型</dt><dd>{workTaskTypes.find(item => item.value === editorialTaskType(task))?.label ?? taskKinds[task.kind]}</dd></div>
@@ -126,26 +126,26 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
       <h3>任务内容</h3>
       {task.pageUrl ? <p>目标页面：<a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl} ↗</a></p> : null}
       <h4>为什么做</h4>
-      {relatedOptimizations.map(row => <p key={row.id}>{row.objective}</p>)}
-      {task.research ? <>
-        <p>{task.keyword ? `目标词「${task.keyword}」` : "关键词研究"}{task.research.intent.trim() !== action ? `：${task.research.intent}` : ""}</p>
-        <p>月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p>
-        {task.research.exceptionReason ? <p>{task.research.exceptionReason}</p> : null}
-      </> : !relatedOptimizations.length ? <p className={styles.muted}>任务原因与数据依据待补充。</p> : null}
+      <p className={styles.taskDescription}>{task.brief?.reason ?? "中文任务说明待补充：请结合证据说明具体问题、影响及处理理由；搜索量和 KD 仅用于判断需求，不能代替页面问题诊断。"}</p>
       {relatedOptimizations.map(({ id, baseline }) => <div key={id}>
         <p className={styles.muted}>{baseline.source} · {baseline.periodStart} — {baseline.periodEnd} · {markets[baseline.country]} · {baseline.device} · {baseline.timezone} · 来源截至 {baseline.sourceDate} · 数据{{ complete: "完整", partial: "部分覆盖", missing: "缺失", unverified: "未核实", not_connected: "未接入" }[baseline.dataStatus]}</p>
         <p>点击 {numberText(baseline.clicks)} · 曝光 {numberText(baseline.impressions)} · CTR {baseline.ctr == null ? "待补" : `${(baseline.ctr * 100).toFixed(2)}%`} · 平均排名 {baseline.averagePosition?.toFixed(1) ?? "待补"} · 自然访问 {numberText(baseline.organicVisits)}</p>
       </div>)}
-      {task.kind === "optimization" && !relatedOptimizations.length ? <p className={styles.muted}>页面优化前的数据基线待补充，尚不能据此判断问题和预期效果。</p> : null}
+      {task.kind === "optimization" && !relatedOptimizations.length ? <p className={styles.muted}>结构化优化基线尚未登记，需保留上述来源的具体查询、页面和日期口径，后续再按同口径复盘。</p> : null}
+      <details><summary>数据与来源</summary>
+        {task.keyword ? <p>目标查询：{task.keyword}</p> : null}
+        {task.research ? <p>研究日期 {displayTime(task.research.observedAt)} · 月搜索量 {numberText(task.research.volume)} · KD {numberText(task.research.kd)} · 业务价值 {numberText(task.research.businessValue)} / 3</p> : null}
       <WorkflowEvidence evidence={evidence} />
       {evidence.filter(item => !item.url).map((item, index) => <p className={styles.muted} key={index}>{item.label} · {displayTime(item.observedAt)}</p>)}
-      <h4>怎么做</h4><p className={styles.taskDescription}>{action || "具体处理方案待补充。"}</p>
+      </details>
+      <h4>怎么做</h4><p className={styles.taskDescription}>{task.brief?.plan ?? "中文处理方案待补充：请逐项说明针对上述问题要改哪里、如何修改以及如何验证。"}</p>
       {task.acceptanceCriteria.length ? <><p><strong>完成标准</strong></p><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul></> : null}
       {progress ? <p className={styles.taskDescription}><strong>当前进展：</strong>{progress.summary}{progress.nextAction && progress.nextAction !== action ? `\n接下来：${progress.nextAction}` : ""}</p> : null}
       {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />{task.failureReason}</p> : null}
       {task.fallbackReason ? <p className={styles.muted}>{task.fallbackReason}</p> : null}
     </section>
     <details className={styles.taskSupporting}><summary>执行记录与交付</summary>
+      <details><summary>原始执行指令</summary><p className={styles.taskDescription}>{task.nextAction}</p></details>
       <p className={styles.muted}>负责人 {task.owner} · 内容版本 {task.contentVersion ?? "尚未制作"} · 最近记录 {displayTime(task.updatedAt)}</p>
       {task.pageUrl ? <p><Link href={pageHref(task.pageUrl, task.country)}>查看已上线页面数据 →</Link></p> : null}
       {task.dependencies.length ? <><h4>前置任务</h4><ul>{task.dependencies.map(id => { const dependency = tasks.find(item => item.id === id); return <li key={id}>{dependency ? <Link href={workTaskHref(dependency)}>{dependency.title}</Link> : id} · {dependency ? stateLabel(dependency.status) : "待核实"}</li>; })}</ul></> : null}
