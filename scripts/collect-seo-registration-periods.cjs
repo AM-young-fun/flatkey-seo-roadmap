@@ -28,6 +28,11 @@ function registrationReportWindows(beijingToday, eligibleEnd, archive = {}) {
   // retain the early partial-window collection for the next preparation day.
   if (newCalendar) addReport(beijingToday,'weekly');
   addReport(shift(beijingToday,((newCalendar ? 4 : 5)-weekday+7)%7),'weekly');
+  // Overview presets use independent whole-period deduplication, just like reports.
+  for (const days of [7, 30, 90]) {
+    add(shift(eligibleEnd, 1-days), eligibleEnd);
+    add(shift(eligibleEnd, 1-2*days), shift(eligibleEnd, -days));
+  }
   add(eligibleEnd,eligibleEnd); add(shift(eligibleEnd,-1),shift(eligibleEnd,-1));
   return [...windows.values()];
 }
