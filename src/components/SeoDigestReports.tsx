@@ -451,13 +451,13 @@ export function SeoDigestReports() {
         <header className={reportStyles.reportHeader}><div><h2>{report.title}</h2>
         <p>生成于 {shanghaiStamp(report.generatedAt)}（北京时间）</p>
         {kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE ? <p>统计周期：{formatPeriod(report.date)}；北京时间周四 16:30 开始整理，供审核。</p> : null}
-        {report.registrationCoverageNote ? <p>{report.registrationCoverageNote}</p> : null}
-        {"registrationCorrection" in report && report.registrationCorrection ? <p>SEO 注册已按首次自然搜索获客口径补采；当前详情包含事后修订，原发送快照保留。</p> : null}</div>
+        {!report.reviewedBody && report.registrationCoverageNote ? <p>{report.registrationCoverageNote}</p> : null}
+        {!report.reviewedBody && "registrationCorrection" in report && report.registrationCorrection ? <p>SEO 注册已按首次自然搜索获客口径补采；当前详情包含事后修订，原发送快照保留。</p> : null}</div>
         <div className={styles.toolbarActions}>
           {exact ? <Link className={styles.secondary} href={route(kind, report.date)}>查看最新详情</Link> : null}
           {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
         </div></header>
-        <dl className={reportStyles.metrics}>
+        {report.reviewedBody ? <section className={reportStyles.section} aria-label="已审周报完整正文" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{report.text}</section> : <><dl className={reportStyles.metrics}>
           <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications)}</dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications)}</dd></div>
           <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations)}</dd></div>
@@ -468,7 +468,7 @@ export function SeoDigestReports() {
             <small>America/Los_Angeles</small></div>
         </dl>
         <ReportSections text={report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} highlights={report.weeklyHighlights} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection}
-          completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} />
+          completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} /></>}
       </article>}
   </div>;
 }
