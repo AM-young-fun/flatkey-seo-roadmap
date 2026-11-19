@@ -103,8 +103,88 @@ test("cluster sessions respect the property timezone and leave absent dates unkn
     return { rows: [[["20251020"], [3]]], metadata: { timeZone: "Asia/Shanghai" } };
   });
   const result = await fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "558899190", "Asia/Shanghai");
-  assert.deepEqual(result.daily, [{ date: "2025-10-20", sessions: 3 }]);
+  assert.deepEqual(result.daily, [{ date: "2025-10-20", sessions: 3 }, { date: "2025-10-21", sessions: null }]);
+  assert.equal(result.quality.complete, false);
   await assert.rejects(() => fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "558899190", "America/Los_Angeles"));
+});
+
+test("omitted session dates are persisted as zero only after a scoped explicit zero total", async t => {
+  const { fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+  const queries = [];
+  useMockGoogle(t, (query, path) => {
+    queries.push(query);
+    assert.match(path, /561876347:runReport$/);
+    assert.deepEqual(query.metrics, [{ name: "sessions" }]);
+    const metadata = { timeZone: "America/Los_Angeles" };
+    if (query.dimensions) return { rows: [[["20261109"], [2]], [["20261110"], [2]], [["20261112"], [1]]], metadata };
+    assert.equal(query.keepEmptyRows, true);
+    assert.deepEqual(query.dateRanges, [{ startDate: "2026-11-09", endDate: "2026-11-15" }]);
+    assert.deepEqual(query.dimensionFilter.andGroup.expressions, [queries[0].dimensionFilter, {
+      filter: { fieldName: "date", inListFilter: { values: ["20261111", "20261113", "20261114", "20261115"], caseSensitive: true } },
+    }]);
+    return { rows: [[[], [0]]], metadata };
+  });
+  const report = await fetchGa4SiteSessions({ start: "2026-11-09", end: "2026-11-15" }, "561876347", "America/Los_Angeles", "BR");
+  assert.equal(queries.length, 2, "one confirmation covers all omitted dates");
+  assert.deepEqual(queries[0].dimensionFilter.andGroup.expressions.map(x => x.filter.stringFilter.value), ["Organic Search", "BR"]);
+  assert.deepEqual(report.daily.map(x => x.sessions), [2, 2, 0, 1, 0, 0, 0]);
+  assert.deepEqual(report.quality, { complete: true, reasons: [] });
+});
+
+test("a completely empty daily report can recover a full zero interval from an explicit scalar", async t => {
+  const { fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+  useMockGoogle(t, query => ({ rows: query.dimensions ? [] : [[[], [0]]], metadata: { timeZone: "Asia/Shanghai" } }));
+  const result = await fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "558899190", "Asia/Shanghai");
+  assert.deepEqual(result.daily, [{ date: "2025-10-20", sessions: 0 }, { date: "2025-10-21", sessions: 0 }]);
+  assert.equal(result.quality.complete, true);
+});
+
+for (const [name, response] of [
+  ["metadata-only", { rows: [], metricHeaders: undefined, rowCount: undefined }],
+  ["empty rows", { rows: [] }],
+  ["missing row count", { rows: [[[], [0]]], rowCount: undefined }],
+  ["positive total", { rows: [[[], [1]]] }],
+  ["missing timezone", { rows: [[[], [0]]], metadata: {} }],
+  ["wrong timezone", { rows: [[[], [0]]], metadata: { timeZone: "Asia/Shanghai" } }],
+  ["thresholding", { rows: [[[], [0]]], metadata: { timeZone: "America/Los_Angeles", subjectToThresholding: true } }],
+  ["sampling", { rows: [[[], [0]]], metadata: { timeZone: "America/Los_Angeles", samplingMetadatas: [{ samplesReadCount: "1", samplingSpaceSize: "2" }] } }],
+  ["other row", { rows: [[[], [0]]], metadata: { timeZone: "America/Los_Angeles", dataLossFromOtherRow: true } }],
+]) test(`unverified zero confirmation (${name}) keeps missing dates unknown and preserves observed positives`, async t => {
+  const { fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+  useMockGoogle(t, query => query.dimensions ? { rows: [[["20251020"], [3]]], metadata: { timeZone: "America/Los_Angeles" } }
+    : { metadata: { timeZone: "America/Los_Angeles" }, ...response });
+  const result = await fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "561876347", "America/Los_Angeles");
+  assert.deepEqual(result.daily, [{ date: "2025-10-20", sessions: 3 }, { date: "2025-10-21", sessions: null }]);
+  assert.equal(result.quality.complete, false);
+  assert.ok(result.quality.reasons.includes("missing_dates_unverified"));
+});
+
+test("a failed zero confirmation retains known sessions and does not retry or synthesize zero", async t => {
+  const { fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+  let requests = 0;
+  useMockGoogle(t, query => {
+    requests++;
+    if (!query.dimensions) throw new Error("fixture timeout");
+    return { rows: [[["20251020"], [3]]], metadata: { timeZone: "America/Los_Angeles" } };
+  });
+  const result = await fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "561876347", "America/Los_Angeles");
+  assert.equal(requests, 2);
+  assert.deepEqual(result.daily.map(x => x.sessions), [3, null]);
+  assert.ok(result.quality.reasons.includes("zero_confirmation_unavailable"));
+});
+
+test("a limited daily session report cannot be repaired into zeros by a scalar", async t => {
+  const { fetchGa4SiteSessions } = require("../src/lib/services/ga4-organic.ts");
+  let requests = 0;
+  useMockGoogle(t, query => {
+    requests++;
+    assert.ok(query.dimensions, "do not issue a confirmation after a limited report");
+    return { rows: [[["20251020"], [3]]], metadata: { timeZone: "America/Los_Angeles", subjectToThresholding: true } };
+  });
+  const result = await fetchGa4SiteSessions({ start: "2025-10-20", end: "2025-10-21" }, "561876347", "America/Los_Angeles");
+  assert.equal(requests, 1);
+  assert.ok(result.daily.every(x => x.sessions === null));
+  assert.equal(result.quality.complete, false);
 });
 
 test("hostName joins page rows without mixing the same landing path across hosts", async t => {
