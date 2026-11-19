@@ -1,3 +1,4 @@
+import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
 import { analyticsStorageKind } from "@/lib/seo-analytics";
 import { authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
@@ -7,7 +8,7 @@ import { basicAnalyticsHealth } from "@/lib/analytics-health";
 import { seoCountry } from "@/lib/seo";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
-  if (!await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
+  if (!await authorizeAnalyticsRead(request) && (request.headers.has("origin") || !await authenticateImportToken(request))) return Response.json({ message: "请先登录" }, { status: 401, headers });
   const query = new URL(request.url).searchParams;
   const range = { start: query.get("start") ?? defaultRange().start, end: query.get("end") ?? defaultRange().end };
   const country = seoCountry(query.get("country"));
