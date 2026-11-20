@@ -14,6 +14,9 @@ export function serpPeriodFromKey(key: string): SerpPeriod {
 }
 
 const ANCHOR = "2026-10-20";
+export const SERP_SCHEDULE_LOCAL_TIME = "16:00";
+// Apply the new clock to the next unelapsed slot, preserving historical ledgers.
+const AFTERNOON_SCHEDULE_FIRST_PERIOD = "2026-12-01";
 const DAY = 86400000;
 function addDays(day: string, count: number) { return new Date(Date.parse(`${day}T00:00:00Z`) + count * DAY).toISOString().slice(0, 10); }
 function biweeklyPeriod(start: string): SerpPeriod {
@@ -24,9 +27,8 @@ function biweeklyPeriod(start: string): SerpPeriod {
   const firstDay = `${start.slice(0, 7)}-01`;
   const firstSlot = addDays(ANCHOR, Math.ceil((Date.parse(`${firstDay}T00:00:00Z`) - Date.parse(`${ANCHOR}T00:00:00Z`)) / (14 * DAY)) * 14);
   const part = Math.round((parsed - Date.parse(`${firstSlot}T00:00:00Z`)) / (14 * DAY)) + 1;
-  // Keep the Tuesday IDs and recorded November 5 slot. The next
-  // scheduled Thursday starts at 10:10 Shanghai.
-  const clock = start >= "2026-11-17" ? "10:10" : "08:00";
+  // Keep Tuesday IDs, the 14-day phase, and already elapsed capture slots.
+  const clock = start >= AFTERNOON_SCHEDULE_FIRST_PERIOD ? SERP_SCHEDULE_LOCAL_TIME : start >= "2026-11-17" ? "10:10" : "08:00";
   const dueAt = start >= "2026-11-03"
     ? new Date(`${addDays(start, 2)}T${clock}:00+08:00`).toISOString()
     : `${start}T02:30:00.000Z`;
@@ -55,6 +57,15 @@ export function periodDue(key: string): Date {
   return new Date(serpPeriodFromKey(key).dueAt);
 }
 
+/** Associates a real scheduled run with a closed LA report week; it is not proof of collection. */
+export function serpCaptureBelongsToWeek(periodKey: string, start: string, end: string): boolean {
+  try {
+    const captureDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(periodDue(periodKey));
+    return captureDay >= start && captureDay <= end ||
+      new Date(start + "T00:00:00Z").getUTCDay() === 4 && new Date(end + "T00:00:00Z").getUTCDay() === 3 && captureDay === addDays(end, 1);
+  } catch { return false; }
+}
+
 // Interpret a persisted schedule cursor using its original period key. This
 // lets an already-enabled future schedule move without touching its gates,
 // budget, revision, or an unfinished/completed paid ledger.
@@ -65,6 +76,7 @@ export function scheduledSerpDue(value: Date | string): Date {
     `${key}T02:30:00.000Z`,
     new Date(`${key}T00:00:00+08:00`).toISOString(),
     `${addDays(key, 2)}T00:00:00.000Z`,
+    `${addDays(key, 2)}T02:10:00.000Z`,
   ];
   return previousSlots.includes(date.toISOString()) ? periodDue(key) : date;
 }

@@ -226,6 +226,21 @@ test("every daily cron while paused is a zero-provider-call no-op, including no 
   assert.equal((await runSerpMonitorCron()).status, "DISABLED");
   assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
 });
+test("the future 16:00 slot defers an old 10:10 cursor and leaves its paid gate and budget untouched", async t => {
+ t.mock.timers.enable({apis:["Date"],now:new Date("2026-12-03T07:59:59Z")});
+ state.config.paidEnabled=true;state.config.nextDueAt=new Date("2026-12-03T02:10:00Z");
+ const before=clone(state.config);
+ const result=await runSerpMonitorCron();
+ assert.equal(result.status,"NOT_DUE");assert.equal(result.nextDueAt,"2026-12-03T08:00:00.000Z");
+ assert.deepEqual(state.config,before);assert.equal(fetches.length,0);assert.equal(balanceRequests.length,0);assert.equal(state.runs.length,0);
+ t.mock.timers.tick(1000);state.config.paidEnabled=false;
+ const paused=clone(state.config);
+ assert.equal((await runSerpMonitorCron()).status,"DISABLED");
+ const status=await loadSerpMonitorStatus();
+ assert.equal(status.config.localTime,"16:00");assert.equal(status.config.nextDueAt,"2026-12-03T08:00:00.000Z");
+ assert.equal(status.config.paidEnabled,false);assert.deepEqual(state.config,paused);
+ assert.equal(fetches.length,0);assert.equal(balanceRequests.length,0);assert.equal(state.runs.length,0);
+});
 test("an existing 10:30 server cursor starts once at Thursday 08:00 and never creates a second ledger at the old time",async t=>{
  t.mock.timers.enable({apis:["Date"],now:new Date("2026-11-04T23:59:59Z")});
  state.config.paidEnabled=true;state.config.nextDueAt=new Date("2026-11-03T02:30:00Z");

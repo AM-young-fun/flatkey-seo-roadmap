@@ -72,7 +72,7 @@ test("Friday reports include the Thursday capture and intervening Fridays retain
  assert.equal(result.ranking.captureWeek,false);assert.equal(result.ranking.status,"NOT_SCHEDULED");assert.equal(result.ranking.nextCaptureAt,"2026-11-19T02:10:00.000Z");
 });
 
-test("Los Angeles Thursday reports include the existing slot on its actual local Wednesday",async()=>{
+test("LA Thursday reports associate both historical Wednesday and new Thursday collection slots",async()=>{
  mode="reuse";run={id:"existing-slot",status:"RUNNING",cohortJson:[model]};
  let result=await loadWeeklySerp(reportPeriods("2026-11-12"));
  assert.equal(result.ranking.captureWeek,true);assert.equal(result.ranking.waiting,true);
@@ -80,6 +80,8 @@ test("Los Angeles Thursday reports include the existing slot on its actual local
  assert.equal(new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles"}).format(new Date(result.ranking.nextCaptureAt)),"2026-11-18");
  run=null;result=await loadWeeklySerp(reportPeriods("2026-11-19"));
  assert.equal(result.ranking.captureWeek,false);assert.equal(result.ranking.status,"NOT_SCHEDULED");
- assert.equal(result.ranking.nextCaptureAt,"2026-12-03T02:10:00.000Z");
+ assert.equal(result.ranking.nextCaptureAt,"2026-12-03T08:00:00.000Z");
  result=await loadWeeklySerp(reportPeriods("2026-11-26"));assert.equal(result.ranking.captureWeek,true);
+ assert.equal(result.ranking.nextCaptureAt,"2026-12-03T08:00:00.000Z");
+ assert.equal(new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles"}).format(new Date(result.ranking.nextCaptureAt)),"2026-12-03");
 });

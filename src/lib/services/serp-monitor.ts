@@ -5,7 +5,7 @@ import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { envBool } from "@/lib/env";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { loadScheduledSerpMonitoringCohort as loadSerpTargetCohort } from "@/lib/services/serp-targets";
-import { nextSerpPeriodKey, periodDue, serpPeriod, serpPeriodFromKey, scheduledSerpDue } from "@/lib/serp-periods";
+import { nextSerpPeriodKey, periodDue, serpPeriod, serpPeriodFromKey, scheduledSerpDue, SERP_SCHEDULE_LOCAL_TIME } from "@/lib/serp-periods";
 import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegion, normalizeSerpAdvanced, providerCostMicros, providerIdIsSafe, providerTaskEnvelope,
   quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_NORMALIZATION_VERSION, SERP_PRICE_PER_QUERY_MICROS, SERP_TASK_GET_URL, SERP_TASK_POST_URL,
   serpTaskId, type SerpMonitorMutation } from "@/lib/dataforseo-serp";
@@ -32,7 +32,7 @@ function configuration(row: SerpMonitorConfig | null): SerpMonitorConfiguration 
   if (!row) return { ...SERP_DEFAULT_CONFIG };
   return { region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840,
     device: row.device as "desktop", depth: row.depth as 100, intervalDays: row.intervalDays as 14, paidEnabled: row.paidEnabled,
-    schedule: "BIWEEKLY_TUESDAY", scheduleDays: [4], timezone: "Asia/Shanghai", localTime: "08:00",
+    schedule: "BIWEEKLY_TUESDAY", scheduleDays: [4], timezone: "Asia/Shanghai", localTime: SERP_SCHEDULE_LOCAL_TIME,
     maxRunCostMicros: row.maxRunCostMicros, maxMonthCostMicros: row.maxMonthCostMicros, revision: row.revision,
     nextDueAt: row.nextDueAt ? scheduledSerpDue(row.nextDueAt).toISOString() : null };
 }
@@ -65,7 +65,7 @@ export async function loadSerpMonitorStatus(): Promise<SerpMonitorStatus> {
 export async function previewSerpMonitor(): Promise<SerpMonitorPreview> {
   const [row, cohort] = await Promise.all([prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), loadSerpTargetCohort()]);
   return { action: "preview", cohortHash: cohort.hash, quote: quoteSerpTargets(cohort.targets, SERP_MARKETS), configuration: configuration(row), paidEnabled: false,
-    message: "仅预览目标、去重查询及费用；未提交供应商任务。隔周周四10:10上海时间采集，付费抓取保持关闭。" };
+    message: `仅预览目标、去重查询及费用；未提交供应商任务。隔周周四${SERP_SCHEDULE_LOCAL_TIME}北京时间采集，付费抓取保持关闭。` };
 }
 async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "configure" }>) {
   await prisma.$transaction(async tx => {
@@ -100,7 +100,7 @@ async function reserveRun(id: string, expectedCohortHash: string, earlyPeriodKey
     const row = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), config = configuration(row);
     if (!isSerpScheduleAuthorized(row)) throw new ImportRequestError("请先在数据管理开启隔周自动更新，本次未请求供应商", 409);
     if (earlyPeriodKey && (!row?.nextDueAt || scheduledSerpDue(row.nextDueAt).toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000)) throw new ImportRequestError("只能提前执行24小时内的下一计划期", 409);
-    if (!earlyPeriodKey && row?.nextDueAt && scheduledSerpDue(row.nextDueAt).getTime() > Date.now()) throw new ImportRequestError("尚未到下次隔周周四10:10的采集时间", 409);
+    if (!earlyPeriodKey && row?.nextDueAt && scheduledSerpDue(row.nextDueAt).getTime() > Date.now()) throw new ImportRequestError(`尚未到下次隔周周四${SERP_SCHEDULE_LOCAL_TIME}的采集时间`, 409);
     if (await tx.serpMonitorRun.findFirst({ where: { status: { in: OPEN_RUNS } }, select: { id: true } })) throw new ImportRequestError("已有未完成或结果不明的SERP采集，请续跑原账本，不能重复扣费", 409);
     if (quote.maxCostMicros > config.maxRunCostMicros || await monthReserved(tx) + quote.maxCostMicros > config.maxMonthCostMicros) {
       // Commit the pause rather than rolling it back with the error. Otherwise

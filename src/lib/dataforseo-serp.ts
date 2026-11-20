@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { SerpTarget } from "@/lib/serp-targets";
 import type { SerpMonitorConfiguration, SerpNormalizedResult, SerpOrganicResult, SerpQuote, SerpRegion } from "@/lib/serp-monitor-types";
 import { explicitKeywordMarkets, isOwnedBrandKeyword, keywordLanguageIssue, readKeywordMarketAssignment } from "@/lib/keyword-market-policy";
+import { SERP_SCHEDULE_LOCAL_TIME } from "./serp-periods";
 
 export const SERP_TASK_POST_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_post";
 export const SERP_TASK_GET_URL = "https://api.dataforseo.com/v3/serp/google/organic/task_get/advanced";
@@ -24,7 +25,7 @@ export function configForSerpRegion(region: SerpRegion, base: SerpMonitorConfigu
 export const SERP_DEFAULT_CONFIG: SerpMonitorConfiguration = {
   region: "US", regions: [...SERP_MARKETS], languageCode: "en", locationCode: 2840, device: "desktop", depth: 100,
   intervalDays: 14, paidEnabled: false, maxRunCostMicros: 50_000_000,
-  schedule: "BIWEEKLY_TUESDAY", scheduleDays: [4], timezone: "Asia/Shanghai", localTime: "08:00",
+  schedule: "BIWEEKLY_TUESDAY", scheduleDays: [4], timezone: "Asia/Shanghai", localTime: SERP_SCHEDULE_LOCAL_TIME,
   maxMonthCostMicros: 100_000_000, revision: 0, nextDueAt: null,
 };
 export const SERP_PRICE_PER_QUERY_MICROS = 6_000;

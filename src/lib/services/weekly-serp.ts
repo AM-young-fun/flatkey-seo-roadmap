@@ -3,7 +3,7 @@ import { buildSerpKeywordResults, serpTaskPeriod, type SerpKeywordResult } from 
 import { loadSerpTasks } from "@/lib/services/serp-results";
 import { loadSerpTargetCohort } from "@/lib/services/serp-targets";
 import { REGION_CODES } from "@/lib/seo";
-import { serpPeriod } from "@/lib/serp-periods";
+import { serpPeriod, serpCaptureBelongsToWeek } from "@/lib/serp-periods";
 import { weeklyKeywordComparison, type WeeklyPageRank, type WeeklyRankingReport } from "@/lib/weekly-keyword-comparison";
 import { isThursdayReport, WEEKLY_REPORT_TIMEZONE, type reportPeriods } from "@/lib/weekly-traffic";
 import { timedRead } from "@/lib/read-profile";
@@ -17,6 +17,9 @@ export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) 
     ? new Intl.DateTimeFormat("en-CA", {timeZone:WEEKLY_REPORT_TIMEZONE}).format(new Date(slot.dueAt))
     : slot.dueAt.slice(0,10);
   const captureWeek = slot.start === publicationDay ||
+    // A Thursday-midnight capture belongs to the just-closed LA traffic week;
+    // its real provider timestamp is still retained in latestCheckedAt.
+    (isThursdayReport(periods.current.start) && serpCaptureBelongsToWeek(slot.key, periods.current.start, periods.current.end)) ||
     ([4,5].includes(new Date(periods.current.start).getUTCDay()) && captureDay >= periods.current.start && captureDay <= periods.current.end);
   const cohort = await timedRead("weekly.cohort", () => loadSerpTargetCohort());
   const previousSlot = serpPeriod(`${previousPublicationDay}T02:30:00Z`);
