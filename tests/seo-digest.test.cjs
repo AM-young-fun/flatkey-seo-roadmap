@@ -154,10 +154,10 @@ test("new weekly drafts use the same closed LA Thursday-Wednesday period on Thur
  assert.equal(buildSeoDigest({ ...base("2026-11-13"), kind: "weekly" }).reportPeriod, undefined);
  assert.throws(() => digestWindow("2026-11-21", "weekly"), /周四或周五/);
 });
-test("LA weekly work boundaries follow DST without changing the Beijing preparation hour", () => {
+test("future LA weekly work boundaries and preparation clocks follow DST", () => {
  const summer = digestWindow("2027-07-01", "weekly"), spring = digestWindow("2027-03-18", "weekly"), autumn = digestWindow("2027-11-11", "weekly");
  assert.equal(summer.workEnd, "2027-07-01T07:00:00.000Z");
- assert.equal(summer.readyAfter, "2027-07-01T16:30:00+08:00");
+ assert.equal(summer.readyAfter, "2027-07-01T07:30:00.000Z");
  assert.equal((Date.parse(spring.workEnd) - Date.parse(spring.workStart)) / 3600000, 167);
  assert.equal((Date.parse(autumn.workEnd) - Date.parse(autumn.workStart)) / 3600000, 169);
 });

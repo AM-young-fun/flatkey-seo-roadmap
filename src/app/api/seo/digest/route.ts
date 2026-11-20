@@ -6,7 +6,7 @@ import { z } from "zod";
 import { GA4_HOST_SCOPE } from "@/lib/ga4-host-scope";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
-import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
+import { reportDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
 import { shiftDay, weeklyReportDate } from "@/lib/seo-date-range";
 import { flatkeyRegistrationCount, weeklyBusinessDigestLines } from "@/lib/seo-business-analytics";
 import { githubDigestLines } from "@/lib/seo-github-channel";
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const archive = params.get("saved") === "1" && params.get("archive") === "1";
     const rawDate = params.get("date");
-    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? beijingDay());
+    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? reportDay());
     const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
     if (date && kind === "weekly" && weeklyReportDate(date) !== date) return Response.json({ message: "周报日期须为北京时间周四整理日或周五修订日；旧期仅支持周五" }, { status: 400, headers });
     if (params.get("saved") === "1") {
@@ -89,7 +89,7 @@ export async function GET(request: Request) {
         select: { payload: true },
       });
       const report = saved?.payload as unknown as SeoDigest | undefined;
-      const currentDaily = !explicitId && kind === "daily" && selected === beijingDay() && params.get("currentPreview") === "1";
+      const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
       if (currentDaily) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
         if (fresh) return Response.json({ report: fresh, dates }, { headers });
@@ -102,7 +102,7 @@ export async function GET(request: Request) {
         const [observations, recentPages, workPlan, github, accountRegistrations] = await Promise.all([
           loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
           loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
-          (kind === "weekly" && selected === beijingDay()) || !report.workPlan
+          (kind === "weekly" && selected === reportDay()) || !report.workPlan
             ? loadDigestWorkPlan(selected, kind).catch(() => report.workPlan) : Promise.resolve(report.workPlan),
           loadGithubChannels(shiftDay(trafficStart, -7), trafficEnd).catch(() => []),
           loadAccountRegistrationSummary(accountRange).catch(() => report.accountRegistrations ?? accountRegistrationSummary(accountRange)),
@@ -117,7 +117,7 @@ export async function GET(request: Request) {
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }
-    return Response.json({ report: await generateSeoDigest(date ?? beijingDay(), new Date(), kind) }, { headers });
+    return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }
 }
 export async function POST(request: Request) {

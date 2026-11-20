@@ -15,7 +15,8 @@ import { webhookReceiptSchema, type WebhookReceipt } from "../seo-webhook-receip
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { beijingDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type DigestWorkPlan, type SeoDigest } from "@/lib/seo-digest";
+import { reportDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type DigestWorkPlan, type SeoDigest } from "@/lib/seo-digest";
+import { dailyReportArchiveOnly } from "@/lib/seo-report-time.cjs";
 import { gscDate, gscPeriodEnd, OPTIMIZATION_BASELINE_DAYS, OPTIMIZATION_HISTORY_DAYS, optimizationReportRows, verifiedPagePublications } from "../seo-page-effects";
 import { technicalQaReport } from "../seo-technical-qa-report";
 import { analyticsObservationSchema, analyticsStorageKind, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
@@ -220,10 +221,12 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
     const report = saved.payload as unknown as SeoDigest;
     if (report.draftBody) throw new DigestError("周报待审核；须先批准确切全文并另存已审版本", 409);
-    if (report.date !== beijingDay(now)) throw new DigestError("自动通知仅发送当天报告；历史报告保留归档");
+    if (report.kind === "daily" && dailyReportArchiveOnly(report.date, now)) throw new DigestError("洛杉矶周四日报只归档，不发送群消息");
+    if (report.date !== reportDay(now)) throw new DigestError("自动通知仅发送洛杉矶当天报告；历史报告保留归档");
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
     const expected = digestWindow(report.date, report.kind);
-    if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${report.kind === "weekly" ? expected.workTimezone === "America/Los_Angeles" ? "周四16:30" : "周五10:00" : "18:00"} 前的草稿不能发送，请刷新最终快照`);
+    if (report.workWindow.start !== expected.workStart || report.workWindow.end !== expected.workEnd) throw new DigestError("报告统计窗口已过期；原快照保留归档，请生成当前洛杉矶口径预览");
+    if (report.readyAfter !== expected.readyAfter || report.preliminary || Date.parse(report.readyAfter) > now.getTime()) throw new DigestError(`${expected.workTimezone === "America/Los_Angeles" ? report.kind === "weekly" ? "洛杉矶周四00:30" : "洛杉矶02:00" : report.kind === "weekly" ? "北京时间周五10:00" : "北京时间18:00"} 前的草稿不能发送，请刷新最终快照`);
     const originalId = `seo-digest-delivery:${report.kind}:${report.date}`;
     const id = revision ? originalId + ":revision" : originalId;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;

@@ -13,7 +13,7 @@ on:
         options: [daily, weekly]
         default: daily
       report_date:
-        description: Beijing report date YYYY-MM-DD; required for report_only
+        description: Los Angeles report business date YYYY-MM-DD; required for report_only
         type: string
         default: ""
       send_report:

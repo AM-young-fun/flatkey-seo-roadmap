@@ -9,12 +9,14 @@ const sender = path.join(__dirname, '../scripts/server-seo-digest-send.cjs');
 const senderRequire = createRequire(sender);
 const { actionCardPayload, digestSnapshotId, messageHash } = senderRequire('../src/lib/seo-digest-message.cjs');
 const { parseConfig } = senderRequire(sender);
+const { reportDay } = senderRequire('../src/lib/seo-report-time.cjs');
 const source = fs.readFileSync(sender, 'utf8');
 const configText = JSON.stringify({ webhook: 'https://oapi.dingtalk.com/robot/send?access_token=fixture', secret: 'fixture-secret' });
 const config = parseConfig(configText);
 
-async function runSender({ now, date, kind = 'daily', send = true, explicitReport = false }) {
+async function runSender({ now, date, kind = 'daily', send = true, explicitReport = false, omitDate = false }) {
   const clock = new Date(now);
+  date ??= reportDay(clock);
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [clock.getTime()])); }
     static now() { return clock.getTime(); }
@@ -31,12 +33,12 @@ async function runSender({ now, date, kind = 'daily', send = true, explicitRepor
     require(name) { return name === 'node:fs/promises' ? { mkdir: async () => {}, writeFile: async (file, value) => files.set(file, value) } : senderRequire(name); },
     module: { exports: {} }, Date: Clock, Intl, URL, AbortSignal,
     process: { env: { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'AM-young-fun/flatkey-seo-roadmap', GITHUB_REF: 'refs/heads/main', GITHUB_RUN_ID: '101', SEO_DINGTALK_CONFIG: configText, SEO_IMPORT_TOKEN: 'fixture-import', SEO_DIGEST_OUTPUT_DIR: '/fixture-archive' },
-      argv: ['node', sender, '--kind=' + kind, '--date=' + date, ...(send ? ['--send'] : []), ...(explicitReport ? ['--report-id=' + report.id] : [])] },
+      argv: ['node', sender, '--kind=' + kind, ...(omitDate ? [] : ['--date=' + date]), ...(send ? ['--send'] : []), ...(explicitReport ? ['--report-id=' + report.id] : [])] },
     console: { log: text => logs.push(JSON.parse(text)), error: text => logs.push({ error: text }) },
     fetch: async (url, options) => {
       url = String(url);
       const body = options?.body ? JSON.parse(options.body) : null;
-      calls.push({ url, action: body?.action });
+      calls.push({ url, action: body?.action, date: body?.date });
       let result;
       if (url.startsWith('https://oapi.dingtalk.com/robot/send?')) result = { errcode: 0, errmsg: 'ok' };
       else if (body?.action === 'prepare' || body?.action === 'read_saved') result = { report };
@@ -70,20 +72,31 @@ function assertArchivedWithoutSending(result) {
 test('Thursday daily --send still prepares and archives the report without claiming or notifying', async () => {
   const result = await runSender({ now: '2026-11-19T10:00:00Z', date: '2026-11-19' });
   assertArchivedWithoutSending(result);
-  assert.equal(result.logs.at(-1).beijingDate, '2026-11-19');
+  assert.equal(result.logs.at(-1).losAngelesDate, '2026-11-19');
 });
 
-test('the actual Beijing Thursday boundary blocks a Wednesday report while UTC is still Wednesday', async () => {
+test('Beijing Thursday does not block an LA Wednesday report', async () => {
   const previous = process.env.TZ;
   try {
     process.env.TZ = 'Pacific/Honolulu';
     const result = await runSender({ now: '2026-11-18T16:01:00Z', date: '2026-11-18' });
-    assertArchivedWithoutSending(result);
-    assert.equal(result.logs.at(-1).beijingDate, '2026-11-19');
+    assert.equal(result.logs.at(-1).status, 'DELIVERED');
   } finally {
     if (previous === undefined) delete process.env.TZ;
     else process.env.TZ = previous;
   }
+});
+
+test('the actual LA Thursday blocks a Friday selection while Beijing is already Friday', async () => {
+  const result = await runSender({ now: '2026-11-20T00:01:00Z', date: '2026-11-20' });
+  assertArchivedWithoutSending(result);
+  assert.equal(result.logs.at(-1).losAngelesDate, '2026-11-19');
+});
+
+test('the sender default report date uses LA and still archives a Thursday without sending', async () => {
+  const result = await runSender({ now: '2026-11-20T00:01:00Z', omitDate: true });
+  assertArchivedWithoutSending(result);
+  assert.equal(result.calls[0].date, '2026-11-19');
 });
 
 test('an explicit Thursday report cannot be sent later on Friday', async () => {
