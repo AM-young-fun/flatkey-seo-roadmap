@@ -8,6 +8,7 @@ import { seoToday, shiftDay, weeklyReportDate, weeklyReportRange, WEEKLY_REPORT_
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
 import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
+import { ReviewedReportBody } from "./ReviewedReportBody";
 import type { SeoDigest } from "@/lib/seo-digest";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import { UiSelect } from "./UiSelect";
@@ -457,7 +458,7 @@ export function SeoDigestReports() {
           {exact ? <Link className={styles.secondary} href={route(kind, report.date)}>查看最新详情</Link> : null}
           {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
         </div></header>
-        {report.reviewedBody ? <section className={reportStyles.section} aria-label="已审周报完整正文" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{report.text}</section> : <><dl className={reportStyles.metrics}>
+        {report.reviewedBody ? <ReviewedReportBody text={report.text} /> : <><dl className={reportStyles.metrics}>
           <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications)}</dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications)}</dd></div>
           <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations)}</dd></div>
