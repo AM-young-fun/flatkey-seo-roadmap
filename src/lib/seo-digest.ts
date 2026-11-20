@@ -14,6 +14,7 @@ import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
 import type { ReviewedDigestBody } from "./seo-reviewed-digest";
+import { blogPageCounts, type BlogPageCounts } from "./seo-blog-page-counts";
 import { z } from "zod";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, workflowWeek, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
@@ -389,7 +390,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   pagePerformance, completed, optimizations, registrations, focus,
 }: {
   pagePerformance: ReturnType<typeof digestTopPages>;
-  completed: { blogs: number; optimized: number; newPages: number; fixed: number | null };
+  completed: { blogs: BlogPageCounts; optimized: number; newPages: number; fixed: number | null };
   optimizations: DigestOptimization[];
   registrations: ReturnType<typeof registrationPeriodComparison>;
   focus: string[];
@@ -472,7 +473,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 180))
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
     lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
-    lines.push("", "**4. 今日完成**", `• 已核实上线 **${completed.blogs} 篇文章**，优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
+    lines.push("", "**4. 今日完成**", `• 新增博客页面 **${completed.blogs.total} 页**（源文 ${completed.blogs.originals} 篇、译文 ${completed.blogs.translations} 页、旧文补译 ${completed.blogs.backfillTranslations} 页），优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
     const groups = input.pageGroups?.groups.filter(group => latestVerifiedDailyPoint(group.points, acquisitionEnd, point => point.totalUsers !== null && point.pageViews !== null && !!point.funnel)).length ?? 0;
     lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · 获客/注册截至 ${currentAcquisition?.date ?? "待更新"} · 最近已核实页面组 ${groups}/4 组（各组日期见上）`);
     return lines.join("  \n");
@@ -688,6 +689,7 @@ export function buildSeoDigest(input: DigestInput) {
     && Date.parse(row.publishedAt) <= Date.parse(row.verifiedAt)).map(row => [row.url, row])).values()];
   const originals = publications.filter(row => row.kind === "source"), translations = publications.filter(row => row.kind === "translation");
   const backfills = publications.filter(row => row.kind === "backfill_translation"), landingPages = publications.filter(row => row.kind === "landing"), clusterPages = publications.filter(row => row.kind === "cluster");
+  const blogs = blogPageCounts({ originals: originals.length, translations: translations.length, backfillTranslations: backfills.length });
   const optimizations = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url)).map(row => [row.url, row])).values()];
   const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "", recorded = false) => {
     const count = `${value}${unit ? " " + unit : ""}`;
@@ -715,7 +717,7 @@ export function buildSeoDigest(input: DigestInput) {
     ...(losAngelesWeek ? [`周报草稿 · 待用户审核；${window.trafficEnd === "2026-11-18" ? "北京时间周四16:30" : "洛杉矶时间周四00:30"}开始整理，日期结束不代表来源数据已齐全。`, ""] : []),
     `${review ? `待审核 ${review.tasks} 项（${review.tickets} 张审批单，${review.pages.length} 个页面版本） · 待补材料 ${review.materialCount} 项` : "待审核 待更新 · 待补材料 待更新"} · ${link("SEO 平台审批", approvalsUrl)}`, "",
     ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
-    `新增博客 ${amount(originals.length, input.publicationCoverage, "篇", input.deliveryStates?.blogs)}；新内容上线语言页 ${amount(originals.length + translations.length, input.publicationCoverage)}（其中译文 ${amount(translations.length, input.publicationCoverage)}）；旧文补译 ${amount(backfills.length, input.publicationCoverage)}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
+    `新增博客页面 ${amount(blogs.total, input.publicationCoverage, "页", input.deliveryStates?.blogs)}（源文 ${originals.length} 篇、译文 ${translations.length} 页、旧文补译 ${backfills.length} 页）${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
     `落地页/工具页 ${amount(landingPages.length, input.publicationCoverage, "", input.deliveryStates?.landing)}，集群交付 ${amount(clusterPages.length, input.publicationCoverage, "", input.deliveryStates?.cluster)}（仅统计已上线验收）。`,
     `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面", input.deliveryStates?.optimizations)}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
   lines.push("", "待审批页面（截至报告生成，含往期未处理）");
@@ -869,7 +871,7 @@ export function buildSeoDigest(input: DigestInput) {
   const detailText = lines.join("\n");
   const text = input.notificationCompact ? detailedNotification(title, input, window, now, {
     pagePerformance, completed: {
-      blogs: originals.filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
+      blogs,
       optimized: window.workTimezone === "America/Los_Angeles" ? optimizations.length : optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
       newPages: window.workTimezone === "America/Los_Angeles" ? landingPages.length + clusterPages.length : [...landingPages, ...clusterPages].filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
       fixed: input.resolvedIssues ?? null,
@@ -879,7 +881,7 @@ export function buildSeoDigest(input: DigestInput) {
   return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
     ...(losAngelesWeek ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
-    workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
+    workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
     recentPages: input.recentPages,
     deliveryStates: input.deliveryStates,

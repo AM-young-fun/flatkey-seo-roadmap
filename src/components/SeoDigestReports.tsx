@@ -10,6 +10,7 @@ import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
 import { ReviewedReportBody } from "./ReviewedReportBody";
 import { ReportPageGroupTraffic, ReportModuleShares } from "./ReportTrafficPanels";
+import { blogPageCounts } from "@/lib/seo-blog-page-counts";
 import type { SeoDigest } from "@/lib/seo-digest";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import { UiSelect } from "./UiSelect";
@@ -465,7 +466,8 @@ export function SeoDigestReports() {
           {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
         </div></header>
         {report.reviewedBody && !report.dashboard ? <ReviewedReportBody text={report.text} label={report.draftBody ? "待审周报完整正文" : undefined} /> : <><dl className={reportStyles.metrics}>
-          <div><dt>新增博客</dt><dd>{deliveryCount(report.counts.originals, report.coverage?.publications)}</dd></div>
+          <div><dt>新增博客页面</dt><dd>{deliveryCount(blogPageCounts(report.counts).total, report.coverage?.publications)}
+            <small>源文 {numberText(report.counts.originals)} · 译文 {numberText(report.counts.translations ?? 0)} · 旧文补译 {numberText(report.counts.backfillTranslations ?? 0)}</small></dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications)}</dd></div>
           <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations)}</dd></div>
           <div><dt>待审页面版本</dt><dd><Link className={reportStyles.approvalButton} href={executionViewRoutes.approvals}
