@@ -21,6 +21,7 @@ export const reportDashboardEvidenceSchema = z.object({
 export type ReportDashboardEvidence = z.infer<typeof reportDashboardEvidenceSchema>;
 export type ReportDashboard = {
   detailText: string; attributionText: string; sourceEvidenceSha256: string;
+  technicalText?: string;
   traffic?: { sites: ReportComparisonGroups; countries: ReportComparisonGroups; modules?: ReportDashboardEvidence["modules"]; gscComparable: boolean };
   moduleShares?: ReportDashboardEvidence["moduleShares"];
 };

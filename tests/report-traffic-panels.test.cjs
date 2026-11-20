@@ -14,11 +14,15 @@ const { wholePeriodUserShare, reportModuleShareRows } = require("../src/lib/repo
 const range = { start: "2026-11-12", end: "2026-11-18" }, comparisonRange = { start: "2026-11-05", end: "2026-11-11" };
 
 test("page-group requests stay inside the exact report window", () => {
-  renderToStaticMarkup(React.createElement(ReportPageGroupTraffic, { range }));
-  assert.deepEqual(pageGroupProps, { start: "2026-11-12", end: "2026-11-18", category: "all" });
+  const snapshot = { captured: true };
+  renderToStaticMarkup(React.createElement(ReportPageGroupTraffic, { range, snapshot }));
+  assert.deepEqual(pageGroupProps, { start: "2026-11-12", end: "2026-11-18", category: "all", snapshot });
   pageGroupProps = undefined;
   renderToStaticMarkup(React.createElement(ReportPageGroupTraffic, { range: { start: "2026-11-19", end: "2026-11-18" } }));
   assert.equal(pageGroupProps, undefined);
+  const empty = renderToStaticMarkup(React.createElement(ReportPageGroupTraffic, { range }));
+  assert.equal(pageGroupProps, undefined);
+  assert.match(empty, /暂无页面组回执/);
 });
 
 test("whole-interval shares retain overlapping groups instead of normalizing to 100 percent", () => {

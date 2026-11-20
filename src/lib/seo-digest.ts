@@ -879,7 +879,7 @@ export function buildSeoDigest(input: DigestInput) {
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
-    ...(losAngelesWeek ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
+    ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,

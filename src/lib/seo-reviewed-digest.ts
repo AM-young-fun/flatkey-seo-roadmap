@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { beijingDay, digestWindow, type SeoDigest } from "./seo-digest";
+import { reportDay, digestWindow, type SeoDigest } from "./seo-digest";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
 import { sameReportDashboard } from "./seo-report-dashboard";
 
@@ -26,9 +26,11 @@ export const reviewedTextHash = (text: string) => createHash("sha256").update(te
 /** Records the reviewed body; it does not authorize, claim, or send a message. */
 export function buildReviewedSeoDigest(base: SeoDigest, raw: unknown, now = new Date()): SeoDigest {
   const input = reviewedDigestCommandSchema.parse(raw);
-  if (input.date !== beijingDay(now) || base.id !== input.baseReportId || base.date !== input.date || base.kind !== "weekly"
+  if (input.date !== reportDay(now) || base.id !== input.baseReportId || base.date !== input.date || base.kind !== "weekly"
     || !input.baseReportId.startsWith(`seo-digest:${input.date}:`)) throw new ReviewedDigestError("必须绑定当天同一周报的确切基础快照");
   if (base.hash !== input.baseReportHash || reviewedTextHash(base.text) !== base.hash) throw new ReviewedDigestError("基础报告哈希不匹配", 409);
+  if (base.draftBody && (input.text !== base.text || input.textSha256 !== base.hash
+    || input.sourceEvidenceSha256 !== base.draftBody.sourceEvidenceSha256)) throw new ReviewedDigestError("须批准同一待审全文及证据；内容修改须另存待审版本", 409);
   let expected: ReturnType<typeof digestWindow>;
   try { expected = digestWindow(input.date, "weekly"); }
   catch { throw new ReviewedDigestError("周报日期无效"); }

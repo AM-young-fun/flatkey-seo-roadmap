@@ -45,6 +45,7 @@ export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Dat
       baseGeneratedAt: base.generatedAt, textSha256: input.textSha256, sourceEvidenceSha256: input.sourceEvidenceSha256 },
     dashboard: { detailText: base.dashboard?.detailText ?? base.detailText ?? base.text, attributionText: input.attributionText ?? "",
       sourceEvidenceSha256: input.sourceEvidenceSha256,
+      technicalText: /\*\*五、[^\n]+\*\*\s*\n([\s\S]*?)(?=\n\*\*六、)/u.exec(input.text)?.[1].trim(),
       ...(input.dashboardEvidence ? { traffic: {
         sites: dashboardComparisonGroups(input.dashboardEvidence.sites, input.reportPeriod, input.dashboardEvidence.gscComparable),
         countries: dashboardComparisonGroups(input.dashboardEvidence.countries, input.reportPeriod, input.dashboardEvidence.gscComparable),

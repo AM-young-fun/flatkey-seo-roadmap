@@ -93,10 +93,10 @@ test('base identity, text hash and weekly LA period must all bind to the same sa
   rejected({ ...base, readyAfter: '2026-11-20T10:00:00+08:00' }, input);
 });
 
-test('saving is constrained by the actual Beijing day and authentic approval chronology', () => {
+test('saving is constrained by the actual GA4 Los Angeles day and authentic approval chronology', () => {
   const { base, input } = fixture();
-  assert.ok(buildReviewedSeoDigest(base, input, new Date('2026-11-19T15:59:59.999Z')));
-  rejected(base, input, new Date('2026-11-19T16:00:00.000Z'));
+  assert.ok(buildReviewedSeoDigest(base, input, new Date('2026-11-20T07:59:59.999Z')));
+  rejected(base, input, new Date('2026-11-20T08:00:00.000Z'));
   rejected(base, { ...input, approvedAt: '2026-11-19T10:30:00.001Z' });
   rejected(base, { ...input, approvedAt: '2026-11-19T08:59:59.999Z' });
 });

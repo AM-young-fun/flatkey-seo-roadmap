@@ -183,7 +183,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       unknownFirstVerification: archive.publications.filter(page => !page.firstVerifiedAt).length, pendingEvidence: archive.auditBacklog.pending, pendingRevisions: archive.pendingRevisions.count })),
     rankingNotes: reads[4].status !== "fulfilled" ? [] : kind === "daily"
       ? digestDailyRankingNotes(reads[4].value, now)
-      : digestRankingNotes(reads[4].value, window.workStart, window.workEnd),
+      : digestRankingNotes(reads[4].value, window.workStart, window.workEnd, now),
     resolvedIssues: reads[0].status === "fulfilled" ? workflow.issues.filter(issue => issue.status === "resolved" && issue.resolvedAt
       && issue.resolutionEvidence.length && Date.parse(issue.resolvedAt) >= (kind === "daily" ? Date.parse(date + "T00:00:00+08:00") : startStamp)
       && Date.parse(issue.resolvedAt) < Math.min(now.getTime(), Date.parse(window.workEnd))).length : null,

@@ -21,6 +21,15 @@ test("failed current query is not a drop and owned brands are excluded", () => {
  assert.deepEqual(digestRankingNotes([row("2026-11-1", 1, { keyword: "Flatkey pricing" })], ...window), []);
 });
 
+test("a real scheduled Thursday capture belongs to the just-closed LA week only after it has returned", () => {
+ const current = row("2026-12-01", 8, { checkedAt: "2026-12-03T08:05:00Z", runCreatedAt: "2026-12-03T08:00:00Z" });
+ const range = ["2026-11-26T08:00:00Z", "2026-12-03T08:00:00Z"];
+ assert.deepEqual(digestRankingNotes([current], ...range), []);
+ assert.deepEqual(digestRankingNotes([current], ...range, new Date("2026-12-03T08:00:00Z")), []);
+ assert.match(digestRankingNotes([current], ...range, new Date("2026-12-03T08:10:00Z")).join("\n"), /有新回执/);
+ assert.deepEqual(digestRankingNotes([{...current,periodKey:"2026-11-17"}], ...range, new Date("2026-12-03T08:10:00Z")), []);
+});
+
 
 test("daily rank evidence uses the latest verified capture even on a day without a new run", () => {
  const notes = digestDailyRankingNotes([row("2026-11-1", 8), row("2026-10-2", 12),

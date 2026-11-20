@@ -38,6 +38,8 @@ test('approval records another immutable identity and clears pending-review meta
   assert.equal(reviewed.draftBody, undefined); assert.ok(reviewed.reviewedBody.approvedAt);
   assert.equal(validReportBinding(reviewed, reviewed.date, 'weekly', reviewed.id), true);
   assert.equal(draft.reviewedBody, undefined);
+  assert.throws(() => buildReviewedSeoDigest(draft, { ...input, action: 'save_reviewed', baseReportId: draft.id,
+    baseReportHash: draft.hash, text: draft.text+'changed', textSha256:hash(draft.text+'changed'), approvedAt:'2026-11-19T10:31:00Z' },new Date('2026-11-19T10:32:00Z')));
 });
 test('draft writes reject forged approval, changed hashes, periods or incomplete six-section bodies', () => {
   const { base, input } = fixture();

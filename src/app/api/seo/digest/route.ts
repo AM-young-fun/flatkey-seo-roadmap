@@ -22,6 +22,8 @@ import { reviewedDigestCommandSchema, ReviewedDigestError } from "@/lib/seo-revi
 import { saveReviewedSeoDigest } from "@/lib/services/seo-reviewed-digest";
 import { draftDigestCommandSchema } from "@/lib/seo-draft-digest";
 import { saveDraftSeoDigest } from "@/lib/services/seo-draft-digest";
+import { dailyDashboardCommandSchema } from "@/lib/seo-daily-dashboard";
+import { saveDailyDashboardSeoDigest } from "@/lib/services/seo-daily-dashboard";
 
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
@@ -29,6 +31,7 @@ const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/)
 const mutation = z.discriminatedUnion("action", [
   reviewedDigestCommandSchema,
   draftDigestCommandSchema,
+  dailyDashboardCommandSchema,
   z.object({ action: z.literal("confirm_provider_rejection"), incidentId: z.literal("2026-11-11-dingtalk-1001") }).strict(),
   z.object({ action: z.literal("read_saved"), reportId }).strict(),
   z.object({ action: z.literal("delivery_status"), id: z.string().regex(/^seo-digest-delivery:(daily|weekly):\d{4}-\d{2}-\d{2}(?::revision)?$/) }).strict(),
@@ -90,11 +93,11 @@ export async function GET(request: Request) {
       });
       const report = saved?.payload as unknown as SeoDigest | undefined;
       const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
-      if (currentDaily) {
+      if (currentDaily && !report?.dashboard) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
         if (fresh) return Response.json({ report: fresh, dates }, { headers });
       }
-      if (archive && report && !explicitId && !report.reviewedBody && !report.draftBody) {
+      if (archive && report && !explicitId && !report.reviewedBody && !report.draftBody && !report.dashboard) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
         const previousStart = shiftDay(trafficStart, offset);
@@ -126,10 +129,11 @@ export async function POST(request: Request) {
     const text = await request.text();
     if (text.length > 16000) return Response.json({ message: "请求过大" }, { status: 413, headers });
     const raw = JSON.parse(text);
-    if (text.length > 8000 && raw?.action !== "save_draft") return Response.json({ message: "请求过大" }, { status: 413, headers });
+    if (text.length > 8000 && !["save_draft", "save_daily_dashboard"].includes(raw?.action)) return Response.json({ message: "请求过大" }, { status: 413, headers });
     const input = mutation.parse(raw);
     if (input.action === "save_reviewed") return Response.json({ report: await saveReviewedSeoDigest(input) }, { headers });
     if (input.action === "save_draft") return Response.json({ report: await saveDraftSeoDigest(input) }, { headers });
+    if (input.action === "save_daily_dashboard") return Response.json({ report: await saveDailyDashboardSeoDigest(input) }, { headers });
     if (input.action === "confirm_provider_rejection") return Response.json(await confirmKnownDigestRejection(input.incidentId), { headers });
     if (input.action === "read_saved") {
       const saved = await prisma.seoReportVersion.findUnique({ where: { id: input.reportId } });
