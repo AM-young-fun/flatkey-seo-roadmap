@@ -35,8 +35,8 @@ const components: Components = {
   img({ alt }) { return alt ? <span>{alt}</span> : null; },
 };
 
-export function ReviewedReportBody({ text }: { text: string }) {
-  return <section className={styles.body} aria-label="已审周报完整正文">
+export function ReviewedReportBody({ text, label = "已审周报完整正文" }: { text: string; label?: string }) {
+  return <section className={styles.body} aria-label={label}>
     <Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={reportUrl} components={components}>{text}</Markdown>
   </section>;
 }

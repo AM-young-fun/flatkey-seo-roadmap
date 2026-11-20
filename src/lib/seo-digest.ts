@@ -3,6 +3,7 @@ import type { DailySeoTrafficHistory } from "./daily-seo-traffic";
 import { DAILY_SEO_PAGE_GROUPS, type DailySeoPageGroupsHistory } from "./daily-seo-page-groups";
 import type { recentPublishedPages } from "./seo-digest-recent-pages";
 import { seoToday, weeklyReportRange } from "./seo-date-range";
+import { SEO_REPORT_LA_SWITCH_DATE, reportDay, reportDayStart, reportStamp, reportTime } from "./seo-report-time.cjs";
 import type { AccountRegistrationSummary } from "./seo-account-registrations";
 import { flatkeyRegistrationCount, weeklyBusinessDigestLines, type BusinessAnalytics } from "./seo-business-analytics";
 import { githubDigestLines, type GithubChannel } from "./seo-github-channel";
@@ -13,6 +14,7 @@ import type { AnalyticsObservation } from "./seo-analytics";
 import { createHash } from "node:crypto";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
 import type { ReviewedDigestBody } from "./seo-reviewed-digest";
+import { blogPageCounts, type BlogPageCounts } from "./seo-blog-page-counts";
 import { z } from "zod";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, workflowWeek, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
@@ -29,6 +31,7 @@ export const digestKindSchema = z.enum(["daily", "weekly"]);
 export type DigestKind = z.infer<typeof digestKindSchema>;
 const shift = (day: string, n: number) => new Date(Date.parse(day + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 export const beijingDay = seoToday;
+export { reportDay };
 export type DigestMetric = "sessions" | "registrations" | "clicks" | "impressions";
 export type DigestObservation = {
   site: string; date: string; source: "GA4" | "GSC"; timezone: string; observedAt: string;
@@ -53,6 +56,7 @@ export type DigestInput = {
   pageGroups?: DailySeoPageGroupsHistory;
   resolvedIssues?: number | null;
   workPlan?: DigestWorkPlan;
+  currentWorkPlan?: DigestWorkPlan;
   date: string; kind?: DigestKind; now?: Date; observations: DigestObservation[];
   pageObservations?: AnalyticsObservation[];
   recentPages?: ReturnType<typeof recentPublishedPages>;
@@ -77,14 +81,21 @@ export function digestWindow(date: string, kind: DigestKind = "daily") {
   digestKindSchema.parse(kind);
   const weekly = kind === "weekly";
   const weekday = new Date(date + "T00:00:00Z").getUTCDay();
+  if (!weekly && date >= SEO_REPORT_LA_SWITCH_DATE) {
+    const sourceDay = shift(date, -1);
+    return { kind, workStart: losAngelesDayStart(sourceDay), workEnd: losAngelesDayStart(date),
+      workTimezone: "America/Los_Angeles" as const, readyAfter: reportTime(date, 2),
+      trafficStart: sourceDay, trafficEnd: sourceDay };
+  }
   if (weekly && date >= "2026-11-19") {
-    if (weekday !== 4 && weekday !== 5) throw new Error("周报日期必须是北京时间周四或周五");
+    if (weekday !== 4 && weekday !== 5) throw new Error("周报日期必须是洛杉矶周四或周五");
     const period = weeklyReportRange(date);
     const preparationDay = shift(period.end, 1);
     return {
       kind, workStart: losAngelesDayStart(period.start), workEnd: losAngelesDayStart(preparationDay),
       workTimezone: "America/Los_Angeles" as const,
-      readyAfter: preparationDay + "T16:30:00+08:00",
+      // Preserve the exact readyAfter binding of the already reviewed first week.
+      readyAfter: preparationDay === "2026-11-19" ? preparationDay + "T16:30:00+08:00" : reportTime(preparationDay, 0, 30),
       trafficStart: period.start, trafficEnd: period.end,
     };
   }
@@ -102,17 +113,7 @@ export function digestWindow(date: string, kind: DigestKind = "daily") {
 
 /** Resolve the property's midnight, including weeks spanning a DST change. */
 function losAngelesDayStart(day: string) {
-  const target = Date.parse(day + "T00:00:00Z");
-  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hourCycle: "h23",
-    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  let instant = target;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map(part => [part.type, part.value]));
-    const local = Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`);
-    if (local === target) break;
-    instant += target - local;
-  }
-  return new Date(instant).toISOString();
+  return reportDayStart(day);
 }
 
 function completeMetricDays(observations: DigestObservation[], site: string, metric: DigestMetric, country: "all" | "US" | "JP" | "BR" | "ES") {
@@ -389,7 +390,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   pagePerformance, completed, optimizations, registrations, focus,
 }: {
   pagePerformance: ReturnType<typeof digestTopPages>;
-  completed: { blogs: number; optimized: number; newPages: number; fixed: number | null };
+  completed: { blogs: BlogPageCounts; optimized: number; newPages: number; fixed: number | null };
   optimizations: DigestOptimization[];
   registrations: ReturnType<typeof registrationPeriodComparison>;
   focus: string[];
@@ -441,7 +442,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     ...(pageSummary ? [`重点页面 ${pagePath(pageSummary.url)} · Google 点击 ${cardComparison(pageSummary.previous, pageSummary.value, pageCanCompare)}`] : []),
     `**统计期** ${dateLabel}（洛杉矶）｜对比 ${previousLabel}`,
     "**数据说明** 使用各来源最近已结束日的有效数据；GA4 最新数据可能继续更新，实际覆盖日期见各项。",
-    `**生成** ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间）`,
+    `**生成** ${window.workTimezone === "America/Los_Angeles" ? reportStamp(now) + "（洛杉矶时间）" : new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now) + "（北京时间）"}`,
     ...(weekly && window.workTimezone === "America/Los_Angeles" ? ["**审核** 周报草稿，待用户审核；各来源实际覆盖日期见下方"] : []),
     "", `**1. ${weekly ? "业务结果与搜索表现" : "全站自然搜索"}**`];
   if (!weekly) {
@@ -472,7 +473,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 180))
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
     lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
-    lines.push("", "**4. 今日完成**", `• 已核实上线 **${completed.blogs} 篇文章**，优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
+    lines.push("", "**4. 今日完成**", `• 新增博客页面 **${completed.blogs.total} 页**（源文 ${completed.blogs.originals} 篇、译文 ${completed.blogs.translations} 页、旧文补译 ${completed.blogs.backfillTranslations} 页），优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
     const groups = input.pageGroups?.groups.filter(group => latestVerifiedDailyPoint(group.points, acquisitionEnd, point => point.totalUsers !== null && point.pageViews !== null && !!point.funnel)).length ?? 0;
     lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · 获客/注册截至 ${currentAcquisition?.date ?? "待更新"} · 最近已核实页面组 ${groups}/4 组（各组日期见上）`);
     return lines.join("  \n");
@@ -688,6 +689,7 @@ export function buildSeoDigest(input: DigestInput) {
     && Date.parse(row.publishedAt) <= Date.parse(row.verifiedAt)).map(row => [row.url, row])).values()];
   const originals = publications.filter(row => row.kind === "source"), translations = publications.filter(row => row.kind === "translation");
   const backfills = publications.filter(row => row.kind === "backfill_translation"), landingPages = publications.filter(row => row.kind === "landing"), clusterPages = publications.filter(row => row.kind === "cluster");
+  const blogs = blogPageCounts({ originals: originals.length, translations: translations.length, backfillTranslations: backfills.length });
   const optimizations = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url)).map(row => [row.url, row])).values()];
   const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "", recorded = false) => {
     const count = `${value}${unit ? " " + unit : ""}`;
@@ -708,14 +710,14 @@ export function buildSeoDigest(input: DigestInput) {
     ? `Flatkey SEO 周报｜${window.trafficStart}—${window.trafficEnd}`
     : `Flatkey SEO 日报｜${window.trafficEnd}`;
   const losAngelesWeek = window.kind === "weekly" && window.workTimezone === "America/Los_Angeles";
-  const workPeriodLabel = losAngelesWeek
+  const workPeriodLabel = window.workTimezone === "America/Los_Angeles"
     ? `${window.trafficStart} 00:00 — ${shift(window.trafficEnd, 1)} 00:00（洛杉矶时间，结束时刻不含）`
     : `${window.workStart.slice(0, 16).replace("T", " ")} — ${window.workEnd.slice(0, 16).replace("T", " ")}（北京时间，结束时刻不含）`;
-  const lines = [title, "", `工作统计：${workPeriodLabel}；确认截止 ${now.toISOString()}。`, "",
-    ...(losAngelesWeek ? ["周报草稿 · 待用户审核；北京时间周四16:30开始整理，日期结束不代表来源数据已齐全。", ""] : []),
+  const lines = [title, "", `工作统计：${workPeriodLabel}；确认截止 ${window.workTimezone === "America/Los_Angeles" ? reportStamp(now) + "（洛杉矶时间）" : now.toISOString()}。`, "",
+    ...(losAngelesWeek ? [`周报草稿 · 待用户审核；${window.trafficEnd === "2026-11-18" ? "北京时间周四16:30" : "洛杉矶时间周四00:30"}开始整理，日期结束不代表来源数据已齐全。`, ""] : []),
     `${review ? `待审核 ${review.tasks} 项（${review.tickets} 张审批单，${review.pages.length} 个页面版本） · 待补材料 ${review.materialCount} 项` : "待审核 待更新 · 待补材料 待更新"} · ${link("SEO 平台审批", approvalsUrl)}`, "",
     ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
-    `新增博客 ${amount(originals.length, input.publicationCoverage, "篇", input.deliveryStates?.blogs)}；新内容上线语言页 ${amount(originals.length + translations.length, input.publicationCoverage)}（其中译文 ${amount(translations.length, input.publicationCoverage)}）；旧文补译 ${amount(backfills.length, input.publicationCoverage)}${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
+    `新增博客页面 ${amount(blogs.total, input.publicationCoverage, "页", input.deliveryStates?.blogs)}（源文 ${originals.length} 篇、译文 ${translations.length} 页、旧文补译 ${backfills.length} 页）${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
     `落地页/工具页 ${amount(landingPages.length, input.publicationCoverage, "", input.deliveryStates?.landing)}，集群交付 ${amount(clusterPages.length, input.publicationCoverage, "", input.deliveryStates?.cluster)}（仅统计已上线验收）。`,
     `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面", input.deliveryStates?.optimizations)}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
   lines.push("", "待审批页面（截至报告生成，含往期未处理）");
@@ -869,26 +871,26 @@ export function buildSeoDigest(input: DigestInput) {
   const detailText = lines.join("\n");
   const text = input.notificationCompact ? detailedNotification(title, input, window, now, {
     pagePerformance, completed: {
-      blogs: originals.filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
-      optimized: optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
-      newPages: [...landingPages, ...clusterPages].filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
+      blogs,
+      optimized: window.workTimezone === "America/Los_Angeles" ? optimizations.length : optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
+      newPages: window.workTimezone === "America/Los_Angeles" ? landingPages.length + clusterPages.length : [...landingPages, ...clusterPages].filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
       fixed: input.resolvedIssues ?? null,
     }, optimizations, registrations: organicRegistrations, focus: nextFocus,
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan }), date: input.date, kind: window.kind, title, text, detailText, hash,
-    ...(losAngelesWeek ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
+    ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
-    workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
+    workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
     recentPages: input.recentPages,
     deliveryStates: input.deliveryStates,
-    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan,
+    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
     flatkeyRegistrations, accountRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };
 }
-export type SeoDigest = ReturnType<typeof buildSeoDigest> & { reviewedBody?: ReviewedDigestBody };
+export type SeoDigest = ReturnType<typeof buildSeoDigest> & { reviewedBody?: ReviewedDigestBody; draftBody?: import("./seo-draft-digest").DraftDigestBody; dashboard?: import("./seo-report-dashboard").ReportDashboard };
 
 /** Transport ambiguity is terminal for automatic retries. A human must reconcile the provider receipt. */
 export function digestClaimable(row: { status: string; leaseUntil: Date | null; attemptedAt: Date | null }, now = new Date()) {

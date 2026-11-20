@@ -1,13 +1,17 @@
 import { buildSerpKeywordResults, type SerpKeywordResult, type SerpTaskRead } from "./serp-results";
 import { isOwnedBrandKeyword } from "./keyword-market-policy";
 import type { SerpTarget } from "./serp-targets";
+import { serpCaptureBelongsToWeek } from "./serp-periods";
 
 /** Uses saved, language/device/depth-filtered provider receipts; never starts a paid query. */
-export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: string): string[] {
+export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: string, asOf?: Date): string[] {
   const from = Date.parse(start), until = Date.parse(end);
+  const laDate = (value: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date(value));
   const fresh = tasks.filter(task => task.runScope !== "SAMPLE" && task.checkedAt &&
     Date.parse(String(task.checkedAt instanceof Date ? task.checkedAt.toISOString() : task.checkedAt)) >= from &&
-    Date.parse(String(task.checkedAt instanceof Date ? task.checkedAt.toISOString() : task.checkedAt)) < until);
+    (!asOf || +new Date(task.checkedAt) <= asOf.getTime()) &&
+    (+new Date(task.checkedAt) < until || !!asOf && task.runScope === "SCHEDULED" && !!task.periodKey
+      && serpCaptureBelongsToWeek(task.periodKey, laDate(from), laDate(until - 1))));
   if (!fresh.length) return [];
   const rows: (SerpKeywordResult & { region: string })[] = [];
   for (const region of ["US", "JP", "BR", "ES"] as const) {

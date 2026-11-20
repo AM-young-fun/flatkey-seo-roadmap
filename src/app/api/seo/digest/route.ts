@@ -6,7 +6,7 @@ import { z } from "zod";
 import { GA4_HOST_SCOPE } from "@/lib/ga4-host-scope";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
-import { beijingDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
+import { reportDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
 import { shiftDay, weeklyReportDate } from "@/lib/seo-date-range";
 import { flatkeyRegistrationCount, weeklyBusinessDigestLines } from "@/lib/seo-business-analytics";
 import { githubDigestLines } from "@/lib/seo-github-channel";
@@ -20,12 +20,18 @@ import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
 import { reviewedDigestCommandSchema, ReviewedDigestError } from "@/lib/seo-reviewed-digest";
 import { saveReviewedSeoDigest } from "@/lib/services/seo-reviewed-digest";
+import { draftDigestCommandSchema } from "@/lib/seo-draft-digest";
+import { saveDraftSeoDigest } from "@/lib/services/seo-draft-digest";
+import { dailyDashboardCommandSchema } from "@/lib/seo-daily-dashboard";
+import { saveDailyDashboardSeoDigest } from "@/lib/services/seo-daily-dashboard";
 
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
 const mutation = z.discriminatedUnion("action", [
   reviewedDigestCommandSchema,
+  draftDigestCommandSchema,
+  dailyDashboardCommandSchema,
   z.object({ action: z.literal("confirm_provider_rejection"), incidentId: z.literal("2026-11-11-dingtalk-1001") }).strict(),
   z.object({ action: z.literal("read_saved"), reportId }).strict(),
   z.object({ action: z.literal("delivery_status"), id: z.string().regex(/^seo-digest-delivery:(daily|weekly):\d{4}-\d{2}-\d{2}(?::revision)?$/) }).strict(),
@@ -43,7 +49,7 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const archive = params.get("saved") === "1" && params.get("archive") === "1";
     const rawDate = params.get("date");
-    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? beijingDay());
+    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? reportDay());
     const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
     if (date && kind === "weekly" && weeklyReportDate(date) !== date) return Response.json({ message: "周报日期须为北京时间周四整理日或周五修订日；旧期仅支持周五" }, { status: 400, headers });
     if (params.get("saved") === "1") {
@@ -86,12 +92,12 @@ export async function GET(request: Request) {
         select: { payload: true },
       });
       const report = saved?.payload as unknown as SeoDigest | undefined;
-      const currentDaily = !explicitId && kind === "daily" && selected === beijingDay() && params.get("currentPreview") === "1";
-      if (currentDaily) {
+      const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
+      if (currentDaily && !report?.dashboard) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
         if (fresh) return Response.json({ report: fresh, dates }, { headers });
       }
-      if (archive && report && !explicitId && !report.reviewedBody) {
+      if (archive && report && !explicitId && !report.reviewedBody && !report.draftBody && !report.dashboard) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
         const previousStart = shiftDay(trafficStart, offset);
@@ -99,7 +105,7 @@ export async function GET(request: Request) {
         const [observations, recentPages, workPlan, github, accountRegistrations] = await Promise.all([
           loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
           loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
-          (kind === "weekly" && selected === beijingDay()) || !report.workPlan
+          (kind === "weekly" && selected === reportDay()) || !report.workPlan
             ? loadDigestWorkPlan(selected, kind).catch(() => report.workPlan) : Promise.resolve(report.workPlan),
           loadGithubChannels(shiftDay(trafficStart, -7), trafficEnd).catch(() => []),
           loadAccountRegistrationSummary(accountRange).catch(() => report.accountRegistrations ?? accountRegistrationSummary(accountRange)),
@@ -114,16 +120,20 @@ export async function GET(request: Request) {
       }
       return Response.json({ report: report ?? null, dates }, { headers });
     }
-    return Response.json({ report: await generateSeoDigest(date ?? beijingDay(), new Date(), kind) }, { headers });
+    return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }
 }
 export async function POST(request: Request) {
   if (!await auth(request)) return Response.json({ message: "需要服务器采集凭据" }, { status: 401, headers });
   try {
     const text = await request.text();
-    if (text.length > 8000) return Response.json({ message: "请求过大" }, { status: 413, headers });
-    const input = mutation.parse(JSON.parse(text));
+    if (text.length > 16000) return Response.json({ message: "请求过大" }, { status: 413, headers });
+    const raw = JSON.parse(text);
+    if (text.length > 8000 && !["save_draft", "save_daily_dashboard"].includes(raw?.action)) return Response.json({ message: "请求过大" }, { status: 413, headers });
+    const input = mutation.parse(raw);
     if (input.action === "save_reviewed") return Response.json({ report: await saveReviewedSeoDigest(input) }, { headers });
+    if (input.action === "save_draft") return Response.json({ report: await saveDraftSeoDigest(input) }, { headers });
+    if (input.action === "save_daily_dashboard") return Response.json({ report: await saveDailyDashboardSeoDigest(input) }, { headers });
     if (input.action === "confirm_provider_rejection") return Response.json(await confirmKnownDigestRejection(input.incidentId), { headers });
     if (input.action === "read_saved") {
       const saved = await prisma.seoReportVersion.findUnique({ where: { id: input.reportId } });

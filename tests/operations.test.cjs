@@ -93,6 +93,22 @@ test("operations API needs a real session; denied reads never touch the database
   assert.equal(response.status, 200); assert.match(response.headers.get("cache-control"), /private, no-store/);
 });
 
+test("the rescheduled DataForSEO metadata displays 16:00 while a paused schedule remains unconfigured", async t => {
+  const { prisma } = require("../src/lib/prisma.ts");
+  const { readonlyAutomationPlans } = require("../src/lib/seo-automation-schedule.ts");
+  const config = { paidEnabled: false, authorizationVersion: 0, nextDueAt: new Date("2026-12-03T02:10:00Z"), maxRunCostMicros: 123000, maxMonthCostMicros: 456000 };
+  t.mock.method(prisma.serpMonitorConfig, "findUnique", async () => structuredClone(config));
+  t.mock.method(globalThis, "fetch", async () => assert.fail("metadata reads must not call the provider"));
+  const status = await loadOperationsStatus(new Date("2026-11-20T02:00:00Z"));
+  const ranking = readonlyAutomationPlans(status).find(row => row.id === "rankings");
+  assert.equal(ranking.cadence, "隔周周四 16:00");
+  assert.equal(ranking.nextAt, "2026-12-03T08:00:00.000Z");
+  assert.equal(ranking.configurationState, "paused"); assert.equal(ranking.nextConfiguredAt, null);
+  assert.equal(status.controls.enabled, false);
+  assert.equal(status.controls.maxRunCostMicros, config.maxRunCostMicros); assert.equal(status.controls.maxMonthCostMicros, config.maxMonthCostMicros);
+  assert.equal(config.nextDueAt.toISOString(), "2026-12-03T02:10:00.000Z");
+});
+
 test("an advanced unfinished round is separate from the next automatic date", async t => {
   const {prisma} = require("../src/lib/prisma.ts");
   const due = new Date("2026-10-20T02:30:00Z");

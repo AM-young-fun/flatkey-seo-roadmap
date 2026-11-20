@@ -15,6 +15,7 @@ const { resolveRegistrationCollectionGate } = require("./seo-registration-capabi
 const { businessAnalyticsSchema, businessAnalyticsId, flatkeyRegistrationCount } = require("../src/lib/seo-business-analytics.ts");
 const { organicReportWindows } = require("../src/lib/seo-organic-period.ts");
 const { shiftDay, propertyToday, validRange, weeklyReportRange, WEEKLY_REPORT_SWITCH_DATE } = require("../src/lib/seo-date-range.ts");
+const { reportDay } = require("../src/lib/seo-report-time.cjs");
 const { enrichGithubReferrals } = require("../src/lib/services/ga4-github-referrals.ts");
 const { githubChannelSchema, githubChannelId } = require("../src/lib/seo-github-channel.ts");
 
@@ -55,7 +56,7 @@ async function archivedReportWindows(last) {
 async function run() {
   const importResults = process.argv.includes("--import");
   if (importResults && !process.env.SEO_IMPORT_TOKEN) throw Error("missing_import_token");
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+  const today = reportDay();
   const last = shiftDay(propertyToday("America/Los_Angeles"), -1);
   const reportingWindows = [{ start: last, end: last }, { start: shiftDay(last, -6), end: last }, ...organicReportWindows(today, last)];
   const registrationGate = await resolveRegistrationCollectionGate({ importing: importResults, token: process.env.SEO_IMPORT_TOKEN, range: reportingWindows[0] });

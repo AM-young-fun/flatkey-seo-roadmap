@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Signed webhook secret stays in the existing GitHub Actions secret store.
 const fs = require('node:fs/promises'), path = require('node:path'), crypto = require('node:crypto');
+const { reportDay, dailyReportArchiveOnly } = require('../src/lib/seo-report-time.cjs');
 const { actionCardPayload, digestSnapshotId, messageHash } = require('../src/lib/seo-digest-message.cjs');
 const { signedWebhook } = require('./seo-alert.cjs');
 const { verifyDailySendReadiness } = require('../src/lib/seo-daily-send-readiness.cjs');
@@ -23,7 +24,7 @@ function acceptedReceipt(response, text, config, runId, now = new Date()) {
   return { transport: 'signed-webhook', httpStatus: 200, errcode: 0, responseHash: hash(text), webhookConfigSha256: config.fingerprint, acceptedAt: now.toISOString(), repository: REPO, workflowRunId: runId, ...(trace && /^[A-Za-z0-9_-]{1,160}$/.test(trace) ? { providerTraceId: trace } : {}) };
 }
 function validReportBinding(report, date, kind, savedId) {
-  return report?.date === date && report.kind === kind && typeof report.text === 'string' &&
+  return !report?.draftBody && report?.date === date && report.kind === kind && typeof report.text === 'string' &&
     report.hash === hash(report.text) && report.deliveryProtocol === 2 &&
     (savedId
       // read_saved resolves this exact immutable DB key. JSONB can reorder nested
@@ -34,7 +35,7 @@ function validReportBinding(report, date, kind, savedId) {
 async function run() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_REPOSITORY !== REPO || process.env.GITHUB_REF !== 'refs/heads/main' || !/^\d{1,20}$/.test(process.env.GITHUB_RUN_ID || '')) throw Error('authorized_production_workflow_required');
   const flag = name => process.argv.find(arg => arg.startsWith('--' + name + '='))?.slice(name.length + 3);
-  const kind = flag('kind') || 'daily', date = flag('date') || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const kind = flag('kind') || 'daily', date = flag('date') || reportDay(new Date());
   if (!['daily','weekly'].includes(kind) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Error('invalid_report_selection');
   const config = parseConfig(process.env.SEO_DINGTALK_CONFIG || '');
   if (!process.env.SEO_IMPORT_TOKEN) throw Error('missing_import_credential');
@@ -59,10 +60,9 @@ async function run() {
   await write('.action-card.json', payload);
   await write('.preflight.json', { version: 1, transport: 'signed-webhook', messageFormat: 'actionCard', payloadSha256, destination: GROUP, robotCode: BOT, webhookConfigSha256: config.fingerprint, reportId: report.id, reportHash: report.hash, preliminary: report.preliminary, repository: REPO, workflowRunId: process.env.GITHUB_RUN_ID });
   const checkedAt = new Date();
-  const beijingToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(checkedAt);
-  const thursday = day => new Date(day + 'T00:00:00Z').getUTCDay() === 4;
-  if (kind === 'daily' && (thursday(beijingToday) || thursday(date))) {
-    const skipped = { status: 'archive_only_thursday', reportId: report.id, reportDate: date, beijingDate: beijingToday, checkedAt: checkedAt.toISOString(), reason: 'Thursday daily reports are archived without group delivery.' };
+  const losAngelesToday = reportDay(checkedAt);
+  if (kind === 'daily' && dailyReportArchiveOnly(date, checkedAt)) {
+    const skipped = { status: 'archive_only_thursday', reportId: report.id, reportDate: date, losAngelesDate: losAngelesToday, timezone: 'America/Los_Angeles', checkedAt: checkedAt.toISOString(), reason: 'Los Angeles Thursday daily reports are archived without group delivery.' };
     await write('.delivery-skipped.json', skipped);
     console.log(JSON.stringify(skipped));
     return;

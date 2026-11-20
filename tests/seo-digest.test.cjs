@@ -154,10 +154,10 @@ test("new weekly drafts use the same closed LA Thursday-Wednesday period on Thur
  assert.equal(buildSeoDigest({ ...base("2026-11-13"), kind: "weekly" }).reportPeriod, undefined);
  assert.throws(() => digestWindow("2026-11-21", "weekly"), /周四或周五/);
 });
-test("LA weekly work boundaries follow DST without changing the Beijing preparation hour", () => {
+test("future LA weekly work boundaries and preparation clocks follow DST", () => {
  const summer = digestWindow("2027-07-01", "weekly"), spring = digestWindow("2027-03-18", "weekly"), autumn = digestWindow("2027-11-11", "weekly");
  assert.equal(summer.workEnd, "2027-07-01T07:00:00.000Z");
- assert.equal(summer.readyAfter, "2027-07-01T16:30:00+08:00");
+ assert.equal(summer.readyAfter, "2027-07-01T07:30:00.000Z");
  assert.equal((Date.parse(spring.workEnd) - Date.parse(spring.workStart)) / 3600000, 167);
  assert.equal((Date.parse(autumn.workEnd) - Date.parse(autumn.workStart)) / 3600000, 169);
 });
@@ -217,7 +217,7 @@ test("late verification is counted in the next window, sources and translations 
   { id: "b", title: "translation", url: "https://flatkey.ai/ja/blog/a", kind: "translation", publishedAt: "2026-11-09T17:58:00+08:00", verifiedAt: "2026-11-09T18:05:00+08:00", recordedAt: "2026-11-09T18:05:00+08:00" },
  ];
  assert.equal(buildSeoDigest({ ...base("2026-11-09"), publications: rows }).counts.originals, 0);
- assert.deepEqual(buildSeoDigest({ ...base(), publications: rows }).counts, { originals: 1, translations: 1, backfillTranslations: 0, landingPages: 0, clusterPages: 0, optimizedPages: 0 });
+ assert.deepEqual(buildSeoDigest({ ...base(), publications: rows }).counts, { originals: 1, translations: 1, backfillTranslations: 0, blogPages: 2, landingPages: 0, clusterPages: 0, optimizedPages: 0 });
 });
 test("backdated verification arriving late is counted by actual receipt time", () => {
  const row = { id: "a", title: "late", url: "https://flatkey.ai/blog/a", kind: "source", publishedAt: "2026-11-08T12:00:00+08:00", verifiedAt: "2026-11-08T12:30:00+08:00", recordedAt: "2026-11-10T12:00:00+08:00" };
@@ -281,7 +281,7 @@ test("Friday retains today's verified links while old backfill is not new transl
 });
 test("preview before 18 is preliminary and absent run receipt is not a zero-work claim", () => {
  const report = buildSeoDigest({ ...base(), now: new Date("2026-11-10T17:30:00+08:00"), publicationCoverage: "missing" });
- assert.equal(report.preliminary, true); assert.match(report.text, /新增博客 暂无上线回执/);
+ assert.equal(report.preliminary, true); assert.match(report.text, /新增博客页面 暂无上线回执/);
 });
 test("unknown provider result and started send are never automatically reclaimed", () => {
  for (const status of ["UNKNOWN", "SENDING", "DELIVERED"]) assert.equal(digestClaimable({ status, leaseUntil: new Date(0), attemptedAt: new Date(0) }), false);
@@ -364,7 +364,7 @@ test("actual verified ES optimization stays visible when the overall execution c
  const report=buildSeoDigest({...base(fixture.date),now:new Date(fixture.now),notificationCompact:true,
   publications:fixture.publications,optimizations:fixture.optimizations,
   publicationCoverage:fixture.coverage.publications,optimizationCoverage:fixture.coverage.optimizations});
- assert.deepEqual(report.counts,fixture.expectedCounts);
+ assert.deepEqual(report.counts,{...fixture.expectedCounts,blogPages:0});
  assert.match(report.text,/优化 \*\*1 个页面\*\*/);
  assert.match(report.detailText,/今日优化 已核实 1 个页面，台账覆盖待补/);
  assert.match(report.detailText,/https:\/\/flatkey.ai\/es\/blog\/gpu-server/);
@@ -376,11 +376,11 @@ test("incomplete coverage reports verified lower bounds and keeps unknown zero d
  const optimization={id:"change",url:publication.url,keyword:"gpu server",changes:"title",verifiedAt:publication.verifiedAt,recordedAt:publication.recordedAt,baselineId:"baseline"};
  for(const coverage of ["missing","partial"]){
   const report=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage,publications:[publication],optimizations:[optimization]});
-  assert.match(report.detailText,/新增博客 已核实 1 篇/);assert.match(report.detailText,/优化 已核实 1 个页面/);
-  assert.match(report.detailText,/新增博客 已核实 1 篇/);
+  assert.match(report.detailText,/新增博客页面 已核实 1 页/);assert.match(report.detailText,/优化 已核实 1 个页面/);
+  assert.match(report.detailText,/新增博客页面 已核实 1 页/);
   assert.match(report.detailText,/落地页\/工具页 暂无上线回执，集群交付 暂无上线回执/);
   const unknown=buildSeoDigest({...base(),notificationCompact:true,publicationCoverage:coverage,optimizationCoverage:coverage});
-  assert.match(unknown.detailText,/优化 暂无上线回执/);assert.match(unknown.detailText,/新增博客 暂无上线回执/);
+  assert.match(unknown.detailText,/优化 暂无上线回执/);assert.match(unknown.detailText,/新增博客页面 暂无上线回执/);
   assert.doesNotMatch(unknown.detailText,/至少 0/);
  }
  const complete=buildSeoDigest({...base(),notificationCompact:true});
@@ -390,7 +390,7 @@ test("incomplete coverage reports verified lower bounds and keeps unknown zero d
 test("a checked empty publication is distinct from a category without a receipt", () => {
  const report = buildSeoDigest({ ...base(), notificationCompact: true, publicationCoverage: "partial",
    deliveryStates: { blogs: true, landing: false, cluster: false, optimizations: false } });
- assert.match(report.detailText, /新增博客 已核实 0 篇[\s\S]*落地页\/工具页 暂无上线回执/);
+ assert.match(report.detailText, /新增博客页面 已核实 0 页[\s\S]*落地页\/工具页 暂无上线回执/);
 });
 
 test("natural-search registrations compare verified distinct GA4 users without using all-channel or daily sums", () => {

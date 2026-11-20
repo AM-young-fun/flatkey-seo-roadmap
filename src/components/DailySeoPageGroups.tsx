@@ -123,15 +123,38 @@ function PageGroupCard({ definition, group, history, version, loadingFailed, onR
   </article>;
 }
 
-export function DailySeoPageGroups({ start, end, category = "all" }: {start?:string;end?:string;expanded?:boolean;category?:string} = {}) {
-  const API_URL = BASE_API_URL + (start && end ? `&start=${start}&end=${end}` : "");
-  const [data, setData] = useState<DailySeoPageGroupsHistory | null>(() => {
+export function pageGroupReadUrl(start?: string, end?: string, snapshot?: DailySeoPageGroupsHistory): string | null {
+  return snapshot !== undefined ? null : BASE_API_URL + (start && end ? `&start=${start}&end=${end}` : "");
+}
+
+export function slicePageGroupSnapshot(snapshot: DailySeoPageGroupsHistory, start = snapshot.start, end = snapshot.end): DailySeoPageGroupsHistory | null {
+  if (!isHistory(snapshot) || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)
+    || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || start > end) return null;
+  const groups = snapshot.groups.map(group => {
+    const points = group.points.filter(point => point.date >= start && point.date <= end);
+    return { ...group, points, coverage: {
+      days: Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1,
+      totalUsersDays: points.filter(point => point.totalUsers !== null).length,
+      pageViewsDays: points.filter(point => point.pageViews !== null).length,
+      funnelDays: points.filter(point => point.funnel !== null).length,
+    } };
+  });
+  return { ...snapshot, start, end, groups,
+    collectedAt: groups.flatMap(group => group.points.flatMap(point => point.collectedAt ? [point.collectedAt] : [])).sort().at(-1) ?? null };
+}
+
+export function DailySeoPageGroups({ start, end, category = "all", snapshot }: {start?:string;end?:string;expanded?:boolean;category?:string;snapshot?:DailySeoPageGroupsHistory} = {}) {
+  const API_URL = pageGroupReadUrl(start, end, snapshot);
+  const [liveData, setData] = useState<DailySeoPageGroupsHistory | null>(() => {
+    if (!API_URL) return null;
     const cached = clientReadCache.peek<DailySeoPageGroupsHistory>(API_URL);
     return cached && isHistory(cached) ? cached : null;
   });
+  const data = snapshot !== undefined ? slicePageGroupSnapshot(snapshot, start, end) : liveData;
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   useEffect(() => {
+    if (!API_URL) return;
     let disposed = false, busy = false, force = version > 0;
     const read = async () => {
       if (busy || document.hidden) return;
@@ -167,9 +190,10 @@ export function DailySeoPageGroups({ start, end, category = "all" }: {start?:str
     <div className={styles.heading}><div><h2>页面组每日 SEO</h2><p className="chartNote">首次来自自然搜索的用户 · 所选已结束日 · 四类页面分别记录</p></div>
       {data ? <span className={styles.range}>{data.start} — {data.end}</span> : null}
     </div>
-    {error ? <div className="loadError"><span>{error}</span><button type="button" onClick={retry}>重新加载</button></div> : null}
+    {snapshot !== undefined && !data ? <p className={styles.empty}>此报告暂无可核验的页面组快照。</p> : null}
+    {snapshot === undefined && error ? <div className="loadError"><span>{error}</span><button type="button" onClick={retry}>重新加载</button></div> : null}
     <div className={styles.grid}>{GROUPS.filter(d => category === "all" || category === "models" && d.key.startsWith("model_") || category === "prompts" && d.key === "prompts" || category === "gpu" && d.key === "gpu_compute").map(definition => <PageGroupCard key={definition.key} definition={definition}
-      group={data?.groups.find(group => group.key === definition.key)} history={data} version={version} loadingFailed={Boolean(error)} onRetry={retry} />)}</div>
+      group={data?.groups.find(group => group.key === definition.key)} history={data} version={version} loadingFailed={snapshot !== undefined || Boolean(error)} onRetry={retry} />)}</div>
     <p className={`chartNote ${styles.note}`}>访客和浏览次数按天、按页面组独立统计。注册记录当天先访问该组页面、再完成注册的人；同一人可访问多个组，组间人数和每日人数均不相加为去重总数。待补采留空，真实零值显示为 0。</p>
   </section>;
 }

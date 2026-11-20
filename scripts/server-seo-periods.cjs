@@ -9,9 +9,10 @@ require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule
 const { fetchGa4OrganicPeriod } = require("../src/lib/services/ga4-organic.ts");
 const { organicPeriodSchema, organicPeriodId, organicReportWindows } = require("../src/lib/seo-organic-period.ts");
 const { shiftDay, propertyToday } = require("../src/lib/seo-date-range.ts");
+const { reportDay } = require("../src/lib/seo-report-time.cjs");
 async function run() {
  if (!process.env.SEO_IMPORT_TOKEN || !process.env.SEO_GOOGLE_SERVICE_ACCOUNT_JSON) throw Error("missing_server_credentials");
- const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+ const today = reportDay();
  const windows = organicReportWindows(today, shiftDay(propertyToday("America/Los_Angeles"), -1));
  let imported = 0; const periods = [];
  for (const range of windows) {
