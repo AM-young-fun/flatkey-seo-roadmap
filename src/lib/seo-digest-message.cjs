@@ -19,8 +19,8 @@ function actionCardPayload(report, revision = false) {
 }
 const messageHash = payload => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 function digestSnapshotId(report) {
- const { date, text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan } = report;
- const version = createHash('sha256').update(JSON.stringify({ text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan })).digest('hex').slice(0, 16);
+ const { date, text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan, currentWorkPlan, pageGroups, rankingNotes } = report;
+ const version = createHash('sha256').update(JSON.stringify({ text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan, currentWorkPlan, pageGroups, rankingNotes })).digest('hex').slice(0, 16);
  return `seo-digest:${date}:${version}`;
 }
 module.exports = { actionCardPayload, digestSnapshotId, messageHash, reportDetailUrl, DETAIL_URL };

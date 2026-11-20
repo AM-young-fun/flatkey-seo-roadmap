@@ -60,3 +60,12 @@ test('explicit saved reports bind to their authenticated DB key after JSONB reor
  assert.equal(validReportBinding(saved, report.date, report.kind, 'seo-digest:2026-11-13:0123456789abcdef'), false);
  assert.equal(validReportBinding({ ...saved, text: 'changed' }, report.date, report.kind, report.id), false);
 });
+
+
+test('snapshot identities bind the current plan, frozen page groups and current-cycle keyword evidence', () => {
+ const {digestSnapshotId}=require('../src/lib/seo-digest-message.cjs');
+ const source={date:'2026-11-19',text:'同一正文',detailText:'同一完整正文'};
+ const original=digestSnapshotId(source);
+ for(const extra of [{currentWorkPlan:{weekStart:'2026-11-16',tasks:[]}},{pageGroups:{groups:[{key:'prompts',points:[{date:'2026-11-18',totalUsers:3}]}]}},{rankingNotes:['本期实际采样回执']}]) assert.notEqual(digestSnapshotId({...source,...extra}),original);
+ assert.equal(digestSnapshotId({...source,pageGroups:undefined,currentWorkPlan:undefined,rankingNotes:undefined}),original);
+});

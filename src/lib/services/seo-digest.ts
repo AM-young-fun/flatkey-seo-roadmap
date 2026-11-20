@@ -208,8 +208,9 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
 export async function saveSeoDigest(digest: SeoDigest) {
   await prisma.seoReportVersion.createMany({ data: { id: digest.id, siteDomain: "flatkey.ai", kind: "SEO_DIGEST", periodStart: new Date(digest.date), periodEnd: new Date(digest.date), createdAt: new Date(digest.generatedAt), payload: json(digest) }, skipDuplicates: true });
   const stored = await prisma.seoReportVersion.findUniqueOrThrow({ where: { id: digest.id } });
-  if ((stored.payload as unknown as SeoDigest).hash !== digest.hash) throw new DigestError("报告版本冲突");
-  return digest;
+  const saved = stored.payload as unknown as SeoDigest;
+  if (saved.hash !== digest.hash || saved.text !== digest.text || saved.detailText !== digest.detailText) throw new DigestError("报告版本冲突");
+  return saved;
 }
 
 export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot", messageFormat?: "actionCard", revision = false) {
