@@ -1,0 +1,45 @@
+.body {
+  min-width: 0;
+  padding: 22px 24px;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.body > :first-child { margin-top: 0; }
+.body > :last-child { margin-bottom: 0; }
+.body p { margin: 0 0 14px; }
+.body :is(h1, h2, h3, h4, h5, h6) { color: #17243b; line-height: 1.5; }
+.body h1 { margin: 28px 0 14px; font-size: 22px; }
+.body h2 { margin: 28px 0 14px; font-size: 20px; }
+.body h3 { margin: 28px 0 14px; padding-top: 18px; border-top: 1px solid #edf1f6; font-size: 17px; }
+.body :is(h4, h5, h6) { margin: 20px 0 10px; font-size: 15px; }
+.body strong { color: #17243b; font-weight: 650; }
+.body :is(ul, ol) { margin: 0 0 16px; padding-left: 24px; }
+.body li { margin: 5px 0; }
+.body li > p { margin-bottom: 6px; }
+.body a { color: #2157c2; text-decoration: underline; text-underline-offset: 3px; }
+.body a:hover { color: #163f91; }
+.body code { padding: 2px 5px; border-radius: 4px; background: #f1f5f9; font-size: .92em; }
+.body pre { max-width: 100%; padding: 14px; overflow-x: auto; border-radius: 6px; background: #f1f5f9; }
+.body pre code { padding: 0; background: transparent; }
+.body blockquote { margin: 16px 0; padding: 2px 16px; border-left: 3px solid #d2def0; color: #52647b; }
+.body blockquote > :last-child { margin-bottom: 0; }
+.body hr { margin: 24px 0; border: 0; border-top: 1px solid #e5e9f0; }
+.tableScroll { max-width: 100%; min-width: 0; margin: 16px 0 20px; overflow-x: auto; border: 1px solid #e5e9f0; border-radius: 6px; }
+.tableScroll table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; line-height: 1.65; }
+.tableScroll :is(th, td) { padding: 10px 13px; vertical-align: top; border-bottom: 1px solid #edf1f6; }
+.tableScroll th { background: #f3f6fa; color: #52647b; font-weight: 600; white-space: nowrap; }
+.tableScroll td:first-child { font-weight: 500; }
+.tableScroll tbody tr:last-child td { border-bottom: 0; }
+.tableScroll tbody tr:nth-child(even) { background: #fbfcfe; }
+.tableScroll :is(th, td) + :is(th, td) { border-left: 1px solid #edf1f6; }
+.tableScroll:focus-visible, .body a:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+@media (max-width: 640px) {
+  .body { padding: 16px 14px; }
+  .body h3 { margin-top: 24px; font-size: 16px; }
+  .tableScroll :is(th, td) { padding: 9px 11px; }
+}

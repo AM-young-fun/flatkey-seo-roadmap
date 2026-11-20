@@ -23,6 +23,6 @@ const { SeoDigestReports } = require("../src/components/SeoDigestReports.tsx");
 test("reviewed snapshots show the exact safe body without stale structured metrics or dynamic correction text", () => {
   const html = renderToStaticMarkup(React.createElement(SeoDigestReports));
   assert.match(html, /已审周报完整正文/); assert.match(html, /注册78人/);
-  assert.match(html, /&lt;script&gt;not executable&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script|not executable/);
   assert.doesNotMatch(html, /999123|stale registration coverage|事后修订|待审页面版本|SEO 注册人数/);
 });
