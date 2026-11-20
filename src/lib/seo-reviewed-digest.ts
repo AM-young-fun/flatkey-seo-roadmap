@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { beijingDay, digestWindow, type SeoDigest } from "./seo-digest";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
+import { sameReportDashboard } from "./seo-report-dashboard";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
@@ -44,21 +45,20 @@ export function buildReviewedSeoDigest(base: SeoDigest, raw: unknown, now = new 
   const id = digestSnapshotId({ date: input.date, text: input.text, detailText: input.text });
   if (id === base.id) throw new ReviewedDigestError("已审正文须另存不同的不可变快照", 409);
   return { ...base, id, title, text: input.text, detailText: input.text, hash: input.textSha256,
-    generatedAt: now.toISOString(),
+    generatedAt: now.toISOString(), draftBody: undefined,
     reviewedBody: { version: 1, recordOnly: true, baseReportId: base.id, baseReportHash: base.hash,
       baseGeneratedAt: base.generatedAt, textSha256: input.textSha256, sourceEvidenceSha256: input.sourceEvidenceSha256, approvedAt: input.approvedAt },
     // The exact body is authoritative. Old structured traffic cannot be mistaken for its values.
-    pagePerformance: [], recentPages: [], weeklyTraffic: undefined, weeklyHighlights: undefined, workPlan: undefined,
-    organicRegistrationCanCompare: false,
-    registrationCoverageNote: "", accountRegistrations: undefined,
+    ...(base.dashboard ? {} : { pagePerformance: [], recentPages: [], weeklyTraffic: undefined, weeklyHighlights: undefined, workPlan: undefined,
+      organicRegistrationCanCompare: false, registrationCoverageNote: "", accountRegistrations: undefined }),
   };
 }
 
 export function sameReviewedDigest(stored: SeoDigest, expected: SeoDigest) {
   const a = stored.reviewedBody, b = expected.reviewedBody;
-  return stored.id === expected.id && stored.date === expected.date && stored.kind === "weekly"
+  return stored.id === expected.id && stored.date === expected.date && stored.kind === "weekly" && !stored.draftBody
     && stored.title === expected.title && stored.text === expected.text && stored.detailText === expected.detailText
-    && stored.hash === expected.hash && reviewedTextHash(stored.text) === stored.hash
+    && stored.hash === expected.hash && reviewedTextHash(stored.text) === stored.hash && sameReportDashboard(stored.dashboard, expected.dashboard)
     && stored.readyAfter === expected.readyAfter && stored.deliveryProtocol === expected.deliveryProtocol
     && stored.preliminary === expected.preliminary && stored.workWindow.start === expected.workWindow.start && stored.workWindow.end === expected.workWindow.end
     && stored.reportPeriod?.start === expected.reportPeriod?.start && stored.reportPeriod?.end === expected.reportPeriod?.end

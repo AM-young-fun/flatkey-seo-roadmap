@@ -53,6 +53,7 @@ export type DigestInput = {
   pageGroups?: DailySeoPageGroupsHistory;
   resolvedIssues?: number | null;
   workPlan?: DigestWorkPlan;
+  currentWorkPlan?: DigestWorkPlan;
   date: string; kind?: DigestKind; now?: Date; observations: DigestObservation[];
   pageObservations?: AnalyticsObservation[];
   recentPages?: ReturnType<typeof recentPublishedPages>;
@@ -883,12 +884,12 @@ export function buildSeoDigest(input: DigestInput) {
     pagePerformance,
     recentPages: input.recentPages,
     deliveryStates: input.deliveryStates,
-    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan,
+    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
     flatkeyRegistrations, accountRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };
 }
-export type SeoDigest = ReturnType<typeof buildSeoDigest> & { reviewedBody?: ReviewedDigestBody };
+export type SeoDigest = ReturnType<typeof buildSeoDigest> & { reviewedBody?: ReviewedDigestBody; draftBody?: import("./seo-draft-digest").DraftDigestBody; dashboard?: import("./seo-report-dashboard").ReportDashboard };
 
 /** Transport ambiguity is terminal for automatic retries. A human must reconcile the provider receipt. */
 export function digestClaimable(row: { status: string; leaseUntil: Date | null; attemptedAt: Date | null }, now = new Date()) {

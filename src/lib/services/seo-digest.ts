@@ -170,6 +170,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     dailyAcquisition: reads[8].status === "fulfilled" ? reads[8].value : undefined,
     pageGroups: reads[9].status === "fulfilled" ? reads[9].value : undefined,
     workPlan: summarizeWorkPlan(relevantPlan),
+    currentWorkPlan: summarizeWorkPlan(workflow),
     recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly", window), technicalQa: technicalQaReport(workflow, window.workStart, window.workEnd, monitoringAsOf), notificationCompact: true,
     accountRegistrations: reads[7].status === "fulfilled" ? reads[7].value : accountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
     businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
@@ -218,6 +219,7 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     const saved = await tx.seoReportVersion.findUnique({ where: { id: reportId } });
     if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
     const report = saved.payload as unknown as SeoDigest;
+    if (report.draftBody) throw new DigestError("周报待审核；须先批准确切全文并另存已审版本", 409);
     if (report.date !== beijingDay(now)) throw new DigestError("自动通知仅发送当天报告；历史报告保留归档");
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
     const expected = digestWindow(report.date, report.kind);

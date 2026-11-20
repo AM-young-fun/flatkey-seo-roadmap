@@ -20,12 +20,15 @@ import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
 import { reviewedDigestCommandSchema, ReviewedDigestError } from "@/lib/seo-reviewed-digest";
 import { saveReviewedSeoDigest } from "@/lib/services/seo-reviewed-digest";
+import { draftDigestCommandSchema } from "@/lib/seo-draft-digest";
+import { saveDraftSeoDigest } from "@/lib/services/seo-draft-digest";
 
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
 const mutation = z.discriminatedUnion("action", [
   reviewedDigestCommandSchema,
+  draftDigestCommandSchema,
   z.object({ action: z.literal("confirm_provider_rejection"), incidentId: z.literal("2026-11-11-dingtalk-1001") }).strict(),
   z.object({ action: z.literal("read_saved"), reportId }).strict(),
   z.object({ action: z.literal("delivery_status"), id: z.string().regex(/^seo-digest-delivery:(daily|weekly):\d{4}-\d{2}-\d{2}(?::revision)?$/) }).strict(),
@@ -91,7 +94,7 @@ export async function GET(request: Request) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
         if (fresh) return Response.json({ report: fresh, dates }, { headers });
       }
-      if (archive && report && !explicitId && !report.reviewedBody) {
+      if (archive && report && !explicitId && !report.reviewedBody && !report.draftBody) {
         const { trafficStart, trafficEnd } = digestWindow(selected, kind);
         const offset = kind === "weekly" ? -7 : -1;
         const previousStart = shiftDay(trafficStart, offset);
@@ -121,9 +124,12 @@ export async function POST(request: Request) {
   if (!await auth(request)) return Response.json({ message: "需要服务器采集凭据" }, { status: 401, headers });
   try {
     const text = await request.text();
-    if (text.length > 8000) return Response.json({ message: "请求过大" }, { status: 413, headers });
-    const input = mutation.parse(JSON.parse(text));
+    if (text.length > 16000) return Response.json({ message: "请求过大" }, { status: 413, headers });
+    const raw = JSON.parse(text);
+    if (text.length > 8000 && raw?.action !== "save_draft") return Response.json({ message: "请求过大" }, { status: 413, headers });
+    const input = mutation.parse(raw);
     if (input.action === "save_reviewed") return Response.json({ report: await saveReviewedSeoDigest(input) }, { headers });
+    if (input.action === "save_draft") return Response.json({ report: await saveDraftSeoDigest(input) }, { headers });
     if (input.action === "confirm_provider_rejection") return Response.json(await confirmKnownDigestRejection(input.incidentId), { headers });
     if (input.action === "read_saved") {
       const saved = await prisma.seoReportVersion.findUnique({ where: { id: input.reportId } });

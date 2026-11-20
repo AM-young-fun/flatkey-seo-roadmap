@@ -23,7 +23,7 @@ function acceptedReceipt(response, text, config, runId, now = new Date()) {
   return { transport: 'signed-webhook', httpStatus: 200, errcode: 0, responseHash: hash(text), webhookConfigSha256: config.fingerprint, acceptedAt: now.toISOString(), repository: REPO, workflowRunId: runId, ...(trace && /^[A-Za-z0-9_-]{1,160}$/.test(trace) ? { providerTraceId: trace } : {}) };
 }
 function validReportBinding(report, date, kind, savedId) {
-  return report?.date === date && report.kind === kind && typeof report.text === 'string' &&
+  return !report?.draftBody && report?.date === date && report.kind === kind && typeof report.text === 'string' &&
     report.hash === hash(report.text) && report.deliveryProtocol === 2 &&
     (savedId
       // read_saved resolves this exact immutable DB key. JSONB can reorder nested
