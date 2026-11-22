@@ -3,6 +3,7 @@ import { z } from "zod";
 import { reportDay, digestWindow, type SeoDigest } from "./seo-digest";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
 import { sameReportDashboard } from "./seo-report-dashboard";
+import { currentCanonicalWeeklyDraft } from "./seo-weekly-review-window";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
@@ -26,8 +27,9 @@ export const reviewedTextHash = (text: string) => createHash("sha256").update(te
 /** Records the reviewed body; it does not authorize, claim, or send a message. */
 export function buildReviewedSeoDigest(base: SeoDigest, raw: unknown, now = new Date()): SeoDigest {
   const input = reviewedDigestCommandSchema.parse(raw);
-  if (input.date !== reportDay(now) || base.id !== input.baseReportId || base.date !== input.date || base.kind !== "weekly"
-    || !input.baseReportId.startsWith(`seo-digest:${input.date}:`)) throw new ReviewedDigestError("必须绑定当天同一周报的确切基础快照");
+  if ((input.date !== reportDay(now) && !currentCanonicalWeeklyDraft(base, now))
+    || base.id !== input.baseReportId || base.date !== input.date || base.kind !== "weekly"
+    || !input.baseReportId.startsWith(`seo-digest:${input.date}:`)) throw new ReviewedDigestError("必须绑定当天周报，或当前已闭合洛杉矶周的确切待审快照");
   if (base.hash !== input.baseReportHash || reviewedTextHash(base.text) !== base.hash) throw new ReviewedDigestError("基础报告哈希不匹配", 409);
   if (base.draftBody && (input.text !== base.text || input.textSha256 !== base.hash
     || input.sourceEvidenceSha256 !== base.draftBody.sourceEvidenceSha256)) throw new ReviewedDigestError("须批准同一待审全文及证据；内容修改须另存待审版本", 409);

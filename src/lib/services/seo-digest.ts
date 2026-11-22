@@ -27,6 +27,8 @@ import { workflowSnapshot } from "@/lib/seo-workflow-state";
 import { digestDailyRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { workPlanTaskFilters } from "../seo-workspace-routes";
 import { loadSerpTasks } from "./serp-results";
+import { currentCanonicalWeeklyDraft } from "../seo-weekly-review-window";
+import { buildReviewedSeoDigest, sameReviewedDigest } from "../seo-reviewed-digest";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -223,7 +225,30 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     const report = saved.payload as unknown as SeoDigest;
     if (report.draftBody) throw new DigestError("周报待审核；须先批准确切全文并另存已审版本", 409);
     if (report.kind === "daily" && dailyReportArchiveOnly(report.date, now)) throw new DigestError("洛杉矶周四日报只归档，不发送群消息");
-    if (report.date !== reportDay(now)) throw new DigestError("自动通知仅发送洛杉矶当天报告；历史报告保留归档");
+    if (report.date !== reportDay(now)) {
+      let approvedCurrentWeek = false;
+      if (transport === "signed-webhook" && report.kind === "weekly" && report.reviewedBody) {
+        const baseSaved = await tx.seoReportVersion.findUnique({ where: { id: report.reviewedBody.baseReportId } });
+        if (saved.id === report.id && saved.siteDomain === "flatkey.ai"
+          && saved.periodStart.toISOString().slice(0, 10) === report.date && saved.periodEnd.toISOString().slice(0, 10) === report.date
+          && baseSaved?.kind === "SEO_DIGEST" && baseSaved.siteDomain === "flatkey.ai"
+          && baseSaved.periodStart.toISOString().slice(0, 10) === report.date && baseSaved.periodEnd.toISOString().slice(0, 10) === report.date) {
+          const base = baseSaved.payload as unknown as SeoDigest;
+          if (baseSaved.id === base.id && currentCanonicalWeeklyDraft(base, now)) {
+            try {
+              const approved = report.reviewedBody;
+              const rebuilt = buildReviewedSeoDigest(base, { action: "save_reviewed", kind: "weekly", date: report.date,
+                baseReportId: approved.baseReportId, baseReportHash: approved.baseReportHash, reportPeriod: report.reportPeriod,
+                text: report.text, textSha256: approved.textSha256, sourceEvidenceSha256: approved.sourceEvidenceSha256,
+                approvedAt: approved.approvedAt }, new Date(report.generatedAt));
+              approvedCurrentWeek = sameReviewedDigest(report, rebuilt) && Date.parse(report.generatedAt) <= now.getTime()
+                && Date.parse(approved.approvedAt) <= now.getTime();
+            } catch { /* Invalid approval or source binding never creates a delivery claim. */ }
+          }
+        }
+      }
+      if (!approvedCurrentWeek) throw new DigestError("自动通知仅发送洛杉矶当天报告；跨日仅允许本期周四确切待审稿的已审版本");
+    }
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
     const expected = digestWindow(report.date, report.kind);
     if (report.workWindow.start !== expected.workStart || report.workWindow.end !== expected.workEnd) throw new DigestError("报告统计窗口已过期；原快照保留归档，请生成当前洛杉矶口径预览");

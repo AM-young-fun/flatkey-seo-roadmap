@@ -27,7 +27,23 @@ test("a real scheduled Thursday capture belongs to the just-closed LA week only 
  assert.deepEqual(digestRankingNotes([current], ...range), []);
  assert.deepEqual(digestRankingNotes([current], ...range, new Date("2026-12-03T08:00:00Z")), []);
  assert.match(digestRankingNotes([current], ...range, new Date("2026-12-03T08:10:00Z")).join("\n"), /有新回执/);
+ assert.deepEqual(digestRankingNotes([current], "2026-12-03T08:00:00Z", "2026-12-10T08:00:00Z", new Date("2026-12-10T08:30:00Z")), [], "inside-window checkedAt cannot borrow the prior scheduled batch");
  assert.deepEqual(digestRankingNotes([{...current,periodKey:"2026-11-17"}], ...range, new Date("2026-12-03T08:10:00Z")), []);
+});
+
+test("historical scheduled slots retain their week, while real manual captures use capture time", () => {
+ const historical = row("2026-11-17", 8, { checkedAt: "2026-11-19T02:15:00Z", runCreatedAt: "2026-11-19T02:10:00Z" });
+ assert.match(digestRankingNotes([historical], "2026-11-12T08:00:00Z", "2026-11-19T08:00:00Z", new Date("2026-11-19T08:30:00Z")).join("\n"), /有新回执/);
+ const manual = row("2026-12-01", 8, { runScope: "MANUAL", checkedAt: "2026-12-03T08:05:00Z", runCreatedAt: "2026-12-03T08:00:00Z" });
+ assert.match(digestRankingNotes([manual], "2026-12-03T08:00:00Z", "2026-12-10T08:00:00Z", new Date("2026-12-10T08:30:00Z")).join("\n"), /有新回执/);
+ assert.deepEqual(digestRankingNotes([manual], "2026-11-26T08:00:00Z", "2026-12-03T08:00:00Z", new Date("2026-12-03T08:30:00Z")), []);
+});
+
+test("weekly history cannot expose a sibling receipt returned after asOf", () => {
+ const current = row("2026-12-01", 8, { checkedAt: "2026-12-03T08:05:00Z", runCreatedAt: "2026-12-03T08:00:00Z" });
+ const future = { ...current, id: "future", keyword: "future api", targetsJson: [{ keywordId: "future", siteDomain: "flatkey.ai" }], checkedAt: "2026-12-03T08:20:00Z" };
+ const notes = digestRankingNotes([current, future], "2026-11-26T08:00:00Z", "2026-12-03T08:00:00Z", new Date("2026-12-03T08:10:00Z")).join("\n");
+ assert.match(notes, /前100去重词 1，.*结果 1\/1/);
 });
 
 

@@ -61,8 +61,9 @@ export function periodDue(key: string): Date {
 export function serpCaptureBelongsToWeek(periodKey: string, start: string, end: string): boolean {
   try {
     const captureDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(periodDue(periodKey));
-    return captureDay >= start && captureDay <= end ||
-      new Date(start + "T00:00:00Z").getUTCDay() === 4 && new Date(end + "T00:00:00Z").getUTCDay() === 3 && captureDay === addDays(end, 1);
+    const closedWeekSlot = /^\d{4}-\d{2}-\d{2}$/.test(periodKey) && periodKey >= AFTERNOON_SCHEDULE_FIRST_PERIOD &&
+      new Date(start + "T00:00:00Z").getUTCDay() === 4 && new Date(end + "T00:00:00Z").getUTCDay() === 3;
+    return closedWeekSlot ? captureDay === addDays(end, 1) : captureDay >= start && captureDay <= end;
   } catch { return false; }
 }
 

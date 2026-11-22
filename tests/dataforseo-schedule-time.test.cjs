@@ -37,7 +37,9 @@ test('the user-selected Beijing clock stays 16:00 in winter and summer while ret
 
 test('real Thursday collection receipts can bind to the just-closed LA week without borrowing old cycles', () => {
   assert.equal(serpCaptureBelongsToWeek('2026-12-01', '2026-11-26', '2026-12-02'), true);
+  assert.equal(serpCaptureBelongsToWeek('2026-12-01', '2026-12-03', '2026-12-09'), false, 'the same Thursday slot cannot belong to the following week');
   assert.equal(serpCaptureBelongsToWeek('2026-11-17', '2026-11-26', '2026-12-02'), false);
   assert.equal(serpCaptureBelongsToWeek('2026-11-17', '2026-11-12', '2026-11-18'), true);
+  assert.equal(serpCaptureBelongsToWeek('2026-11-17', '2026-11-19', '2026-11-25'), false, 'historical November slots keep their original inside-week ownership');
   assert.equal(serpCaptureBelongsToWeek('invalid', '2026-11-12', '2026-11-18'), false);
 });
