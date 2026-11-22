@@ -48,10 +48,12 @@ test("preview is free; explicit activation changes both switches, not provider s
   await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
   assert.equal(config.paidEnabled, true); assert.equal(config.authorizationVersion, 1); assert.equal(connection.scheduleEnabled, true); assert.equal(paidCalls, 0);
   const version = config.revision;
+  const retained = { nextDueAt: config.nextDueAt.toISOString(), maxRunCostMicros: config.maxRunCostMicros, maxMonthCostMicros: config.maxMonthCostMicros };
   await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
   assert.equal(config.revision, version, "repeated activation is idempotent");
   await mutateCollectionControl({ action: "pauseSchedule" });
   assert.equal(config.paidEnabled, false); assert.equal(connection.scheduleEnabled, false); assert.equal(paidCalls, 0);
+  assert.deepEqual({ nextDueAt: config.nextDueAt.toISOString(), maxRunCostMicros: config.maxRunCostMicros, maxMonthCostMicros: config.maxMonthCostMicros }, retained);
 });
 test("forged, expired, changed connection and changed cohort cannot activate or pay", async () => {
   const preview = await previewCollectionSchedule(), approved = verifyDataForSeoPreview(preview.previewToken);

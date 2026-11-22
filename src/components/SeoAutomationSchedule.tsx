@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CollectionControlMutation, CollectionSchedulePreview } from "@/lib/collection-control";
 import { RefreshCw } from "lucide-react";
 import type { OperationsStatus } from "@/lib/operations";
-import { collectionFitsExistingBudget, continueCollectionCycle } from "@/lib/collection-cycle-client";
+import { collectionFitsExistingBudget, continueCollectionCycle, pauseCollectionRequests } from "@/lib/collection-cycle-client";
 import { automationDate, automationSchedulerLabels, readonlyAutomationPlans, type ReadonlyAutomationPlan } from "@/lib/seo-automation-schedule";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoAutomationSchedule.module.css";
@@ -16,8 +16,10 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
   const [current, setCurrent] = useState(false);
   const [coverage, setCoverage] = useState<{ allTargetCount: number; heldTargetCount: number; targetCount: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pauseBusy, setPauseBusy] = useState(false);
   const [message, setMessage] = useState("");
   const running = useRef(false), active = useRef(true);
+  const pausing = useRef(false), stopPaid = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   async function post(action: CollectionControlMutation) {
     const response = await fetch("/api/operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
@@ -26,12 +28,15 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
     return result;
   }
   async function submit(action: CollectionControlMutation) {
-    if (running.current) return;
+    if (running.current || pausing.current) return;
+    if (action.action === "previewSchedule") stopPaid.current = false;
+    else if (stopPaid.current) return;
     running.current = true;
     setBusy(true);
     setMessage("");
     try {
       const result = await post(action);
+      if (stopPaid.current) return;
       if (action.action === "previewSchedule") {
         if (result.action !== "previewSchedule" || !result.previewToken) throw new Error("费用预览不完整");
         setCurrent(!action.futureOnly); setCoverage(null);
@@ -42,35 +47,51 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
             if (cohort && [cohort.allTargetCount, cohort.heldTargetCount, cohort.targetCount].every((value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) setCoverage(cohort);
           }
         }
-        setQuote(result);
+        if (active.current && !stopPaid.current) setQuote(result);
       } else {
         setQuote(null);
         setMessage(result.message);
         onEnabled();
       }
-    } catch (error) { setMessage(error instanceof Error ? error.message : "付费计划暂不可用"); }
+    } catch (error) { if (!stopPaid.current) setMessage(error instanceof Error ? error.message : "付费计划暂不可用"); }
     finally { running.current = false; setBusy(false); }
   }
   async function runCurrent() {
-    if (!quote || !current || running.current) return;
+    if (!quote || !current || running.current || pausing.current) return;
+    stopPaid.current = false;
     running.current = true; setBusy(true); setMessage("正在沿本期原账本开启并续跑，请保留此页面。");
     try {
-      await continueCollectionCycle({ quote, budget: controls, post, stopped: () => !active.current,
-        progress: value => { if (active.current) setMessage(`${value.message}${value.remainingQueries === undefined ? "" : ` 剩余 ${value.remainingQueries} 次查询。`}`); },
+      await continueCollectionCycle({ quote, budget: controls, post, stopped: () => !active.current || stopPaid.current,
+        progress: value => { if (active.current && !stopPaid.current) setMessage(`${value.message}${value.remainingQueries === undefined ? "" : ` 剩余 ${value.remainingQueries} 次查询。`}`); },
         wait: () => new Promise(resolve => setTimeout(resolve, 3000)) });
       if (active.current) setQuote(null);
-    } catch (error) { if (active.current) setMessage(error instanceof Error ? error.message : "执行结果待核对，请查看原账本。"); }
+    } catch (error) { if (active.current && !stopPaid.current) setMessage(error instanceof Error ? error.message : "执行结果待核对，请查看原账本。"); }
     finally { running.current = false; if (active.current) { setBusy(false); onEnabled(); } }
   }
+  async function pause() {
+    if (pausing.current) return;
+    // Stop later client passes immediately; leave any already submitted POST untouched.
+    pausing.current = true; stopPaid.current = true; setPauseBusy(true); setMessage("正在暂停新的付费提交；已提交请求不会重发。");
+    try {
+      const result = await pauseCollectionRequests({ post, read: async () => {
+        const response = await fetch("/api/operations", { cache: "no-store" });
+        if (!response.ok) throw new Error("暂停请求已提交，状态读取失败；请刷新安排核对。");
+        return response.json();
+      } });
+      if (active.current) { setQuote(null); setMessage(result); }
+    } catch (error) { if (active.current) setMessage(error instanceof Error ? error.message : "暂停结果待核实，请刷新安排读取状态。"); }
+    finally { pausing.current = false; if (active.current) { setPauseBusy(false); onEnabled(); } }
+  }
   return <div className={styles.paidControl}>
+    {controls.enabled || busy && current ? <div className={styles.paidActions}><button type="button" className={styles.refresh} disabled={pauseBusy} onClick={() => void pause()}>{pauseBusy ? "正在暂停…" : "暂停新的付费提交"}</button></div> : null}
     {quote ? <>
       <p>本轮上限 <strong>{dollars(quote.totalMaxCostMicros)}</strong> · {quote.keywordCount} 个关键词 · {quote.queryCount} 次排名查询 · {quote.discoveryJobs} 项新词发现</p>
       {current ? <p><strong>{quote.periodLabel}</strong> · 周期标识 {quote.periodKey}。补采实际时间按回执保存，不改写为原计划时间。</p> : null}
       {coverage ? <p>正式目标 {coverage.allTargetCount} 个；本轮有效监控 {coverage.targetCount} 个；其余 {coverage.heldTargetCount} 个暂缓或排除，不作为本轮已采集。查询仅覆盖当前已核实的目标国家。</p> : null}
       <p className={styles.note}>计划时间 {automationDate(quote.dueAt)} · 排名月度上限 {dollars(quote.maxMonthSerpCostMicros)} · 新词每轮上限 {dollars(quote.discoveryMaxCostMicros)}</p>
       {current && !collectionFitsExistingBudget(quote, controls) ? <p role="alert">本轮报价超过原计划上限，不能直接开启或执行。</p> : null}
-      <div className={styles.paidActions}>{current ? <button type="button" className={styles.refresh} disabled={busy || !collectionFitsExistingBudget(quote, controls)} onClick={() => void runCurrent()}>{busy ? "本期采集中…" : "开启并执行本期"}</button> : <button type="button" className={styles.refresh} disabled={busy} onClick={() => void submit({ action: "enableSchedule", previewToken: quote.previewToken })}>仅开启自动付费</button>}<button type="button" className={styles.refresh} disabled={busy} onClick={() => setQuote(null)}>取消</button></div>
-    </> : <div className={styles.paidActions}><button type="button" className={styles.refresh} disabled={busy} onClick={() => void submit({ action: "previewSchedule", futureOnly: true })}>查看费用与开启</button><button type="button" className={styles.refresh} disabled={busy} onClick={() => void submit({ action: "previewSchedule" })}>查看本期补采费用</button></div>}
+      <div className={styles.paidActions}>{current ? <button type="button" className={styles.refresh} disabled={busy || pauseBusy || !collectionFitsExistingBudget(quote, controls)} onClick={() => void runCurrent()}>{busy ? "本期采集中…" : "开启并执行本期"}</button> : <button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => void submit({ action: "enableSchedule", previewToken: quote.previewToken })}>仅开启自动付费</button>}<button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => setQuote(null)}>取消</button></div>
+    </> : <div className={styles.paidActions}><button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule", futureOnly: true })}>查看费用与开启</button><button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule" })}>查看本期补采费用</button></div>}
     {message ? <p role="status">{message}</p> : null}
   </div>;
 }

@@ -1,7 +1,7 @@
 const { test } = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), ts = require('typescript');
 require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-const { collectionFitsExistingBudget, continueCollectionCycle } = require('../src/lib/collection-cycle-client.ts');
+const { collectionFitsExistingBudget, continueCollectionCycle, pauseCollectionRequests } = require('../src/lib/collection-cycle-client.ts');
 const quote = { action: 'previewSchedule', periodKey: '2026-11-17', previewToken: 'same-signed-current-period', serpMaxCostMicros: 6000, maxMonthSerpCostMicros: 33594000, discoveryMaxCostMicros: 528000 };
 const budget = { maxRunCostMicros: 33576000, maxMonthCostMicros: 134304000, discoveryMaxCostMicros: 528000 };
 
@@ -57,4 +57,30 @@ test('an unconfirmed enable receipt never reaches a paid continuation', async ()
   let calls = 0;
   await assert.rejects(continueCollectionCycle({ quote, budget, post: async () => { calls++; return { enabled: false }; }, stopped: () => false, progress() {}, wait: async () => assert.fail('no retry') }), /开启回执未确认/);
   assert.equal(calls, 1);
+});
+
+test('pause is independent of an in-flight paid request, reads back off, and never repeats that request', async () => {
+  let stop = false, finishPaid, started;
+  const paidStarted = new Promise(resolve => { started = resolve; });
+  const paidResult = new Promise(resolve => { finishPaid = resolve; });
+  const commands = [];
+  const loop = continueCollectionCycle({ quote, budget, stopped: () => stop,
+    async post(command) { commands.push(command.action); if (command.action === 'enableSchedule') return { action: 'enableSchedule', enabled: true }; started(); return paidResult; },
+    progress() {}, wait: async () => {} });
+  await paidStarted; stop = true;
+  const notice = await pauseCollectionRequests({ post: async command => { commands.push(command.action); return { action: 'pauseSchedule', enabled: false }; },
+    read: async () => ({ executionEvidence: 'available', controls: { enabled: false } }) });
+  assert.match(notice, /已暂停新的付费提交/);
+  assert.deepEqual(commands, ['enableSchedule', 'runCycle', 'pauseSchedule']);
+  finishPaid({ action: 'runCycle', finished: false }); await loop;
+  assert.deepEqual(commands, ['enableSchedule', 'runCycle', 'pauseSchedule']);
+});
+
+test('pause read failure or uncertain acknowledgement never retries its POST or claims verified off', async () => {
+  for (const kind of ['post', 'receipt', 'read', 'fallback']) {
+    let posts = 0;
+    await assert.rejects(pauseCollectionRequests({ post: async command => { posts++; assert.deepEqual(command, { action: 'pauseSchedule' }); if (kind === 'post') throw new Error('UNKNOWN'); return kind === 'receipt' ? {} : { action: 'pauseSchedule', enabled: false }; },
+      read: async () => { if (kind === 'read') throw new Error('READ_UNAVAILABLE'); return { executionEvidence: 'unavailable', controls: { enabled: false } }; } }));
+    assert.equal(posts, 1);
+  }
 });
