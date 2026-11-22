@@ -20,6 +20,7 @@ const sourceSchema = z.object({ id: z.string().trim().min(1).max(100), kind: z.e
   artifact: z.string().min(1).max(2000).refine(path.isAbsolute, "来源快照必须为本地绝对路径"),
   sha256: z.string().regex(/^[a-f0-9]{64}$/u), observedAt: stamp, url: z.url().max(3000).optional(),
 }).strict();
+const decisionArtifactSchema = sourceSchema.pick({ artifact: true, sha256: true, observedAt: true });
 const findingSchema = z.object({ problemKey: z.string().regex(/^[a-z0-9][a-z0-9_.:-]{2,100}$/u),
   changeType: z.enum(["keyword_diagnosis", "content_refresh", "new_content", "technical_review", "measurement_review"]),
   siteDomain: site, country: z.enum(["US", "JP", "BR", "ES"]).nullable(),
@@ -47,6 +48,7 @@ function pageKey(value, domain) {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password || url.port || ![domain, "www." + domain].includes(url.hostname)
     || /^\/(?:api|console|admin|sign-in|sign-up)(?:\/|$)/iu.test(url.pathname)) throw Error("page_outside_public_website_scope");
+  if (url.search || url.hash) throw Error("page_requires_verified_canonical_without_query_or_fragment");
   return `https://${domain}${url.pathname.replace(/\/+$/u, "") || "/"}`;
 }
 function safePage(value, domain) { try { return pageKey(value, domain); } catch { return null; } }
@@ -59,12 +61,20 @@ const hasMarker = (record, key) => record.sourceRowId === key || (record.evidenc
 const clean = (kind, record) => (kind === "task" ? workflowTaskSchema : workflowIssueSchema).parse(Object.fromEntries(
   Object.entries(record).filter(([key]) => !["version", "recordedAt", "updatedAt"].includes(key))));
 const evidenceId = row => hash([/^结论 (seo-finding:[a-f0-9]{64}) /u.exec(row.label)?.[1] ?? row.label,
-  / sha256:([a-f0-9]{64})$/u.exec(row.label)?.[1] ?? null, row.url ?? null, row.artifact ?? null, row.observedAt]);
+  / sha256:([a-f0-9]{64})$/u.exec(row.label)?.[1] ?? null, row.url ?? null, row.artifact ?? null,
+  / review-manifest sha256:/u.test(row.label) ? null : row.observedAt]);
 function appendEvidence(previous, extra) {
   const seen = new Set(previous.map(evidenceId)), rows = [...previous];
   for (const row of extra) if (!seen.has(evidenceId(row))) { rows.push(row); seen.add(evidenceId(row)); }
   if (rows.length > 100) throw Error("evidence_limit_requires_manual_review");
   return rows;
+}
+function appendAction(previous, finding) {
+  const addition = `〔复盘 ${finding.problemKey}〕${finding.recommendation}`;
+  if (previous.includes(finding.recommendation)) return previous;
+  const next = previous ? previous + "\n" + addition : addition;
+  if (next.length > 3000) throw Error("next_action_limit_requires_manual_review");
+  return next;
 }
 function validateSnapshot(snapshot) {
   if (snapshot?.storage !== "database" || !["tasks", "issues", "publications"].every(key => Array.isArray(snapshot[key]))) throw Error("complete_database_workflow_snapshot_required");
@@ -97,6 +107,12 @@ function sameAnchor(record, finding) {
     ? safePage(record.pageUrl, finding.siteDomain) === pageKey(finding.pageUrl, finding.siteDomain)
     : finding.keyword && word(record.keyword) === word(finding.keyword));
 }
+function sameKeywordContext(record, finding) {
+  return record.siteDomain === finding.siteDomain && (finding.keywordId && record.keywordId === finding.keywordId
+    || finding.keyword && record.keyword && word(record.keyword) === word(finding.keyword))
+    && (!finding.country || !record.country || finding.country === record.country)
+    && (!finding.language || !record.language || finding.language === record.language);
+}
 function chooseTask(finding, key, tasks, issues, publications) {
   if ((finding.existingTaskId || finding.existingIssueId) && !finding.linkReason) throw Error("explicit_task_link_reason_required");
   if (finding.existingIssueId && !issues.some(issue => issue.id === finding.existingIssueId)) throw Error("original_issue_missing");
@@ -125,7 +141,10 @@ function chooseTask(finding, key, tasks, issues, publications) {
   const occupied = tasks.filter(task => !task.deletedAt && sameAnchor(task, finding) && identityMatches(task, finding) && compatibleKind(task, finding)
     && !["published", "verified", "observing"].includes(task.status));
   if (occupied.length) throw Error("existing_intent_requires_explicit_original_task_link");
+  if (finding.changeType === "new_content" && tasks.some(task => !task.deletedAt && sameKeywordContext(task, finding)
+    && !["published", "verified", "observing"].includes(task.status))) throw Error("existing_keyword_intent_requires_review");
   const shipped = publications.filter(row => ["published", "verified"].includes(row.status) && sameAnchor(row, finding) && identityMatches(row, finding));
+  if (finding.changeType === "new_content" && publications.some(row => ["published", "verified"].includes(row.status) && sameKeywordContext(row, finding))) throw Error("published_keyword_intent_requires_review");
   if (finding.changeType === "new_content" && shipped.length) throw Error("published_intent_exists_review_original_page");
   return { task: null, issues: sameKeyIssues, relatedPublications: shipped };
 }
@@ -142,6 +161,7 @@ function assertFindingScope(finding) {
 
 function buildReviewPlan(raw, snapshot, options = {}) {
   const manifest = manifestSchema.parse(raw); validateSnapshot(snapshot);
+  const decisionResult = decisionArtifactSchema.safeParse(options.decisionArtifact);
   const now = options.now ?? new Date().toISOString(), sourceMap = new Map(manifest.sources.map(source => [source.id, source]));
   if (sourceMap.size !== manifest.sources.length) throw Error("duplicate_source_id");
   for (const source of manifest.sources) {
@@ -176,8 +196,12 @@ function buildReviewPlan(raw, snapshot, options = {}) {
     try {
       const sources = finding.sourceIds.map(id => { const source = sourceMap.get(id); if (!source) throw Error("source_snapshot_not_found:" + id); return source; });
       if (!(options.verifiedSourceIds instanceof Set) || sources.some(source => !options.verifiedSourceIds.has(source.id))) throw Error("source_snapshot_hash_not_verified");
+      if (!decisionResult.success) throw Error("decision_manifest_artifact_required");
+      const decision = decisionResult.data;
+      if (Date.parse(decision.observedAt) > Date.parse(now) + 300000) throw Error("future_decision_timestamp");
       const evidence = appendEvidence([], sources.map(source => ({ label: marker(key) + source.id + " sha256:" + source.sha256,
         artifact: source.artifact, observedAt: source.observedAt, ...(source.url ? { url: source.url } : {}) })));
+      evidence.push({ label: marker(key) + "review-manifest sha256:" + decision.sha256, artifact: decision.artifact, observedAt: decision.observedAt });
       const selected = chooseTask(finding, key, tasks, issues, publications);
       if (selected.issues.length > 1) throw Error("multiple_original_issues_require_review");
       let task = selected.task, created = false;
@@ -198,7 +222,7 @@ function buildReviewPlan(raw, snapshot, options = {}) {
           brief: { reason: finding.problem, problem: finding.problem, plan: finding.recommendation, actions: finding.actions, evidence },
         });
         tasks.push(task); created = true;
-      } else task.evidence = appendEvidence(task.evidence, evidence);
+      } else { task.evidence = appendEvidence(task.evidence, evidence); task.nextAction = appendAction(task.nextAction, finding); }
       queue("task", task);
       let issue = selected.issues[0];
       if (issue) {
@@ -206,6 +230,7 @@ function buildReviewPlan(raw, snapshot, options = {}) {
           || issue.pageUrl && finding.pageUrl && safePage(issue.pageUrl, issue.siteDomain) !== pageKey(finding.pageUrl, finding.siteDomain)) throw Error("original_issue_identity_conflict");
         if (!issue.taskId) throw Error("original_issue_task_link_requires_review");
         issue.evidence = appendEvidence(issue.evidence, evidence);
+        issue.nextAction = appendAction(issue.nextAction, finding);
       } else {
         issue = workflowIssueSchema.parse({ id: key + ":issue", weekStart: task.weekStart, siteDomain: finding.siteDomain, pageUrl: finding.pageUrl,
           title: finding.title, category: finding.category, priority: finding.priority, status: "open", owner: task.owner, taskId: task.id,
@@ -227,7 +252,8 @@ function buildReviewPlan(raw, snapshot, options = {}) {
   const commands = [...pending.values()].sort((a, b) => Number(a.action === "save_issue") - Number(b.action === "save_issue") || a.record.id.localeCompare(b.record.id))
     .map(command => ({ requestId: "content-review:" + hash(command), ...command }));
   const blocked = decisions.some(row => row.status === "blocked");
-  const content = { schemaVersion: 1, period: manifest.period, sourceRevisions: manifest.sources.map(({ id, kind, sha256, observedAt }) => ({ id, kind, sha256, observedAt })), decisions, commands };
+  const content = { schemaVersion: 1, period: manifest.period, sourceRevisions: manifest.sources.map(({ id, kind, sha256, observedAt }) => ({ id, kind, sha256, observedAt })),
+    decisionRevision: decisionResult.success ? decisionResult.data : null, decisions, commands };
   return { ...content, planHash: hash(content), generatedAt: now, canApply: !blocked,
     summary: { findings: decisions.length, blocked: decisions.filter(row => row.status === "blocked").length, commands: commands.length,
       newCandidates: decisions.filter(row => row.status === "planned_candidate").length },
@@ -242,8 +268,9 @@ function recordMatches(command, record) {
 }
 async function applyReviewPlan(plan, api, options = {}) {
   if (!plan.canApply || !options.expectedPlanHash || options.expectedPlanHash !== plan.planHash) throw Error("reviewed_plan_hash_required_or_plan_blocked");
-  if (hash(Object.fromEntries(["schemaVersion", "period", "sourceRevisions", "decisions", "commands"].map(key => [key, plan[key]]))) !== plan.planHash) throw Error("reviewed_plan_content_changed");
+  if (hash(Object.fromEntries(["schemaVersion", "period", "sourceRevisions", "decisionRevision", "decisions", "commands"].map(key => [key, plan[key]]))) !== plan.planHash) throw Error("reviewed_plan_content_changed");
   if (!options.journal?.read || !options.journal?.write) throw Error("durable_submission_journal_required");
+  if (typeof options.revalidate !== "function") throw Error("live_dedupe_revalidation_required");
   const receipts = [];
   for (const command of plan.commands) {
     if (!["save_task", "save_issue"].includes(command.action) || command.requestId !== "content-review:" + hash({ action: command.action,
@@ -262,11 +289,16 @@ async function applyReviewPlan(plan, api, options = {}) {
       receipts.push(recovered);
       continue;
     }
+    const rechecked = await options.revalidate(before);
+    if (!rechecked.canApply || !rechecked.commands.some(row => hash(row) === hash(command))) return {
+      status: "blocked", reason: "dedupe_context_changed_repreview_required", requestId: command.requestId, receipts };
     if ((current?.version ?? 0) !== command.expectedVersion) return { status: "blocked", reason: "version_conflict_repreview_required", requestId: command.requestId, receipts };
     const next = clean(kind, command.record);
     if (current) {
       const previous = clean(kind, current);
-      if (hash({ ...previous, evidence: next.evidence }) !== hash(next) || previous.evidence.some(row => !next.evidence.some(item => evidenceId(item) === evidenceId(row)))) {
+      if (hash({ ...previous, evidence: next.evidence, nextAction: next.nextAction }) !== hash(next)
+        || !(next.nextAction === previous.nextAction || next.nextAction.startsWith(previous.nextAction + (previous.nextAction ? "\n" : "")))
+        || previous.evidence.some(row => !next.evidence.some(item => evidenceId(item) === evidenceId(row)))) {
         return { status: "blocked", reason: "original_fields_or_evidence_changed", requestId: command.requestId, receipts };
       }
     } else if (kind === "task" && (!["research", "review"].includes(next.kind) || next.status !== "planned" || next.approval || next.contentVersion)

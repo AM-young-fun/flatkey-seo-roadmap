@@ -40,7 +40,9 @@ async function run() {
   if (origin.origin !== "https://flatkey-seo-roadmap.vercel.app" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) throw Error("unexpected_platform_origin");
   const token = process.env.SEO_IMPORT_TOKEN;
   if (!offline && !token) throw Error("missing_import_token_for_workflow_read");
-  const manifest = manifestSchema.parse(JSON.parse(await fs.readFile(input, "utf8"))), verifiedSourceIds = await verifySources(manifest);
+  const inputBytes = await fs.readFile(input), inputStat = await fs.stat(input);
+  const manifest = manifestSchema.parse(JSON.parse(inputBytes.toString("utf8"))), verifiedSourceIds = await verifySources(manifest);
+  const decisionArtifact = { artifact: path.resolve(input), sha256: crypto.createHash("sha256").update(inputBytes).digest("hex"), observedAt: inputStat.mtime.toISOString() };
   const protectedPaths = new Set([input, offline, ...manifest.sources.map(source => source.artifact)].filter(Boolean).map(file => path.resolve(file)));
   const writeArtifact = async (file, value) => {
     if (protectedPaths.has(path.resolve(file))) throw Error("output_cannot_replace_input_or_source_snapshot");
@@ -56,13 +58,15 @@ async function run() {
       headers: { "X-SEO-Research-Key": process.env.SEO_RESEARCH_READ_KEY }, signal: AbortSignal.timeout(60000) });
     if (response.ok) { const value = await response.json(); if (value.usingDemoData === false && Array.isArray(value.keywords)) keywordInventory = value.keywords; }
   }
-  const plan = buildReviewPlan(manifest, snapshot, { verifiedSourceIds, keywordInventory });
+  const planningOptions = { verifiedSourceIds, keywordInventory, decisionArtifact };
+  const plan = buildReviewPlan(manifest, snapshot, planningOptions);
   const preview = { mode: "preview", origin: origin.origin, completeHistoryRead: !offline, ...plan };
   if (out) await writeArtifact(path.resolve(out), preview);
   if (!apply) { console.log(JSON.stringify(preview)); return preview; }
   const expectedPlanHash = arg("--expected-plan");
   if (!expectedPlanHash || expectedPlanHash !== plan.planHash || !plan.canApply) throw Error("reviewed_plan_hash_required_or_plan_blocked");
   if ((await verifySources(manifest)).size !== manifest.sources.length) throw Error("source_snapshot_changed_before_apply");
+  if (crypto.createHash("sha256").update(await fs.readFile(input)).digest("hex") !== decisionArtifact.sha256) throw Error("decision_manifest_changed_before_apply");
   const directory = path.resolve(arg("--state-dir") || path.join(process.cwd(), ".local", "seo-content-review"));
   const journal = {
     read: async id => { try { const saved = JSON.parse(await fs.readFile(path.join(directory, hash(id) + ".json"), "utf8"));
@@ -72,7 +76,7 @@ async function run() {
   };
   // The journal is destination-bound and retained before the only POST. An
   // unknown response is reconciled by reads; this tool never blindly retries it.
-  const result = await applyReviewPlan(plan, api, { expectedPlanHash, journal });
+  const result = await applyReviewPlan(plan, api, { expectedPlanHash, journal, revalidate: fresh => buildReviewPlan(manifest, fresh, planningOptions) });
   const receipt = { mode: "apply", origin: origin.origin, ...result };
   if (out) await writeArtifact(path.resolve(out), { preview, receipt });
   console.log(JSON.stringify(receipt));
