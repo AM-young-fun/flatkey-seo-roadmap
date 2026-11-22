@@ -25,6 +25,20 @@ const makeStatus = () => ({
 });
 const render = () => renderToStaticMarkup(React.createElement(SeoAutomationSchedule));
 
+test("next-week preparation finishes before Thursday 16:00 and does not depend on the later weekly report", () => {
+  const plans = configuredAutomationPlans(new Date("2026-11-25T06:00:00Z"));
+  const candidate = plans.find(plan => plan.id === "seo-14-00");
+  const finalization = plans.find(plan => plan.id === "automation");
+  const weekly = plans.find(plan => plan.id === "seo-09-30-2");
+  assert.equal(candidate.nextAt, "2026-11-25T07:30:00.000Z");
+  assert.equal(finalization.nextAt, "2026-11-26T07:00:00.000Z");
+  assert.equal(weekly.nextAt, "2026-11-26T08:30:00.000Z");
+  assert.match(finalization.note, /16:00前/);
+  assert.doesNotMatch(finalization.name, /周五/);
+  assert.ok(finalization.dependencies.includes("截止时最新已完成的复盘和研究证据"));
+  assert.equal(config.tasks.find(task => task.id === "seo-10-00-2").status, "PAUSED");
+});
+
 test("paused paid queries have no advertised next execution; resumed and emergency-stopped states stay separate", () => {
   const status = makeStatus();
   let plans = readonlyAutomationPlans(status);
