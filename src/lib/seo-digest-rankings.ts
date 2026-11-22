@@ -10,14 +10,16 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
   const fresh = tasks.filter(task => task.runScope !== "SAMPLE" && task.checkedAt &&
     Date.parse(String(task.checkedAt instanceof Date ? task.checkedAt.toISOString() : task.checkedAt)) >= from &&
     (!asOf || +new Date(task.checkedAt) <= asOf.getTime()) &&
-    (+new Date(task.checkedAt) < until || !!asOf && task.runScope === "SCHEDULED" && !!task.periodKey
-      && serpCaptureBelongsToWeek(task.periodKey, laDate(from), laDate(until - 1))));
+    (asOf && task.runScope === "SCHEDULED"
+      ? !!task.periodKey && serpCaptureBelongsToWeek(task.periodKey, laDate(from), laDate(until - 1))
+      : +new Date(task.checkedAt) < until));
   if (!fresh.length) return [];
   const rows: (SerpKeywordResult & { region: string })[] = [];
   for (const region of ["US", "JP", "BR", "ES"] as const) {
     const latest = fresh.filter(task => task.region === region).sort((a, b) => +new Date(b.runCreatedAt) - +new Date(a.runCreatedAt))[0];
     if (!latest) continue;
-    const history = tasks.filter(task => task.region === region && +new Date(task.runCreatedAt) <= +new Date(latest.runCreatedAt));
+    const history = tasks.filter(task => task.region === region && +new Date(task.runCreatedAt) <= +new Date(latest.runCreatedAt)
+      && (!asOf || !task.checkedAt || +new Date(task.checkedAt) <= asOf.getTime()));
     const targets = new Map<string, SerpTarget>();
     for (const task of history.filter(task => task.runId === latest.runId)) {
       if (isOwnedBrandKeyword(task.keyword)) continue;
