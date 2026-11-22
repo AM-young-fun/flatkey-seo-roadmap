@@ -50,8 +50,17 @@ test("schedule renders real configuration source separately from success receipt
   assert.match(html, /当前配置暂停，不安排下一次自动执行/);
   assert.match(html, /尚无已保存的采集或调度回执/);
   assert.doesNotMatch(html, /2026\/12\/03|FREQ=|BYHOUR=|<input|<select|<form|role="switch"|开启并执行|账号|API Key/);
-  assert.equal((html.match(/<button/g) ?? []).length, 2);
+  assert.equal((html.match(/<button/g) ?? []).length, 3);
   assert.match(html, /查看费用与开启/);
+  assert.match(html, /查看本期补采费用/);
+});
+
+test("enabled collection retains the current-period continuation entry", () => {
+  const data = makeStatus(); data.controls.enabled = true;
+  response = { ...response, data, error: null };
+  assert.match(render(), /查看本期补采费用/);
+  data.controls.emergencyStopped = true;
+  assert.doesNotMatch(render(), /查看本期补采费用/);
 });
 
 test("failed reads do not fall back to a static enabled snapshot or fabricated zero runs", () => {
