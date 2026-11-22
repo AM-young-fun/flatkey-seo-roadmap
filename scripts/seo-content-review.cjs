@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Default: authenticated reads and a local preview. Applying requires its exact hash.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
-const { manifestSchema, hash, buildReviewPlan, applyReviewPlan } = require("./lib/seo-content-review.cjs");
+const { manifestSchema, hash, buildReviewPlan, applyReviewPlan, safeWorkflowError } = require("./lib/seo-content-review.cjs");
 const arg = name => process.argv.find(value => value.startsWith(name + "="))?.slice(name.length + 1);
 
 async function verifySources(manifest) {
@@ -20,7 +20,11 @@ function workflowApi(origin, token, fetcher = fetch) {
       headers: { authorization: "Bearer " + token, ...(body ? { "content-type": "application/json" } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(60000) });
     const value = await response.json().catch(() => ({}));
-    if (!response.ok) { const error = Error(`workflow_${response.status}:${value.code || "unavailable"}`); error.status = response.status; throw error; }
+    if (!response.ok) {
+      const diagnostic = safeWorkflowError({ status: response.status, code: value.code, publicMessage: value.message });
+      const error = Error(`workflow_${response.status}:${diagnostic.code}`);
+      Object.assign(error, { status: response.status, code: diagnostic.code, publicMessage: diagnostic.message }); throw error;
+    }
     return value;
   }
   return { snapshot: () => request("/api/seo/workflow?allHistory=true"), save: command => request("/api/seo/workflow", command),
@@ -86,4 +90,5 @@ async function run() {
 module.exports = { run, verifySources, workflowApi, writeJson };
 if (require.main === module) run().catch(error => { console.error(JSON.stringify({ error: error instanceof require("zod").z.ZodError ? "invalid_review_manifest" : error.message,
   ...(error instanceof require("zod").z.ZodError ? { issues: error.issues.map(issue => ({ path: issue.path.join("."), message: issue.message })) } : {}),
+  ...(Number.isInteger(error.status) ? { diagnostic: safeWorkflowError(error) } : {}),
   nextAction: "保留原预览与请求，核对来源及生产原记录；冲突重新读取，响应不明不得换编号重发。" })); process.exitCode = 1; });

@@ -2,11 +2,24 @@
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { z } = require("zod");
-const { workflowTaskSchema, workflowIssueSchema, workflowWeekSchema } = require("./seo-content-review-schema.cjs");
+const { workflowTaskSchema, workflowIssueSchema, workflowWeekSchema, taskNeedsChineseBrief, workflowTaskBriefProblems } = require("./seo-content-review-schema.cjs");
 
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === "object"
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stable(v)])) : value;
 const hash = value => crypto.createHash("sha256").update(JSON.stringify(stable(value))).digest("hex");
+function safeWorkflowError(error) {
+  const httpStatus = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : null;
+  const code = typeof error?.code === "string" && /^[a-z][a-z0-9_]{0,79}$/u.test(error.code) && !/^[a-f0-9]{24,}$/u.test(error.code)
+    ? error.code : httpStatus ? "workflow_error" : "submission_outcome_unknown";
+  const message = typeof error?.publicMessage === "string" ? error.publicMessage.slice(0, 10000)
+    .replace(/\b(?:Bearer|Basic)\s+\S+/giu, "[已隐藏凭据]")
+    .replace(/\b(?:authorization|proxy-authorization|cookie|set-cookie)\s*[:=]\s*[^\r\n]+/giu, "[已隐藏认证头]")
+    .replace(/["']?(?:password|secret|(?:access[\s_-]?)?token|api[\s_-]?key|authorization|proxy-authorization|cookie|set-cookie)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/giu, "[已隐藏凭据]")
+    .replace(/https?:\/\/\S+/giu, "[已隐藏地址]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[已隐藏账号]")
+    .replace(/[A-Za-z0-9+/_=-]{32,}/gu, "[已隐藏长标识]").replace(/\p{Cc}/gu, " ").slice(0, 500)
+    : httpStatus ? "工作流请求未被服务器接受，请核对错误码与原记录。" : "提交结果未确认；保留原请求并只读核对。";
+  return { httpStatus, code, message, rejected: httpStatus !== null && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408 };
+}
 const word = value => String(value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 const stamp = z.iso.datetime({ offset: true });
 const chinese = z.string().trim().min(1).max(2000).refine(value => /[\u3400-\u9fff]/u.test(value), "需要中文问题和处理说明");
@@ -216,6 +229,8 @@ function buildReviewPlan(raw, snapshot, options = {}) {
           acceptanceCriteria: finding.acceptanceCriteria, research: null, approval: null, source: "automation", sourceRowId: key,
           brief: { reason: finding.problem, problem: finding.problem, plan: finding.recommendation, actions: finding.actions, evidence },
         });
+        const briefProblems = taskNeedsChineseBrief(task) ? workflowTaskBriefProblems(task) : [];
+        if (briefProblems.length) throw Error("task_brief_incomplete:" + briefProblems.join("；"));
         tasks.push(task); created = true;
       } else { task.evidence = appendEvidence(task.evidence, evidence); task.nextAction = appendAction(task.nextAction, finding); }
       queue("task", task);
@@ -277,7 +292,8 @@ async function applyReviewPlan(plan, api, options = {}) {
     if (journal && journal.commandHash !== hash(command)) throw Error("outbox_command_conflict");
     if (journal) {
       const matched = recordMatches(command, current) ? current : await historyMatch();
-      if (!matched) return { status: "blocked", reason: "previous_submission_not_confirmed_do_not_resend", requestId: command.requestId, receipts };
+      if (!matched) return { status: "blocked", reason: journal.status === "rejected" ? "previous_request_rejected_repreview_required" : "previous_submission_not_confirmed_do_not_resend",
+        requestId: command.requestId, ...(journal.diagnostic ? { diagnostic: journal.diagnostic } : {}), receipts };
       const recovered = { requestId: command.requestId, recordId: matched.id, version: matched.version, readBack: true, recovered: true,
         beforeVersion: journal.before?.version ?? 0, beforeHash: journal.before ? hash(journal.before) : null, afterHash: hash(matched) };
       await options.journal.write(command.requestId, { ...journal, status: "verified", after: matched, receipt: recovered });
@@ -310,9 +326,19 @@ async function applyReviewPlan(plan, api, options = {}) {
     const saved = after?.[kind === "task" ? "tasks" : "issues"]?.find(row => row.id === command.record.id);
     let verified = recordMatches(command, saved) ? saved : null;
     if (!verified) verified = await historyMatch().catch(() => null);
-    if (!verified) return { status: "blocked", reason: failure?.status === 409 ? "version_conflict_repreview_required"
-      : "submission_outcome_unconfirmed_do_not_resend", requestId: command.requestId, receipts };
-    if (response && (response.storage !== "database" || response.stored !== true)) return { status: "blocked", reason: "production_persistence_unconfirmed", requestId: command.requestId, receipts };
+    if (!verified) {
+      const diagnostic = safeWorkflowError(failure), reason = diagnostic.rejected
+        ? diagnostic.code === "version_conflict" ? "version_conflict_repreview_required" : "workflow_request_rejected"
+        : "submission_outcome_unconfirmed_do_not_resend";
+      await options.journal.write(command.requestId, { commandHash: hash(command), command, before: current ?? null,
+        status: diagnostic.rejected ? "rejected" : "unknown", diagnostic, readBackChecked: Boolean(after) });
+      return { status: "blocked", reason, requestId: command.requestId, diagnostic, receipts };
+    }
+    if (response && (response.storage !== "database" || response.stored !== true)) {
+      const diagnostic = safeWorkflowError({ code: "production_persistence_unconfirmed", publicMessage: "服务端持久化回执不符合生产合同，请保留原请求并只读核对。" });
+      await options.journal.write(command.requestId, { commandHash: hash(command), command, before: current ?? null, status: "unknown", diagnostic });
+      return { status: "blocked", reason: "production_persistence_unconfirmed", requestId: command.requestId, diagnostic, receipts };
+    }
     const receipt = { requestId: command.requestId, recordId: verified.id, version: verified.version, readBack: true,
       beforeVersion: current?.version ?? 0, beforeHash: current ? hash(current) : null, afterHash: hash(verified), ...(failure ? { recovered: true } : {}) };
     await options.journal.write(command.requestId, { commandHash: hash(command), command, before: current ?? null, after: verified, status: "verified", receipt });
@@ -321,4 +347,4 @@ async function applyReviewPlan(plan, api, options = {}) {
   return { status: "verified", planHash: plan.planHash, receipts };
 }
 
-module.exports = { manifestSchema, hash, word, pageKey, findingKey, appendEvidence, buildReviewPlan, applyReviewPlan, recordMatches };
+module.exports = { manifestSchema, hash, word, pageKey, findingKey, appendEvidence, buildReviewPlan, applyReviewPlan, recordMatches, safeWorkflowError };

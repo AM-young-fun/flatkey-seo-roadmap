@@ -6,7 +6,7 @@ const ts = require("typescript"), syncFs = require("node:fs");
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(syncFs.readFileSync(file, "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, file);
-const { buildReviewPlan, findingKey, applyReviewPlan, hash } = require("../scripts/lib/seo-content-review.cjs");
+const { buildReviewPlan, findingKey, applyReviewPlan, hash, safeWorkflowError } = require("../scripts/lib/seo-content-review.cjs");
 const { verifySources, workflowApi } = require("../scripts/seo-content-review.cjs");
 const { prepareWorkflowMutation } = require("../src/lib/seo-workflow-state.ts");
 const now = "2026-11-22T12:00:00Z";
@@ -181,6 +181,17 @@ test("appending an action never truncates the old instruction when the limit is 
   assert.equal(state.tasks[0].nextAction.length, 2998);
 });
 
+test("new review candidates preflight the real server explanation guard before any POST", () => {
+  const manifest = fixture();
+  manifest.findings[0].candidate.kind = "review";
+  manifest.findings[0].problem = "原周报显示点击25→85，不能把同步变动当作内容改动的成效，须先核对原始来源和可比窗口。";
+  let plan = buildReviewPlan(manifest, snapshot(), options(manifest));
+  assert.equal(plan.canApply, false); assert.equal(plan.commands.length, 0); assert.match(plan.decisions[0].reason, /task_brief_incomplete:为什么做缺少问题解释或事实限制/);
+  manifest.findings[0].problem += "现有证据尚不足以确认具体原因。";
+  plan = buildReviewPlan(manifest, snapshot(), options(manifest));
+  assert.equal(plan.canApply, true);
+});
+
 test("evidence is deduplicated and never truncates an original history at the schema limit", () => {
   const manifest = fixture(), state = snapshot(), task = original();
   task.sourceRowId = findingKey(manifest.findings[0]);
@@ -220,10 +231,41 @@ test("product, cancelled, unsupported sites and paused Flatkey new pages remain 
 test("409 reads the original again, stops, and never overwrites or resubmits", async () => {
   const manifest = fixture(), api = mockApi(), plan = buildReviewPlan(manifest, api.state, options(manifest));
   let reads = 0, saves = 0;
-  const transport = { ...api, snapshot: async () => { reads++; return api.snapshot(); }, save: async () => { saves++; const error = Error("conflict"); error.status = 409; throw error; } };
+  const transport = { ...api, snapshot: async () => { reads++; return api.snapshot(); }, save: async () => { saves++; const error = Error("conflict"); error.status = 409; error.code = "version_conflict"; throw error; } };
   const result = await applyReviewPlan(plan, transport, applyOptions(manifest, plan));
   assert.equal(result.status, "blocked"); assert.match(result.reason, /version_conflict/);
   assert.equal(saves, 1); assert.ok(reads >= 2); assert.equal(api.state.tasks.length, 0);
+});
+
+test("a 409 brief rejection retains safe diagnostics and a rejected journal instead of UNKNOWN", async () => {
+  const manifest = fixture(), api = mockApi(), plan = buildReviewPlan(manifest, api.state, options(manifest)), outbox = journal();
+  let saves = 0;
+  const transport = { ...api, save: async () => { saves++; const error = Error("public server rejection");
+    Object.assign(error, { status: 409, code: "task_brief_incomplete", publicMessage: "为什么做缺少问题解释或事实限制" }); throw error; } };
+  const result = await applyReviewPlan(plan, transport, applyOptions(manifest, plan, outbox));
+  assert.equal(result.reason, "workflow_request_rejected"); assert.equal(result.diagnostic.code, "task_brief_incomplete");
+  assert.equal(result.diagnostic.message, "为什么做缺少问题解释或事实限制"); assert.equal(result.diagnostic.httpStatus, 409);
+  assert.equal([...outbox.records.values()][0].status, "rejected");
+  const repeated = await applyReviewPlan(plan, transport, applyOptions(manifest, plan, outbox));
+  assert.equal(repeated.reason, "previous_request_rejected_repreview_required"); assert.equal(saves, 1);
+});
+
+test("a 503 remains UNKNOWN and safe HTTP diagnostics never retain secrets or raw responses", async () => {
+  const manifest = fixture(), api = mockApi(), plan = buildReviewPlan(manifest, api.state, options(manifest)), outbox = journal();
+  const transport = { ...api, save: async () => { const error = Error("raw response must not be persisted");
+    Object.assign(error, { status: 503, code: "storage_unavailable", publicMessage: "读取失败 Bearer secret-value https://private.example.com/?token=abc" }); throw error; } };
+  const result = await applyReviewPlan(plan, transport, applyOptions(manifest, plan, outbox));
+  assert.equal(result.reason, "submission_outcome_unconfirmed_do_not_resend"); assert.equal(result.diagnostic.code, "storage_unavailable");
+  assert.equal([...outbox.records.values()][0].status, "unknown");
+  assert.doesNotMatch(JSON.stringify(result), /secret-value|private.example|raw response/);
+});
+
+test("diagnostic redaction covers quoted JSON keys, spaced API keys and authentication headers", () => {
+  for (const message of ['{"token":"short-test-secret"}', "Invalid API key: sk-short-test-value", '{"access_token":"short-test-secret"}',
+    "password='short test secret'", "Authorization: Basic short-test-secret", "Cookie: session=short-test-secret; other=short-test-value"]) {
+    const diagnostic = safeWorkflowError({ status: 409, code: "task_brief_incomplete", publicMessage: message });
+    assert.equal(diagnostic.code, "task_brief_incomplete"); assert.doesNotMatch(diagnostic.message, /short|sk-/);
+  }
 });
 
 test("a competing task introduced after preview is rechecked and blocks every POST", async () => {
@@ -263,6 +305,13 @@ test("the helper only calls the existing authenticated workflow routes", async (
   await api.snapshot(); await api.history("task", "original-id");
   assert.ok(calls.every(row => row.options.method === "GET" && row.url.includes("/api/seo/workflow")));
   assert.ok(calls.every(row => !Object.hasOwn(row.options.headers, "origin")));
+});
+
+test("workflow transport preserves only safe structured HTTP code and public message", async () => {
+  const api = workflowApi("https://flatkey-seo-roadmap.vercel.app", "test-token", async () => ({ ok: false, status: 409,
+    json: async () => ({ code: "task_brief_incomplete", message: "为什么做缺少问题解释或事实限制", raw: "Bearer should-never-escape" }) }));
+  await assert.rejects(api.save({}), error => error.status === 409 && error.code === "task_brief_incomplete" && error.publicMessage === "为什么做缺少问题解释或事实限制"
+    && !JSON.stringify(error).includes("should-never-escape"));
 });
 
 test("CLI defaults to an offline preview, verifies the real file hash, and cannot apply that snapshot", async () => {

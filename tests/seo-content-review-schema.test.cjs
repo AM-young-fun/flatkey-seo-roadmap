@@ -31,10 +31,28 @@ test("versioned client contract exactly matches the selected current server sche
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText.replace(/^"use strict";\n/u, "").trim();
   const actual = fs.readFileSync(path.join(__dirname, "../scripts/lib/seo-content-review-schema.cjs"), "utf8");
-  assert.equal(actual.slice(actual.indexOf('const { z } = require("zod");'), actual.lastIndexOf("module.exports =")).trim(), generated);
-  assert.equal(client.CLIENT_CONTRACT_VERSION, "seo-content-review-workflow-039217d-v1");
+  assert.equal(actual.slice(actual.indexOf('const { z } = require("zod");'), actual.indexOf("// BEGIN TASK BRIEF CLIENT CONTRACT")).trim(), generated);
+  assert.equal(client.CLIENT_CONTRACT_VERSION, "seo-content-review-workflow-039217d-v2");
   assert.deepEqual(Object.keys(client.workflowTaskSchema.shape), Object.keys(server.workflowTaskSchema.shape));
   assert.deepEqual(Object.keys(client.workflowIssueSchema.shape), Object.keys(server.workflowIssueSchema.shape));
+});
+
+test("new-task Chinese brief preflight mirrors the actual server state guard", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/lib/seo-task-brief.ts"), "utf8");
+  const ast = ts.createSourceFile("brief.ts", source, ts.ScriptTarget.Latest, true);
+  const chunks = ast.statements.filter(node => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node)).map(node => node.getText(ast));
+  assert.equal(crypto.createHash("sha256").update(chunks.join("\n")).digest("hex"), client.SOURCE_BRIEF_SHA256);
+  const generated = ts.transpileModule(chunks.join("\n").replace(/^export /gm, ""), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText.replace(/^"use strict";\n/u, "").trim();
+  const actual = fs.readFileSync(path.join(__dirname, "../scripts/lib/seo-content-review-schema.cjs"), "utf8");
+  const start = actual.indexOf('function isChineseTaskProse('), end = actual.indexOf("// END TASK BRIEF CLIENT CONTRACT");
+  assert.equal(actual.slice(start, end).trim(), generated);
+  const original = require("../src/lib/seo-task-brief.ts");
+  const record = { ...task(), brief: { reason: "原周报显示点击上涨，不能把同步变化当作内容改动效果，须先核对来源。", plan: "核对原页面和搜索查询的对应关系", problem: "原查询仍需核对与复算", actions: [{ target: "原页面", change: "核对原查询与目标页面的承接", verify: "保存原始日期和实际页面版本的读回" }], evidence } };
+  assert.deepEqual(client.workflowTaskBriefProblems(record), original.workflowTaskBriefProblems(record));
+  assert.ok(client.workflowTaskBriefProblems(record).includes("为什么做缺少问题解释或事实限制"));
+  record.brief.reason += "现有证据尚不足以确认具体原因。";
+  assert.deepEqual(client.workflowTaskBriefProblems(record), original.workflowTaskBriefProblems(record));
+  assert.equal(client.taskNeedsChineseBrief(record), original.taskNeedsChineseBrief(record));
 });
 
 test("all optional writable task fields survive the standalone client contract", () => {
