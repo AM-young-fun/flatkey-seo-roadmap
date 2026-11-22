@@ -27,3 +27,15 @@ export async function continueCollectionCycle(options: {
     await wait();
   }
 }
+
+/** A stop request is independent of a paid request already in flight. Never retry either POST. */
+export async function pauseCollectionRequests(options: {
+  post: (command: CollectionControlMutation) => Promise<unknown>;
+  read: () => Promise<unknown>;
+}) {
+  const paused = await options.post({ action: "pauseSchedule" }) as { action?: string; enabled?: boolean };
+  if (paused.action !== "pauseSchedule" || paused.enabled !== false) throw new Error("暂停回执未确认，请刷新读取状态，勿重发正在执行的采集请求。");
+  const status = await options.read() as { executionEvidence?: string; controls?: { enabled?: boolean } };
+  if (status.executionEvidence !== "available" || status.controls?.enabled !== false) throw new Error("暂停请求已提交，当前停用状态尚未核实；请刷新安排读取，不要重发采集。");
+  return "已暂停新的付费提交；已付费任务及历史结果保留，预算和原计划时间不变。";
+}

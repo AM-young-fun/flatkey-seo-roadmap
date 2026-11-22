@@ -59,8 +59,10 @@ test("enabled collection retains the current-period continuation entry", () => {
   const data = makeStatus(); data.controls.enabled = true;
   response = { ...response, data, error: null };
   assert.match(render(), /查看本期补采费用/);
+  assert.match(render(), /暂停新的付费提交/);
   data.controls.emergencyStopped = true;
   assert.doesNotMatch(render(), /查看本期补采费用/);
+  assert.doesNotMatch(render(), /暂停新的付费提交/);
 });
 
 test("failed reads do not fall back to a static enabled snapshot or fabricated zero runs", () => {
