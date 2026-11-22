@@ -1,13 +1,8 @@
 // Pure planning and an injectable workflow transport. No provider, CMS or plan writes.
 const crypto = require("node:crypto");
-const fs = require("node:fs");
 const path = require("node:path");
 const { z } = require("zod");
-const ts = require("typescript");
-if (!require.extensions[".ts"]) require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-}).outputText, file);
-const { workflowTaskSchema, workflowIssueSchema, workflowWeekSchema } = require("../../src/lib/seo-workflow.ts");
+const { workflowTaskSchema, workflowIssueSchema, workflowWeekSchema } = require("./seo-content-review-schema.cjs");
 
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === "object"
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stable(v)])) : value;

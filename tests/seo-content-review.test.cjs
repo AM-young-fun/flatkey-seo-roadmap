@@ -1,6 +1,11 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs/promises"), os = require("node:os"), path = require("node:path"), crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
+// Test the existing server mutation guards separately; the runtime CLI has no TS loader.
+const ts = require("typescript"), syncFs = require("node:fs");
+require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(syncFs.readFileSync(file, "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+}).outputText, file);
 const { buildReviewPlan, findingKey, applyReviewPlan, hash } = require("../scripts/lib/seo-content-review.cjs");
 const { verifySources, workflowApi } = require("../scripts/seo-content-review.cjs");
 const { prepareWorkflowMutation } = require("../src/lib/seo-workflow-state.ts");
@@ -270,7 +275,17 @@ test("CLI defaults to an offline preview, verifies the real file hash, and canno
     manifest.sources[0].sha256 = crypto.createHash("sha256").update(content).digest("hex");
     assert.equal((await verifySources(manifest)).size, 1);
     await fs.writeFile(input, JSON.stringify(manifest)); await fs.writeFile(history, JSON.stringify(snapshot()));
-    const command = [path.join(__dirname, "../scripts/seo-content-review.cjs"), "--input=" + input, "--workflow=" + history];
+    // Simulate the older automation checkout: only these three script files
+    // and zod exist. There is no src/ tree or TypeScript runtime to fall back to.
+    await fs.mkdir(path.join(directory, "scripts/lib"), { recursive: true });
+    await fs.mkdir(path.join(directory, "node_modules"));
+    await fs.symlink(path.dirname(require.resolve("zod/package.json")), path.join(directory, "node_modules/zod"));
+    for (const relative of ["scripts/seo-content-review.cjs", "scripts/lib/seo-content-review.cjs", "scripts/lib/seo-content-review-schema.cjs"]) {
+      await fs.copyFile(path.join(__dirname, "..", relative), path.join(directory, relative));
+    }
+    assert.equal(await fs.stat(path.join(directory, "src")).then(() => true, () => false), false);
+    assert.equal(await fs.stat(path.join(directory, "node_modules/typescript")).then(() => true, () => false), false);
+    const command = [path.join(directory, "scripts/seo-content-review.cjs"), "--input=" + input, "--workflow=" + history];
     let run = spawnSync(process.execPath, command, { encoding: "utf8", env: { PATH: process.env.PATH } });
     assert.equal(run.status, 0, run.stderr); const preview = JSON.parse(run.stdout);
     assert.equal(preview.mode, "preview"); assert.equal(preview.canApply, true); assert.equal(preview.completeHistoryRead, false);
