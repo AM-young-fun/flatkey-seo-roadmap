@@ -321,6 +321,7 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
     && task.kind === "blog" && task.status === "published"
     && firstPageReceipt?.status === "published"
     && correctionSource?.taskId === task.id && correctionSource.kind === "source_blog"
+    && ["published", "verified"].includes(correctionSource.status)
     && correctionSource.siteDomain === task.siteDomain && correctionSource.pageUrl === task.pageUrl
     && correctionSource.country === task.country && correctionSource.language === task.language
     && correctionSource.keyword === task.keyword
@@ -371,7 +372,19 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
   }
   for (const row of all.filter(row => row.kind === "publication" && row.record.id !== value.id)) {
     const other = row.record as WorkflowPublication;
-    if (other.pageUrl === value.pageUrl && other.contentVersion === value.contentVersion) reject("duplicate_publication", "同一规范页面及版本已有发布记录，请续写原记录");
+    // A mistakenly classified, still-unverified translation can be retained as
+    // failed audit history. Its exact CMS hash may then be recorded correctly
+    // as a first-delivery update, never as another source/translation create.
+    const quarantinedTranslation = firstDeliveryCorrection && correctingTranslation
+      && other.status === "failed" && !other.verificationRecordedAt && other.verifiedAt === null
+      && ["translation", "backfill_translation"].includes(other.kind)
+      && other.taskId === value.taskId && other.siteDomain === value.siteDomain
+      && other.country === value.country && other.language === value.language && other.keyword === value.keyword
+      && other.sourcePublicationId === firstPageReceipt?.sourcePublicationId
+      && other.publicationPolicy === "auto_blog" && other.automaticWrite?.operation === "create"
+      && other.automaticWrite.sourceId === value.automaticWrite?.sourceId
+      && Boolean(other.failureReason?.trim()) && other.evidence.length > 0;
+    if (other.pageUrl === value.pageUrl && other.contentVersion === value.contentVersion && !quarantinedTranslation) reject("duplicate_publication", "同一规范页面及版本已有发布记录，请续写原记录");
   }
   if (all.some(row => row.kind === "historical_import" && (row.record as WorkflowHistoricalImport).publications.some(item => item.pageUrl === value.pageUrl && item.contentVersion === value.contentVersion))) reject("duplicate_historical_publication", "该页面版本已有历史归档，不能作为本次新增发布重复计数");
   if (previous) {
@@ -496,12 +509,22 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
   const issues = all.filter(row => row.kind === "issue" && (belongs(row) || !options.pageUrl && (row.record as WorkflowIssue).status !== "resolved")).map(row => row.record as WorkflowIssue);
   const runs = all.filter(row => row.kind === "run" && (options.pageUrl ? (row.record as WorkflowRun).taskIds.some(id => taskIds.has(id)) : belongs(row))).map(row => row.record as WorkflowRun).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const verified = publications.filter(row => row.status === "verified");
+  const blogTaskIds = new Set(approvalTasks.filter(task => task.kind === "blog").map(task => task.id));
+  const deliveryKey = (row: WorkflowPublication) => JSON.stringify([row.taskId, row.pageUrl]);
+  const verifiedSources = new Set(verified.filter(row => row.kind === "source_blog").map(deliveryKey));
+  const verifiedTranslations = new Set(verified.filter(row => ["translation", "backfill_translation"].includes(row.kind)).map(deliveryKey));
+  for (const revision of verified.filter(row => row.kind === "optimization" && blogTaskIds.has(row.taskId))) {
+    const original = publications.find(row => row.taskId === revision.taskId && row.pageUrl === revision.pageUrl
+      && ["published", "verified"].includes(row.status) && ["source_blog", "translation", "backfill_translation"].includes(row.kind));
+    if (original?.kind === "source_blog") verifiedSources.add(deliveryKey(original));
+    else if (original) verifiedTranslations.add(deliveryKey(original));
+  }
   const snapshot = { weekStart, weekEnd: shiftWorkflowDay(weekStart, 6), plan: plans[0] ?? null, approvals, tasks, publications, historicalImports, optimizations, issues, runs, storage, generatedAt: now.toISOString(), summary: {
     tasks: tasks.length, blocked: tasks.filter(task => ["blocked", "failed"].includes(task.status)).length, reviewPending: tasks.filter(task => task.status === "review_pending" && task.kind !== "research" && !automaticTaskPolicy(task)).length,
     pendingApprovalItems: approvals.reduce((sum, row) => sum + row.items.filter(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready).length, 0),
     pendingApprovals: approvals.filter(row => row.items.some(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready)).length,
-    verifiedSourceBlogs: verified.filter(row => row.kind === "source_blog").length, verifiedTranslations: verified.filter(row => ["translation", "backfill_translation"].includes(row.kind)).length,
-    verifiedLandingPages: verified.filter(row => row.kind === "landing").length, optimizedPages: new Set(verified.filter(row => row.kind === "optimization").map(row => row.pageUrl)).size,
+    verifiedSourceBlogs: verifiedSources.size, verifiedTranslations: verifiedTranslations.size,
+    verifiedLandingPages: verified.filter(row => row.kind === "landing").length, optimizedPages: new Set(verified.filter(row => row.kind === "optimization" && !blogTaskIds.has(row.taskId)).map(row => row.pageUrl)).size,
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,
   } };
   if (!options.operational) return snapshot;

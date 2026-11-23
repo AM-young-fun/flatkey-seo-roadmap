@@ -32,7 +32,10 @@ for(const domain of ["flatkey.ai","modelfit.cc"])test(`first-delivery correction
  assert.equal(save({...update,evidence:[...evidence,{label:"Latest exact CMS version",artifact:"new.json",observedAt:before}]},[current,plan,source,correction],"record_publication",correction.record.version).record.contentVersion,"v2");
  const checked={...update,status:"verified",verifiedAt:now.toISOString(),liveCheck:{checkedAt:now.toISOString(),httpStatus:200,canonicalUrl:page,language:"en",contentVersion:"v2",contentMatched:true,linksChecked:true,sourceReceipt:"actual-cms-revision",evidence}};
  const verified=save(checked,[current,plan,source,correction],"record_publication",correction.record.version);
- assert.equal(save(makeTask({contentVersion:"v2",status:"verified"}),[current,plan,source,verified],"save_task",current.record.version).record.status,"verified");
+ const completed=save(makeTask({contentVersion:"v2",status:"verified"}),[current,plan,source,verified],"save_task",current.record.version);
+ assert.equal(completed.record.status,"verified");
+ const summary=workflowSnapshot([completed,source,verified],{week:"2026-11-09"},"database",now).summary;
+ assert.equal(summary.verifiedSourceBlogs,1);assert.equal(summary.optimizedPages,0);
  assert.equal(source.record.status,"published");
  for(const patch of [{sourceId:"other-cms"},{baseContentVersion:"stale"}])assert.throws(()=>save({...update,automaticWrite:{...update.automaticWrite,...patch}},rows,"record_publication"));
  assert.throws(()=>save(update,[{...live,record:{...live.record,status:"verified"}},plan,source],"record_publication"));
@@ -57,6 +60,7 @@ test("an unverified first-delivery translation can record its exact CMS correcti
  for(const patch of [{sourcePublicationId:"foreign"},{language:"fr"},{pageUrl:"https://flatkey.ai/fr/blog/gpu-rental"}])assert.throws(()=>save({...update,...patch},rows,"record_publication"));
  assert.throws(()=>save(update,[{...live,record:{...live.record,status:"verified"}},plan,source,translation],"record_publication"));
  assert.throws(()=>save(update,[live,plan,source,{...translation,record:{...translation.record,status:"verified"}}],"record_publication"));
+ assert.throws(()=>save(update,[live,plan,{...source,record:{...source.record,status:"failed"}},translation],"record_publication"));
  const backdated={...update,publishedAt:before,automaticWrite:{...update.automaticWrite,publishedAt:before}};
  assert.throws(()=>save(backdated,rows,"record_publication"));
 });
@@ -78,6 +82,29 @@ for(const translation of [false,true])test(`mixed ISO offsets use the latest exa
  const next={...second,id:"correction3",contentVersion:thirdVersion,publishedAt:thirdTime,automaticWrite:{...second.automaticWrite,baseContentVersion:secondVersion,contentVersion:thirdVersion,publishedAt:thirdTime,verifiedAt:thirdTime}};
  assert.equal(save(next,rows,"record_publication").record.contentVersion,thirdVersion);
  assert.throws(()=>save({...next,automaticWrite:{...next.automaticWrite,baseContentVersion:oldVersion}},rows,"record_publication"));
+});
+
+test("misclassified unverified translation keeps failed audit history and an exact original/revision chain",()=>{
+ const t=save(task({contentVersion:"v1"}));
+ const source=save(pub({id:"source",contentVersion:"v1",automaticWrite:{...pub().automaticWrite,contentVersion:"v1"}}),[t,plan],"record_publication");
+ const live=save(task({contentVersion:"v1",status:"published"}),[t,plan,source],"save_task",t.record.version);
+ const page="https://flatkey.ai/ja/blog/gpu-rental";
+ const make=(patch={})=>pub({country:null,language:"ja",keyword:null,pageUrl:page,kind:"translation",sourcePublicationId:"source",contentVersion:"ja2",automaticWrite:{...pub().automaticWrite,sourceId:"cms-ja",contentVersion:"ja2"},...patch});
+ const wrong=make({id:"wrong-create"});const savedWrong=save(wrong,[live,plan,source],"record_publication");
+ const failed=save({...wrong,status:"failed",failureReason:"Recorded corrected hash as create; actual initial and update receipts retained",evidence},[live,plan,source,savedWrong],"record_publication",savedWrong.record.version);
+ assert.equal(failed.record.contentVersion,"ja2");assert.equal(failed.record.automaticWrite.operation,"create");
+ const initial=save(make({id:"actual-initial",contentVersion:"ja1",automaticWrite:{...wrong.automaticWrite,contentVersion:"ja1"}}),[live,plan,source,failed],"record_publication");
+ const corrected=make({id:"actual-update",kind:"optimization",sourcePublicationId:null,automaticWrite:{...wrong.automaticWrite,operation:"update",baseContentVersion:"ja1"}});
+ const rows=[live,plan,source,failed,initial];
+ const update=save(corrected,rows,"record_publication");assert.equal(update.record.contentVersion,"ja2");
+ assert.equal([...rows,update].filter(r=>r.kind==="publication"&&r.record.kind==="translation"&&r.record.status!=="failed").length,1);
+ assert.throws(()=>save(corrected,[live,plan,source,savedWrong,initial],"record_publication"));
+ for(const patch of [{taskId:"foreign"},{automaticWrite:{...failed.record.automaticWrite,sourceId:"other-cms"}},{failureReason:null},{status:"verified"},{verificationRecordedAt:before},{verifiedAt:before}])assert.throws(()=>save(corrected,[live,plan,source,{...failed,record:{...failed.record,...patch}},initial],"record_publication"));
+ assert.throws(()=>save({...corrected,id:"another-update"},[...rows,update],"record_publication"));
+ const checked={...corrected,status:"verified",verifiedAt:now.toISOString(),liveCheck:{checkedAt:now.toISOString(),httpStatus:200,canonicalUrl:page,language:"ja",contentVersion:"ja2",contentMatched:true,linksChecked:true,sourceReceipt:"actual-corrected-cms",evidence}};
+ const verified=save(checked,[...rows,update],"record_publication",update.record.version);
+ const summary=workflowSnapshot([...rows,verified],{week:"2026-11-09"},"database",now).summary;
+ assert.equal(summary.verifiedTranslations,1);assert.equal(summary.optimizedPages,0);
 });
 
 test("automatic route/task policy rejects functional pages and host/path impersonation",()=>{
