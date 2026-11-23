@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { automationDate } from "@/lib/seo-automation-schedule";
+import { keywordCaptureTime } from "@/lib/keyword-capture-time";
 import { continueApprovedKeywordReview, type ApprovedKeywordReviewCommand, type ApprovedKeywordReviewView as ApprovedReview } from "@/lib/approved-keyword-review-client";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./ApprovedKeywordReview.module.css";
@@ -32,7 +32,7 @@ async function requestView(command?: ApprovedKeywordReviewCommand): Promise<Appr
     ...(command ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) } : {}),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(typeof value.error === "string" ? value.error : "本批请求未获确认");
+  if (!response.ok) throw new Error(typeof value.message === "string" ? value.message : typeof value.error === "string" ? value.error : "本批请求未获确认");
   return value;
 }
 
@@ -95,7 +95,7 @@ export function ApprovedKeywordReview() {
         <label className={styles.progressLabel}>查询进度 <span>{count(completed)} / {count(data.queryCount)}</span>
           <progress value={completed} max={Math.max(1, data.queryCount)} aria-label="已批准关键词查询进度" />
         </label>
-        {data.run?.startedAt ? <p className={styles.note}>开始于 {automationDate(data.run.startedAt)}（北京时间）{data.run.completedAt ? ` · 完成于 ${automationDate(data.run.completedAt)}（北京时间）` : ""}</p> : null}
+        {data.run?.startedAt ? <p className={styles.note}>开始于 {keywordCaptureTime(data.run.startedAt)}（洛杉矶时间）{data.run.completedAt ? ` · 完成于 ${keywordCaptureTime(data.run.completedAt)}（洛杉矶时间）` : ""}</p> : null}
         {data.run?.errorCode ? <p className={styles.warning}>本批有需要核对的采集记录，请保留原批次查看回执。</p> : null}
         <div className={styles.tableScroll}>
           <table className={styles.countryTable}>
@@ -105,9 +105,9 @@ export function ApprovedKeywordReview() {
           </table>
         </div>
         <details className={styles.other}>
-          <summary><span>{data.otherCountries.label}</span><strong>{count(data.otherCountries.count)}</strong><small>待补采国家确认 · 点击查看原词与原页面</small></summary>
+          <summary><span>{data.otherCountries.label}</span><strong>{count(data.otherCountries.count)}</strong><small>国家方案已确认 · 实际排名见下方其他国家补采</small></summary>
           <div className={styles.otherContent}>
-            <p className={styles.note}>这些词已列入待补采清单，目前额外付费查询为 {count(data.otherCountries.paidQueries)}。中性词的候选查询环境不代表原词语种已确认；中文词的候选环境另列。补采国家确认前，保留原主国家，不提交额外查询。</p>
+            <p className={styles.note}>这些词的单次补采国家方案已确认，467词新增查询、1词复用已有结果。实际进度、费用与排名请看下方“其他国家关键词补采”。中性词的查询环境不代表原词本身是英语，原主国家保持不变。</p>
             <label className={styles.search}>筛选观察词<input type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索关键词、编号或原因" aria-label="搜索其他国家待归属关键词" /></label>
             <p className={styles.note} aria-live="polite">筛选后 {count(filtered.length)} / {count(data.otherCountries.count)} 个关键词 · 每页 {pageSize} 个</p>
             <div className={styles.tableScroll}>

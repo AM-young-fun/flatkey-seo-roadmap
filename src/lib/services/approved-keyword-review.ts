@@ -13,6 +13,10 @@ import { resumeApprovedKeywordReviewRun } from "@/lib/services/serp-monitor";
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex");
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+// A fresh, explicit $8.994 one-off approval is additional to the original
+// recurring envelope. Only the two frozen batches can consume it; the stored
+// schedule limits and paid switch are never enlarged.
+const combinedBudgetApprovedMicros = 8_994_000;
 export async function prepareApprovedKeywordReview() {
   if (envBool("DISABLE_EXTERNAL_FETCH")) throw new ImportRequestError("外部采集已紧急停止，未提交查询", 409);
   const plan = getApprovedKeywordReviewPlan();
@@ -37,7 +41,8 @@ export async function prepareApprovedKeywordReview() {
     const monthStart = new Date(new Date().toISOString().slice(0, 7) + "-01T00:00:00Z");
     const reserved = (await tx.serpMonitorRun.aggregate({ where: { OR: [{ createdAt: { gte: monthStart } },
       { completedAt: { gte: monthStart } }, { status: { in: ["PLANNED", "RUNNING", "UNKNOWN"] } }] }, _sum: { reservedCostMicros: true } }))._sum.reservedCostMicros ?? 0;
-    if (reserved + APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS > config.maxMonthCostMicros) throw new ImportRequestError("本月预算不足以预留此已批准批次，未提交查询", 409);
+    const effectiveMonthLimitMicros = config.maxMonthCostMicros + combinedBudgetApprovedMicros;
+    if (reserved + APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS > effectiveMonthLimitMicros) throw new ImportRequestError("本月原预算与本次独立批准额度不足以预留，未提交查询", 409);
     const startedAt = new Date();
     const run = await tx.serpMonitorRun.create({ data: {
       id: APPROVED_KEYWORD_REVIEW_RUN_ID, scope: APPROVED_KEYWORD_REVIEW_SCOPE, periodKey: APPROVED_KEYWORD_REVIEW_PERIOD_KEY,
@@ -48,7 +53,8 @@ export async function prepareApprovedKeywordReview() {
           userApproved: true, quoteId: "keyword-fee-review-20261123-v1", quoteSha256: APPROVAL_QUOTE_SHA256, queryHash: plan.queryHash,
           approvalRecordedAt: startedAt.toISOString(),
           approvalText: "可以，就按这份清单一次性跑完，费用不超过6.186美元",
-          combinedBudgetApprovedMicros: 8_994_000, otherCountryQueriesIncludedInThisRun: false,
+          combinedBudgetApprovedMicros, originalScheduleMonthLimitMicros: config.maxMonthCostMicros,
+          effectiveMonthLimitMicros, monthReservedBeforeMicros: reserved, otherCountryQueriesIncludedInThisRun: false,
         } }),
       queryCount: plan.queries.length, targetCount: plan.targets.length,
       estimatedCostMicros: APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS, reservedCostMicros: APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS,
@@ -81,6 +87,7 @@ export async function loadApprovedKeywordReview() {
       SELECT keyword, region, state, "costMicros", "checkedAt", "providerTaskId", "errorCode",
         jsonb_build_object('queryStatus', "normalizedJson"->'queryStatus', 'rankingVerified', "normalizedJson"->'rankingVerified',
           'completeDepth', "normalizedJson"->'completeDepth', 'captureComplete', "normalizedJson"->'captureComplete',
+          'organicCount', "normalizedJson"->'organicCount', 'coveredThroughRank', "normalizedJson"->'coveredThroughRank',
           'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements(
             CASE WHEN jsonb_typeof("normalizedJson"->'organicResults') = 'array' THEN "normalizedJson"->'organicResults' ELSE '[]'::jsonb END
           ) item WHERE item->>'domain' = 'flatkey.ai' OR item->>'domain' LIKE '%.flatkey.ai'), '[]'::jsonb)) AS "normalizedJson"
@@ -92,14 +99,14 @@ export async function loadApprovedKeywordReview() {
   for (const task of tasks) taskCounts[task.state] = (taskCounts[task.state] ?? 0) + 1;
   const rankedPages = (task: typeof tasks[number]) => {
     const data = record(task.normalizedJson);
-    if (!task.checkedAt || !["COMPLETE", "INCOMPLETE"].includes(task.state) || data.queryStatus !== "EXACT" || data.rankingVerified !== true) return [];
+    if (!task.checkedAt || !["COMPLETE", "INCOMPLETE"].includes(task.state) || data.captureComplete !== true || data.queryStatus !== "EXACT" || data.rankingVerified !== true) return [];
     return Array.isArray(data.organicResults) ? data.organicResults.flatMap(value => {
       const row = record(value);
       try {
-        const url = new URL(String(row.url)), rank = Number(row.rankGroup);
+        const url = new URL(String(row.url)), rank = row.rankGroup;
         return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.port &&
-          (url.hostname === "flatkey.ai" || url.hostname.endsWith(".flatkey.ai")) && Number.isInteger(rank) && rank >= 1 && rank <= 100
-          ? [{ url: url.href, rank }] : [];
+          (url.hostname === "flatkey.ai" || url.hostname.endsWith(".flatkey.ai")) && typeof rank === "number" && Number.isInteger(rank) && rank >= 1 && rank <= 100
+          ? [{ url: url.href, rank, title: typeof row.title === "string" ? row.title : null }] : [];
       } catch { return []; }
     }) : [];
   };
@@ -123,9 +130,12 @@ export async function loadApprovedKeywordReview() {
     // Detailed rows retain pending/incomplete states instead of manufacturing zero ranks.
     items: tasks.map(task => {
       const pages = rankedPages(task), normalized = record(task.normalizedJson);
-      const verified = task.checkedAt && ["COMPLETE", "INCOMPLETE"].includes(task.state) && normalized.queryStatus === "EXACT" && normalized.rankingVerified === true;
+      const verified = task.checkedAt && ["COMPLETE", "INCOMPLETE"].includes(task.state) && normalized.captureComplete === true && normalized.queryStatus === "EXACT" && normalized.rankingVerified === true;
       return { keyword: task.keyword, country: task.region, state: task.state, checkedAt: task.checkedAt?.toISOString() ?? null,
         providerTaskId: task.providerTaskId, costMicros: task.costMicros, errorCode: task.errorCode,
+        queryStatus: normalized.queryStatus ?? null, captureComplete: normalized.captureComplete ?? null,
+        rankingVerified: normalized.rankingVerified ?? null, completeDepth: normalized.completeDepth ?? null,
+        organicCount: normalized.organicCount ?? null, coveredThroughRank: normalized.coveredThroughRank ?? null,
         ranked: verified && (pages.length > 0 || normalized.completeDepth === true) ? pages.length > 0 : null,
         rank: pages.length ? Math.min(...pages.map(page => page.rank)) : null, pages };
     }),

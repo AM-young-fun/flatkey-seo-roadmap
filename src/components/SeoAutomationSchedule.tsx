@@ -9,6 +9,7 @@ import { automationDate, automationSchedulerLabels, readonlyAutomationPlans, typ
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoAutomationSchedule.module.css";
 import { ApprovedKeywordReview } from "./ApprovedKeywordReview";
+import { ApprovedOtherKeywordReview } from "./ApprovedOtherKeywordReview";
 
 const dollars = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(micros / 1e6);
 
@@ -145,6 +146,7 @@ export function SeoAutomationSchedule() {
           {data.controls.emergencyStopped ? <p className={styles.warning}>外部付费采集处于紧急停止状态；本页不会恢复或提交查询。</p> : null}
           <SchedulePlans plans={serverPlans} controls={data.controls} enableRankings={!data.controls.emergencyStopped ? retry : undefined} />
           <ApprovedKeywordReview />
+          <ApprovedOtherKeywordReview />
           <div className={styles.heartbeat}>
             <h4>DataForSEO 服务器调度检查</h4>
             <p>{data.scheduler.configured ? data.scheduler.cadence : "调度认证尚未配置"} · {automationSchedulerLabels[data.scheduler.state] ?? "检查状态未核实"}</p>

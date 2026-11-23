@@ -80,6 +80,11 @@ export function buildSerpTask(query: SerpQuery, tag: string, config: SerpMonitor
     calculate_rectangles: false, load_async_ai_overview: false,
   };
 }
+// The separately approved diagnostic manifest may query China once. This is
+// deliberately not a recurring SerpRegion or an entry in SERP_MARKET_CONFIG.
+export function buildApprovedChinaSerpTask(query: SerpQuery, tag: string) {
+  return { ...buildSerpTask(query, tag, configForSerpRegion("US")), location_code: 2156, language_code: "zh-CN", se_domain: "google.com" };
+}
 export const serpTaskId = (runId: string, queryKey: string) => `serp-${createHash("sha256").update(`${runId}\n${queryKey}`).digest("hex").slice(0, 40)}`;
 export const providerCostMicros = (cost: unknown): number | null => typeof cost === "number" && Number.isFinite(cost) && cost >= 0 && cost < 2_000 ? Math.round(cost * 1_000_000) : null;
 export const providerIdIsSafe = (id: unknown): id is string => typeof id === "string" && /^[a-zA-Z0-9-]{5,100}$/.test(id);
@@ -95,15 +100,17 @@ function dateFromProvider(value: unknown): string {
   if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now() + 5 * 60_000) throw new Error("INVALID_SERP_TIMESTAMP");
   return date.toISOString();
 }
-export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: string; keyword: string; config: SerpMonitorConfiguration }): SerpNormalizedResult {
+type SerpResultScope = { device: "desktop"; locationCode: number; languageCode: string; depth: 100 };
+function normalizeSerpWithMarket(raw: unknown, expected: { providerTaskId: string; keyword: string; config: SerpResultScope }, searchDomain: string): SerpNormalizedResult {
   const task = providerTaskEnvelope(raw, expected.providerTaskId), data = record(task.data), results = Array.isArray(task.result) ? task.result.map(record) : [];
   if (task.status_code !== 20000 || results.length !== 1) throw new Error("SERP_NOT_READY");
   const result = results[0], config = expected.config;
   if (data.device !== config.device || (data.location_code !== undefined && data.location_code !== config.locationCode) ||
       (data.language_code !== undefined && data.language_code !== config.languageCode) || (data.depth !== undefined && data.depth !== config.depth) ||
+      (data.se_domain !== undefined && data.se_domain !== searchDomain) ||
       (data.se !== undefined && data.se !== "google") || (data.se_type !== undefined && data.se_type !== "organic") ||
       result.location_code !== config.locationCode || result.language_code !== config.languageCode ||
-      result.type !== "organic" || !isSerpRegion(config.region) || result.se_domain !== SERP_MARKET_CONFIG[config.region].searchDomain) throw new Error("SERP_SCOPE_MISMATCH");
+      result.type !== "organic" || result.se_domain !== searchDomain) throw new Error("SERP_SCOPE_MISMATCH");
   const spell = record(result.spell), spellType = typeof spell.type === "string" ? spell.type : null;
   const corrected = typeof spell.keyword === "string" ? spell.keyword : typeof spell.spell === "string" ? spell.spell : null;
   const correctedKeyword = corrected?.trim() || null;
@@ -146,12 +153,19 @@ export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: 
   const captureComplete = !invalidOrganic, rankingVerified = captureComplete && queryStatus === "EXACT";
   const completeDepth = rankingVerified && coveredThroughRank === 100;
   let googleUrl: string | null = null;
-  try { const parsed = new URL(String(result.check_url)); if (parsed.protocol === "https:" && isSerpRegion(config.region) && (parsed.hostname === SERP_MARKET_CONFIG[config.region].searchDomain || parsed.hostname.endsWith(`.${SERP_MARKET_CONFIG[config.region].searchDomain}`))) googleUrl = parsed.href; } catch { /* Optional source evidence. */ }
+  try { const parsed = new URL(String(result.check_url)); if (parsed.protocol === "https:" && (parsed.hostname === searchDomain || parsed.hostname.endsWith(`.${searchDomain}`))) googleUrl = parsed.href; } catch { /* Optional source evidence. */ }
   return { normalizationVersion: SERP_NORMALIZATION_VERSION, captureComplete, organicCount: organicResults.length, coveredThroughRank,
     queryStatus, correctedKeyword, spellType, pagesCount: Number.isInteger(result.pages_count) && Number(result.pages_count) >= 0 ? Number(result.pages_count) : null,
     providerTaskId: expected.providerTaskId, keyword: expected.keyword, locationCode: config.locationCode,
     languageCode: config.languageCode, device: config.device, checkedAt: dateFromProvider(result.datetime), googleUrl,
     organicResults, completeDepth, rankingVerified, maxOrganicRank: Math.max(0, ...ranks) };
+}
+export function normalizeSerpAdvanced(raw: unknown, expected: { providerTaskId: string; keyword: string; config: SerpMonitorConfiguration }): SerpNormalizedResult {
+  if (!isSerpRegion(expected.config.region)) throw new Error("SERP_SCOPE_MISMATCH");
+  return normalizeSerpWithMarket(raw, expected, SERP_MARKET_CONFIG[expected.config.region].searchDomain);
+}
+export function normalizeApprovedChinaSerpAdvanced(raw: unknown, expected: { providerTaskId: string; keyword: string }): SerpNormalizedResult {
+  return normalizeSerpWithMarket(raw, { ...expected, config: { device: "desktop", locationCode: 2156, languageCode: "zh-CN", depth: 100 } }, "google.com");
 }
 
 export const serpMonitorMutationSchema = z.discriminatedUnion("action", [
