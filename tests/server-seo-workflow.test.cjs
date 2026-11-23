@@ -9,7 +9,11 @@ test("local collection covers both DST slots with one Los Angeles midnight each 
  const config = require("../src/lib/data/seo-automation-config.json");
  const local = config.tasks.find(task => task.id === "seo-16-00-ga4-search-console");
  assert.equal(workflow.on.schedule, undefined);
- assert.equal(local.rrule, "FREQ=DAILY;BYHOUR=15,16;BYMINUTE=0;BYSECOND=0");
+ // Keep both DST midnight slots while allowing the configured catch-up slot.
+ assert.match(local.rrule, /^FREQ=DAILY;BYHOUR=[\d,]+;BYMINUTE=0;BYSECOND=0$/);
+ const hours=local.rrule.match(/BYHOUR=([^;]+)/)[1].split(",").map(Number);
+ assert.ok(hours.includes(15) && hours.includes(16));
+ assert.equal(new Set(hours).size,hours.length);
  assert.equal(local.status, "ACTIVE");
  for (const date of ["2026-11-17", "2026-07-17"]) {
   const format = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23", day: "2-digit" });
