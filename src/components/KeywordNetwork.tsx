@@ -10,7 +10,7 @@ import { OVERVIEW_PAGE_MODULES, overviewKeywordScope, overviewModule, type Overv
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { UiSelect } from "./UiSelect";
 
-export function KeywordNetwork({ region = "all", showModuleFilter = false, module: controlledModule }: { region?: "all" | SearchRegionCode; showModuleFilter?: boolean; module?: OverviewPageModule }) {
+export function KeywordNetwork({ region = "all", showModuleFilter = false, module: controlledModule, historicalScope = false }: { region?: "all" | SearchRegionCode; showModuleFilter?: boolean; module?: OverviewPageModule; historicalScope?: boolean }) {
   const { data, loading, error, refresh } = useDashboard("all", "dataforseo_serp");
   const [crossLanguage, setCrossLanguage] = useState(false);
   const [rankBucket, setRankBucket] = useState<typeof DISPLAY_BUCKETS[number]["key"] | null>(null);
@@ -40,7 +40,7 @@ export function KeywordNetwork({ region = "all", showModuleFilter = false, modul
       <div className="panelHeader">
         <div>
           <h2>业务词库关系图</h2>
-          <p>{hasRealData ? `${visibleKeywords.length.toLocaleString("zh-CN")}${rankBucket === null ? "" : ` / ${keywords.length.toLocaleString("zh-CN")}`} 个业务关键词 · ` : ""}{rankScope} · 最新已保存排名</p>
+          <p>{hasRealData ? `${visibleKeywords.length.toLocaleString("zh-CN")}${rankBucket === null ? "" : ` / ${keywords.length.toLocaleString("zh-CN")}`} 个业务关键词 · ` : ""}{rankScope} · {historicalScope ? "原目标词监控快照；全站排名词明细见上方" : "最新已保存排名"}</p>
         </div>
         {showModuleFilter ? <UiSelect aria-label="关系图页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} /> : null}
       </div>
