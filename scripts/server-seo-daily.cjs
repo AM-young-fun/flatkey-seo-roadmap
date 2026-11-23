@@ -225,6 +225,20 @@ async function run() {
       }
     }
   }
+  // BEGIN seo-report-ga4-scalars
+  let reportScalars;
+  try {
+    const scalarScope = require("./lib/seo-report-ga4-scalars.cjs").scalarCollectionScope(process.env);
+    if (scalarScope.invalid) { reportScalars = { complete: false, reason: scalarScope.reason, requests: 0 }; qualityIssues.push({ metric: "daily_dashboard_scalars", reasons: ["source_scope_invalid"] }); }
+    else if (scalarScope.collect) {
+      const { runDailyReportScalars } = require("./server-seo-report-scalars.cjs");
+      const scalar = await runDailyReportScalars({ sourceDate: windows.find(row => row.site === "flatkey.ai").ga4.end });
+      reportScalars = { complete: scalar.complete, summaryPath: scalar.summaryPath, cacheHits: scalar.cacheHits, requests: scalar.requests };
+      if (!scalar.complete) qualityIssues.push({ metric: "daily_dashboard_scalars", reasons: ["source_scalar_incomplete"] });
+    } else reportScalars = { skipped: true, reason: scalarScope.reason, requests: 0 };
+  } catch { reportScalars = { complete: false, reason: "daily_dashboard_scalar_unavailable" }; qualityIssues.push({ metric: "daily_dashboard_scalars", reasons: ["source_scalar_unavailable"] }); }
+  console.log(JSON.stringify({ kind: "daily-dashboard-scalars", ...reportScalars }));
+  // END seo-report-ga4-scalars
   let growthTraffic;
   try {
     growthTraffic = await collectGrowthWeeklyTraffic({ sites, period: weeklyReportRange(reportingDate), fetchWeek: fetchGa4ExactOrganicWeek, credential, now: collectionNow });
@@ -239,7 +253,7 @@ async function run() {
   const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
-  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues, growthTraffic };
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues, growthTraffic, reportScalars };
   receiptAttempted = true;
   await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), result });
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));
