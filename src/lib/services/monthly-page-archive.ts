@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { CLUSTER_SITES } from "../seo-cluster-sites";
 import { analyticsStorageKind } from "../seo-analytics";
@@ -18,23 +17,17 @@ export function monthlyArchiveScope(targets: readonly { pageUrl: string; siteDom
 export async function loadMonthlyPageArchive(targets: readonly { pageUrl: string; siteDomain: string }[], start: string, end: string) {
   if (!targets.length) return [];
   const { kinds, urls, paths } = monthlyArchiveScope(targets);
-  try {
-    return await timedRead("monthly-archive", () => prisma.$queryRaw<{ payload: unknown }[]>(Prisma.sql`
-      SELECT day.payload || jsonb_build_object('rows', COALESCE((
-        SELECT jsonb_agg(item ORDER BY ordinal)
-        FROM jsonb_array_elements(day.payload->'rows') WITH ORDINALITY AS entry(item, ordinal)
-        WHERE (day.payload->>'kind' = 'gsc-pages' AND item->>'url' IN (${Prisma.join(urls)}))
-          OR (day.payload->>'kind' = 'ga4-pages' AND (item->>'hostname') || (item->>'path') IN (${Prisma.join(paths)}))
-      ), '[]'::jsonb)) AS payload
-      FROM "SeoAnalyticsDay" day
-      WHERE day.date >= ${start} AND day.date <= ${end} AND day.kind IN (${Prisma.join(kinds)})
-        AND jsonb_typeof(day.payload->'rows') = 'array'
-    `));
-  } catch {
-    // Keep the complete month view available if a deployment cannot use the
-    // projection. The timing explicitly distinguishes this slower fallback.
-    return timedRead("monthly-fallback", () => prisma.seoAnalyticsDay.findMany({
-      where: { date: { gte: start, lte: end }, kind: { in: kinds } }, select: { payload: true },
-    }));
-  }
+  const archive = await timedRead("monthly-archive", () => prisma.seoAnalyticsDay.findMany({
+    where: { date: { gte: start, lte: end }, kind: { in: kinds } }, select: { payload: true },
+  }));
+  const urlSet = new Set(urls), pathSet = new Set(paths);
+  return archive.map(({ payload }) => {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return { payload };
+    const value = payload as Record<string, unknown>;
+    if (!Array.isArray(value.rows)) return { payload };
+    return { payload: { ...value, rows: value.rows.filter(item => {
+      if (!item || typeof item !== "object") return false;
+      return value.kind === "gsc-pages" ? urlSet.has(item.url) : value.kind === "ga4-pages" && pathSet.has(item.hostname + item.path);
+    }) } };
+  });
 }
