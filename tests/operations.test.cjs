@@ -55,7 +55,7 @@ test("operational view reads metadata only and distinguishes online ranking from
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
   const localCollection = status.plans.find(row => row.id === "seo-16-00-ga4-search-console");
-  assert.equal(localCollection.cadence, "工作日 16:00");
+  assert.equal(localCollection.cadence, "工作日 15:00–16:00 每小时");
   assert.equal(localCollection.location, "Codex · 本机在线执行");
   assert.ok(!status.plans.some(row => row.id === "10-30-seo"));
   const actualPlan = configuredAutomationPlans(new Date("2026-10-19T08:00:00Z")).find(row => row.id === "automation");
@@ -70,9 +70,9 @@ test("actual Codex configuration keeps paused tasks unscheduled and first-weekda
   const rules = configuredAutomationPlans(new Date("2026-11-10T00:30:00Z"));
   assert.ok(!rules.some(row => row.id === "10-30-seo"));
   assert.equal(rules.find(row => row.id === "seo-09-30").nextAt, null);
-  assert.equal(rules.find(row => row.id === "seo-09-10-flatkey").nextAt, "2026-11-10T08:15:00.000Z");
-  assert.equal(rules.find(row => row.id === "seo-16-25").nextAt, "2026-11-10T08:25:00.000Z");
-  assert.equal(rules.find(row => row.id === "seo-14-00").nextAt, "2026-11-12T08:30:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-09-10-flatkey").nextAt, "2026-11-10T07:15:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-16-25").nextAt, "2026-11-10T07:25:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-14-00").nextAt, "2026-11-11T07:30:00.000Z");
   assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=16;BYMINUTE=0", new Date("2026-09-18T09:00Z"), "ACTIVE", true), "2026-09-20T08:00:00.000Z");
   const weekdayPages = rules.find(row => row.id === "seo-14-30");
   assert.equal(weekdayPages.cadence, "工作日 10:15–23:15 每小时");

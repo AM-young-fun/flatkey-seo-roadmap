@@ -395,6 +395,10 @@ export const workflowApprovalCheckSchema = z.object({ approvalId: id, itemId: id
 export type WorkflowApprovalCheck = z.infer<typeof workflowApprovalCheckSchema>;
 export type WorkflowRecord = WorkflowApproval | WorkflowTask | WorkflowPlan | WorkflowPublication | WorkflowOptimization | WorkflowIssue | WorkflowRun | WorkflowHistoricalImport;
 export type WorkflowWorkWeek = {
+  range: { start: string; end: string };
+  timeZone: "Asia/Shanghai";
+  asOf: string;
+  catchUpDate: string;
   overdueTaskIds: string[];
   pendingRollbackTaskIds: string[];
   reviewOrReleaseTaskIds: string[];
@@ -407,11 +411,12 @@ export type WorkflowTaskDetail = Pick<WorkflowSnapshot, "approvals" | "publicati
   dependencies: WorkflowTask[];
 };
 /** Only the reviewed code and test artifacts are eligible for a release preflight. */
-export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "tasks" | "approvals" | "publications">) {
+export function workflowReleaseCandidates(snapshot: Pick<WorkflowSnapshot, "tasks" | "approvals" | "publications"> & Partial<Pick<WorkflowSnapshot, "generatedAt">>) {
   const tasks = new Map(snapshot.tasks.map(task => [task.id, task]));
   return snapshot.approvals.flatMap(approval => approval.items.flatMap(item => {
     const task = tasks.get(item.taskId);
-    if (!task?.codeSource || !item.codeSource || approval.siteDomain !== "flatkey.ai" || item.postPublicationId || task.siteDomain !== approval.siteDomain || ["blocked", "failed"].includes(task.status) ||
+    if (!task?.codeSource || snapshot.generatedAt && Date.parse(task.dueAt) > Date.parse(snapshot.generatedAt) ||
+        !item.codeSource || approval.siteDomain !== "flatkey.ai" || item.postPublicationId || task.siteDomain !== approval.siteDomain || ["blocked", "failed"].includes(task.status) ||
         !["blog", "landing", "optimization", "cluster", "technical"].includes(task.kind) || task.channel === "github" || !approvalItemNeedsHuman(item, [task]) ||
         task.codeSource.repository !== item.codeSource.repository || task.codeSource.branch !== item.codeSource.branch ||
         task.codeSource.commitSha !== item.codeSource.commitSha || task.contentVersion !== item.contentVersion ||
