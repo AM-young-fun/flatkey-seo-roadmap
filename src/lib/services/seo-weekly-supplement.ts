@@ -15,13 +15,18 @@ async function reportDate(reportId: string, localPreview: boolean) {
   return report.date;
 }
 export async function loadWeeklySupplement(reportId: string, localPreview = false): Promise<WeeklySupplement> {
-  const empty = emptyWeeklySupplement(await reportDate(reportId, localPreview));
+  return loadWeeklySupplementForDate(await reportDate(reportId, localPreview), localPreview);
+}
+// Callers must already have loaded and validated the weekly report. Saves and
+// standalone reads continue to resolve the exact report ID above.
+export async function loadWeeklySupplementForDate(date: string, localPreview = false): Promise<WeeklySupplement> {
+  const empty = emptyWeeklySupplement(date);
   if (localPreview) {
     const files = await readdir(previewDirectory()).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
     const latest = files.filter(file => file.startsWith(empty.id + ":") && file.endsWith(".json")).sort().at(-1);
     return latest ? JSON.parse(await readFile(join(previewDirectory(), latest), "utf8")) as WeeklySupplement : empty;
   }
-  const row = await prisma.seoReportVersion.findFirst({ where: { kind, siteDomain: "flatkey.ai", periodStart: new Date(empty.periodStart), periodEnd: new Date(empty.periodEnd) }, orderBy: { id: "desc" } });
+  const row = await prisma.seoReportVersion.findFirst({ where: { kind, siteDomain: "flatkey.ai", periodStart: new Date(empty.periodStart), periodEnd: new Date(empty.periodEnd) }, orderBy: { id: "desc" }, select: { payload: true } });
   return row ? row.payload as unknown as WeeklySupplement : empty;
 }
 export async function saveWeeklySupplement(raw: unknown, localPreview = false) {

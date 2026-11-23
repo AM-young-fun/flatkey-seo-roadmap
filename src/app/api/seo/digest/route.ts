@@ -20,6 +20,8 @@ import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, gene
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
 import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
+import { authorizeWorkflow } from "@/lib/seo-workflow-http";
+import { loadWeeklySupplementForDate } from "@/lib/services/seo-weekly-supplement";
 import { reviewedDigestCommandSchema, ReviewedDigestError } from "@/lib/seo-reviewed-digest";
 import { saveReviewedSeoDigest } from "@/lib/services/seo-reviewed-digest";
 import { draftDigestCommandSchema } from "@/lib/seo-draft-digest";
@@ -114,7 +116,13 @@ async function readDigest(request: Request) {
       const report = saved?.payload as unknown as SeoDigest | undefined;
       // Latest details may show current task status and the month ranking. The saved
       // report body, ID and hash stay intact; explicit reportId never gets live data.
-      const view = archive && report && !explicitId ? await timedRead("report-view", () => reportView(selected, kind)) : undefined;
+      const [view, weeklySupplement] = await Promise.all([
+        archive && report && !explicitId ? timedRead("report-view", () => reportView(selected, kind)) : undefined,
+        report && kind === "weekly" && params.get("supplement") === "1" ? timedRead("weekly-supplement", async () => {
+          const access = await authorizeWorkflow(request);
+          return { supplement: await loadWeeklySupplementForDate(report.date, access.localPreview), editable: access.actor === "human" };
+        }).catch(() => undefined) : undefined,
+      ]);
       const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
       if (currentDaily && !report?.dashboard) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
@@ -139,9 +147,9 @@ async function readDigest(request: Request) {
         const githubSection = github.length ? githubDigestLines(github, trafficStart, trafficEnd, kind === "weekly", new Date()) : undefined;
         const businessSection = kind === "weekly" && observations.some(row => row.start === trafficStart && row.country === "all" && row.hostScope === GA4_HOST_SCOPE && row.rows.length)
           ? weeklyBusinessDigestLines(observations, trafficStart, trafficEnd) : undefined;
-        return Response.json({ report: registrationCorrection({ ...report, flatkeyRegistrations, accountRegistrations, recentPages, workPlan, githubSection, businessSection }, registrationPeriods), dates, view }, { headers });
+        return Response.json({ report: registrationCorrection({ ...report, flatkeyRegistrations, accountRegistrations, recentPages, workPlan, githubSection, businessSection }, registrationPeriods), dates, view, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
       }
-      return Response.json({ report: report ?? null, dates, view }, { headers });
+      return Response.json({ report: report ?? null, dates, view, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }
