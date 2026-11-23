@@ -1,7 +1,8 @@
 "use client";
 
+import { FeedbackButton } from "./FeedbackButton";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useState } from "react";
 import type { WorkflowSnapshot } from "@/lib/seo-workflow";
 import { useSeoCountry } from "./useSeoCountry";
@@ -27,6 +28,6 @@ export function WeeklyActionPlan({ periodStart }: { periodStart?: string }) {
         {tasks.slice(0, expanded ? tasks.length : 5).map(task => <tr key={task.id}><td data-label="关键词 / 任务"><Link href={workTaskHref(task, new URLSearchParams(country === "all" ? {} : { country }))}><strong>{task.keyword ?? task.title}</strong></Link><small>{task.country ?? "全站"} · {task.language ?? "不适用"} · {task.business}</small></td><td data-label="交付日 / 页面">{shanghaiStamp(task.dueAt)}{task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{task.pageUrl}</a></small> : <small>目标页待确定</small>}</td><td data-label="状态与下一步"><WorkflowStatus status={task.status} /><p>{task.nextAction || "待补充"}</p></td></tr>)}
       </tbody></table></div> : <p className={styles.empty}>尚无该范围的工作事项。周四自动核对候选证据并安排下周任务。</p>}
       {tasks.length > 5 ? <button type="button" className={styles.textButton} onClick={() => setExpanded(value => !value)}>{expanded ? "收起" : `展开全部 ${tasks.length} 项`}</button> : null}
-    </> : result.error ? <div className={styles.empty}><p role="alert">{result.error}</p><button type="button" className={styles.textButton} onClick={result.retry}>重新读取</button></div> : <p className={styles.empty}>正在读取工作计划…</p>}
+    </> : result.error ? <div className={styles.empty}><p role="alert">{result.error}</p><FeedbackButton type="button" className={styles.textButton} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div> : <p className={styles.empty}>正在读取工作计划…</p>}
   </section>;
 }

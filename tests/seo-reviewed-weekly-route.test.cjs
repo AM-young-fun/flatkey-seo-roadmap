@@ -45,6 +45,7 @@ Module._load = function (name, ...rest) {
   } };
   if (name === '@/lib/services/import-tokens') return { authenticateImportToken: async req => req.headers.get('authorization') === 'Bearer fixture' };
   if (name === '@/lib/seo-analytics-access') return { authorizeAnalyticsRead: async () => false, analyticsLocalPreview: () => false, privateAnalyticsHeaders: { 'cache-control': 'private, no-store' } };
+  if (name === '@/lib/seo-workflow-http') return { authorizeWorkflow: async () => { throw Error('unexpected supplement authorization during token-only archive reads'); } };
   if (name === '@/lib/services/seo-digest-recovery') return { DigestRecoveryError: class extends Error {} };
   if (name.startsWith('@/lib/services/')) return new Proxy({}, { get() { return async () => { dynamicReads++; throw Error('no source refresh during reviewed archive reads'); }; } });
   return originalLoad.call(this, name, ...rest);

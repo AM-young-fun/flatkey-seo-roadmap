@@ -1,13 +1,18 @@
 "use client";
 
+import { FeedbackButton } from "./FeedbackButton";
 import { ReportLoading } from "./ReportLoading";
+import { useActionFeedback } from "./useActionFeedback";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import { pendingTaskApproval } from "@/lib/seo-approval-display";
 
 import { ReviewChangeSummary } from "./SeoPageApprovals";
 import { SeoListDateControl, useSeoListDateRange } from "./SeoDateControl";
 import { dateInListRange } from "@/lib/seo-date-range";
-import Link, { useLinkStatus } from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "./AppLink";
+import { useLinkStatus } from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useFeedbackRouter as useRouter } from "./useFeedbackRouter";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
 import { approvalReviewReadiness } from "@/lib/seo-workflow";
@@ -198,10 +203,11 @@ function IssueTaskForm({ issue, weekStart, existingTask, onSaved }: { issue: Wor
   const dataIssue = ["data", "business", "sync"].includes(issue.category);
   const [owner, setOwner] = useState(issue.owner), [due, setDue] = useState(weekStart), [business, setBusiness] = useState(issue.siteDomain === "flatkey.ai" ? "API" : "CLUSTER");
   const [nextAction, setNextAction] = useState(issue.nextAction || `核查「${issue.title}」的来源证据，定位原因并提出可验收的修复。`);
-  const [savedTask, setSavedTask] = useState<WorkflowTask | undefined>(existingTask), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  const [savedTask, setSavedTask] = useState<WorkflowTask | undefined>(existingTask), [message, setMessage] = useState("");
+  const action = useActionFeedback("正在保存任务与问题关联…"), busy = action.pending;
   const attempt = useRef<{ requestId: string; action: string; expectedVersion: number; record: object } | null>(null);
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage("");
+    event.preventDefault(); if (!action.start()) return; setMessage("");
     let task = savedTask;
     try {
       if (!task) {
@@ -228,11 +234,12 @@ function IssueTaskForm({ issue, weekStart, existingTask, onSaved }: { issue: Wor
       }
       const { version, updatedAt: _updatedAt, recordedAt: _recordedAt, ...record } = issue;
       await mutateWorkflow({ requestId: crypto.randomUUID(), action: "save_issue", expectedVersion: version, record: { ...record, taskId: task.id } });
-      setMessage("任务与原问题已关联。原问题状态、证据及历史均保留，尚未标记修复完成。"); onSaved();
+      setMessage("任务与原问题已关联。原问题状态、证据及历史均保留，尚未标记修复完成。"); actionSucceeded("任务与原问题已关联。"); onSaved();
     } catch (error) {
       const reason = error instanceof Error ? error.message : "暂时无法保存。";
-      setMessage(task ? `任务 ${task.id} 已保存，问题关联待补：${reason} 请刷新核对原问题版本后重试，勿重复建任务。` : `${reason} 当前输入与请求已保留，可重试；若记录已存在，请刷新以恢复已保存任务。`);
-    } finally { setBusy(false); }
+      const message = task ? `任务 ${task.id} 已保存，问题关联待补：${reason} 请刷新核对原问题版本后重试，勿重复建任务。` : `${reason} 当前输入与请求已保留，可重试；若记录已存在，请刷新以恢复已保存任务。`;
+      setMessage(message); actionFailed(message);
+    } finally { action.finish(); }
   }
   return <form className={styles.reviewForm} onSubmit={event => void save(event)}>
     <h4>{savedTask ? "补齐问题关联" : `创建${dataIssue ? "数据核查" : "技术修复"}任务`}</h4>
@@ -243,7 +250,7 @@ function IssueTaskForm({ issue, weekStart, existingTask, onSaved }: { issue: Wor
       <label>业务线<UiSelect aria-label="问题任务业务线" value={business} onChange={setBusiness} disabled={busy || Boolean(attempt.current)} options={["API", "GPU", "CLUSTER"].map(value => ({ value, label: value === "CLUSTER" ? "集群" : value }))} /></label>
       <label className={styles.spanAll}>执行步骤<textarea required maxLength={3000} rows={3} value={nextAction} disabled={busy || Boolean(attempt.current)} onChange={event => setNextAction(event.target.value)} /></label>
     </div>}
-    <button type="submit" className={styles.primary} disabled={busy}>{busy ? "保存中…" : savedTask ? "重试关联原问题" : attempt.current ? "重试保存与关联" : "创建任务并关联"}</button>
+    <FeedbackButton type="submit" className={styles.primary} pending={busy} pendingLabel="正在保存…">{savedTask ? "重试关联原问题" : attempt.current ? "重试保存与关联" : "创建任务并关联"}</FeedbackButton>
     {message ? <p role="status">{message}</p> : null}
   </form>;
 }
@@ -357,7 +364,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       <div className={styles.toolbarActions}>
         {isTaskList ? <Link className={styles.secondary} href={country === "all" ? "/deliveries" : `/deliveries?country=${country}`}>发布记录</Link> : null}
         {view === "deliveries" ? <Link className={styles.secondary} href={country === "all" ? "/work" : `/work?country=${country}`}>返回工作任务</Link> : null}
-        <button type="button" className={styles.secondary} onClick={result.retry}><RefreshCw size={14} aria-hidden="true" />刷新</button>
+        <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
       </div>
     </div> : null}
     {!embedded && !isTaskList ? <div className={styles.filters}>
@@ -367,7 +374,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       <UiSelect aria-label="页面语言筛选" value={language} onChange={value => filter("language", value)} options={[{ value: "all", label: "全部语言" }, ...languages]} /></> : null}
     </div> : null}
     {view === "runs" ? <SeoAutomationSchedule /> : null}
-    {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div> : !current ? <ReportLoading label={`正在读取${title}`} /> : <>
+    {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><FeedbackButton className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div> : !current ? <ReportLoading label={`正在读取${title}`} /> : <>
       {current.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       {view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
         {["open", "investigating", "blocked", "resolved"].map(status => <div key={status}><span>{stateLabel(status)}</span><strong>{issueScope.filter(issue => issue.status === status).length}</strong></div>)}
@@ -406,7 +413,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           <input aria-label="搜索问题" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索问题、页面或负责人" />
           <UiSelect aria-label="问题状态筛选" value={status} onChange={value => filter("status", value)} options={[{ value: "all", label: "全部状态" }, ...["open", "investigating", "blocked", "resolved"].map(value => ({ value, label: stateLabel(value) }))]} />
         </div>
-        {issues.length ? issues.map(issue => <details id={`issue-${issue.id}`} key={issue.id} className={styles.record}><summary><span><strong><span className={styles.priority} data-priority={issue.priority}>{issue.priority}</span>{issue.title}</strong><small>{siteName(issue.siteDomain)} · {issueCategories[issue.category]} · {issue.owner}{issue.id === legacyMeasurementIssueId ? " · 历史待同步" : ""}</small></span><WorkflowStatus status={issue.status} /></summary><div className={styles.detail}><p className={styles.muted}>首次发现 {displayTime(issue.firstSeenAt)}</p>{issue.id === legacyMeasurementIssueId ? <p className={styles.muted}>此为历史接入记录。后续行为与转化分析统一使用 GA4，归因与观察窗口待核验。</p> : null}<h4>影响范围</h4><p>{issue.impact}</p><h4>下一步</h4><p>{issue.nextAction || "待补充"}</p>{issue.pageUrl ? <a href={issue.pageUrl} target="_blank" rel="noreferrer">{issue.pageUrl} ↗</a> : null}<WorkflowEvidence evidence={issue.evidence} />{issue.taskId ? (() => { const linkedTask = relatedTasks.find(task => task.id === issue.taskId); return linkedTask ? <Link href={workTaskHref(linkedTask)}>查看关联任务 →</Link> : <p className={styles.muted}>关联任务 {issue.taskId} {relatedTaskHistory.error ? "暂时无法读取" : relatedTaskHistory.data ? "未找到，需核查关联记录" : "正在跨周核对"}。<button type="button" className={styles.secondary} onClick={relatedTaskHistory.retry}>重新核对任务</button></p>; })() : issue.status !== "resolved" ? <IssueTaskForm key={`${issue.id}:${issue.version}`} issue={issue} weekStart={chosenWeek} existingTask={relatedTasks.find(task => task.evidence.some(item => item.artifact === `issue:${issue.id}`))} onSaved={() => { result.retry(); relatedTaskHistory.retry(); }} /> : null}{issue.resolvedAt ? <><p>恢复于 {displayTime(issue.resolvedAt)}</p><WorkflowEvidence evidence={issue.resolutionEvidence} /></> : null}</div></details>) : <p className={styles.empty}>{issueScope.length ? "当前筛选没有匹配的问题。" : "所选范围暂无问题记录，巡检进度见运行回执。"}</p>}
+        {issues.length ? issues.map(issue => <details id={`issue-${issue.id}`} key={issue.id} className={styles.record}><summary><span><strong><span className={styles.priority} data-priority={issue.priority}>{issue.priority}</span>{issue.title}</strong><small>{siteName(issue.siteDomain)} · {issueCategories[issue.category]} · {issue.owner}{issue.id === legacyMeasurementIssueId ? " · 历史待同步" : ""}</small></span><WorkflowStatus status={issue.status} /></summary><div className={styles.detail}><p className={styles.muted}>首次发现 {displayTime(issue.firstSeenAt)}</p>{issue.id === legacyMeasurementIssueId ? <p className={styles.muted}>此为历史接入记录。后续行为与转化分析统一使用 GA4，归因与观察窗口待核验。</p> : null}<h4>影响范围</h4><p>{issue.impact}</p><h4>下一步</h4><p>{issue.nextAction || "待补充"}</p>{issue.pageUrl ? <a href={issue.pageUrl} target="_blank" rel="noreferrer">{issue.pageUrl} ↗</a> : null}<WorkflowEvidence evidence={issue.evidence} />{issue.taskId ? (() => { const linkedTask = relatedTasks.find(task => task.id === issue.taskId); return linkedTask ? <Link href={workTaskHref(linkedTask)}>查看关联任务 →</Link> : <p className={styles.muted}>关联任务 {issue.taskId} {relatedTaskHistory.error ? "暂时无法读取" : relatedTaskHistory.data ? "未找到，需核查关联记录" : "正在跨周核对"}。<FeedbackButton type="button" className={styles.secondary} onClick={relatedTaskHistory.retry} pending={relatedTaskHistory.pending} pendingLabel="正在读取…">重新核对任务</FeedbackButton></p>; })() : issue.status !== "resolved" ? <IssueTaskForm key={`${issue.id}:${issue.version}`} issue={issue} weekStart={chosenWeek} existingTask={relatedTasks.find(task => task.evidence.some(item => item.artifact === `issue:${issue.id}`))} onSaved={() => { result.retry(); relatedTaskHistory.retry(); }} /> : null}{issue.resolvedAt ? <><p>恢复于 {displayTime(issue.resolvedAt)}</p><WorkflowEvidence evidence={issue.resolutionEvidence} /></> : null}</div></details>) : <p className={styles.empty}>{issueScope.length ? "当前筛选没有匹配的问题。" : "所选范围暂无问题记录，巡检进度见运行回执。"}</p>}
         <details className={styles.listNote}><summary>问题状态与证据</summary><p>线上状态与 Google 索引版本分别留存证据。创建任务后，仍需完成修复和恢复验收。</p></details>
       </section> : null}
       {tab === "runs" ? <section aria-label="运行回执"><div className={styles.sectionHeading}><h2>阶段运行与来源日期</h2></div><p className={styles.muted}>以下为实际执行回执。任务排期、开始运行和成功完成是不同状态；未关联具体站点任务的全局回执在“全部五站”中查看。</p>{runs.length ? runs.map(run => <details key={run.id} className={styles.record}><summary><span><strong>{stageNames[run.stage] ?? run.stage}</strong><small>{displayTime(run.scheduledFor)} · {run.owner}</small></span><WorkflowStatus status={run.status} /></summary><div className={styles.detail}><p><Clock3 size={14} />开始 {displayTime(run.startedAt)} · 完成 {displayTime(run.completedAt)}</p><p>完成 {run.completedItems} / 核查 {run.checkedItems} 项 · 覆盖 {({ full: "完整", partial: "部分", unknown: "未核实" }[run.coverage])} · 费用 {run.costMicros == null ? "未提供" : `$${(run.costMicros / 1e6).toFixed(4)}`}</p>{run.failureReason ? <p className={styles.warning}>{run.failureReason}</p> : null}<p>下一步：{run.nextAction || "无待办记录"}</p><h4>来源截至日期</h4>{Object.keys(run.sourceDates).length ? <dl className={styles.metadata}>{Object.entries(run.sourceDates).map(([source, date]) => <div key={source}><dt>{source}</dt><dd>{date ?? "待更新"}</dd></div>)}</dl> : <p className={styles.muted}>该回执尚未提供来源日期。</p>}<WorkflowEvidence evidence={run.evidence} /><p className={styles.muted}>输入版本 {run.inputVersion} · 回执 {run.id}</p></div></details>) : <p className={styles.empty}>此范围尚无阶段执行回执，不能据定时配置判断已完成。</p>}</section> : null}
@@ -418,21 +425,22 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
 export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: string }) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const deletion = useActionFeedback("正在删除任务…"), deleting = deletion.pending;
   const [deleteError, setDeleteError] = useState("");
   async function deleteTask(task: WorkflowTask) {
-    setDeleting(true);
+    if (!deletion.start()) return;
     setDeleteError("");
     const { version, recordedAt: _recordedAt, updatedAt: _updatedAt, ...record } = task;
     try {
       const receipt = await mutateWorkflow({ requestId: crypto.randomUUID(), action: "save_task",
         expectedVersion: version, record: { ...record, deletedAt: new Date().toISOString() } });
       if (receipt.stored !== true) throw new Error("未确认删除，请刷新后重试。");
+      actionSucceeded("任务已删除。");
       router.replace(listHref);
       router.refresh();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "删除失败，请重试。");
-      setDeleting(false);
+      const message = error instanceof Error ? error.message : "删除失败，请重试。";
+      setDeleteError(message); actionFailed(message); deletion.finish();
     }
   }
 
@@ -445,7 +453,7 @@ export function WorkTaskPage({ taskId, listHref }: { taskId: string; listHref: s
     <div className={workspace.titleRow}>
       <Link className={styles.secondary} href={listHref}>← 返回任务列表</Link>
     </div>
-    {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div>
+    {result.error ? <div className={styles.empty} role="alert"><p>{result.error}</p><FeedbackButton className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div>
       : !result.data ? <ReportLoading label="正在读取任务" />
       : !task ? <p className={styles.empty}>找不到这条任务。</p>
       : <article className={styles.listPanel}>

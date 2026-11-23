@@ -40,6 +40,6 @@ test('all eligible candidates are retained before ranking; filtering unrelated o
  {kind:'gsc-pages',date,property:'sc-domain:flatkey.ai',complete:true,observedAt:now.toISOString(),rows:Array.from({length:1000},(_,i)=>({url:'https://flatkey.ai/p'+i,clicks:d?i+1:0,impressions:d?i+10:0}))},
  {kind:'ga4-pages',date,property:'541304395',complete:true,hostnameDimension:'hostName',observedAt:now.toISOString(),rows:Array.from({length:1000},(_,i)=>({hostname:'flatkey.ai',path:'/p'+i,sessions:d?i+1:0}))}]);
  const projected=rows.map(row=>({...row,rows:row.rows.filter(item=>urls.has(item.url??'https://'+item.hostname+item.path))}));
- const original=recentPublishedPages(workflow,rows,'2026-11-24',now,false);
- assert.deepEqual(recentPublishedPages(workflow,projected,'2026-11-24',now,false),original);assert.equal(original.length,10);assert.ok(Buffer.byteLength(JSON.stringify(projected))<Buffer.byteLength(JSON.stringify(rows))/30);
+ const original=recentPublishedPages(workflow,rows,'2026-11-24',now,true);
+ assert.deepEqual(recentPublishedPages(workflow,projected,'2026-11-24',now,true),original);assert.equal(original.length,10);assert.ok(Buffer.byteLength(JSON.stringify(projected))<Buffer.byteLength(JSON.stringify(rows))/30);
 });

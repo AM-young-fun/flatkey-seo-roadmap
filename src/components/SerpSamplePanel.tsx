@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { SerpSamplePreview, SerpSampleResult } from "@/lib/serp-sample";
 import type { SerpMonitorRunDto } from "@/lib/serp-monitor-types";
 import type { SerpResultsResponse, SerpKeywordResult } from "@/lib/serp-results";

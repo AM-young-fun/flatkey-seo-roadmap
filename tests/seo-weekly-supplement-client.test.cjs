@@ -23,6 +23,7 @@ function editor(props = {}) {
   const jsx = (type, props, key) => ({ type, props, key });
   const react = {
     useId: () => 'supplement-field',
+    useRef(initial) { const index=hook++; if (!(index in states)) states[index]={current:initial}; return states[index]; },
     useState(initial) {
       const index = hook++;
       if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial;
@@ -51,6 +52,8 @@ function editor(props = {}) {
     fetch: (url, options) => new Promise(resolve => requests.push({ url, options, resolve })),
     require(name) {
       if (name === 'react') return react;
+      if (name === './useBusyIndicator') return { useBusyIndicator() {} };
+      if (name === '@/lib/interaction-feedback') return { actionSucceeded() {}, actionFailed() {} };
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
       if (name.endsWith('.module.css')) return new Proxy({}, { get: (_, key) => String(key) });
       throw new Error(`Unexpected component dependency: ${name}`);
@@ -186,5 +189,18 @@ test('bundled read-only note retains disabled editing', () => {
     assert.equal(view.input().props.value, 'read only');
     assert.equal(view.input().props.disabled, true);
     assert.equal(view.button('保存补充').props.disabled, true);
+  } finally { view.cleanup(); }
+});
+
+test('same-frame save clicks send one request and incomplete success receipts remain an error', async () => {
+  const view=editor({ initial: { supplement: supplement(2, 'saved'), editable: true } });
+  try {
+    view.change('draft');
+    const save=view.button('保存补充').props.onClick;
+    save();save();save();
+    assert.equal(view.requests.length,1);
+    await view.reply(0, { supplement: { revision:3 } });
+    assert.deepEqual(view.alerts(),['保存回执不完整，请重新读取核对。']);
+    assert.equal(view.input().props.value,'draft');
   } finally { view.cleanup(); }
 });

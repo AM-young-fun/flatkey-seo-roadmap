@@ -7,6 +7,8 @@ import type { OperationsStatus } from "@/lib/operations";
 import { collectionFitsExistingBudget, continueCollectionCycle, pauseCollectionRequests } from "@/lib/collection-cycle-client";
 import { automationDate, automationSchedulerLabels, readonlyAutomationPlans, type ReadonlyAutomationPlan } from "@/lib/seo-automation-schedule";
 import { useSeoRead } from "./useSeoAnalytics";
+import { FeedbackButton } from "./FeedbackButton";
+import { useBusyIndicator } from "./useBusyIndicator";
 import styles from "./SeoAutomationSchedule.module.css";
 import { ApprovedKeywordReview } from "./ApprovedKeywordReview";
 import { ApprovedOtherKeywordReview } from "./ApprovedOtherKeywordReview";
@@ -19,6 +21,8 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
   const [coverage, setCoverage] = useState<{ allTargetCount: number; heldTargetCount: number; targetCount: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [pauseBusy, setPauseBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState("");
+  useBusyIndicator(busy || pauseBusy, pauseBusy ? "正在核对暂停回执…" : "正在处理采集计划请求…");
   const [message, setMessage] = useState("");
   const running = useRef(false), active = useRef(true);
   const pausing = useRef(false), stopPaid = useRef(false);
@@ -34,6 +38,7 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
     if (action.action === "previewSchedule") stopPaid.current = false;
     else if (stopPaid.current) return;
     running.current = true;
+    setPendingAction(action.action === "previewSchedule" ? action.futureOnly ? "future-preview" : "current-preview" : "enable");
     setBusy(true);
     setMessage("");
     try {
@@ -56,7 +61,7 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
         onEnabled();
       }
     } catch (error) { if (!stopPaid.current) setMessage(error instanceof Error ? error.message : "付费计划暂不可用"); }
-    finally { running.current = false; setBusy(false); }
+    finally { running.current = false; setBusy(false); setPendingAction(""); }
   }
   async function runCurrent() {
     if (!quote || !current || running.current || pausing.current) return;
@@ -85,15 +90,15 @@ function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls
     finally { pausing.current = false; if (active.current) { setPauseBusy(false); onEnabled(); } }
   }
   return <div className={styles.paidControl}>
-    {controls.enabled || busy && current ? <div className={styles.paidActions}><button type="button" className={styles.refresh} disabled={pauseBusy} onClick={() => void pause()}>{pauseBusy ? "正在暂停…" : "暂停新的付费提交"}</button></div> : null}
+    {controls.enabled || busy && current ? <div className={styles.paidActions}><FeedbackButton className={styles.refresh} pending={pauseBusy} pendingLabel="正在暂停…" onClick={() => void pause()}>暂停新的付费提交</FeedbackButton></div> : null}
     {quote ? <>
       <p>本轮上限 <strong>{dollars(quote.totalMaxCostMicros)}</strong> · {quote.keywordCount} 个关键词 · {quote.queryCount} 次排名查询 · {quote.discoveryJobs} 项新词发现</p>
       {current ? <p><strong>{quote.periodLabel}</strong> · 周期标识 {quote.periodKey}。补采实际时间按回执保存，不改写为原计划时间。</p> : null}
       {coverage ? <p>正式目标 {coverage.allTargetCount} 个；本轮有效监控 {coverage.targetCount} 个；其余 {coverage.heldTargetCount} 个暂缓或排除，不作为本轮已采集。查询仅覆盖当前已核实的目标国家。</p> : null}
       <p className={styles.note}>计划时间 {automationDate(quote.dueAt)} · 排名月度上限 {dollars(quote.maxMonthSerpCostMicros)} · 新词每轮上限 {dollars(quote.discoveryMaxCostMicros)}</p>
       {current && !collectionFitsExistingBudget(quote, controls) ? <p role="alert">本轮报价超过原计划上限，不能直接开启或执行。</p> : null}
-      <div className={styles.paidActions}>{current ? <button type="button" className={styles.refresh} disabled={busy || pauseBusy || !collectionFitsExistingBudget(quote, controls)} onClick={() => void runCurrent()}>{busy ? "本期采集中…" : "开启并执行本期"}</button> : <button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => void submit({ action: "enableSchedule", previewToken: quote.previewToken })}>仅开启自动付费</button>}<button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => setQuote(null)}>取消</button></div>
-    </> : <div className={styles.paidActions}><button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule", futureOnly: true })}>查看费用与开启</button><button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule" })}>查看本期补采费用</button></div>}
+      <div className={styles.paidActions}>{current ? <FeedbackButton className={styles.refresh} pending={busy} pendingLabel="正在处理本期回执…" disabled={pauseBusy || !collectionFitsExistingBudget(quote, controls)} onClick={() => void runCurrent()}>开启并执行本期</FeedbackButton> : <FeedbackButton className={styles.refresh} pending={busy && pendingAction === "enable"} pendingLabel="正在提交…" disabled={busy || pauseBusy} onClick={() => void submit({ action: "enableSchedule", previewToken: quote.previewToken })}>仅开启自动付费</FeedbackButton>}<button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => setQuote(null)}>取消</button></div>
+    </> : <div className={styles.paidActions}><FeedbackButton className={styles.refresh} pending={busy && pendingAction === "future-preview"} pendingLabel="正在核对费用…" disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule", futureOnly: true })}>查看费用与开启</FeedbackButton><FeedbackButton className={styles.refresh} pending={busy && pendingAction === "current-preview"} pendingLabel="正在核对费用…" disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule" })}>查看本期补采费用</FeedbackButton></div>}
     {message ? <p role="status">{message}</p> : null}
   </div>;
 }
@@ -120,7 +125,7 @@ function SchedulePlans({ plans, enableRankings, controls }: { plans: ReadonlyAut
 
 /** Server and desktop schedules with a separate, previewed DataForSEO opt-in. */
 export function SeoAutomationSchedule() {
-  const { data, error, retry } = useSeoRead<OperationsStatus>("/api/operations");
+  const { data, error, retry, pending } = useSeoRead<OperationsStatus>("/api/operations");
   const plans = data ? readonlyAutomationPlans(data) : [];
   const computerPlans = plans.filter(plan => plan.executionLocation === "computer");
   const serverPlans = plans.filter(plan => plan.executionLocation === "server");
@@ -128,7 +133,7 @@ export function SeoAutomationSchedule() {
   return <section className={styles.root} aria-labelledby="automation-schedule-title">
     <div className={styles.heading}>
       <div><h2 id="automation-schedule-title">定时任务安排</h2><p>北京时间 · 计划配置与实际执行分开记录。</p></div>
-      <button type="button" onClick={retry} className={styles.refresh}><RefreshCw size={14} aria-hidden="true" />刷新安排</button>
+      <FeedbackButton onClick={retry} className={styles.refresh} pending={pending} pendingLabel="正在刷新安排…"><RefreshCw size={14} aria-hidden="true" />刷新安排</FeedbackButton>
     </div>
     {error ? <div className={styles.error} role="alert"><strong>任务安排暂时无法读取</strong><p>{error}</p><p>启停状态和运行结果暂未知，不代表任务已停止或执行次数为零。</p></div>
       : !data ? <p className={styles.note} role="status">正在读取已保存的配置和执行回执…</p>

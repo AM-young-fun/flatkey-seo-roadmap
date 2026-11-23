@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import "antd/dist/reset.css";
 import "./globals.css";
 import "@/components/UiControls.css";
+import "@/components/InteractionControls.css";
 import "./workspace-foundation.css";
 
 export const metadata: Metadata = {

@@ -6,7 +6,7 @@ const page = (id, day = "2026-11-01", extra = {}) => ({ id, pageUrl: "https://fl
  kind: "optimization", publishedAt: day + "T16:00:00Z", verifiedAt: day + "T16:01:00Z", verificationRecordedAt: day + "T16:02:00Z", status: "verified", ...extra });
 const point = (id, day, clicks, impressions, extra = {}) => ({ kind: "gsc-pages", property: "sc-domain:flatkey.ai", date: day,
  complete: true, observedAt: "2026-11-24T01:00:00Z", rows: [{ url: "https://flatkey.ai/" + id, clicks, impressions }], ...extra });
-const rank = (publications, observations, extra = {}) => recentPublishedPages({ approvals: [], publications, ...extra }, observations, "2026-11-24", now, false);
+const rank = (publications, observations, extra = {}) => recentPublishedPages({ approvals: [], publications, ...extra }, observations, "2026-11-24", now, true);
 
 test("monthly best optimizations rank actual click gains before impression gains and omit regressions or missing baselines", () => {
  const publications = [page("large"), page("high-percent"), page("exposure-only"), page("regression"), page("flat"), page("missing"),

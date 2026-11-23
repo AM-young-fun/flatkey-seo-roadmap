@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useActionFeedback } from "./useActionFeedback";
+import { FeedbackButton } from "./FeedbackButton";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import { approvalReviewReadiness, pageBelongsToSite, reviewPreviewUrl, workflowCodeSourceSchema, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowPublication, type WorkflowTask } from "@/lib/seo-workflow";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
 import styles from "./SeoWorkWorkspace.module.css";
@@ -23,7 +26,7 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
   const receipt = published;
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const action = useActionFeedback("正在保存测试预览…"), busy = action.pending;
   const [pageUrl, setPageUrl] = useState(task.pageUrl ?? "");
   const [preview, setPreview] = useState(reviewPreviewUrl(task.artifactUrl, task.pageUrl) ?? "");
   const [contentVersion, setContentVersion] = useState(task.contentVersion ?? "");
@@ -51,13 +54,13 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
   ].join("\n");
 
   async function copy() {
-    try { await navigator.clipboard.writeText(brief); setMessage("已复制，粘贴到对应项目的本地 Codex。"); }
-    catch { setShowBrief(true); setMessage("请手动复制任务说明。"); }
+    try { await navigator.clipboard.writeText(brief); setMessage("已复制，粘贴到对应项目的本地 Codex。"); actionSucceeded("任务说明已复制。"); }
+    catch { setShowBrief(true); setMessage("请手动复制任务说明。"); actionFailed("自动复制未完成，请手动复制下方任务说明。"); }
   }
 
   async function savePreview(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
+    if (!action.start()) return;
     setMessage("");
     try {
       const url = reviewPreviewUrl(preview.trim(), task.pageUrl);
@@ -77,10 +80,12 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
       await mutate({ requestId: crypto.randomUUID(), action: "save_task", expectedVersion: revision,
         record: { ...record, pageUrl: target, contentVersion: version, codeSource, artifactUrl: url, status: "drafting", evidence } });
       setEditing(false);
+      setMessage("测试预览已保存。"); actionSucceeded("测试预览已保存。");
       onSaved();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "测试预览未保存。");
-    } finally { setBusy(false); }
+      const message = error instanceof Error ? error.message : "测试预览未保存。";
+      setMessage(message); actionFailed(message);
+    } finally { action.finish(); }
   }
 
   return <>
@@ -103,7 +108,7 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
       <label>GitHub 仓库<input required maxLength={200} value={repository} readOnly={Boolean(task.codeSource)} onChange={event => setRepository(event.target.value)} placeholder="owner/repository" /></label>
       <label>页面独立分支<input required maxLength={180} value={branch} readOnly={Boolean(task.codeSource)} onChange={event => setBranch(event.target.value)} placeholder="codex/页面任务名" /></label>
       <label>测试环境提交 SHA<input required minLength={40} maxLength={40} value={contentVersion} onChange={event => setContentVersion(event.target.value)} /></label>
-      <button type="submit" className={styles.primary} disabled={busy}>保存测试预览</button>
+      <FeedbackButton type="submit" className={styles.primary} pending={busy} pendingLabel="正在保存…">保存测试预览</FeedbackButton>
       <button type="button" className={styles.secondary} disabled={busy} onClick={() => setEditing(false)}>关闭</button>
     </form> : null}
     {message ? <p role="status">{message}</p> : null}

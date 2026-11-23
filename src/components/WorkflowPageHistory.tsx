@@ -1,7 +1,8 @@
 "use client";
 
+import { FeedbackButton } from "./FeedbackButton";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { WorkflowSnapshot } from "@/lib/seo-workflow";
 import { OptimizationHistory, WorkflowStatus } from "./SeoWorkWorkspace";
 import { WorkflowEvidence } from "./WorkflowEvidence";
@@ -17,7 +18,7 @@ export function WorkflowPageHistory({ pageUrl, country }: { pageUrl: string; cou
   const issues = data?.issues.filter(row => row.pageUrl === pageUrl) ?? [];
   return <section className={styles.detail} aria-label="页面修改与执行记录">
     <h3>修改、索引证据与下一步</h3>
-    {result.error ? <p role="alert">{result.error} <button className={styles.secondary} onClick={result.retry}>重试</button></p> : !data ? <p className={styles.muted}>正在读取跨周历史…</p> : <>
+    {result.error ? <p role="alert">{result.error} <FeedbackButton className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重试</FeedbackButton></p> : !data ? <p className={styles.muted}>正在读取跨周历史…</p> : <>
       {tasks.length ? <ul>{tasks.map(task => <li key={task.id}><Link href={workTaskHref(task, new URLSearchParams(country === "all" ? {} : { country }))}>{task.title}</Link> · <WorkflowStatus status={task.status} /><p>{task.nextAction || "下一步待补充"}</p></li>)}</ul> : <p className={styles.muted}>该页面尚未关联工作任务。</p>}
       {publications.length ? <details><summary>发布与正式页面验收</summary>{publications.map(record => <div key={record.id}><p>{shanghaiStamp(record.publishedAt)} · 版本 {record.contentVersion} · <WorkflowStatus status={record.status} /></p><p>验收时间：{record.verifiedAt ? shanghaiStamp(record.verifiedAt) : "尚未验收"}</p><WorkflowEvidence evidence={record.evidence} /></div>)}</details> : null}
       {optimizations.map(record => <OptimizationHistory optimization={record} key={record.id} />)}

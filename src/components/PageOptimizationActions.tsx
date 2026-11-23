@@ -1,7 +1,8 @@
 "use client";
 
+import { FeedbackButton } from "./FeedbackButton";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useState } from "react";
 import { REGIONS, REGION_CODES, type SeoCountry } from "@/lib/seo";
 import { workflowContentLanguage, WORKFLOW_LANGUAGE_LABELS, type WorkflowSnapshot } from "@/lib/seo-workflow";
@@ -26,7 +27,7 @@ export function PageOptimizationActions({ pageUrl, site, country }: { pageUrl: s
       <label className={styles.keywordField}>本语言主关键词<input name="keyword" required maxLength={300} value={keyword} onChange={event => setKeyword(event.target.value)} placeholder={market ? `输入${WORKFLOW_LANGUAGE_LABELS[workflowContentLanguage(site, market as Exclude<SeoCountry, "all">)]}关键词` : "先选择目标国家"} /></label>
       <button className={styles.actionPrimary} type="submit" disabled={!market || !keyword.trim()}>填写优化任务</button>
     </form>
-    {result.error ? <p role="alert">已有任务读取失败：{result.error} <button type="button" onClick={result.retry}>重试</button></p> : !result.data ? <p className={styles.note}>正在核对已有优化任务…</p> : tasks.length ? <details className={styles.approvalActions}><summary>已有优化任务 · {tasks.length} 项</summary><div className={styles.approvalAction}>
+    {result.error ? <p role="alert">已有任务读取失败：{result.error} <FeedbackButton type="button" onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重试</FeedbackButton></p> : !result.data ? <p className={styles.note}>正在核对已有优化任务…</p> : tasks.length ? <details className={styles.approvalActions}><summary>已有优化任务 · {tasks.length} 项</summary><div className={styles.approvalAction}>
       <label>已有优化任务<UiSelect aria-label="选择已有优化任务" value={task?.id ?? ""} onChange={setTaskId} options={[{ value: "", label: "选择已登记的优化任务" }, ...tasks.map(row => ({ value: row.id, label: `${row.keyword ?? row.title} · ${row.country ? REGIONS[row.country].label : "未指定国家"} · ${row.weekStart}` }))]} /></label>
       {task ? <Link href={workTaskHref(task)}>查看任务</Link> : null}
     </div></details> : null}

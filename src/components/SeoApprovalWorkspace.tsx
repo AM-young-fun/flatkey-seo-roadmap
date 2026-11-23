@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { ReactNode } from "react";
 import styles from "./SeoWorkWorkspace.module.css";
 import { PageHeader } from "./PageHeader";
@@ -18,6 +18,7 @@ export function SeoApprovalWorkspace({ children }: { children: ReactNode }) {
 
 export function SeoApprovalSkeleton() {
   return <div className={review.approvalLoading} role="status" aria-label="正在读取页面审批">
+    <p className={styles.muted}>正在读取页面审批…</p>
     <div className={styles.summary} aria-hidden="true">
       {[0, 1, 2].map(index => <div key={index}><span className={review.skeletonLabel} /><span className={review.skeletonNumber} /></div>)}
     </div>

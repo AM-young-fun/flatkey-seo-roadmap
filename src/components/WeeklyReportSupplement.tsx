@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useBusyIndicator } from "./useBusyIndicator";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import type { WeeklySupplement, WeeklySupplementRead } from "@/lib/seo-weekly-supplement";
 import styles from "./SeoDigestReports.module.css";
 import controls from "./SeoWorkWorkspace.module.css";
@@ -11,6 +13,8 @@ export function WeeklyReportSupplement({ reportId, initial, onReady }: { reportI
   const [text, setText] = useState(initial?.supplement.text ?? "");
   const [editable, setEditable] = useState(initial?.editable ?? false);
   const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
+  useBusyIndicator(saving, "正在保存周报补充说明…");
   const [loading, setLoading] = useState(!initial);
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
@@ -33,15 +37,18 @@ export function WeeklyReportSupplement({ reportId, initial, onReady }: { reportI
     return () => controller.abort();
   }, [reportId, reload, onReady, initial]);
   async function save() {
-    if (!saved || saving || loading) return;
+    if (!saved || inFlight.current || loading) return;
+    inFlight.current = true;
     setSaving(true); setError("");
     try {
       const response = await fetch("/api/seo/weekly-supplement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reportId, expectedRevision: saved.revision, text }) });
       const data = await response.json();
       if (!response.ok) { setConflict(response.status === 409); throw new Error(data.message ?? "保存失败，请重试"); }
+      if (data.supplement?.id !== saved.id || data.supplement?.revision !== saved.revision + 1) throw new Error("保存回执不完整，请重新读取核对。");
       setSaved(data.supplement); setConflict(false);
-    } catch (error) { setError(error instanceof Error ? error.message : "保存失败，请重试"); }
-    finally { setSaving(false); }
+      actionSucceeded("周报补充说明已保存。");
+    } catch (error) { const message = error instanceof Error ? error.message : "保存失败，请重试"; setError(message); actionFailed(message); }
+    finally { inFlight.current = false; setSaving(false); }
   }
   const changed = saved !== null && saved.text !== text;
   return <section className={styles.section} aria-labelledby={fieldId + "-heading"}>
@@ -50,8 +57,8 @@ export function WeeklyReportSupplement({ reportId, initial, onReady }: { reportI
     <textarea id={fieldId} className={styles.supplementInput} value={text} onChange={event => setText(event.target.value)} maxLength={10000}
       placeholder="输入你想补充的内容…" disabled={!saved || !editable || saving || loading} />
     <div className={styles.supplementActions}>
-      <button className={controls.primary} type="button" disabled={!editable || !changed || saving || loading || conflict} onClick={() => void save()}>{saving ? "保存中…" : "保存补充"}</button>
-      <span className={styles.note} role="status">{loading ? "正在读取…" : changed ? "有未保存的内容" : saved?.updatedAt ? "已保存" : ""}</span>
+      <button className={controls.primary} type="button" aria-busy={saving || undefined} disabled={!editable || !changed || saving || loading || conflict} onClick={() => void save()}>{saving ? "保存中…" : "保存补充"}</button>
+      <span className={styles.note} role="status">{loading ? "正在读取…" : saving ? "正在保存…" : changed ? "有未保存的内容" : saved?.updatedAt ? "已保存" : ""}</span>
       {error ? <span role="alert">{error}</span> : null}
       {error ? <button type="button" className={controls.secondary} disabled={saving || loading} onClick={() => {
         if (!changed || window.confirm("重新读取会替换当前未保存内容，继续吗？")) { setLoading(true); setReload(value => value + 1); }

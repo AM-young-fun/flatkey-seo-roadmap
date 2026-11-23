@@ -1,7 +1,10 @@
 "use client";
 import { UiSelect } from "./UiSelect";
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
+import { useActionFeedback } from "./useActionFeedback";
+import { FeedbackButton } from "./FeedbackButton";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import { Modal } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "./PageHeader";
@@ -45,7 +48,7 @@ export function KeywordOpportunities() {
   const dashboard = useSeoRead<DashboardResponse | OverviewPayload>("/api/views?view=dashboard&site=flatkey.ai");
   const worklist = useSeoRead<Worklist>("/api/seo/worklist");
   const plans = useSeoRead<{ storage: "server"; plans: RemotePlan[] }>("/api/seo/optimization-plans");
-  const [saving, setSaving] = useState(false);
+  const action = useActionFeedback("正在保存优化目标…"), saving = action.pending;
   const [country] = useSeoCountry();
   const [query, setQuery] = useState(""), [targetUrl, setTargetUrl] = useState("");
   const urlQuery = useRef<string | null>(null);
@@ -135,7 +138,8 @@ export function KeywordOpportunities() {
     if (plan.optimizedAt && (!validRange({ start: plan.optimizedAt, end: plan.optimizedAt }) || plan.optimizedAt > propertyToday())) { setMessage("优化日期须为已发生的有效日期（GA4 属性时区）。"); return; }
     const now = new Date().toISOString();
     const snapshot = { ...plan, updatedAt: now, baseline: plan.baseline ?? { siteRank: active.rank, pageRank: null, rankUrl: null, volume: active.volume, snapshotGeneratedAt: dashboard.data?.displaySnapshot?.generatedAt ?? null, savedAt: now } };
-    setSaving(true); setMessage("");
+    if (!action.start()) return;
+    setMessage("");
     try {
       const { updatedAt: _updatedAt, ...input } = snapshot;
       const response = await fetch("/api/seo/optimization-plans", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, optimizedAt: input.optimizedAt || null, changes: input.changes ?? "", country: planCountry, keyword: active.keyword, pageUrl: flatkeyPage(targetPage) }) });
@@ -143,8 +147,9 @@ export function KeywordOpportunities() {
       if (!response.ok || !result.plan) throw new Error(result.message ?? "保存失败，请重试");
       const stored = uiPlan(result.plan);
       setSaved(current => ({ ...current, [planKey(planCountry, active.keyword, targetPage)]: stored })); setPlan(stored); setMessage("已保存到项目归档，周报可读取。"); plans.retry();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "保存失败，请重试"); }
-    finally { setSaving(false); }
+      actionSucceeded("优化目标已保存到项目归档。");
+    } catch (error) { const message = error instanceof Error ? error.message : "保存失败，请重试"; setMessage(message); actionFailed(message); }
+    finally { action.finish(); }
   }
   const error = [
     ["关键词词库", dashboard.error],
@@ -271,7 +276,7 @@ export function KeywordOpportunities() {
         })}</div> : null}
         <p className={styles.note}>效果窗口从优化次日开始，只查看已结束日，并与优化前等长区间对比。页面效果可查看实际访问、注册和 GSC 点击；排名沿用既有采集记录，未开启额外付费抓取。</p>
       </details>
-      <div className={styles.saveRow}><button className={styles.primary} disabled={saving} onClick={() => void savePlan()}>{saving ? "保存中…" : "保存优化目标"}</button><Link href={"/opportunities?" + new URLSearchParams({ view: "new", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span role="status">{message}</span></div>
+      <div className={styles.saveRow}><FeedbackButton className={styles.primary} pending={saving} pendingLabel="正在保存…" onClick={() => void savePlan()}>保存优化目标</FeedbackButton><Link href={"/opportunities?" + new URLSearchParams({ view: "new", keyword: active.keyword, country: planCountry, ...(targetPage ? { targetUrl: targetPage } : {}) })}>加入工作任务 →</Link><span role="status">{message}</span></div>
     </section> : null}
     </Modal>
   </main>;

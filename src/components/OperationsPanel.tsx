@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarClock, ChevronDown, Cloud, History, RefreshCw } from "lucide-react";
 import { Switch } from "antd";
-import Link from "next/link";
+import { useBusyIndicator } from "./useBusyIndicator";
+import Link from "@/components/AppLink";
 import { BusinessMeasurementStatus } from "./BusinessMeasurementStatus";
 import type { OperationsStatus } from "@/lib/operations";
 import type { CollectionSchedulePreview, CollectionCycleProgress } from "@/lib/collection-control";
@@ -15,6 +16,8 @@ export function OperationsPanel() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState("");
+  useBusyIndicator(busy, "正在读取运行计划…", "read");
+  useBusyIndicator(Boolean(working), "正在核对操作回执…");
   const [preview, setPreview] = useState<CollectionSchedulePreview | null>(null);
   const [notice, setNotice] = useState("");
   const [diagnostic, setDiagnostic] = useState("");

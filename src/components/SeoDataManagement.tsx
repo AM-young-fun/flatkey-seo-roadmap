@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { BasicAnalyticsHealth } from "./BasicAnalyticsHealth";
 import { useState } from "react";
 import { PageHeader } from "./PageHeader";
@@ -9,6 +9,9 @@ import { SeoAnalyticsStatus } from "./SeoAnalyticsStatus";
 import { analyticsUrl, shanghaiStamp, useSeoRead, type SeoAnalytics } from "./useSeoAnalytics";
 import { defaultRange } from "@/lib/seo-date-range";
 import { clientReadCache } from "@/lib/client-read-cache";
+import { useActionFeedback } from "./useActionFeedback";
+import { FeedbackButton } from "./FeedbackButton";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import type { InventoryPage } from "@/lib/seo-page-inventory";
 import shell from "./SeoWorkspace.module.css";
 import styles from "./SeoDataManagement.module.css";
@@ -20,25 +23,27 @@ export function SeoDataManagement() {
   const [country] = useSeoCountry();
   const analytics = useSeoRead<SeoAnalytics>(analyticsUrl(range, [], country));
   const inventory = useSeoRead<Inventory>("/api/seo/pages");
-  const [syncing, setSyncing] = useState(false);
+  const action = useActionFeedback("正在同步页面台账…"), syncing = action.pending;
   const [notice, setNotice] = useState("");
   const [syncError, setSyncError] = useState("");
   const refresh = () => { analytics.retry(); inventory.retry(); };
   const sync = async () => {
-    setSyncing(true); setNotice(""); setSyncError("");
+    if (!action.start()) return;
+    setNotice(""); setSyncError("");
     try {
       const response = await fetch("/api/seo/pages", { method: "POST" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || "同步未完成，请重试");
       clientReadCache.clear(); inventory.retry();
       setNotice(`同步完成，台账共 ${result.pages.length.toLocaleString("zh-CN")} 个页面。`);
-    } catch (error) { setSyncError(error instanceof Error ? error.message : "同步未完成，请重试"); }
-    finally { setSyncing(false); }
+      actionSucceeded("页面台账同步完成。");
+    } catch (error) { const message = error instanceof Error ? error.message : "同步未完成，请重试"; setSyncError(message); actionFailed(message); }
+    finally { action.finish(); }
   };
   const newPages = inventory.data?.pages.filter(page => !page.baseline).length ?? 0;
   return <main className={shell.shell}>
     <PageHeader active="manage" />
-    <div className={shell.titleRow}><h1 className={shell.title}>数据管理</h1><button className={styles.button} type="button" onClick={refresh}>刷新状态</button></div>
+    <div className={shell.titleRow}><h1 className={shell.title}>数据管理</h1><FeedbackButton className={styles.button} onClick={refresh} pending={analytics.pending || inventory.pending} pendingLabel="正在刷新…">刷新状态</FeedbackButton></div>
     <BasicAnalyticsHealth range={range} country={country} />
     <section className={styles.section} aria-labelledby="source-heading">
       <h2 id="source-heading">每日数据</h2>
@@ -52,7 +57,7 @@ export function SeoDataManagement() {
       <details className={styles.details}><summary>查看采集说明</summary><p>每日数据由已有采集任务归档。这里显示已保存的数据状态，刷新仅重新读取记录。GA4 使用当次自然搜索渠道；GSC 可能比 GA4 晚更新，未采到的日期保留为空。</p><p>GA4 日期使用 America/Los_Angeles 时区；采集时间显示为北京时间。</p></details>
     </section>
     <section className={styles.section} aria-labelledby="sitemap-heading">
-      <div className={styles.heading}><h2 id="sitemap-heading">页面自动发现</h2><button className={styles.button} type="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "同步中…" : "同步 Sitemap"}</button></div>
+      <div className={styles.heading}><h2 id="sitemap-heading">页面自动发现</h2><FeedbackButton className={styles.button} pending={syncing} pendingLabel="正在同步…" onClick={() => void sync()}>同步 Sitemap</FeedbackButton></div>
       {inventory.data ? <>
         <p className={styles.count}>已登记 <strong>{inventory.data.pages.length.toLocaleString("zh-CN")}</strong> 个页面 · 基线之后新发现 <strong>{newPages.toLocaleString("zh-CN")}</strong> 个</p>
         <p className={styles.note}>{inventory.data.capturedAt ? `最近同步 ${shanghaiStamp(inventory.data.capturedAt)}（北京时间）` : "尚无同步记录"}</p>

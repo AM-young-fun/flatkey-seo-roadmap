@@ -8,7 +8,7 @@ const report = () => ({ id: 'seo-digest:2026-11-19:0123456789abcdef', date: '202
   counts, pagePerformance: [], organicRegistrations: { current: 5, previous: 15 }, coverage: { publications: 'verified', optimizations: 'verified' } });
 Module._load = function (name, parent, ...rest) {
   if (name === 'next/navigation') return { useSearchParams: () => new URLSearchParams('period=daily&date=2026-11-19'), useRouter: () => ({ push() {} }) };
-  if (name === 'next/link') return { __esModule: true, default: props => React.createElement('a', { href: props.href }, props.children) };
+  if (name === 'next/link') return { __esModule: true, useLinkStatus: () => ({ pending: false }), default: props => React.createElement('a', { href: props.href }, props.children) };
   if (name === './useSeoAnalytics') return { numberText: String, shanghaiStamp: String, useSeoRead: () => ({ data: { report: report(), dates: ['2026-11-19'] }, retry() {} }) };
   if (name === './UiSelect' || name === './ReportLoading') return { UiSelect: () => null, ReportLoading: () => null };
   if (name.endsWith('.module.css')) return new Proxy({}, { get: (_, key) => key === '__esModule' ? false : String(key) });

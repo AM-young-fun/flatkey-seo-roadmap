@@ -14,7 +14,7 @@ Module._load = function (name, parent, ...rest) {
   // implementation. Plain Node's next/dynamic defaults to the Pages runtime.
   if (name === "next/dynamic") return load.call(this, "next/dist/shared/lib/app-dynamic.js", parent, ...rest);
   if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams("period="+selectedKind+"&date=2026-11-19"), useRouter: () => ({ push() {} }) };
-  if (name === "next/link") return { __esModule: true, default: props => React.createElement("a", { href: props.href }, props.children) };
+  if (name === "next/link") return { __esModule: true, useLinkStatus: () => ({ pending: false }), default: props => React.createElement("a", { href: props.href }, props.children) };
   if (name === "./useSeoAnalytics") return { numberText: String, shanghaiStamp: String, useSeoRead: () => ({ data: { report: selectedReport, dates: [selectedReport.date] }, retry() {} }) };
   if (name === "./ReportTrafficPanels") return { ReportPageGroupTraffic: () => React.createElement("section", null, "四个页面组流量"), ReportModuleShares: () => React.createElement("section", null, "模块流量") };
   if (name === "./UiSelect") return { UiSelect: () => null };

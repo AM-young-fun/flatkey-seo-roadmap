@@ -1,10 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { FeedbackButton } from "./FeedbackButton";
+import Link from "@/components/AppLink";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { PageHeader } from "./PageHeader";
 import { UiSelect } from "./UiSelect";
 import { useSeoRead } from "./useSeoAnalytics";
+import { useActionFeedback } from "./useActionFeedback";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import { useSeoCountry } from "./useSeoCountry";
 import { keywordGoalTask, keywordGoalTaskHref, matchingKeywordGoal, type KeywordGoalInput } from "@/lib/keyword-goals";
 import { WORKFLOW_MARKETS, WORKFLOW_SITES, WORKFLOW_LANGUAGE_LABELS, workflowContentLanguage, workflowContentLanguages, type WorkflowLanguage, type WorkflowSnapshot, type WorkflowTask } from "@/lib/seo-workflow";
@@ -16,7 +19,8 @@ export function KeywordGoals() {
   const history = useSeoRead<WorkflowSnapshot>("/api/seo/workflow?allHistory=true");
   const [country] = useSeoCountry();
   const [input, setInput] = useState<KeywordGoalInput>({ keyword: "", country: "US", siteDomain: "flatkey.ai", business: "GPU", pageUrl: "", owner: "我与 AI", dueDate: "", goal: "" });
-  const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  const action = useActionFeedback("正在保存关键词目标…"), busy = action.pending;
+  const [message, setMessage] = useState("");
   const [saved, setSaved] = useState<WorkflowTask | null>(null);
   const attempt = useRef<{ identity: string; body: object } | null>(null);
   const change = <K extends keyof KeywordGoalInput>(key: K, value: KeywordGoalInput[K]) => { setInput(previous => ({ ...previous, [key]: value })); setSaved(null); setMessage(""); };
@@ -29,12 +33,12 @@ export function KeywordGoals() {
   }, []);
   useEffect(() => { if (country !== "all") setInput(previous => ({ ...previous, country })); }, [country]);
   async function save(event: FormEvent) {
-    event.preventDefault(); if (busy || !history.data) return;
-    setBusy(true); setMessage("");
+    event.preventDefault(); if (!history.data || !action.start()) return;
+    setMessage("");
     try {
       const candidate = keywordGoalTask(input, "goal-" + crypto.randomUUID());
       const existing = matchingKeywordGoal(history.data.tasks, candidate);
-      if (existing) { setSaved(existing); setMessage("已有相同目标的任务，继续处理原任务即可。"); return; }
+      if (existing) { setSaved(existing); setMessage("已有相同目标的任务，继续处理原任务即可。"); actionSucceeded("已找到相同目标的原任务。"); return; }
       const identity = JSON.stringify(input);
       if (attempt.current?.identity !== identity) attempt.current = { identity, body: { requestId: crypto.randomUUID(), action: "save_task", expectedVersion: 0, record: candidate } };
       const response = await fetch("/api/seo/workflow", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(attempt.current.body) });
@@ -42,8 +46,11 @@ export function KeywordGoals() {
       if (!response.ok) throw new Error(body.message ?? "目标未保存，请重试。");
       if (!body.stored || !["database", "local_preview"].includes(body.storage)) throw new Error("尚未取得保存回执，请刷新核对。");
       setSaved(body.record); setMessage("已加入工作任务，等待研究与执行。"); history.retry();
-    } catch (error) { setMessage(error instanceof Error && error.name === "ZodError" ? "请核对国家对应语言、站点页面地址和必填项。" : error instanceof Error ? error.message : "目标未保存。"); }
-    finally { setBusy(false); }
+      actionSucceeded("关键词目标已保存并加入工作任务。");
+    } catch (error) {
+      const message = error instanceof Error && error.name === "ZodError" ? "请核对国家对应语言、站点页面地址和必填项。" : error instanceof Error ? error.message : "目标未保存。";
+      setMessage(message); actionFailed(message);
+    } finally { action.finish(); }
   }
   const language = workflowContentLanguage(input.siteDomain, input.country, input.language);
   return <main className={workspace.shell}>
@@ -63,9 +70,9 @@ export function KeywordGoals() {
         <label className={styles.spanAll}>目标与要求（可选）<textarea rows={3} maxLength={1000} value={input.goal} onChange={event => change("goal", event.target.value)} /></label>
       </div>
       <p className={styles.muted}>将创建：{input.pageUrl.trim() ? "页面优化" : "关键词页面搭建"}</p>
-      <div className={styles.goalActions}><button className={styles.primary} disabled={busy || !history.data} type="submit">{busy ? "保存中…" : "保存目标并加入工作任务"}</button>{saved ? <Link className={styles.secondary} href={keywordGoalTaskHref(saved)}>查看工作任务 →</Link> : null}</div>
+      <div className={styles.goalActions}><FeedbackButton className={styles.primary} disabled={!history.data} pending={busy} pendingLabel="正在保存目标…" type="submit">保存目标并加入工作任务</FeedbackButton>{saved ? <Link className={styles.secondary} href={keywordGoalTaskHref(saved)}>查看工作任务 →</Link> : null}</div>
       {message ? <p role="status">{message}</p> : null}
-      {history.error ? <p role="alert">{history.error} <button className={styles.secondary} type="button" onClick={history.retry}>重新读取</button></p> : !history.data ? <p className={styles.muted}>正在核对已有任务…</p> : null}
+      {history.error ? <p role="alert">{history.error} <FeedbackButton className={styles.secondary} type="button" onClick={history.retry} pending={history.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></p> : !history.data ? <p className={styles.muted}>正在核对已有任务…</p> : null}
     </form>
   </main>;
 }

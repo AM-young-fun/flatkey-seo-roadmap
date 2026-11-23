@@ -1,10 +1,12 @@
 "use client";
 
-import Link from "next/link";
+import { FeedbackButton } from "./FeedbackButton";
+import Link from "@/components/AppLink";
 import { useState } from "react";
 import { useReportReadyTiming } from "./useReportReadyTiming";
 import type { WeeklySupplementRead } from "@/lib/seo-weekly-supplement";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useFeedbackRouter as useRouter } from "./useFeedbackRouter";
 import { CalendarDays, RefreshCw } from "lucide-react";
 import { executionViewRoutes, workTaskHref } from "@/lib/seo-workspace-routes";
 import { shiftDay, weeklyReportDate, weeklyReportRange, WEEKLY_REPORT_SWITCH_DATE } from "@/lib/seo-date-range";
@@ -356,7 +358,7 @@ export function SeoDigestReports() {
     <header className={reportStyles.pageHeader}>
       <h1>日周效果</h1>
       <div className={styles.toolbarActions}>
-        <button type="button" className={styles.secondary} onClick={result.retry}><RefreshCw size={14} aria-hidden="true" />刷新</button>
+        <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
       </div>
     </header>
     <nav className={reportStyles.periods} aria-label="报告周期">
@@ -372,7 +374,7 @@ export function SeoDigestReports() {
             : [{ value: "", label: result.data ? "暂无归档" : "正在读取…" }]} />
       </div>
     </section>
-    {result.error ? <div className={reportStyles.feedback} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={result.retry}>重新读取</button></div>
+    {result.error ? <div className={reportStyles.feedback} role="alert"><p>{result.error}</p><FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div>
       : !result.data ? <ReportLoading label={`正在读取${kindLabel}`} /> : !report
       ? <div className={reportStyles.feedback}>
         <p>{selected ? `${formatPeriod(selected)}没有已保存的${kindLabel}。` : `暂无已保存的${kindLabel}。`}</p>

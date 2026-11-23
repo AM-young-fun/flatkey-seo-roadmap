@@ -1,4 +1,6 @@
 "use client";
+import { useBusyIndicator } from "./useBusyIndicator";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Check, Copy, KeyRound, RefreshCw } from "lucide-react";
@@ -52,6 +54,9 @@ export function SeoImportCredentials() {
   const [name, setName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState("90");
   const [busy, setBusy] = useState<"create" | "revoke" | null>(null);
+  useBusyIndicator(Boolean(busy), busy === "revoke" ? "正在停用凭据…" : "正在生成凭据…");
+  useBusyIndicator(loading, "正在读取凭据列表…", "read");
+  useEffect(() => { if (actionError) actionFailed(actionError); }, [actionError]);
   const [secret, setSecret] = useState<OneTimeSecret | null>(null);
   const [copyMessage, setCopyMessage] = useState("");
   const [copied, setCopied] = useState(false);
@@ -107,6 +112,7 @@ export function SeoImportCredentials() {
       // The complete value lives only in this component's memory and is discarded when hidden or unmounted.
       setSecret({ id: token.id, name: token.name, value: result.secret });
       setCopyMessage(""); setCopied(false); setName("");
+      actionSucceeded("凭据已生成，请安全保存完整值。");
     } catch (error) {
       if (mounted.current) setActionError(error instanceof CredentialRequestError ? error.message : "生成未确认成功，已停止重试。请先刷新列表检查；若出现无法保存的新凭据，请停用后再生成。");
     } finally {
@@ -133,6 +139,7 @@ export function SeoImportCredentials() {
       setCopyMessage(""); setCopied(false); setConfirmId(null);
       setData(current => current ? { ...current, tokens: current.tokens.map(item => item.id === token.id ? { ...item, revokedAt: new Date().toISOString() } : item) } : current);
       setNotice(`“${token.name}”已停用。使用它的任务需要更换凭据后才能继续。`);
+      actionSucceeded("凭据已停用。");
       void refresh();
     } catch (error) {
       if (mounted.current) setActionError(error instanceof CredentialRequestError ? error.message : "停用未确认成功，请刷新列表核对状态后重试。");
@@ -147,6 +154,7 @@ export function SeoImportCredentials() {
     try {
       await navigator.clipboard.writeText(secret.value);
       setCopied(true); setCopyMessage("已复制，请粘贴到安全的保存位置或任务配置中。");
+      actionSucceeded("凭据已复制。");
     } catch {
       setCopied(false); setCopyMessage("浏览器没有允许复制。请选中上方完整凭据，手动复制保存。");
     }
