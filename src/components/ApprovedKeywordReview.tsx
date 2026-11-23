@@ -32,7 +32,7 @@ async function requestView(command?: ApprovedKeywordReviewCommand): Promise<Appr
     ...(command ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) } : {}),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(typeof value.error === "string" ? value.error : "本批请求未获确认");
+  if (!response.ok) throw new Error(typeof value.message === "string" ? value.message : typeof value.error === "string" ? value.error : "本批请求未获确认");
   return value;
 }
 
