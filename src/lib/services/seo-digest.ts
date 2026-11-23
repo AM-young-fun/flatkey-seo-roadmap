@@ -25,7 +25,7 @@ import { loadWorkflowSnapshot } from "./seo-workflow";
 import { isExecutableWorkflowPlan, shiftWorkflowDay } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
 import { digestDailyRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
-import { digestExecutionPeriod, digestExecutionWeek, summarizeDigestWorkPlan } from "../seo-digest-work-plan";
+import { digestExecutionPeriod, digestReportExecutionWeek, summarizeDigestWorkPlan } from "../seo-digest-work-plan";
 import { loadSerpTasks } from "./serp-results";
 import { currentCanonicalWeeklyDraft } from "../seo-weekly-review-window";
 import { buildReviewedSeoDigest, sameReviewedDigest } from "../seo-reviewed-digest";
@@ -56,14 +56,14 @@ export async function loadRecentDigestPages(date: string, kind: DigestKind, now 
 }
 
 export async function loadDigestWorkPlan(date: string, kind: DigestKind) {
-  const week = shiftWorkflowDay(digestExecutionWeek(date, kind), kind === "weekly" ? 7 : 0);
+  const week = shiftWorkflowDay(digestReportExecutionWeek(date, kind), kind === "weekly" ? 7 : 0);
   const snapshots = await Promise.all([week, shiftWorkflowDay(week, -7)].map(week => loadWorkflowSnapshot({ week })));
   return summarizeDigestWorkPlan(snapshots, week);
 }
 
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
   const window = digestWindow(date, kind);
-  const executionWeek = digestExecutionWeek(date, kind);
+  const executionWeek = digestReportExecutionWeek(date, kind);
   const workStart = window.executionStart ?? window.workStart, workEnd = window.executionEnd ?? window.workEnd;
   const start = shiftWorkflowDay(window.trafficStart, -15);
   const pageStart = shiftWorkflowDay(window.trafficEnd, -59);
