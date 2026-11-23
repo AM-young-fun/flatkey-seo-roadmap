@@ -3,6 +3,7 @@ import { approvedWeeklyCaptureRunIds } from "@/lib/approved-weekly-keyword-captu
 import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { providerIdIsSafe, providerTaskEnvelope, serpQueryKey } from "@/lib/dataforseo-serp";
 import { ImportRequestError } from "@/lib/ranking-import";
+import { createHash } from "node:crypto";
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 /** Existing paid receipt only; task_get/html is free, never submit or mutate. */
 export async function readSavedHtml(providerTaskId: string) {
@@ -22,6 +23,12 @@ export async function readSavedHtml(providerTaskId: string) {
   if (receipt.status_code !== 20000) return { providerTaskId, keyword: task.keyword, country: task.region, retrievalCost: raw.cost ?? null, status: receipt.status_code, pages: [], newQueries: 0 };
   const result = object(Array.isArray(receipt.result) ? receipt.result[0] : null), request = object(task.requestJson);
   if (serpQueryKey(String(result.keyword)) !== serpQueryKey(task.keyword) || result.location_code !== request.location_code || result.language_code !== request.language_code) throw new ImportRequestError("原HTML范围不匹配", 502);
-  const pages = Array.isArray(result.items) ? result.items.map(object).filter(item => typeof item.html === "string").map(item => ({ page: item.page ?? null, html: item.html })) : [];
+  const pages = Array.isArray(result.items) ? result.items.map(object).filter(item => typeof item.html === "string").map(item => {
+    const html = String(item.html);
+    const text = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    return { page: item.page ?? null, htmlSha256: createHash("sha256").update(html).digest("hex"), htmlBytes: Buffer.byteLength(html),
+      visibleEnd: text.slice(-6000), hasExplicitNextControl: /<a\b[^>]*(?:id=["']pnnext["']|rel=["']next["'])/i.test(html),
+      flatkeyReferences: [...new Set(html.match(/https?:\/\/(?:[a-z0-9-]+\.)*flatkey\.ai[^\s"'<>\\]*/gi) ?? [])].slice(0, 100) };
+  }) : [];
   return { providerTaskId, keyword: task.keyword, country: task.region, checkedAt: task.checkedAt, retrievalCost: raw.cost ?? null, status: receipt.status_code, pages, newQueries: 0 };
 }

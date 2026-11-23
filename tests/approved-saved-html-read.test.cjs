@@ -14,6 +14,6 @@ test('only completed fixed-run IDs may read HTML; no credentials before scope va
  assert.deepEqual(query.where.runId,{in:['first','other']});assert.equal(query.where.state,'COMPLETE');
 });
 test('retrieval uses GET of exact paid ID, validates country and exposes no credentials',async t=>{
- t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(url,`https://api.dataforseo.com/v3/serp/google/organic/task_get/html/${id}`);assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.equal(options.body,undefined);return Response.json({cost:0,tasks:[{id,status_code:20000,result:[{keyword:'example',location_code:2840,language_code:'en',items:[{page:1,html:'<html>saved</html>'}]}]}]})});
- const result=await readSavedHtml(id);assert.equal(result.newQueries,0);assert.equal(result.retrievalCost,0);assert.equal(result.pages.length,1);assert.doesNotMatch(JSON.stringify(result),/private|secret|encrypted/);
+ t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(url,`https://api.dataforseo.com/v3/serp/google/organic/task_get/html/${id}`);assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.equal(options.body,undefined);return Response.json({status_code:20000,tasks_count:1,tasks_error:0,cost:0,tasks:[{id,status_code:20000,result:[{keyword:'example',location_code:2840,language_code:'en',items:[{page:1,html:'<html>saved</html>'}]}]}]})});
+ const result=await readSavedHtml(id);assert.equal(result.newQueries,0);assert.equal(result.retrievalCost,0);assert.equal(result.pages.length,1);assert.match(result.pages[0].htmlSha256,/^[0-9a-f]{64}$/);assert.equal(result.pages[0].html,undefined);assert.doesNotMatch(JSON.stringify(result),/private|secret|encrypted/);
 });
