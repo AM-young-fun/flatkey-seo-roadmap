@@ -1,22 +1,19 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),Module=require('node:module'),ts=require('typescript');
 require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,f);
-const load=Module._load;let calls=0,query,fail=false,archive=[];
-Module._load=function(name,parent,...rest){if(name==='../prisma'&&parent.filename.endsWith('/monthly-page-archive.ts'))return{prisma:{$queryRaw:async q=>{calls++;query=q;if(fail)throw Error('unavailable');return archive;},seoAnalyticsDay:{findMany:async options=>{query=options;return archive;}}}};return load.call(this,name,parent,...rest);};
+const load=Module._load;let calls=0,query,archive=[];
+Module._load=function(name,parent,...rest){if(name==="../prisma"&&parent.filename.endsWith("/monthly-page-archive.ts"))return{prisma:{seoAnalyticsDay:{findMany:async options=>{calls++;query=options;return archive;}}}};return load.call(this,name,parent,...rest);};
 const {loadMonthlyPageArchive,monthlyArchiveScope}=require('../src/lib/services/monthly-page-archive.ts');Module._load=load;
 const {recentPublishedPages,monthlyOptimizationChanges}=require('../src/lib/seo-digest-recent-pages.ts');
 const targets=[{pageUrl:'https://flatkey.ai/models/a?x=1',siteDomain:'flatkey.ai'}];
 test('archive scope preserves exact query URL/host/path and excludes unrelated site archives',()=>{
  assert.deepEqual(monthlyArchiveScope(targets),{kinds:['ga4-pages','gsc-pages'],urls:['https://flatkey.ai/models/a?x=1'],paths:['flatkey.ai/models/a?x=1']});
 });
-test('empty candidate set skips reads; populated query binds dates and every target, preserving row metadata',async()=>{
- calls=0;assert.deepEqual(await loadMonthlyPageArchive([],'2026-10-01','2026-11-29'),[]);assert.equal(calls,0);
- archive=[{payload:{kind:'gsc-pages',complete:false,rows:[]}}];assert.equal(await loadMonthlyPageArchive(targets,'2026-10-01','2026-11-29'),archive);
- assert.equal(calls,1);assert.match(query.sql,/jsonb_agg\(item ORDER BY ordinal\)/);assert.match(query.sql,/day.payload \|\| jsonb_build_object/);
- assert.ok(query.values.includes(targets[0].pageUrl));assert.ok(query.values.includes('flatkey.ai/models/a?x=1'));assert.ok(query.values.includes('2026-10-01'));
- assert.equal(query.sql.includes(targets[0].pageUrl),false);
-});
-test('projection failure retains full scoped archive fallback rather than dropping the month ranking',async()=>{
- fail=true;try{assert.equal(await loadMonthlyPageArchive(targets,'2026-10-01','2026-11-29'),archive);assert.deepEqual(query.where,{date:{gte:'2026-10-01',lte:'2026-11-29'},kind:{in:['ga4-pages','gsc-pages']}});}finally{fail=false;}
+test("empty candidate set skips reads; native scoped query preserves metadata and matching row order",async()=>{
+ calls=0;assert.deepEqual(await loadMonthlyPageArchive([],"2026-10-01","2026-11-29"),[]);assert.equal(calls,0);
+ const matching={url:targets[0].pageUrl,clicks:2};
+ archive=[{payload:{kind:"gsc-pages",complete:false,rows:[matching,{url:"https://other.ai/"},matching]}}];
+ assert.deepEqual(await loadMonthlyPageArchive(targets,"2026-10-01","2026-11-29"),[{payload:{kind:"gsc-pages",complete:false,rows:[matching,matching]}}]);
+ assert.equal(calls,1);assert.deepEqual(query.where,{date:{gte:"2026-10-01",lte:"2026-11-29"},kind:{in:["ga4-pages","gsc-pages"]}});
 });
 test('all eligible candidates are retained before ranking; filtering unrelated observations preserves complete ranking and visits',()=>{
  const now=new Date('2026-11-24T02:00:00Z');const workflow={approvals:[],publications:Array.from({length:12},(_,i)=>({id:'p'+i,pageUrl:'https://flatkey.ai/p'+i,siteDomain:'flatkey.ai',title:'p'+i,kind:'optimization',status:'verified',publishedAt:'2026-11-01T16:00:00Z',verifiedAt:'2026-11-01T17:00:00Z',verificationRecordedAt:'2026-11-01T18:00:00Z'}))};
