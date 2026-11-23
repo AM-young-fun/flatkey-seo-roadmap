@@ -13,6 +13,10 @@ import { resumeApprovedKeywordReviewRun } from "@/lib/services/serp-monitor";
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex");
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+// A fresh, explicit $8.994 one-off approval is additional to the original
+// recurring envelope. Only the two frozen batches can consume it; the stored
+// schedule limits and paid switch are never enlarged.
+const combinedBudgetApprovedMicros = 8_994_000;
 export async function prepareApprovedKeywordReview() {
   if (envBool("DISABLE_EXTERNAL_FETCH")) throw new ImportRequestError("外部采集已紧急停止，未提交查询", 409);
   const plan = getApprovedKeywordReviewPlan();
@@ -37,7 +41,8 @@ export async function prepareApprovedKeywordReview() {
     const monthStart = new Date(new Date().toISOString().slice(0, 7) + "-01T00:00:00Z");
     const reserved = (await tx.serpMonitorRun.aggregate({ where: { OR: [{ createdAt: { gte: monthStart } },
       { completedAt: { gte: monthStart } }, { status: { in: ["PLANNED", "RUNNING", "UNKNOWN"] } }] }, _sum: { reservedCostMicros: true } }))._sum.reservedCostMicros ?? 0;
-    if (reserved + APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS > config.maxMonthCostMicros) throw new ImportRequestError("本月预算不足以预留此已批准批次，未提交查询", 409);
+    const effectiveMonthLimitMicros = config.maxMonthCostMicros + combinedBudgetApprovedMicros;
+    if (reserved + APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS > effectiveMonthLimitMicros) throw new ImportRequestError("本月原预算与本次独立批准额度不足以预留，未提交查询", 409);
     const startedAt = new Date();
     const run = await tx.serpMonitorRun.create({ data: {
       id: APPROVED_KEYWORD_REVIEW_RUN_ID, scope: APPROVED_KEYWORD_REVIEW_SCOPE, periodKey: APPROVED_KEYWORD_REVIEW_PERIOD_KEY,
@@ -48,7 +53,8 @@ export async function prepareApprovedKeywordReview() {
           userApproved: true, quoteId: "keyword-fee-review-20261123-v1", quoteSha256: APPROVAL_QUOTE_SHA256, queryHash: plan.queryHash,
           approvalRecordedAt: startedAt.toISOString(),
           approvalText: "可以，就按这份清单一次性跑完，费用不超过6.186美元",
-          combinedBudgetApprovedMicros: 8_994_000, otherCountryQueriesIncludedInThisRun: false,
+          combinedBudgetApprovedMicros, originalScheduleMonthLimitMicros: config.maxMonthCostMicros,
+          effectiveMonthLimitMicros, monthReservedBeforeMicros: reserved, otherCountryQueriesIncludedInThisRun: false,
         } }),
       queryCount: plan.queries.length, targetCount: plan.targets.length,
       estimatedCostMicros: APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS, reservedCostMicros: APPROVED_KEYWORD_REVIEW_MAX_COST_MICROS,

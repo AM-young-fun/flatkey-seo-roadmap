@@ -92,10 +92,23 @@ test("repeated prepare reuses the original ledger and never creates another task
   assert.equal(createCalls, 1); assert.equal(taskCreateCalls, 1); assert.equal(tasks.length, 1031); assert.equal(requests.length, 0);
 });
 
-test("monthly cap, emergency stop and a running recurring paid plan block a new one-off reservation", async () => {
-  config.maxMonthCostMicros = priorReserved + review.MAX_COST_MICROS - 1;
-  await assert.rejects(prepareApprovedKeywordReview(), /本月预算/); assert.equal(run, null);
-  config.maxMonthCostMicros++;
+test("the explicitly approved one-off envelope covers the new batch without enlarging recurring limits", async () => {
+  priorReserved = 33582000;
+  const saved = structuredClone(config);
+  await prepareApprovedKeywordReview();
+  assert.deepEqual(config, saved); assert.equal(configWrites, 0);
+  const approval = run.configJson.approvedKeywordReview;
+  assert.equal(approval.combinedBudgetApprovedMicros, 8994000);
+  assert.equal(approval.originalScheduleMonthLimitMicros, 33594000);
+  assert.equal(approval.effectiveMonthLimitMicros, 42588000);
+  assert.equal(approval.monthReservedBeforeMicros, 33582000);
+  assert.equal(run.reservedCostMicros, 6186000); assert.equal(requests.length, 0);
+});
+
+test("the combined monthly envelope, emergency stop and a running recurring paid plan block new reservation", async () => {
+  priorReserved = config.maxMonthCostMicros + 8994000 - review.MAX_COST_MICROS + 1;
+  await assert.rejects(prepareApprovedKeywordReview(), /本月原预算/); assert.equal(run, null);
+  priorReserved = 63120;
   config.paidEnabled = true;
   await assert.rejects(prepareApprovedKeywordReview(), /暂停/); assert.equal(run, null);
   config.paidEnabled = false; process.env.DISABLE_EXTERNAL_FETCH = "true";
