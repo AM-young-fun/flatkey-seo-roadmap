@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { dashboardStore, DashboardReadError } from "@/lib/dashboard-client";
+import { createPendingDisplayPoll } from "@/lib/pending-display-poll";
 
 export function useDashboard(site = "all", source = "dataforseo_serp", includeResearch = false) {
   const key = `${site}:${source}:${includeResearch ? "library" : "formal"}`;
@@ -9,13 +10,16 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
   const refresh = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
     let active = true;
-    let pendingTimer: ReturnType<typeof setTimeout>;
+    const pendingPoll = createPendingDisplayPoll(() => { void update(true); });
     const update = async (force = false) => {
+      if (!pendingPoll.canRead()) return;
+      pendingPoll.cancel();
       try {
         const data = await dashboardStore.read(site, source, force, includeResearch);
-        if (active && data.displaySnapshot?.pending) {clearTimeout(pendingTimer);pendingTimer = setTimeout(() => void update(true),5000);}
+        pendingPoll.update(Boolean(data.displaySnapshot?.pending));
         if (active) setState(previous => previous.key === key && previous.data === data && !previous.error && !previous.cached ? previous : { key, data, error: null, cached: false });
       } catch (error) {
+        pendingPoll.cancel();
         if (!active) return;
         if (error instanceof DashboardReadError && error.status === 401) {
           dashboardStore.clear();
@@ -37,7 +41,7 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
     const onRankingsUpdated = () => { void update(true); };
     window.addEventListener("seo-rankings-updated", onRankingsUpdated);
     return () => {
-      active = false; clearTimeout(pendingTimer);
+      active = false; pendingPoll.dispose();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);

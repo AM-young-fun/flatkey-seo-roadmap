@@ -58,6 +58,41 @@ test("production never falls back to a local file without a database", async () 
   assert.equal(fs.existsSync(path.join(directory, "workflow.json")), false);
 });
 
+test("explicit list format is scoped to the list and full/task-detail reads preserve the original graph", async () => {
+  const record = { ...task, weekStart: "2026-11-23", dueAt: "2026-11-23T09:00:00Z" };
+  assert.equal((await post(mutation({ record }))).status, 200);
+  const response = await GET(new Request(url + "?operational=1&workList=1&format=list"));
+  assert.equal(response.status, 200);
+  const list = await response.json();
+  assert.equal(list.format, "list"); assert.equal(list.tasks[0].displayStatus, "scheduled");
+  assert.equal(list.tasks[0].id, record.id); assert.equal(list.tasks[0].review, null);
+  for (const key of ["approvals", "publications", "issues", "runs", "plan", "historicalImports", "optimizations"]) assert.equal(Object.hasOwn(list, key), false);
+  for (const phase of ["authorize", "local", "snapshot", "list", "serialize", "workflow"]) assert.match(response.headers.get("server-timing"), new RegExp(`${phase};dur=\\d`));
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  const full = await (await GET(new Request(url + "?operational=1&workList=1"))).json();
+  assert.ok(Array.isArray(full.approvals)); assert.ok(Array.isArray(full.tasks[0].evidence));
+  assert.deepEqual(list.summary, full.summary);
+  const { asOf: listReadAt, ...listWindow } = list.workWeek, { asOf: fullReadAt, ...fullWindow } = full.workWeek;
+  assert.ok(Date.parse(listReadAt) <= Date.parse(fullReadAt)); assert.deepEqual(listWindow, fullWindow);
+  const detail = await (await GET(new Request(url + "?taskId=" + record.id))).json();
+  assert.ok(Array.isArray(detail.task.acceptanceCriteria));
+  for (const query of ["format=list", "operational=1&format=list", "workList=1&format=list", "operational=1&workList=1&format=other", "operational=1&workList=1&format=list&releaseQueue=1", "operational=1&workList=1&format=list&taskId=task-1"]) {
+    const invalid = await GET(new Request(url + "?" + query)); assert.equal(invalid.status, 400, query);
+  }
+});
+
+test("workflow diagnostics expose aggregate sizes and durations without rows or connection credentials", async () => {
+  const response = await GET(new Request(url + "?operational=1&workList=1&format=list&profile=1"));
+  const profile = await response.json();
+  assert.equal(response.status, 200); assert.ok(profile.payloadBytes > 0); assert.ok(profile.durationMs >= 0);
+  assert.ok(profile.phases.some(phase => phase.phase === "snapshot"));
+  assert.ok(profile.phases.some(phase => phase.phase === "serialize"));
+  for (const key of ["tasks", "approvals", "evidence", "payload", "query", "sql"]) assert.equal(Object.hasOwn(profile, key), false);
+  assert.equal(JSON.stringify(profile).includes("postgresql://"), false);
+  const denied = await GET(new Request("https://production.test/api/seo/workflow?profile=1"));
+  assert.equal(denied.status, 401); assert.equal(Object.hasOwn(await denied.json(), "phases"), false);
+});
+
 
 test("approval preflight is authenticated, read-only and fails closed for absent approvals", async () => {
  const request = (headers={},target="https://production.test/api/seo/workflow/approval-check")=>new Request(target,{method:"POST",headers,body:JSON.stringify({approvalId:"missing",itemId:"missing",taskId:task.id,pageUrl:task.pageUrl,language:"en",contentVersion:"v1"})});

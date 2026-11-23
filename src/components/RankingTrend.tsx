@@ -9,6 +9,7 @@ import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
+import { createPendingDisplayPoll } from "@/lib/pending-display-poll";
 import { OVERVIEW_PAGE_MODULES, type OverviewPageModule } from "@/lib/seo-overview-scope";
 
 const trendResults = new Map<string, MultiRegionTrendResult>();
@@ -45,7 +46,7 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
   const hasPoints = validPoints.length > 0;
   useEffect(() => {
     const controller = new AbortController();
-    let pendingTimer: ReturnType<typeof setTimeout>;
+    const pendingPoll = createPendingDisplayPoll(() => { forceNext = true; void read(); });
     let busy = false, completed = false, forceNext = version > 0 || dashboardStore.revision() > 0;
     const remembered = trendResults.get(key);
     if (remembered) setResult(previous => previous?.key === key ? previous : { ...remembered, key });
@@ -58,15 +59,17 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
       } catch { /* Ignore malformed cache data. */ }
     });
     const read = async () => {
-      if (busy || document.hidden) return;
+      if (busy || !pendingPoll.canRead()) return;
+      pendingPoll.cancel();
       busy = true;
       setRange(previous => { const next = serpTrendRange(); return next.start === previous.start && next.end === previous.end ? previous : next; });
       try {
         const url = `/api/views?view=trends&start=${range.start}&end=${range.end}&module=${module}${forceNext ? "&refresh=1" : ""}`;
         const data = await clientReadCache.read<MultiRegionTrendResult>(url, forceNext);
         forceNext = false;
-        if ((data as MultiRegionTrendResult & {displaySnapshot?:{pending?:boolean}}).displaySnapshot?.pending) pendingTimer=setTimeout(()=>{forceNext=true;void read();},5000);
+        if (!pendingPoll.isActive()) return;
         if (!isTrendResult(data) || data.moduleScope?.module !== module) throw new Error("统计口径已更新，请重新加载");
+        pendingPoll.update(Boolean((data as MultiRegionTrendResult & {displaySnapshot?:{pending?:boolean}}).displaySnapshot?.pending));
         if (!controller.signal.aborted) {
           trendResults.set(key, data);
           if (trendResults.size > 16) trendResults.delete(trendResults.keys().next().value!);
@@ -74,6 +77,8 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
           void dashboardSession.save(`trend:${key}`, JSON.stringify(data), Date.now());
         }
       } catch (error) {
+        pendingPoll.cancel();
+        if (!pendingPoll.isActive()) return;
         if (error instanceof ClientReadError && error.status === 401) { clientReadCache.clear(); window.location.assign("/login"); return; }
         if (!controller.signal.aborted) setError(true);
       }
@@ -85,7 +90,7 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
     document.addEventListener("visibilitychange", read);
     window.addEventListener("focus", read);
     window.addEventListener("seo-rankings-updated", onUpdated);
-    return () => { controller.abort(); clearTimeout(pendingTimer); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); window.removeEventListener("seo-rankings-updated", onUpdated); };
+    return () => { controller.abort(); pendingPoll.dispose(); clearInterval(timer); document.removeEventListener("visibilitychange", read); window.removeEventListener("focus", read); window.removeEventListener("seo-rankings-updated", onUpdated); };
   }, [key, range.start, range.end, version, module]);
   useEffect(() => {
     if (!element.current || !hasPoints) return;
