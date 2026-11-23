@@ -11,6 +11,7 @@ import { ReportLoading } from "./ReportLoading";
 // Render with the report response, without another body-module download.
 import { ReviewedReportBody } from "./ReviewedReportBody";
 import { ReportModuleShares } from "./ReportTrafficPanels";
+import { WeeklyReportSupplement } from "./WeeklyReportSupplement";
 import { reportFocusLines, reportTaskStatuses } from "@/lib/seo-report-plan-display";
 import { summarizeReportTechnical } from "@/lib/seo-report-technical-summary";
 import { bestMonthlyOptimizations } from "@/lib/seo-digest-recent-pages";
@@ -438,6 +439,7 @@ export function SeoDigestReports() {
         </dl>
         <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={view?.recentPages ?? report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} workPlan={view?.workPlan ?? report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} currentWorkPlan={view?.currentWorkPlan ?? report.currentWorkPlan} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} /></>}
+        {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} /> : null}
       </article>}
   </div>;
 }
