@@ -9,7 +9,7 @@ import { UiSelect } from "./UiSelect";
 import { useSeoRead } from "./useSeoAnalytics";
 import { FeedbackButton } from "./FeedbackButton";
 import { GrowthTopicDirections } from "./GrowthTopicDirections";
-import { defaultGrowthScope, growthCounts, growthLink, growthMarketLabel, growthRankKind, growthRankText, growthTopicContains, growthTopicTargets, growthRelatedTargets, readGrowthScope, selectGrowthTargets, type GrowthScope } from "./growth-topic-view";
+import { defaultGrowthScope, growthCounts, growthLink, growthMarketLabel, growthRankKind, growthRankText, growthTopicContains, growthTopicTargets, growthRelatedTargets, readGrowthScope, selectGrowthTargets, growthRankingEvidence, type GrowthRankingView, type GrowthScope } from "./growth-topic-view";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./GrowthTopicWorkspace.module.css";
 
@@ -118,28 +118,33 @@ export function GrowthTopicNetwork() {
   return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} /><Link className={styles.textLink} href={growthLink(scope)}>打开话题与关键词目标 →</Link></section>;
 }
 
-export function GrowthRankingCoverage() {
+export function GrowthRankingCoverage({ initialView = "all" }: { initialView?: GrowthRankingView } = {}) {
   const { data, error, retry } = useSeoRead<GrowthWorkspace>("/api/seo/growth");
   const { scope } = useGrowthScope();
-  if (error) return <section className={styles.panel}><h2 className={styles.panelTitle}>当前正式规划排名</h2><p role="alert">排名汇总读取失败：{error}</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
-  if (!data) return <section className={styles.panel}><p role="status">正在汇总正式目标与排名…</p></section>;
+  const [view, setView] = useState<GrowthRankingView>(initialView);
+  if (error) return <section className={styles.panel}><h2 className={styles.panelTitle}>当前有效关键词排名</h2><p role="alert">排名汇总读取失败：{error}</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
+  if (!data) return <section className={styles.panel}><p role="status">正在汇总有效实测与正式目标…</p></section>;
   const formalScope = { ...scope, membership: "formal" as const, search: "" };
-  const targets = selectGrowthTargets(data, formalScope), stats = growthCounts(targets);
-  const uniqueWords = new Set(targets.map(target => target.keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase())).size;
-  const ranked = targets.filter(target => target.rankEligible && target.rank != null && target.rank >= 1 && target.rank <= 100);
+  const { targets, ranked, uniqueWords, background } = growthRankingEvidence(data, scope, view);
+  const stats = growthCounts(targets);
   const markets = [...new Set(ranked.map(target => `${target.country}:${target.language}`))].map(key => {
     const rows = ranked.filter(target => `${target.country}:${target.language}` === key);
     return { key, label: growthMarketLabel(data, rows[0].country, rows[0].language), count: rows.length };
   }).sort((a, b) => b.count - a.count);
   const bands = [["1–10", 1, 10], ["11–30", 11, 30], ["31–50", 31, 50], ["51–100", 51, 100]] as const;
-  return <section className={styles.panel} aria-label="当前正式规划关键词排名汇总">
-    <div className={styles.sectionHeading}><div><h2>当前正式规划排名</h2><p>TopicMap 全部建设阶段 · 原词对应国家与语言 · 与话题列表同一目标集合</p></div><Link className={styles.textLink} href={growthLink(formalScope)}>查看话题与关键词 →</Link></div>
-    <Summary targets={targets} />
-    <p className={styles.note}>{count(stats.total)} 个“站点＋原词＋国家＋语言”目标组合 · 独立原词 {count(uniqueWords)} 个。各国和排名区间份额均以前100有效目标组合为分母。</p>
-    <div className={styles.coverageGrid}><section><h3>已获前100目标：国家 / 地区占比</h3>{markets.length ? markets.map(market => <div className={styles.share} key={market.key}><span>{market.label}</span><div><i style={{ width: `${market.count / ranked.length * 100}%` }} /></div><strong>{market.count} · {(market.count / ranked.length * 100).toFixed(1)}%</strong></div>) : <p className={styles.note}>暂无可计入的本轮有效排名。</p>}</section>
-      <section><h3>已获前100目标：排名区间占比</h3>{bands.map(([label, min, max]) => { const value = ranked.filter(target => target.rank! >= min && target.rank! <= max).length; return <div className={styles.share} key={label}><span>{label} 名</span><div><i style={{ width: `${ranked.length ? value / ranked.length * 100 : 0}%` }} /></div><strong>{value} · {ranked.length ? `${(value / ranked.length * 100).toFixed(1)}%` : "—"}</strong></div>; })}</section></div>
-    <p className={styles.note}>同一原词在不同国家语言是不同目标；数据库和 GSC 观察保留在明细，不冒充当前实查排名。季度达标另按已冻结清单计算。{data.reconciliation.sources.some(source => !source.available) ? "部分排名来源未读齐，当前只统计已有有效证据。" : ""}</p>
-    <Link className={styles.textLink} href={growthLink({ ...formalScope, membership: "opportunity" })}>查看规划外机会</Link>
+  const backgroundNames = { database: "数据库名次", gsc: "GSC均位", expired: "过期SERP名次", unverified: "其他待核SERP名次" };
+  return <section className={styles.panel} aria-label="当前有效关键词排名汇总">
+    <div className={styles.sectionHeading}><div><h2>当前有效关键词排名</h2><p>{view === "all" ? "全部已存正式、机会及待核归属集合中的有效实测；不受Topic正式池限制。" : "当前正式TopicMap目标，各建设阶段均保留在N中。"}</p></div><Link className={styles.textLink} href={growthLink(formalScope)}>查看话题与关键词 →</Link></div>
+    <div className={styles.tabs} role="group" aria-label="排名统计范围"><button type="button" aria-pressed={view === "all"} onClick={() => setView("all")}>全部有效实测</button><button type="button" aria-pressed={view === "formal"} onClick={() => setView("formal")}>正式目标实测</button></div>
+    {view === "formal" ? <><Summary targets={targets} /><p className={styles.note}>当前正式目标 R/N：{ranked.length} / {stats.total}{stats.total ? `（${(ranked.length / stats.total * 100).toFixed(1)}%）` : "（分母为空，暂不可计算）"}。季度仍按已冻结清单独立验收。</p></> : <div className={styles.stats}>{[["有效实测组合", ranked.length], ["独立原词", uniqueWords], ["其中前50", ranked.filter(target => target.rank! <= 50).length], ["其中正式目标实测", ranked.filter(target => target.membership === "formal").length]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{typeof value === "number" ? count(value) : value}</strong></div>)}</div>}
+    <p className={styles.note}>{count(ranked.length)} 个当前有效“站点＋原词＋国家＋语言”实测组合 · 独立原词 {count(uniqueWords)} 个。国家与区间占比均以这 {count(ranked.length)} 个去重组合为分母；无有效组合时不计算百分比。</p>
+    <div className={styles.coverageGrid}><section><h3>有效前100实测：国家 / 地区占比</h3>{markets.length ? markets.map(market => <div className={styles.share} key={market.key}><span>{market.label}</span><div><i style={{ width: `${market.count / ranked.length * 100}%` }} /></div><strong>{market.count} · {(market.count / ranked.length * 100).toFixed(1)}%</strong></div>) : <p className={styles.note}>暂无可计入的本轮有效排名。</p>}</section>
+      <section><h3>有效前100实测：排名区间占比</h3>{bands.map(([label, min, max]) => { const value = ranked.filter(target => target.rank! >= min && target.rank! <= max).length; return <div className={styles.share} key={label}><span>{label} 名</span><div><i style={{ width: `${ranked.length ? value / ranked.length * 100 : 0}%` }} /></div><strong>{value} · {ranked.length ? `${(value / ranked.length * 100).toFixed(1)}%` : "—"}</strong></div>; })}</section></div>
+    <details className={styles.relatedTargets}><summary>查看当前有效实测明细（{count(ranked.length)} 个组合）</summary><GrowthTargetTable data={data} targets={ranked} scope={scope} /></details>
+    <p className={styles.note}>当前数只接纳原词、原国家与语种匹配的14天内完整SERP；数据库、GSC、过期及待核名次作为背景单列，不计当前数或季度R。{data.reconciliation.sources.some(source => !source.available) ? "部分来源未读齐，当前为已有有效证据范围。" : ""}</p>
+    <details className={styles.relatedTargets}><summary>背景证据：{Object.entries(backgroundNames).map(([kind, label]) => `${label} ${background.filter(row => row.kind === kind).length}`).join(" · ")}</summary>
+      {background.length ? <div className={styles.tableScroll}><table className={styles.table}><thead><tr><th>原词 / 市场</th><th>背景来源 / 名次</th><th>实际采样 / 页面</th></tr></thead><tbody>{background.map(({ target, kind }) => <tr key={target.id}><th scope="row">{target.keyword}<small>{growthMarketLabel(data, target.country, target.language)}</small></th><td>{backgroundNames[kind]} · {target.rank}</td><td>{target.checkedAt || "采样时间未保存"}{target.rankUrl && safeUrl(target.rankUrl) ? <a className={styles.task} href={safeUrl(target.rankUrl)!} target="_blank" rel="noreferrer">{target.rankUrl}</a> : null}</td></tr>)}</tbody></table></div> : <p className={styles.note}>当前筛选未返回其他名次证据；不代表完整历史或未采集词均无排名。</p>}
+    </details><Link className={styles.textLink} href={growthLink({ ...formalScope, membership: "opportunity" })}>查看规划外机会 →</Link>
   </section>;
 }
 

@@ -2,21 +2,22 @@ const assert = require("node:assert/strict"), { test } = require("node:test");
 const fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
 const root = path.resolve(__dirname, ".."), originalLoad = Module._load;
 const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
+let readData = null;
 Module._load = function(name, parent, ...rest) {
   if (name === "./AppLink") return { __esModule: true, default: ({ children, ...props }) => React.createElement("a", props, children) };
   if (name === "./PageHeader") return { PageHeader: () => null };
   if (name === "./UiSelect") return { UiSelect: () => null };
   if (name === "./FeedbackButton") return { FeedbackButton: () => null };
-  if (name === "./useSeoAnalytics") return { useSeoRead: () => ({ data: null }) };
+  if (name === "./useSeoAnalytics") return { useSeoRead: () => ({ data: readData }) };
   if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, property) => property === "__esModule" ? false : String(property) });
   return originalLoad.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest);
 };
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
-const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets } = require("../src/components/growth-topic-view.ts");
-const { GrowthTopicClusters, GrowthTargetTable } = require("../src/components/GrowthTopicWorkspace.tsx");
+const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets, growthRankingEvidence } = require("../src/components/growth-topic-view.ts");
+const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage } = require("../src/components/GrowthTopicWorkspace.tsx");
 const target = (id, patch = {}) => ({ id, keywordId: id, keyword: "GPU rental", site: "flatkey.ai", topicId: "topic/1", topicName: "GPU计算", country: "US", language: "en", membership: "formal", pageState: "published", workState: "completed", publishedUrls: ["https://flatkey.ai/gpu"], plannedUrls: [], rank: 22, rankSource: "serp", rankUrl: "https://flatkey.ai/gpu", checkedAt: "2026-11-23T00:00:00Z", languageStatus: "match", languageReason: "", captureState: "ranked", rankEligible: true, taskIds: ["original-task"], reason: "", ...patch });
 const topic = { id: "flatkey.ai:topic/1", site: "flatkey.ai", topicId: "topic/1", name: "GPU计算", parentIds: [], formalCount: 3, markets: [] };
-const data = targets => ({ targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
+const data = targets => ({ generatedAt: "2026-11-23T08:00:00Z", reconciliation: { sources: [] }, targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
 
 test("topic totals preserve distinct market targets and separate outside opportunities", () => {
   const workspace = data([target("us"), target("jp", { country: "JP", language: "ja", keyword: "GPUレンタル" }), target("opportunity", { membership: "opportunity" })]);
@@ -93,4 +94,38 @@ test("unassigned formal identity shows the existing original-country observation
   const targets=[target("unassigned",{country:null,language:null,wordLanguage:"en",rankEligible:false,rank:null,rankUrl:null,rankSource:null,checkedAt:null,languageStatus:"unknown",languageReason:"目标国家待核，诊断不授长期主国",captureState:"unqueried",relatedObservations:[{country:"US",language:"en",rank:6,url:"https://flatkey.ai/blog/32b-70b-model-vram-guide",source:"serp",checkedAt:"2026-11-23T03:24:56Z",languageStatus:"match"}]})];
   const html=renderToStaticMarkup(React.createElement(GrowthTargetTable,{data:data(targets),scope:defaultGrowthScope,targets}));
   assert.match(html,/目标身份待核/);assert.match(html,/当次查询环境/);assert.match(html,/US.*第.*6.*名/);assert.match(html,/未授长期主国，不计正式抢占/);assert.doesNotMatch(html,/尚未查询|暂无排名证据/);assert.equal(growthCounts(targets).ranked,0);
+});
+
+function coverageData() {
+  const opportunity = target("opportunity", { membership: "opportunity", rank: 8 });
+  return data([target("formal"), opportunity, opportunity,
+    target("review", { membership: "review", country: "JP", language: "ja", keyword: "GPUレンタル", rank: 60 }),
+    target("database", { membership: "opportunity", rankSource: "database", rankEligible: false, rank: 5 }),
+    target("gsc", { membership: "review", rankSource: "gsc", rankEligible: false, rank: 2.5 }),
+    target("expired", { membership: "opportunity", rankEligible: false, checkedAt: "2026-10-01T00:00:00Z", rank: 3 }),
+    target("unknown-formal", { country: null, language: null, rankEligible: false, rank: null, relatedObservations: [{ country: "US", language: "en", rank: 7, source: "serp", checkedAt: "2026-11-23T00:00:00Z" }] }),
+  ]);
+}
+
+test("all current ranking observations cross the three pools once and keep background evidence out", () => {
+  const workspace = coverageData(), all = growthRankingEvidence(workspace, defaultGrowthScope, "all");
+  assert.equal(all.ranked.length, 3); assert.equal(all.uniqueWords, 2); assert.equal(all.ranked.filter(row => row.membership === "formal").length, 1);
+  assert.deepEqual(all.background.map(row => row.kind).sort(), ["database", "expired", "gsc"]);
+  const formal = growthRankingEvidence(workspace, defaultGrowthScope, "formal");
+  assert.equal(formal.targets.length, 2); assert.equal(formal.ranked.length, 1, "unassigned formal related observations do not add another R");
+  const jp = growthRankingEvidence(workspace, { ...defaultGrowthScope, country: "JP", language: "ja" }, "all");
+  assert.deepEqual(jp.ranked.map(row => row.id), ["review"]);
+  assert.equal(growthRankingEvidence(workspace, { ...defaultGrowthScope, site: "rackrate.org" }, "all").ranked.length, 0);
+});
+
+test("overview defaults to observation labels and formal switch retains its own R/N", () => {
+  readData = coverageData();
+  const html = renderToStaticMarkup(React.createElement(GrowthRankingCoverage));
+  assert.match(html, /aria-pressed="true">全部有效实测/); assert.match(html, /有效实测组合<\/span><strong>3<\/strong>/);
+  assert.match(html, /独立原词<\/span><strong>2<\/strong>/); assert.match(html, /66\.7%/); assert.match(html, /33\.3%/);
+  assert.match(html, /数据库名次 1/); assert.match(html, /GSC均位 1/); assert.match(html, /过期SERP名次 1/);
+  assert.doesNotMatch(html, /目标关键词<\/span>|当前正式目标 R\/N/);
+  const formal = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { initialView: "formal" }));
+  assert.match(formal, /aria-pressed="true">正式目标实测/); assert.match(formal, /当前正式目标 R\/N：1 \/ 2（50\.0%）/);
+  readData = null;
 });
