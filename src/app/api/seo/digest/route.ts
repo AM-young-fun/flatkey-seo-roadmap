@@ -1,4 +1,6 @@
 import { loadRegistrationPeriods } from "@/lib/services/seo-registration-period";
+import { withRequestReads } from "@/lib/request-read-scope";
+import { profileRead, timedRead } from "@/lib/read-profile";
 import { registrationCorrection } from "@/lib/seo-registration-correction";
 import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -56,6 +58,11 @@ function errorResponse(error: unknown) {
   return Response.json({ message: error instanceof DigestError || error instanceof DigestRecoveryError || error instanceof ReviewedDigestError ? error.message : error instanceof z.ZodError ? "日报周报参数无效" : "无法完成报告操作" }, { status: error instanceof DigestError || error instanceof DigestRecoveryError || error instanceof ReviewedDigestError ? error.status : error instanceof z.ZodError || error instanceof SyntaxError ? 400 : 503, headers });
 }
 export async function GET(request: Request) {
+  const result = await withRequestReads(() => profileRead(() => readDigest(request)));
+  result.value.headers.set("Server-Timing", [...result.phases.map(phase => `${phase.phase};dur=${phase.durationMs}`), `digest;dur=${result.durationMs}`].join(", "));
+  return result.value;
+}
+async function readDigest(request: Request) {
   if (!await auth(request) && !await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
   try {
     const params = new URL(request.url).searchParams;
@@ -107,7 +114,7 @@ export async function GET(request: Request) {
       const report = saved?.payload as unknown as SeoDigest | undefined;
       // Latest details may show current task status and the month ranking. The saved
       // report body, ID and hash stay intact; explicit reportId never gets live data.
-      const view = archive && report && !explicitId ? await reportView(selected, kind) : undefined;
+      const view = archive && report && !explicitId ? await timedRead("report-view", () => reportView(selected, kind)) : undefined;
       const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
       if (currentDaily && !report?.dashboard) {
         const fresh = await generateSeoDigest(selected).catch(() => null);

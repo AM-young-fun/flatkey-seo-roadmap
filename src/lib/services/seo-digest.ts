@@ -1,4 +1,5 @@
 import { loadRegistrationPeriods } from "./seo-registration-period";
+import { timedRead } from "../read-profile";
 import { DAILY_SEO_TRAFFIC_DEFAULTS, dailySeoPropertyDate } from "../daily-seo-traffic";
 import { DAILY_SEO_PAGE_GROUP_RULE_VERSION } from "../daily-seo-page-groups";
 import { loadDailySeoTrafficHistory } from "./daily-seo-traffic";
@@ -45,8 +46,8 @@ export async function loadRecentDigestPages(date: string, kind: DigestKind, now 
   const { trafficEnd } = digestWindow(date, kind);
   const [workflow, archive] = await Promise.all([
     loadWorkflowSnapshot({ allHistory: true }),
-    prisma.seoAnalyticsDay.findMany({ where: { date: { gte: shiftWorkflowDay(trafficEnd, -59), lte: trafficEnd },
-      kind: { in: pageArchiveKinds } }, select: { payload: true } }),
+    timedRead("monthly-archive", () => prisma.seoAnalyticsDay.findMany({ where: { date: { gte: shiftWorkflowDay(trafficEnd, -59), lte: trafficEnd },
+      kind: { in: pageArchiveKinds } }, select: { payload: true } })),
   ]);
   const pages = archive.flatMap(({ payload }) => {
     const parsed = analyticsObservationSchema.safeParse(payload);

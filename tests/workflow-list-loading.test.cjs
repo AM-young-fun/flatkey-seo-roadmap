@@ -104,6 +104,19 @@ test("list/full service reads use the original simple select and preserve canoni
   assert.deepEqual(full.tasks[0].research, rows[0].record.research);
   assert.equal(full.approvals[0].items[0].reviewContent, rows[1].record.items[0].reviewContent);
   equalDisplay(full, workflowWorkList(full));
+  const { withRequestReads } = require("../src/lib/request-read-scope.ts");
+  const optionsList = [{}, { week: "next" }, { allHistory: true }, { week: "2026-11-23" }, { operational: true, workList: true }];
+  const reference = await Promise.all(optionsList.map(options => loadWorkflowSnapshot(options)));
+  const before = calls.length;
+  await withRequestReads(async () => {
+    const views = await Promise.all(optionsList.map(options => loadWorkflowSnapshot(options)));
+    assert.equal(views.length, 5);
+    const stable = view => ({ ...view, generatedAt: null, ...(view.workWeek ? { workWeek: { ...view.workWeek, asOf: null } } : {}) });
+    assert.deepEqual(views.map(stable), reference.map(stable));
+    assert.equal(calls.length, before + 1, "five report projections share one canonical database read");
+  });
+  await withRequestReads(() => loadWorkflowSnapshot({}));
+  assert.equal(calls.length, before + 2, "a new HTTP read never inherits the prior request's snapshot");
 });
 
 test("local preview and task detail retain the complete canonical record", async t => {
