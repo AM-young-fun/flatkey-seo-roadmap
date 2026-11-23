@@ -24,6 +24,7 @@ async function collectGrowthWeeklyTraffic({ sites, period, fetchWeek, credential
     return body.state;
   };
   const outcomes = await Promise.all(selected.map(async site => {
+    if (site.googleCollectionDeferred === true) return { site: site.domain, status: "source_deferred", reason: site.googleCollectionDeferReason };
     try { return { site: site.domain, evidence: await fetchWeek(site.domain, site.ga4, site.ga4TimeZone, period, now) }; }
     catch (error) { return { site: site.domain, status: "source_unavailable", reason: typeof error?.code === "string" ? error.code : "exact_window_unavailable" }; }
   }));

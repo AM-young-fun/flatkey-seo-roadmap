@@ -138,3 +138,19 @@ test("RougeCue collection uses its verified LA property and skips unverified GSC
  assert.equal(sessions.length,70);assert.ok(sessions.every(row=>row.registrations===null&&row.complete===false));
  assert.ok(ready.readbacks.some(key=>key.startsWith("ga4-site:rougecue.org:")));assert.equal(ready.active,0);
 });
+
+test("explicit RougeCue deferral skips both Google sources without zero imports while other sites still collect",async()=>{
+ const rouge={domain:"rougecue.org",ga4:"565596386",gsc:"sc-domain:rougecue.org",ga4TimeZone:"America/Los_Angeles",
+  googleCollectionDeferred:true,googleCollectionDeferReason:"user_deferred_google_sources"};
+ const r=await exercise({site:rouge,gscDays:1});
+ assert.equal(r.error,undefined);assert.equal(r.exitCode,undefined);assert.equal(r.active,0);
+ assert.ok(!r.google.some(row=>row.site===rouge.domain||row.site===rouge.gsc));
+ assert.ok(!r.posted.some(row=>row.property===rouge.ga4||row.property===rouge.gsc));
+ const deferred=r.logs.filter(row=>row.site===rouge.domain&&row.status==="deferred");
+ assert.equal(deferred.length,10);assert.deepEqual([...new Set(deferred.map(row=>row.source))].sort(),["GA4","GSC"]);
+ assert.ok(deferred.every(row=>row.reason==="user_deferred_google_sources"));
+ assert.ok(r.google.some(row=>row.site==="flatkey.ai"&&row.source==="GA4"));
+ assert.ok(r.posted.some(row=>row.property==="541304395"));
+ assert.ok(r.posted.some(row=>row.property==="sc-domain:flatkey.ai"));
+ assert.equal(r.readbacks.length,r.posted.length);
+});

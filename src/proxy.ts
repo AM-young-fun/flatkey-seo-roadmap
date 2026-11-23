@@ -30,6 +30,8 @@ export async function proxy(request: NextRequest) {
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review" && request.method === "GET") return NextResponse.next();
+  // The saved-evidence handler retains its own cookie/collector authorization.
+  if (request.nextUrl.pathname === "/api/seo/approved-keyword-review/evidence" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-other-keyword-review" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review/collect" && request.method === "POST") return NextResponse.next();
   // These two GET handlers validate the database-backed research key.

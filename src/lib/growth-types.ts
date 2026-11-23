@@ -6,6 +6,13 @@ export type GrowthRankSource = "serp" | "database" | "gsc";
 export type GrowthCaptureState = "ranked" | "outside100" | "incomplete" | "failed" | "unqueried";
 export type GrowthSite = { domain: string; name: string; execution: boolean; keywordGoals: boolean; trafficGoal: boolean; dataOnly: boolean; dataReadiness?: { ga4Configured: boolean; sourceTimezone: string | null; reason: string; persistentGa4Configured?: boolean; collectorGa4Configured?: boolean; sourcePropertyId?: string | null; sourceVerifiedAt?: string | null; configurationSource?: string; metadataVerification?: string; apiPermissionVerified?: boolean; persistedPropertyMatches?: boolean | null } };
 export type GrowthMarket = { country: string; language: string; label: string; priority: "primary" | "secondary" | "legacy"; plannedShare: number | null };
+/** Same-page links preserve the original task's main keyword and scope. A
+ * candidate is navigation evidence only, never a market assignment/approval. */
+export type GrowthTaskRelation = {
+  taskId: string; originalKeyword: string | null; country: string | null; language: string | null;
+  pageUrl: string; source: "task_page" | "publication"; publicationId?: string;
+  sourceKeywordId: string; status: "confirmed" | "candidate"; reason: string;
+};
 export type GrowthTarget = {
   id: string; keywordId: string | null; site: string; topicId: string | null; topicName: string | null;
   relatedTopicIds?: string[];
@@ -19,6 +26,7 @@ export type GrowthTarget = {
   wordLanguage?: string | null; planningProofs?: { kind: "formal_plan" | "publication"; id: string; taskId: string; country: string; language: string }[];
   relatedObservations?: { country: string; language: string | null; rank: number; url: string; source: GrowthRankSource; checkedAt: string | null; languageStatus: GrowthLanguageStatus }[];
   relatedObservationCount?: number;
+  taskRelations?: GrowthTaskRelation[];
   languageStatus: GrowthLanguageStatus; languageReason: string; captureState: GrowthCaptureState;
   /** A fresh exact SERP + original word language match. Database/GSC evidence is shown separately. */
   rankEligible: boolean; observationEligible: boolean; monitoringEligible: boolean; taskIds: string[]; reason: string;
