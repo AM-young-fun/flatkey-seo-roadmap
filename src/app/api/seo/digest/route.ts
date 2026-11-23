@@ -93,24 +93,24 @@ async function readDigest(request: Request) {
         return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates, ...(!explicitId && local?.view ? { view: local.view } : {}) }, { headers });
       }
       const scope = { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", payload: { path: ["kind"], equals: kind } };
-      const dates = archive ? (await prisma.seoReportVersion.groupBy({
+      const dates = archive ? (await timedRead("archive-dates", () => prisma.seoReportVersion.groupBy({
         by: ["periodStart"],
         where: scope,
         orderBy: { periodStart: "desc" },
-      })).map(row => row.periodStart.toISOString().slice(0, 10)) : undefined;
+      }))).map(row => row.periodStart.toISOString().slice(0, 10)) : undefined;
       const selected = requestedDate ?? dates?.[0];
       if (!selected) return Response.json({ report: null, dates }, { headers });
-      const delivery = explicitId ? null : await prisma.seoDigestDelivery.findUnique({
+      const delivery = explicitId || archive ? null : await prisma.seoDigestDelivery.findUnique({
         where: { id: `seo-digest-delivery:${kind}:${selected}` }, select: { status: true, reportId: true },
       });
       // The date view shows the latest archived refresh. An explicit reportId still opens the exact sent snapshot.
       const exact = explicitId ?? (!archive && delivery?.status === "DELIVERED" ? delivery.reportId : null);
-      const saved = await prisma.seoReportVersion.findFirst({
+      const saved = await timedRead("report-snapshot", () => prisma.seoReportVersion.findFirst({
         where: { ...scope, periodStart: new Date(selected), ...(exact ? { id: exact } : {}),
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { payload: true },
-      });
+      }));
       const report = saved?.payload as unknown as SeoDigest | undefined;
       // Latest details may show current task status and the month ranking. The saved
       // report body, ID and hash stay intact; explicit reportId never gets live data.

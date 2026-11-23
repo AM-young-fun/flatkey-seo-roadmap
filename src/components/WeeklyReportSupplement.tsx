@@ -5,7 +5,7 @@ import type { WeeklySupplement } from "@/lib/seo-weekly-supplement";
 import styles from "./SeoDigestReports.module.css";
 import controls from "./SeoWorkWorkspace.module.css";
 
-export function WeeklyReportSupplement({ reportId }: { reportId: string }) {
+export function WeeklyReportSupplement({ reportId, onReady }: { reportId: string; onReady?: (reportId: string) => void }) {
   const fieldId = useId();
   const [saved, setSaved] = useState<WeeklySupplement | null>(null);
   const [text, setText] = useState("");
@@ -24,12 +24,13 @@ export function WeeklyReportSupplement({ reportId }: { reportId: string }) {
         if (!response.ok) throw new Error(data.message ?? "补充说明读取失败");
         if (controller.signal.aborted) return;
         setSaved(data.supplement); setText(data.supplement.text); setEditable(data.editable); setError(""); setConflict(false);
+        onReady?.(reportId);
       } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "补充说明读取失败"); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void load();
     return () => controller.abort();
-  }, [reportId, reload]);
+  }, [reportId, reload, onReady]);
   async function save() {
     if (!saved || saving || loading) return;
     setSaving(true); setError("");
