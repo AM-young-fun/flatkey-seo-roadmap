@@ -230,8 +230,9 @@ test("same page edits count once and no baseline does not count", () => {
 test("missing source is not zero while an actual reported zero remains valid", () => {
  const rows = [ga("2026-11-07", 3), ga("2026-11-08", 0), ga("2026-11-09", null)];
  const result = comparableMetric(rows, "flatkey.ai", "sessions", "2026-11-10");
- assert.equal(result.current, 0); assert.equal(result.previous, 3); assert.deepEqual(result.dates, ["2026-11-08"]);
- assert.match(result.reason, /未齐/);
+ assert.equal(result.current, null); assert.equal(result.previous, 0); assert.deepEqual(result.dates, []);
+ assert.match(result.reason, /当日数据待补/);
+ assert.equal(comparableMetric(rows, "flatkey.ai", "sessions", "2026-11-09").current, 0);
  assert.equal(comparableMetric([], "flatkey.ai", "sessions", "2026-11-10").current, null);
 });
 test("daily digest uses the Flatkey all-channel registration count rather than SEO-attributed users", () => {
@@ -270,7 +271,8 @@ test("country slices never overwrite global totals or another country", () => {
  const rows = [ga("2026-11-09", 100), ga("2026-11-08", 80), ga("2026-11-09", 30, {country:"US"}), ga("2026-11-08", 20, {country:"US"}), ga("2026-11-09", 50, {country:"BR"})];
  assert.equal(comparableMetric(rows,"flatkey.ai","sessions","2026-11-10").current,100);
  assert.equal(comparableMetric(rows,"flatkey.ai","sessions","2026-11-10","US").current,30);
- assert.equal(comparableMetric(rows,"flatkey.ai","sessions","2026-11-10","BR").current,null);
+ assert.equal(comparableMetric(rows,"flatkey.ai","sessions","2026-11-10","BR").current,50);
+ assert.equal(comparableMetric(rows,"flatkey.ai","sessions","2026-11-10","BR").canCompare,false);
 });
 test("Friday retains today's verified links while old backfill is not new translation", () => {
  const p={ id:"friday",title:"Friday launch",url:"https://flatkey.ai/new-tool",kind:"landing",publishedAt:"2026-11-13T11:00:00+08:00",verifiedAt:"2026-11-13T12:00:00+08:00",recordedAt:"2026-11-13T12:01:00+08:00" };
@@ -322,13 +324,13 @@ test("DingTalk daily and weekly cards show comparable data with the real dates a
    gsc("2026-11-09", 5, 50), gsc("2026-11-10", 10, 100), gsc("2026-11-03", 4, 40)];
  const input = { ...base(date), notificationCompact: true, observations, issues: ["private-diagnostic-marker"],
    nextPlanStatus: "scheduled", ...workflow([approval("compact-test")]) };
- const daily = buildSeoDigest(input);
+ const daily = buildSeoDigest({...input, observations:[ga("2026-11-11",10),ga("2026-11-12",0),gsc("2026-11-11",5,50),gsc("2026-11-12",10,100)]});
  assert.match(daily.text, /\*\*Flatkey SEO 日报｜2026-11-12\*\*/);
- assert.match(daily.text, /自然搜索会话 10 → \*\*0\*\*（-10 \/ -100.0%） · 2026-11-10 → 2026-11-11/);
- assert.match(daily.text, /Google 全站点击 5 → \*\*10\*\*（\+5 \/ \+100.0%） · 2026-11-09 → 2026-11-10/);
+ assert.match(daily.text, /自然搜索会话 10 → \*\*0\*\*（-10 \/ -100.0%） · 2026-11-11 → 2026-11-12/);
+ assert.match(daily.text, /Google 全站点击 5 → \*\*10\*\*（\+5 \/ \+100.0%） · 2026-11-11 → 2026-11-12/);
  assert.match(daily.text, /Google 全站曝光 50 → \*\*100\*\*/);
  assert.match(daily.text, /Google CTR 10.00% → 10.00%/);
- assert.match(daily.text, /页面组表现[\s\S]*近一个月优化效果[\s\S]*关键词实测排名[\s\S]*技术异常[\s\S]*今日完成[\s\S]*数据状态/);
+ assert.match(daily.text, /当日优化效果[\s\S]*关键词实测排名[\s\S]*技术异常[\s\S]*今日完成[\s\S]*数据状态/);
  assert.doesNotMatch(daily.text, /private-diagnostic-marker|https:/);
  assert.match(daily.detailText, /private-diagnostic-marker|待审核/);
  const weekly = buildSeoDigest({ ...input, kind: "weekly" });
@@ -355,8 +357,8 @@ test("daily card does not replace an unpaired latest day with an older compariso
  assert.match(report.text, /GA4 新用户（首次来源为自然搜索） 80 → \*\*96\*\*（\+16 \/ \+20\.0%）/);
  assert.match(report.text, /GA4 去重注册（首次来源为自然搜索） 1 → \*\*0\*\*/);
  assert.match(report.text, /GA4 自然搜索会话 待更新 → \*\*115\*\* · 待更新 → 2026-11-16/);
- assert.match(report.text, /GPU 算力 · 访客 31（\+8） · 浏览 40（\+7） · 同日注册 2 · 流量 2026-11-16 \/ 漏斗 2026-11-15/);
- assert.match(report.text, /模型列表 · 待补采/);
+ assert.doesNotMatch(report.text, /页面组表现|GPU 算力 ·|同日注册 2/);
+ assert.match(report.text, /当日页面组 0\/4/);
 });
 
 test("actual verified ES optimization stays visible when the overall execution coverage is missing",()=>{
@@ -437,6 +439,9 @@ test("recent optimization comparison includes the full month and excludes new or
  assert.deepEqual(monthly.map(row => [row.title, row.change]), [["older", "optimization"], ["optimized", "optimization"]]);
  assert.equal(monthly[1].before.clicks, 1);
  assert.equal(monthly[1].latest.clicks, 3);
+ const daily = recentPublishedPages({ approvals: [], publications }, [...observations, search("2026-11-11", "optimized", 2)], "2026-11-13", new Date("2026-11-13T17:00:00Z"), false);
+ assert.deepEqual(daily.map(row => [row.title,row.before.date,row.latest.date]), [["optimized","2026-11-11","2026-11-12"]]);
+ assert.deepEqual(recentPublishedPages({ approvals: [], publications }, observations, "2026-11-13", new Date("2026-11-13T17:00:00Z"), false), [], "an older launch baseline cannot replace the missing previous day");
 });
 test("monthly optimization ranking keeps the traffic cutoff when execution work has another timezone", () => {
  const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");
@@ -503,11 +508,11 @@ test("account registrations keep UTC dates, real zero, later corrections, and in
 });
 
 
-test("daily card shows the month of verified optimization gains in effect order and only counts confirmed work", () => {
+test("daily card compares optimization gains on the report day against its previous day", () => {
  const { bestMonthlyOptimizations } = require("../src/lib/seo-digest-recent-pages.ts");
  const row = (name, day, beforeClicks, afterClicks, change = "optimization") => ({ day, change, url: "https://flatkey.ai/blog/" + name, title: name,
-  before: { date: "2026-10-16", property: "sc-domain:flatkey.ai", clicks: beforeClicks, impressions: beforeClicks * 10 },
-  latest: { date: "2026-11-15", property: "sc-domain:flatkey.ai", clicks: afterClicks, impressions: afterClicks * 10 },
+  before: { date: "2026-11-15", property: "sc-domain:flatkey.ai", clicks: beforeClicks, impressions: beforeClicks * 10 },
+  latest: { date: "2026-11-16", property: "sc-domain:flatkey.ai", clicks: afterClicks, impressions: afterClicks * 10 },
   beforeVisits: null, latestVisits: null });
  const date = "2026-11-17", report = buildSeoDigest({ ...base(date), notificationCompact: true, resolvedIssues: 2,
    priorities: [{ title: "approval-private-marker", reason: "pending", action: "review" }],
@@ -518,23 +523,23 @@ test("daily card shows the month of verified optimization gains in effect order 
      row("new-page", "2026-11-09", 0, 999, "new"),
      row("regression", "2026-11-09", 10, 0),
    ]) });
- assert.match(report.text, /近一个月优化.*2026-10-18—2026-11-16.*已核实提升 2 个页面/);
- assert.match(report.text, /优化 \/blog\/updated · Google 点击 4 → \*\*11\*\*.*2026-10-16 → 2026-11-15/);
+ assert.match(report.text, /当日优化效果.*2026-11-16.*已核实提升 2 个页面/);
+ assert.match(report.text, /优化 \/blog\/updated · Google 点击 4 → \*\*11\*\*.*2026-11-15 → 2026-11-16/);
  assert.ok(report.text.indexOf("/blog/older-month-gain") < report.text.indexOf("/blog/updated"), "larger improvements stay first even when they were optimized earlier in the month");
  assert.match(report.text, /修复 \*\*2 个问题\*\*/);
  assert.doesNotMatch(report.text, /outside-month|new-page|regression|approval-private-marker|下一步/);
 });
 
-test("daily cards retain older verified sources with explicit dates instead of losing every metric", () => {
+test("daily cards do not substitute older acquisition or funnel data for a missing report day", () => {
  const current={date:"2026-11-15",newUsers:124,newRegistrations:14};
  const previous={date:"2026-11-14",newUsers:101,newRegistrations:10};
  const points=[previous,current,{date:"2026-11-17",newUsers:null,newRegistrations:null}];
  const funnel={entrants:1,registrations:0,collectedAt:"2026-11-18T08:00:00Z",sources:["https://analytics.google.com/"]};
  const report=buildSeoDigest({...base("2026-11-18"),notificationCompact:true,dailyAcquisition:{points},pageGroups:{groups:[{key:"gpu_compute",points:[{date:"2026-11-14",totalUsers:1,pageViews:2,funnel,collectedAt:funnel.collectedAt},{date:"2026-11-15",totalUsers:null,pageViews:null,funnel:null}]}]}});
- assert.match(report.text,/GA4 新用户.*101 → \*\*124\*\*.*2026-11-14 → 2026-11-15/);
- assert.match(report.text,/GA4 去重注册.*10 → \*\*14\*\*.*2026-11-15/);
- assert.match(report.text,/GPU 算力 · 访客 1 · 浏览 2 · 同日注册 0 · 流量 2026-11-14 \/ 漏斗 2026-11-14（洛杉矶）；2026-11-17 待核验/);
- assert.match(report.text,/最近已核实页面组 1\/4/);
+ assert.match(report.text,/GA4 新用户[^\n]*待更新/);
+ assert.match(report.text,/GA4 去重注册[^\n]*待更新/);
+ assert.doesNotMatch(report.text,/101 →|124|GPU 算力 ·|2026-11-14 → 2026-11-15/);
+ assert.match(report.text,/当日页面组 0\/4/);
 });
 
 test('daily preview uses the latest closed LA day, ignores ongoing day, and retains missing values',()=>{
@@ -544,7 +549,7 @@ test('daily preview uses the latest closed LA day, ignores ongoing day, and reta
  {date:'2026-11-18',newUsers:128,newRegistrations:2},
  {date:'2026-11-19',newUsers:999,newRegistrations:999}]}});
  assert.match(report.text,/GA4 去重注册（首次来源为自然搜索） 15 → \*\*2\*\*/);
- assert.match(report.text,/获客\/注册截至 2026-11-18/);
+ assert.match(report.text,/获客\/注册 2026-11-18/);
  assert.doesNotMatch(report.text,/999/);
  assert.match(report.text,/最新数据可能继续更新/);
 });

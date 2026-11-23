@@ -61,12 +61,12 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
 
 const marketNames = { US: "美国", JP: "日本", ES: "西班牙", BR: "巴西" } as const;
 
-export function digestDailyRankingNotes(tasks: SerpTaskRead[], now: Date): string[] {
-  const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
+export function digestDailyRankingNotes(tasks: SerpTaskRead[], now: Date, day?: string): string[] {
+  const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: day ? "America/Los_Angeles" : "Asia/Shanghai" });
   const rows: string[] = [];
   for (const region of ["US", "JP", "ES", "BR"] as const) {
     const history = tasks.filter(task => task.region === region && task.checkedAt && +new Date(task.checkedAt) <= +now);
-    const visits = [...new Map(history.map(task => [task.runId, task])).values()].sort((a, b) =>
+    const visits = [...new Map(history.filter(task => !day || localDate.format(new Date(task.checkedAt!)) === day).map(task => [task.runId, task])).values()].sort((a, b) =>
       Number(a.runScope === "SAMPLE") - Number(b.runScope === "SAMPLE") || +new Date(b.runCreatedAt) - +new Date(a.runCreatedAt));
     for (const run of visits) {
       const targets = new Map<string, SerpTarget>();
@@ -79,7 +79,7 @@ export function digestDailyRankingNotes(tasks: SerpTaskRead[], now: Date): strin
         }
       }
       const results = buildSerpKeywordResults([...targets.values()], history, { currentRunId: run.runId })
-        .filter(row => row.runId === run.runId && row.checkedAt && row.captureComplete);
+        .filter(row => row.runId === run.runId && row.checkedAt && row.captureComplete && (!day || localDate.format(new Date(row.checkedAt)) === day));
       const ranked = results.filter(row => row.status === "RANKED" && row.rank !== null && row.url);
       const outside = results.filter(row => row.status === "OUTSIDE_TOP100").length;
       if (!ranked.length && !outside) continue;

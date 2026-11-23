@@ -65,10 +65,11 @@ test('09:00 Beijing collection requests the last closed LA day rather than a sti
  const windows=referralWindows('2026-11-13',new Date('2026-11-13T01:00:00Z'));
  assert.deepEqual(windows,[{start:'2026-11-11',end:'2026-11-11'},{start:'2026-11-06',end:'2026-11-12'}]);
 });
-test('daily attribution reports the latest closed source day with its real date, weekly does not borrow another period',()=>{
+test('daily and weekly attribution never borrow another period',()=>{
  const row=fixture({referrals:[{start:'2026-11-09',end:'2026-11-09',timezone:'America/Los_Angeles',status:'ok',sessions:8,users:5,observedAt:'2026-11-11T01:00:00Z',reason:null}]});
  const text=githubDigestLines([row],'2026-11-10','2026-11-10',false,new Date('2026-11-11T08:00:00Z')).join('\n');
- assert.match(text,/到站会话 8/);assert.match(text,/2026-11-09～2026-11-09/);assert.match(text,/最新完整日滞后/);
+ assert.doesNotMatch(text,/到站会话 8|2026-11-09～2026-11-09.*洛杉矶/);
+ assert.match(text,/到站会话\/访客：待更新/);
  const weekly=githubDigestLines([row],'2026-11-06','2026-11-12',true,new Date('2026-11-13')).join('\n');assert.doesNotMatch(weekly,/到站会话 8/);
 });
 
