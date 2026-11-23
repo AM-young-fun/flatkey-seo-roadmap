@@ -167,7 +167,7 @@ test("biweekly Tuesday slots retain legacy snapshots and cross month/year bounda
   assert.equal(serpPeriodFromKey("2026-10-20").label, "2026年10月第2期");
   assert.equal(nextSerpPeriodDue("2026-10-19T03:00:00Z").toISOString(), "2026-10-20T02:30:00.000Z");
   assert.equal(nextSerpPeriodDue("2026-10-20T03:00:00Z").toISOString(), "2026-11-05T00:00:00.000Z");
-  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-28T02:10:00.000Z");
+  assert.equal(serpPeriodFromKey("2027-01-26").dueAt, "2027-01-28T08:00:00.000Z");
   assert.equal(periodDue("2026-10-2").toISOString(), "2026-10-16T02:30:00.000Z", "historical keys retain their actual dates");
   assert.equal(serpPeriodFromKey("2028-02-2").end, "2028-02-29");
   assert.throws(() => serpPeriodFromKey("2026-10-21"));
@@ -323,7 +323,9 @@ const db = {
     if (query.sql.includes("serp-monitor:cohort")) return cohortRows;
     if (query.sql.includes("serp-monitor:page-readiness-evidence")) return [...readinessRows, ...cohortRows.map(row => ({ siteDomain: row.siteDomain, sourceId: "SEO_MARKET_ASSIGNMENT", rowKey: `keyword:${row.keywordId}`, snapshot: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" } }))];
     if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
-    if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row => query.sql.includes("t.region IN ('US','JP','ES','BR')") || query.values.includes(row.region ?? "US")).map(row => ({ region: "US", ...row }));
+    if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row =>
+      (row.runScope !== "APPROVED_KEYWORD_REVIEW" || query.sql.includes("'APPROVED_KEYWORD_REVIEW'")) &&
+      (query.sql.includes("t.region IN ('US','JP','ES','BR')") || query.values.includes(row.region ?? "US"))).map(row => ({ region: "US", ...row }));
     if (query.sql.includes("dashboard:keywords")) return cohortRows.filter(row => !query.sql.includes("AND k.id =") || query.values.includes(row.keywordId)).map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
     if (query.sql.includes("dashboard:ranks")) return [{ keywordId: "claude", siteDomain: "flatkey.ai", region: "US", source: "dataforseo_labs", rank: 1, rankStatus: "ranked", rankReported: true, captureStatus: "COMPLETE", periodStart: null, periodEnd: null, collectedAt: new Date("2026-10-16T01:00:00Z"), dataUpdatedAt: new Date("2026-10-01T01:00:00Z") }];
     return [];
@@ -344,6 +346,67 @@ beforeEach(t => {
   sessionToken = null; queried = []; taskRows = []; cohortRows = [candidate("claude")]; trendCohortRows = null; readinessRows = [];
   process.env.DATABASE_URL = "postgresql://unused.invalid/serp-read-test"; process.env.LOGIN_PWD = "fictional-serp-read-password";
   t.mock.method(globalThis, "fetch", async () => assert.fail("a ranking read must never call a paid provider"));
+});
+
+test("approved one-off ranking evidence keeps its diagnostic scope instead of becoming scheduled monitoring", () => {
+  const model = target("diagnostic");
+  const saved = task([model], { runId: "approved-review", runScope: "APPROVED_KEYWORD_REVIEW", periodKey: "2026-11-23-approved-keyword-review-v1",
+    periodLabel: "2026-11-23 · 已批准目标词一次性复核", periodStart: "2026-11-23T03:00:00Z", periodEnd: "2026-11-23T03:00:00Z", runCreatedAt: "2026-11-23T03:00:00Z",
+    runTargetCount: 1031, normalizedJson: { completeDepth: true, organicResults: [page(model.targetUrls[0], 4)] } });
+  const [result] = buildSerpKeywordResults([model], [saved]);
+  assert.equal(result.status, "RANKED"); assert.equal(result.rank, 4);
+  assert.equal(result.runScope, "APPROVED_KEYWORD_REVIEW");
+  assert.equal(serpRankSummary(result).runScope, "APPROVED_KEYWORD_REVIEW");
+  assert.equal(serpRankingEvidence(result).runScope, "APPROVED_KEYWORD_REVIEW");
+  assert.equal(result.periodKey, "2026-11-23-approved-keyword-review-v1");
+  assert.equal(result.periodLabel, "2026-11-23 · 已批准目标词一次性复核");
+  assert.equal(result.periodStart, "2026-11-22", "a one-off capture keeps its actual Los Angeles date instead of acquiring a scheduled slot");
+  assert.equal(summarizeSerpSampleResults([result]).sampledTargetCount, 0);
+});
+
+test("a newer approved diagnostic appears in keyword details while excluded words retain their real older result", async () => {
+  cohortRows = [candidate("approved"), candidate("held")];
+  const [approved, held] = cohortRows.map(row => target(row.keywordId));
+  taskRows = [approved, held].map(model => task([model], { id: `scheduled-${model.keywordId}`, runId: "scheduled-old",
+    runScope: "SCHEDULED", periodKey: "2026-11-17", runCreatedAt: "2026-11-19T02:00:00Z",
+    checkedAt: "2026-11-19T03:00:00Z", updatedAt: "2026-11-19T03:00:00Z",
+    normalizedJson: { completeDepth: true, organicResults: [page(model.targetUrls[0], 12)] } }));
+  taskRows.push(task([approved], { id: "diagnostic-approved", runId: "approved-review", runScope: "APPROVED_KEYWORD_REVIEW",
+    periodKey: "2026-11-17", runCreatedAt: "2026-11-23T03:00:00Z", checkedAt: "2026-11-23T03:10:00Z", updatedAt: "2026-11-23T03:10:00Z",
+    normalizedJson: { completeDepth: true, organicResults: [page(approved.targetUrls[0], 2)] } }));
+  const result = await loadSerpResults("all", "US");
+  const newer = result.items.find(item => item.keywordId === approved.keywordId), older = result.items.find(item => item.keywordId === held.keywordId);
+  assert.deepEqual([newer.rank, newer.runId, newer.runScope, newer.checkedAt], [2, "approved-review", "APPROVED_KEYWORD_REVIEW", "2026-11-23T03:10:00.000Z"]);
+  assert.deepEqual([older.rank, older.runId, older.runScope, older.checkedAt], [12, "scheduled-old", "SCHEDULED", "2026-11-19T03:00:00.000Z"]);
+  assert.equal(result.summary.pending, 0); assert.equal(result.summary.ranked, 2);
+  const dashboard = await loadDashboard("all", "dataforseo_serp", "week", new Date("2026-11-23T04:00:00Z"), true);
+  assert.equal(dashboard.keywords.find(item => item.id === "flatkey.ai:approved").latestRanks.US.rank, 2);
+  assert.equal(dashboard.keywords.find(item => item.id === "flatkey.ai:approved").latestRanks.US.runScope, "APPROVED_KEYWORD_REVIEW");
+});
+
+test("a newer scheduled cohort stays pinned and does not fill missing words from an older diagnostic", async () => {
+  const approved = target("approved"), held = target("held");
+  const tasks = [task([held], { id: "diagnostic-held", runId: "approved-review", runScope: "APPROVED_KEYWORD_REVIEW",
+    runCreatedAt: "2026-11-22T03:00:00Z", normalizedJson: { completeDepth: true, organicResults: [page(held.targetUrls[0], 2)] } }),
+  task([approved], { id: "scheduled-approved", runId: "scheduled-new", runScope: "SCHEDULED", runCreatedAt: "2026-11-23T03:00:00Z",
+    normalizedJson: { completeDepth: true, organicResults: [page(approved.targetUrls[0], 5)] } })];
+  const result = await loadSerpResults("all", "US", undefined, "desktop", { targets: [approved, held], hash: "cohort" },
+    { targets: [], heldTargets: [], allTargetCount: 2, heldTargetCount: 2, hash: "monitor" }, tasks);
+  assert.equal(result.items.find(item => item.keywordId === "approved").rank, 5);
+  assert.equal(result.items.find(item => item.keywordId === "held").status, "PENDING");
+});
+
+test("historical report and trend reads exclude approved diagnostics even when current details include them", async () => {
+  const model = target("approved");
+  taskRows = [task([model], { id: "scheduled", runScope: "SCHEDULED", region: "US" }),
+    task([model], { id: "diagnostic", runScope: "APPROVED_KEYWORD_REVIEW", region: "US" })];
+  assert.equal((await loadSerpTasks("US")).length, 2);
+  assert.deepEqual((await loadSerpTasks("US", undefined, "desktop", "2026-11-01", "2026-11-30")).map(row => row.id), ["scheduled"]);
+  await loadSerpTrendCohorts("US", "2026-11-01", "2026-11-30");
+  const history = queried.filter(query => query.sql.includes("serp-monitor:results")).at(-1);
+  const trend = queried.find(query => query.sql.includes("serp-monitor:trend-cohorts"));
+  assert.doesNotMatch(history.sql, /APPROVED_KEYWORD_REVIEW/);
+  assert.doesNotMatch(trend.sql, /APPROVED_KEYWORD_REVIEW/);
 });
 
 test("API and keyword details share saved readiness while ready-page candidates remain outside paid scope", async () => {

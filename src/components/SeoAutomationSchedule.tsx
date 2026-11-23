@@ -8,6 +8,7 @@ import { collectionFitsExistingBudget, continueCollectionCycle, pauseCollectionR
 import { automationDate, automationSchedulerLabels, readonlyAutomationPlans, type ReadonlyAutomationPlan } from "@/lib/seo-automation-schedule";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoAutomationSchedule.module.css";
+import { ApprovedKeywordReview } from "./ApprovedKeywordReview";
 
 const dollars = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(micros / 1e6);
 
@@ -143,6 +144,7 @@ export function SeoAutomationSchedule() {
           <p className={styles.note}>GA4 / GSC 由 GitHub Actions 采集；DataForSEO 由项目服务器检查及续跑。它们独立于电脑上的 Codex。读取时间不是配置修改时间，也不是最近采集完成时间。</p>
           {data.controls.emergencyStopped ? <p className={styles.warning}>外部付费采集处于紧急停止状态；本页不会恢复或提交查询。</p> : null}
           <SchedulePlans plans={serverPlans} controls={data.controls} enableRankings={!data.controls.emergencyStopped ? retry : undefined} />
+          <ApprovedKeywordReview />
           <div className={styles.heartbeat}>
             <h4>DataForSEO 服务器调度检查</h4>
             <p>{data.scheduler.configured ? data.scheduler.cadence : "调度认证尚未配置"} · {automationSchedulerLabels[data.scheduler.state] ?? "检查状态未核实"}</p>
