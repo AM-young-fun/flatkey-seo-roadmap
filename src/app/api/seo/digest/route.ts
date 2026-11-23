@@ -118,7 +118,9 @@ async function readDigest(request: Request) {
       // report body, ID and hash stay intact; explicit reportId never gets live data.
       const [view, weeklySupplement] = await Promise.all([
         archive && report && !explicitId ? timedRead("report-view", () => reportView(selected, kind)) : undefined,
-        report && kind === "weekly" && params.get("supplement") === "1" ? timedRead("weekly-supplement", async () => {
+        // The standalone note route requires a browser session at middleware.
+        // Bundling must retain that boundary even when digest accepts a token.
+        report && kind === "weekly" && params.get("supplement") === "1" && await authorizeAnalyticsRead(request) ? timedRead("weekly-supplement", async () => {
           const access = await authorizeWorkflow(request);
           return { supplement: await loadWeeklySupplementForDate(report.date, access.localPreview), editable: access.actor === "human" };
         }).catch(() => undefined) : undefined,
