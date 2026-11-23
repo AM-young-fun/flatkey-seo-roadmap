@@ -57,6 +57,16 @@ test("metadata-only missing hours, different timezone and thresholded data never
  google(t, query => ({ rows: query.dimensions ? [row(query.dimensionFilter.andGroup.expressions[2].filter.inListFilter.values[0])] : [], metadata: { timeZone: mode === "timezone" ? "UTC" : "Asia/Shanghai", ...(mode === "threshold" ? { subjectToThresholding: true } : {}) } }));
  for (mode of ["empty", "timezone", "threshold"]) await assert.rejects(fetchGa4ExactOrganicWeek("rackrate.org", "2", "Asia/Shanghai", period), error => /source_buckets_unverified|source_quality_incomplete/.test(error.code));
 });
+test("an empty rowCount-omitted bucket response still requires and can use an explicit scalar zero", async t => {
+ let calls = 0;
+ google(t, query => {
+  calls++;
+  return query.dimensions ? { rows: [], rowCount: undefined, metadata: { timeZone: "Asia/Shanghai" } }
+   : { rows: [row(null, 0)], metadata: { timeZone: "Asia/Shanghai" } };
+ });
+ const result = await fetchGa4ExactOrganicWeek("rackrate.org", "2", "Asia/Shanghai", period);
+ assert.equal(calls, 2); assert.equal(result.sessions, 0); assert.equal(result.hours.length, 168);
+});
 test("parallel source reads retain missing Rouge data; an ambiguous successful write is verified without repost", async () => {
  let active = 0, maximum = 0, posts = 0; const state = { version: 0, trafficEvidence: [] };
  const result = await collectGrowthWeeklyTraffic({ sites, period, credential: "test", fetchWeek: async site => {

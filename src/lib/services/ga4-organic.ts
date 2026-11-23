@@ -439,7 +439,7 @@ export async function fetchGa4ExactOrganicWeek(
   const token = await accessToken(), report = await requestReport(property, token, "runReport", query);
   if (report.metadata?.timeZone !== sourceTimezone || qualityReasons(report).length) throw new GoogleReadError("source_quality_incomplete", "原属性metadata时区或完整性未通过核验");
   const rows = report.rows ?? [], values = new Map<string, number>();
-  if (report.rowCount !== rows.length || rows.length > buckets.length) throw new GoogleReadError("invalid_response", "完整周分桶未完整返回");
+  if (report.rowCount !== undefined && report.rowCount !== rows.length || rows.length > buckets.length) throw new GoogleReadError("invalid_response", "完整周分桶未完整返回");
   for (const row of rows) {
     const key = row.dimensionValues?.[0]?.value;
     if (!key || !buckets.includes(key) || values.has(key) || row.dimensionValues?.length !== 1 || row.metricValues?.length !== 1) throw new GoogleReadError("invalid_response", "完整周分桶重复或越界");

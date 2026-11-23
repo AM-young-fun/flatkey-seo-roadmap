@@ -25,7 +25,7 @@
 
 ## 本地验证
 
-- 最终全套回归：1668通过、0失败、1项原有跳过（日志 `seo-growth-v15-production-acceptance-tests.log`）。含回环端口的既有测试在允许本机监听的环境执行。
+- 最终全套回归：1669通过、0失败、1项原有跳过（日志 `seo-growth-v15-production-acceptance-tests.log`）。含回环端口的既有测试在允许本机监听的环境执行。
 - TypeScript和修改文件ESLint通过；`git diff --check`通过；Next生产构建通过（Webpack；隔离目录使用既有依赖，Turbopack不接受跨根node_modules软链）。
 - 独立需求审查：97项增长与工作流测试通过；最后22项收口测试通过，复核范围无遗留代码阻断，并补了跨期复用、截止后样本、正文改数、未建页冻结等真实内存微场景。
 - 13条真实自动化读回见[配置回执](seo-growth-v15-automation-readback-20261123.json)。新CLI合同仅对与原main完全一致的文件进行备份、更新及hash读回，未覆盖其他本地工作。
@@ -56,3 +56,5 @@
 技术依据：[Google Data API维度与指标](https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema)、[响应metadata](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/ResponseMetaData)。这里“精确”指时间边界；四站会话是各站GA4会话相加，不冒称跨站用户去重。
 
 总览另经复验：默认“全部有效实测”跨正式／机会／待核三池，仅同词原国语种合格的当前SERP进入国家及区间份额；“正式目标实测”独立保留N/R。背景数据库、GSC、过期及待核名次单列，不能把正式市场身份缺证解释成全站只有2词有排名。
+
+四站真实只读取证：Flatkey原生LA整周1421次，ModelFit原metadata为Asia/Shanghai、同LA窗口小时重聚1次；RackRate空桶经同范围明确标量零值回执证明为0次。RougeCue现有服务账号读取属性565596386返回Google 403；未改Google权限，四站总量仍不判齐。上述为来源取证，平台最终保存读回另记。
