@@ -1,0 +1,1254 @@
+{
+  "reviewedAt": "2026-11-23T02:26:52.951862+00:00",
+  "sourceHash": "ba9cd04b828a46f280ad193dcaf07d34a64cc108718933d0606bf5fe68613036",
+  "rows": [
+    {
+      "keyword": "google gemini url",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "a100 rental",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "rental",
+          "span": [
+            5,
+            11
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "grok video prompt examples",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "examples",
+          "span": [
+            18,
+            26
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini 画像生成プロンプト例",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "画像生成プロンプト例",
+          "span": [
+            7,
+            17
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "gpt api 料金",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "料金",
+          "span": [
+            8,
+            10
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "deepseek 料金",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "料金",
+          "span": [
+            9,
+            11
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "openrouter ai proxy url",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "vercel ai gateway api key",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "openrouter.ai alternatives",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "alternatives",
+          "span": [
+            14,
+            26
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "api gpt",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "openrouter self hosted",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "self hosted",
+          "span": [
+            11,
+            22
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini flash-lite",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "openai quota",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "the loop at the patch scorecard",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "the loop at the patch scorecard",
+          "span": [
+            0,
+            31
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "https openrouter ai keys",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "openai api quota",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api openai compatible",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api openai-compatible",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api openai compatibility",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "compatibility",
+          "span": [
+            18,
+            31
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gpt-4.1 mini model",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api料金",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "料金",
+          "span": [
+            10,
+            12
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api 料金",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "料金",
+          "span": [
+            11,
+            13
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini flash",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini openai compatible api",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gpt api",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "grok 動画生成 プロンプト",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "動画生成 プロンプト",
+          "span": [
+            5,
+            15
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "openrouter",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "deepseek credits",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini 3.1",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api endpoint url",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "openrouter privacy settings",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "privacy settings",
+          "span": [
+            11,
+            27
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini 2.5 flash lite",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "litellm vs",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "ai api costs",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "costs",
+          "span": [
+            7,
+            12
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "ai gateway pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            11,
+            18
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini 2.5 flash",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini-openai api",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "litellm vs vllm",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "realtime api",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "does gemini use openai",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "does gemini use openai",
+          "span": [
+            0,
+            22
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "ai api gateway",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "google ai studio quota",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini openai api",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "open webui api endpoints",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "openai api limits",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "limits",
+          "span": [
+            11,
+            17
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api endpoint",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "vllm vs litellm",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "quota limit",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api cost calculator",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "cost calculator",
+          "span": [
+            11,
+            26
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "routeway ai",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api url",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini api 料金 確認",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "料金 確認",
+          "span": [
+            11,
+            16
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api料金 確認",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "料金 確認",
+          "span": [
+            10,
+            15
+          ],
+          "assessedLanguage": "ja"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api cost per token",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "cost per token",
+          "span": [
+            11,
+            25
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api key price",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "price",
+          "span": [
+            15,
+            20
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini pricing api",
+      "country": "BR",
+      "classification": "CLEAR_MISMATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            7,
+            14
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "llm router",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "h100 gpu",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "free llm providers",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "free",
+          "span": [
+            0,
+            4
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gateway pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            8,
+            15
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini 2.5 flash-lite api pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            26,
+            33
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "what is llm api",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "what is",
+          "span": [
+            0,
+            7
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "free llm api providers",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "free",
+          "span": [
+            0,
+            4
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "model pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            6,
+            13
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "litellm alternatives",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "alternatives",
+          "span": [
+            8,
+            20
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini 2.5 flash lite api pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            26,
+            33
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api price",
+      "country": "ES",
+      "classification": "CLEAR_MISMATCH",
+      "evidence": [
+        {
+          "text": "price",
+          "span": [
+            11,
+            16
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini 3 pro image api",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini 3 token cost",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "cost",
+          "span": [
+            15,
+            19
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api pricing",
+      "country": "ES",
+      "classification": "CLEAR_MISMATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            11,
+            18
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini live api cost",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "cost",
+          "span": [
+            16,
+            20
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "plan key",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "veo 3.1 api pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            12,
+            19
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini image pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            13,
+            20
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gpt 5.4 mini",
+      "country": "BR",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "ai gateway",
+      "country": "JP",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "anthropic pricing",
+      "country": "ES",
+      "classification": "CLEAR_MISMATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            10,
+            17
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "deepseek api endpoint",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini llm pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            11,
+            18
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gpu rentals",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "rentals",
+          "span": [
+            4,
+            11
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "litellm competitors",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "competitors",
+          "span": [
+            8,
+            19
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "veo 3 api price",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "price",
+          "span": [
+            10,
+            15
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini api quota",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini model pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            13,
+            20
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemma 4 api pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            12,
+            19
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "veo 3 api costs",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "costs",
+          "span": [
+            10,
+            15
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "veo api pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            8,
+            15
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "gemini price",
+      "country": "JP",
+      "classification": "CLEAR_MISMATCH",
+      "evidence": [
+        {
+          "text": "price",
+          "span": [
+            7,
+            12
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "deepseek platform",
+      "country": "JP",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "gemini models pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            14,
+            21
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "google gemini api url",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "dreamina seedance 2.0 pricing",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "pricing",
+          "span": [
+            22,
+            29
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "deepseek v4 pro",
+      "country": "ES",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "free llm models api",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "free",
+          "span": [
+            0,
+            4
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "rent gpu",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "rent",
+          "span": [
+            0,
+            4
+          ],
+          "assessedLanguage": "en"
+        }
+      ]
+    },
+    {
+      "keyword": "que es openrouter",
+      "country": "ES",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        {
+          "text": "que es",
+          "span": [
+            0,
+            6
+          ],
+          "assessedLanguage": "es"
+        }
+      ]
+    },
+    {
+      "keyword": "claude sonnet api key",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "open api api key",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "seedance 2.0 api",
+      "country": "JP",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "vercel ai gateway",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "claude 4.5 opus api",
+      "country": "US",
+      "classification": "UNDETERMINED_NEUTRAL_OR_SHARED_TERM",
+      "evidence": []
+    },
+    {
+      "keyword": "b200 memory bandwidth",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "cuda version compatibility",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "dedicated gpu server hosting",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "distributed inference",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "gpu direct storage",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "gpu memory bandwidth",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "post training quantization",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "reduce llm api costs",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "rent gpu server",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "reranking in rag",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "server sent events vs websockets",
+      "country": "US",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "b300 メモリ",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "gpuクラウド 比較",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "llm ファインチューニング",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "llm 量子化",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "nvidia b200 b300 違い",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "ローカルllm コーディング",
+      "country": "JP",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "que es vram",
+      "country": "ES",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "servidor gpu",
+      "country": "ES",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "como treinar uma ia",
+      "country": "BR",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    },
+    {
+      "keyword": "computação distribuída",
+      "country": "BR",
+      "classification": "CLEAR_MATCH",
+      "evidence": [
+        "已发布原任务保留的原词，含对应国家自然语言表达；未从URL或请求locale推断语种"
+      ]
+    }
+  ],
+  "additionalPublishedTargetReview": {
+    "reviewedAt": "2026-11-23T06:47:46.291868+00:00",
+    "source": "production workflow GET allHistory=true, 2026-11-23T06:37:41.904614Z",
+    "sourceSha256": "d5b706cb991cf1f71180ae2c39baf9035055c603088460cf4fbec8beae9e6e90",
+    "purpose": "Review original words of newly associated published targets; no market assignments changed"
+  }
+}
