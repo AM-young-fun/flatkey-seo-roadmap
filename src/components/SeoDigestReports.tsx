@@ -226,51 +226,6 @@ function TechnicalIssues({ text }: { text?: string | string[] }) {
   return <p className={reportStyles.note}>{summary.message}</p>;
 }
 
-const ga4Scopes = ["自然搜索归因", "全渠道业务"] as const;
-const ga4ReasonLabels: Record<string, string> = {
-  registration_invalid_response: "注册查询未返回可核验的数据",
-  registration_empty_response_unverified: "注册查询未返回可核验的数据",
-  no_matching_steps_in_selected_period: "本期无匹配步骤",
-  "invalid_response:funnel_steps_incomplete": "漏斗步骤数据不完整",
-  thresholding: "GA4 数据阈值限制",
-  sampling: "GA4 数据采样",
-};
-
-function BusinessComparison({ lines }: { lines: string[] }) {
-  const metrics = new Map<string, Map<string, string>>();
-  let scope: string | null = null;
-  for (const line of lines) {
-    const heading = /^• (自然搜索归因|全渠道业务)：(.+)$/.exec(line);
-    const metric = /^\s{2,}([^：]+)：(.+)$/.exec(line);
-    const key = heading ? "数据范围" : metric?.[1];
-    const raw = heading?.[2] ?? metric?.[2];
-    if (heading) scope = heading[1];
-    if (line.startsWith("• ") && !heading) scope = null;
-    if (!scope || !key || !raw) continue;
-    const values = metrics.get(key) ?? new Map<string, string>();
-    const value = Object.entries(ga4ReasonLabels).reduce((current, [code, label]) => current.replaceAll(code, label), raw)
-      .replace("America/Los_Angeles", "太平洋时间").replace(/未观测到，埋点上线及收数待核验/g, "未观测到");
-    values.set(scope, value);
-    metrics.set(key, values);
-  }
-  if (!metrics.size) return <p className={reportStyles.note}>本期暂无 GA4 转化回执。</p>;
-  return <>
-    <div className={reportStyles.tableScroll}>
-      <table className={`${reportStyles.comparison} ${reportStyles.businessComparison}`} aria-label="GA4 自然搜索与全渠道对比">
-        <thead><tr><th scope="col">指标</th>{ga4Scopes.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-        <tbody>{[...metrics].map(([metric, values]) => <tr key={metric}>
-          <th scope="row">{metric}</th>{ga4Scopes.map(label => {
-            const value = values.get(label);
-            const collected = metric === "数据范围" && value?.match(/ · 采集 (\S+)$/)?.[1];
-            return <td key={label}>{collected ? <>{value!.replace(/ · 采集 \S+$/, "").replace(/(\d{4}-\d{2}-\d{2})—\1/, "$1")}<small>采集于 {reportStamp(collected)}（洛杉矶时间）</small></> : value ?? "—"}</td>;
-          })}
-        </tr>)}</tbody>
-      </table>
-    </div>
-    <p className={reportStyles.note}>事件人数按区间去重；漏斗按 GA4 同一用户的步骤顺序统计。</p>
-  </>;
-}
-
 const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "Flatkey 落地页关键词"], ["cluster_landing", "集群新增落地页"], ["research", "关键词研究"], ["cluster_work", "集群站其他任务"], ["other_work", "其他任务"]] as const;
 function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
   const filters = plan ? new URLSearchParams({ range: "custom", rangeStart: plan.periodStart ?? plan.weekStart, rangeEnd: plan.periodEnd ?? shiftDay(plan.weekStart, 6) }) : undefined;
@@ -309,7 +264,7 @@ function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly
   </section>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, workPlan, githubSection, businessSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, currentWorkPlan, reportPeriod, dashboard, rankingNotes }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; businessSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; currentWorkPlan?: SeoDigest["currentWorkPlan"]; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[] }) {
+function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, workPlan, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, currentWorkPlan, reportPeriod, dashboard, rankingNotes }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; currentWorkPlan?: SeoDigest["currentWorkPlan"]; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[] }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -331,8 +286,6 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
   const countries = dashboard?.traffic?.countries ?? (countrySection ? parseReportComparisons(countrySection.lines) : null);
   const sites = sections.find(section => section.title.startsWith("五站自然搜索"));
   const github = githubSection?.slice(1) ?? sections.find(section => section.title.startsWith("GitHub 提示词渠道"))?.lines;
-  const business = businessSection?.slice(1) ?? sections.find(section => section.title.startsWith("GA4 行为与转化"))?.lines;
-  const businessCoverage = business?.find(line => line.startsWith("已采集 "));
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
   const focus = reportFocusLines(workPlan, next?.lines);
@@ -349,10 +302,6 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
       <TechnicalIssues text={dashboard?.technicalText || technical?.lines} />
     </section> : null}
     <RecentPageTraffic pages={recentPages} />
-    {weekly && business ? <section className={reportStyles.section}>
-      <h3>GA4 行为与转化</h3><BusinessComparison lines={business} />
-      {businessCoverage ? <p className={reportStyles.note}>{businessCoverage}</p> : null}
-    </section> : null}
     {weekly ? <ReportWorkPlan plan={currentWorkPlan} weekly={false} /> : null}
     <ReportWorkPlan plan={workPlan} weekly={weekly} />
     <section className={reportStyles.section}>
@@ -444,7 +393,7 @@ export function SeoDigestReports() {
             <small>首次获客为自然搜索 · 区间去重</small>
             <small>America/Los_Angeles</small></div>
         </dl>
-        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={view?.recentPages ?? report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} workPlan={view?.workPlan ?? report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection}
+        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={view?.recentPages ?? report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} workPlan={view?.workPlan ?? report.workPlan} githubSection={report.githubSection}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} currentWorkPlan={view?.currentWorkPlan ?? report.currentWorkPlan} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} /></>}
         {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}
       </article>}
