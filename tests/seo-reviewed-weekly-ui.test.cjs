@@ -1,6 +1,6 @@
 const { test } = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
-const React = require("react"), { renderToReadableStream } = require("react-dom/server");
+const React = require("react"), { renderToReadableStream, renderToStaticMarkup } = require("react-dom/server");
 const root = path.resolve(__dirname, ".."), load = Module._load;
 const body = "**已审完整周报**\n\n业务与搜索表现：注册78人。\n\n<script>not executable</script>";
 const report = { id: "seo-digest:2026-11-19:0123456789abcdef", date: "2026-11-19", kind: "weekly", title: "已审完整周报", generatedAt: "2026-11-19T11:00:00Z",
@@ -30,9 +30,10 @@ async function renderReport() {
   await stream.allReady;
   return new Response(stream).text();
 }
-test("reviewed snapshots show the exact safe body without stale structured metrics or dynamic correction text", async () => {
-  const html = await renderReport();
+test("available reviewed snapshots render their exact safe body immediately without a second loading boundary", () => {
+  const html = renderToStaticMarkup(React.createElement(SeoDigestReports));
   assert.match(html, /已审周报完整正文/); assert.match(html, /注册78人/);
+  assert.doesNotMatch(html, /正在读取报告正文/);
   assert.doesNotMatch(html, /<script|not executable/);
   assert.doesNotMatch(html, /999123|stale registration coverage|事后修订|待审页面版本|SEO 注册人数/);
 });
