@@ -10,7 +10,8 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 export async function GET(request: Request) {
   try {
     await authorizeWorkflow(request);
-    const offset = Number(new URL(request.url).searchParams.get("offset") ?? 0);
+    const params = new URL(request.url).searchParams;
+    const offset = Number(params.get("evidenceOffset") ?? params.get("offset") ?? 0);
     if (!Number.isInteger(offset) || offset < 0 || offset > 1500) return Response.json({ message: "无效分页" }, { status: 400, headers: workflowHeaders });
     const tasks = await prisma.serpMonitorTask.findMany({ where: { runId: { in: approvedWeeklyCaptureRunIds() } },
       orderBy: { id: "asc" }, skip: offset, take: 50,
