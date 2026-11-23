@@ -24,6 +24,7 @@ test('report business dates use LA midnight independently of host and content wo
 test('new daily reports cover the previous complete LA day and become ready at LA 02:00', () => {
   assert.deepEqual(digestWindow('2026-11-19'), { kind: 'daily', workStart: '2026-11-18T08:00:00.000Z',
     workEnd: '2026-11-19T08:00:00.000Z', workTimezone: 'America/Los_Angeles', readyAfter: '2026-11-19T10:00:00.000Z',
+    executionStart: '2026-11-18T00:00:00+08:00', executionEnd: '2026-11-19T00:00:00+08:00', executionTimezone: 'Asia/Shanghai',
     trafficStart: '2026-11-18', trafficEnd: '2026-11-18' });
   assert.equal(digestWindow('2027-07-01').readyAfter, '2027-07-01T09:00:00.000Z');
   const input = { date: '2026-11-19', observations: [], publications: [], optimizations: [], effects: [],

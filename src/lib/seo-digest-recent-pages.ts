@@ -1,22 +1,36 @@
 import { analyticsSiteForProperty, safeAnalyticsUrl, type AnalyticsObservation } from "./seo-analytics";
 import { CLUSTER_SITES } from "./seo-cluster-sites";
-import { seoToday, shiftDay } from "./seo-date-range";
+import { shiftDay } from "./seo-date-range";
 import { gscDate } from "./seo-page-effects";
 import type { WorkflowSnapshot } from "./seo-workflow";
 
+type SearchPoint = { date: string; property: string; clicks: number; impressions: number };
+type VisitPoint = { date: string; visits: number };
+export type RecentPublishedPage = {
+  url: string; title: string; day: string; change: "new" | "optimization"; cohort: "current" | "previous";
+  before: SearchPoint | null; latest: SearchPoint | null; beforeVisits: VisitPoint | null; latestVisits: VisitPoint | null;
+};
+
+/** Also projects older frozen rows without changing their saved snapshot. */
+export function bestMonthlyOptimizations(pages: readonly RecentPublishedPage[] | null | undefined): RecentPublishedPage[] {
+  return (pages ?? []).filter(row => row.change === "optimization" && row.before && row.latest && row.before.property === row.latest.property &&
+    (row.latest.clicks > row.before.clicks || row.latest.clicks === row.before.clicks && row.latest.impressions > row.before.impressions))
+    .sort((a, b) => (b.latest!.clicks - b.before!.clicks) - (a.latest!.clicks - a.before!.clicks)
+      || (b.latest!.impressions - b.before!.impressions) - (a.latest!.impressions - a.before!.impressions)
+      || b.latest!.date.localeCompare(a.latest!.date) || b.day.localeCompare(a.day) || a.url.localeCompare(b.url))
+    .slice(0, 10);
+}
+
 type WeeklyPageWindow = { trafficStart: string; trafficEnd: string; workEnd: string; workTimezone: string };
-export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, observations: AnalyticsObservation[], end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow) {
-  const period = weekly && weeklyWindow?.workTimezone === "America/Los_Angeles" ? weeklyWindow : undefined;
-  const cutoff = Math.min(now.getTime(), Date.parse(period?.workEnd ?? shiftDay(end, weekly ? 0 : 1) + "T00:00:00+08:00") - 1);
-  const currentStart = period?.trafficStart ?? (weekly ? shiftDay(end, -7) : shiftDay(end, -((new Date(end + "T00:00:00Z").getUTCDay() + 2) % 7)));
-  const previousStart = shiftDay(currentStart, -7);
-  const publicationDay = (stamp: string) => period
-    ? new Intl.DateTimeFormat("en-CA", { timeZone: period.workTimezone }).format(new Date(stamp)) : seoToday(new Date(stamp));
+export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, observations: AnalyticsObservation[], end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow): RecentPublishedPage[] {
+  const periodEnd = weekly && weeklyWindow ? weeklyWindow.trafficEnd : shiftDay(end, -1);
+  const periodStart = shiftDay(periodEnd, -29);
+  const cutoff = now.getTime();
+  // Ranking and the before/after search observations share the GSC calendar.
+  const publicationDay = (stamp: string) => gscDate(new Date(stamp));
   type Page = WorkflowSnapshot["publications"][number];
-  type Change = "new" | "optimization";
   const approvals = new Map(workflow.approvals.map(approval => [approval.id, approval]));
-  const firstNew = new Map<string, Page>();
-  const changes: { page: Page; change: Change }[] = [];
+  const changes: { page: Page; change: "optimization" }[] = [];
   for (const page of workflow.publications) {
     if (page.status !== "verified" || !page.verifiedAt || !page.verificationRecordedAt
       || Date.parse(page.publishedAt) > cutoff || [page.verifiedAt, page.verificationRecordedAt].some(stamp => Date.parse(stamp) > now.getTime())
@@ -24,21 +38,15 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
     const operation = page.automaticWrite?.operation ?? approvals.get(page.approvalId ?? "")?.items.find(item => item.id === page.approvalItemId)?.operation;
     if (page.kind === "optimization" || operation === "update") {
       changes.push({ page, change: "optimization" });
-    } else if (operation === "new" || operation === "create") {
-      const prior = firstNew.get(page.pageUrl);
-      if (!prior || Date.parse(page.publishedAt) < Date.parse(prior.publishedAt)) firstNew.set(page.pageUrl, page);
     }
   }
-  for (const page of firstNew.values()) changes.push({ page, change: "new" });
   const latestChanges = new Map<string, (typeof changes)[number]>();
   for (const entry of changes) {
     const day = publicationDay(entry.page.publishedAt);
-    if (day < previousStart) continue;
+    if (day < periodStart || day > periodEnd) continue;
     const prior = latestChanges.get(entry.page.pageUrl);
     if (!prior || Date.parse(entry.page.publishedAt) > Date.parse(prior.page.publishedAt)) latestChanges.set(entry.page.pageUrl, entry);
   }
-  type SearchPoint = { date: string; property: string; clicks: number; impressions: number };
-  type VisitPoint = { date: string; visits: number };
   const search = new Map<string, SearchPoint[]>(), visits = new Map<string, VisitPoint[]>();
   const gaPaths = new Map<string, string>();
   const analyticsKey = (site: string, url: string) => site + "|" + url;
@@ -49,7 +57,7 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
     gaPaths.set(analyticsKey(page.siteDomain, target.hostname + target.pathname + target.search), key);
   }
   for (const row of observations) {
-    if (row.country || row.date > (period?.trafficEnd ?? shiftDay(end, -1)) || Date.parse(row.observedAt) > now.getTime()) continue;
+    if (row.country || row.date > periodEnd || Date.parse(row.observedAt) > now.getTime()) continue;
     const site = analyticsSiteForProperty(row.property);
     if (!site) continue;
     if (row.kind === "gsc-pages" && row.complete) {
@@ -65,7 +73,7 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
       }
     }
   }
-  return [...latestChanges.values()].map(({ page, change }) => {
+  return bestMonthlyOptimizations([...latestChanges.values()].map(({ page, change }) => {
     const launch = new Date(page.publishedAt), day = publicationDay(page.publishedAt);
     const key = analyticsKey(page.siteDomain, page.pageUrl);
     const gscLaunchDay = gscDate(launch), gsc = search.get(key) ?? [];
@@ -76,8 +84,6 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
     const ga4 = (visits.get(key) ?? []).sort((a, b) => b.date.localeCompare(a.date));
     const beforeVisits = ga4.find(row => row.date < gaLaunchDay) ?? null;
     const latestVisits = ga4.find(row => row.date > gaLaunchDay) ?? null;
-    return { url: page.pageUrl, title: page.title, day, change, cohort: day >= currentStart ? "current" as const : "previous" as const, before, latest, beforeVisits, latestVisits };
-  }).sort((a, b) => (b.latest?.date ?? b.latestVisits?.date ?? "").localeCompare(a.latest?.date ?? a.latestVisits?.date ?? "")
-    || (b.latest?.clicks ?? -1) - (a.latest?.clicks ?? -1) || (b.latest?.impressions ?? -1) - (a.latest?.impressions ?? -1)
-    || (b.latestVisits?.visits ?? -1) - (a.latestVisits?.visits ?? -1) || b.day.localeCompare(a.day) || a.url.localeCompare(b.url));
+    return { url: page.pageUrl, title: page.title, day, change: change as "new" | "optimization", cohort: "current" as "current" | "previous", before, latest, beforeVisits, latestVisits };
+  }));
 }

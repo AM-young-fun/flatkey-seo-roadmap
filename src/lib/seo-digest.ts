@@ -18,6 +18,8 @@ import { blogPageCounts, type BlogPageCounts } from "./seo-blog-page-counts";
 import { z } from "zod";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, reviewPreviewUrl, workflowApprovalEffectiveItemStatus, workflowWeek, type WorkflowApproval, type WorkflowOptimization, type WorkflowSnapshot } from "./seo-workflow";
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
+import { reportFocusLines } from "./seo-report-plan-display";
+import { digestExecutionPeriod, digestExecutionWeek } from "./seo-digest-work-plan";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
 export const SEO_REPORT_GROUP = "cid7d5au0J8RAKDDxMR+VNh1w==";
@@ -44,9 +46,10 @@ export type DigestPublication = { id: string; url: string; title: string; kind: 
 export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string };
 export type DigestWorkPlan = {
   weekStart: string;
+  periodStart?: string; periodEnd?: string; workdays?: string[];
   status: "draft" | "scheduled" | "reviewed" | "bootstrap";
   targets?: { blogs: number; landing: number; optimizedPages: number; clusterLanding: number };
-  tasks: { id: string; kind: "blog" | "landing" | "optimization" | "cluster_work" | "cluster_landing" | "research"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; owner?: string; dueAt: string; status: string; action: string }[];
+  tasks: { id: string; weekStart?: string; siteDomain?: string; scheduled?: boolean; kind: "blog" | "landing" | "optimization" | "cluster_work" | "cluster_landing" | "research" | "other_work"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; owner?: string; dueAt: string; status: string; action: string }[];
 };
 
 export type DigestInput = {
@@ -85,15 +88,20 @@ export function digestWindow(date: string, kind: DigestKind = "daily") {
     const sourceDay = shift(date, -1);
     return { kind, workStart: losAngelesDayStart(sourceDay), workEnd: losAngelesDayStart(date),
       workTimezone: "America/Los_Angeles" as const, readyAfter: reportTime(date, 2),
+      executionStart: sourceDay + "T00:00:00+08:00", executionEnd: date + "T00:00:00+08:00",
+      executionTimezone: "Asia/Shanghai" as const,
       trafficStart: sourceDay, trafficEnd: sourceDay };
   }
   if (weekly && date >= "2026-11-19") {
     if (weekday !== 4 && weekday !== 5) throw new Error("周报日期必须是洛杉矶周四或周五");
     const period = weeklyReportRange(date);
     const preparationDay = shift(period.end, 1);
+    const execution = digestExecutionPeriod(digestExecutionWeek(date, kind));
     return {
       kind, workStart: losAngelesDayStart(period.start), workEnd: losAngelesDayStart(preparationDay),
       workTimezone: "America/Los_Angeles" as const,
+      executionStart: execution.start + "T00:00:00+08:00", executionEnd: shift(execution.end, 1) + "T00:00:00+08:00",
+      executionTimezone: "Asia/Shanghai" as const,
       // Preserve the exact readyAfter binding of the already reviewed first week.
       readyAfter: preparationDay === "2026-11-19" ? preparationDay + "T16:30:00+08:00" : reportTime(preparationDay, 0, 30),
       trafficStart: period.start, trafficEnd: period.end,
@@ -342,11 +350,10 @@ function cardPageGroups(input: DigestInput, window: ReturnType<typeof digestWind
 }
 
 function dailyWorkEffectLines(recent: DigestInput["recentPages"], date: string) {
-  const start = shift(date, -7), end = shift(date, -1);
+  const end = shift(date, -1), start = shift(end, -29);
   const pages = (recent ?? []).filter(row => row.day >= start && row.day <= end);
-  const evidence = pages.filter(page => page.latest || page.latestVisits)
-    .sort((a, b) => a.day.localeCompare(b.day) || a.url.localeCompare(b.url));
-  const lines = [`过去 7 天上线（北京时间 ${start}—${end}） · 已核实 ${pages.length} 个页面 · ${evidence.length} 个已有上线后数据`];
+  const evidence = pages.filter(page => page.before && page.latest);
+  const lines = [`近一个月优化（洛杉矶时间 ${start}—${end}） · 已核实提升 ${evidence.length} 个页面`];
   for (const page of evidence.slice(0, 4)) {
     const path = shortCardText(new URL(page.url).pathname, 64);
     const search = !page.latest ? "" : page.before
@@ -469,7 +476,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
 
   const rankingNotes = input.rankingNotes ?? [];
   if (!weekly) {
-    lines.push("", "**2. 过去 7 天的工作效果**", ...dailyWorkEffectLines(input.recentPages, input.date));
+    lines.push("", "**2. 近一个月优化效果**", ...dailyWorkEffectLines(input.recentPages, input.date));
     lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 180))
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
     lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
@@ -684,7 +691,7 @@ export function buildSeoDigest(input: DigestInput) {
   const weeklyTraffic = window.kind === "weekly" ? weeklyTrafficRows(input, window) : undefined;
   const pagePerformance = digestTopPages(input.pageObservations ?? [], input.date, now,
     window.kind === "weekly" ? { start: window.trafficStart, end: window.trafficEnd } : undefined);
-  const start = Date.parse(window.workStart), end = Math.min(now.getTime(), Date.parse(window.workEnd));
+  const start = Date.parse(window.executionStart ?? window.workStart), end = Math.min(now.getTime(), Date.parse(window.executionEnd ?? window.workEnd));
   const publications = [...new Map(input.publications.filter(row => confirmedInWindow(row, start, end) && safeLink(row.url)
     && Date.parse(row.publishedAt) <= Date.parse(row.verifiedAt)).map(row => [row.url, row])).values()];
   const originals = publications.filter(row => row.kind === "source"), translations = publications.filter(row => row.kind === "translation");
@@ -710,7 +717,10 @@ export function buildSeoDigest(input: DigestInput) {
     ? `Flatkey SEO 周报｜${window.trafficStart}—${window.trafficEnd}`
     : `Flatkey SEO 日报｜${window.trafficEnd}`;
   const losAngelesWeek = window.kind === "weekly" && window.workTimezone === "America/Los_Angeles";
-  const workPeriodLabel = window.workTimezone === "America/Los_Angeles"
+  const workPeriodLabel = window.executionStart
+    ? window.kind === "daily" ? `${window.executionStart.slice(0, 10)}（北京时间，当天00:00—24:00）`
+      : `${window.executionStart.slice(0, 10)} — ${shift(window.executionEnd.slice(0, 10), -1)}（北京时间，周五至周四）`
+    : window.workTimezone === "America/Los_Angeles"
     ? `${window.trafficStart} 00:00 — ${shift(window.trafficEnd, 1)} 00:00（洛杉矶时间，结束时刻不含）`
     : `${window.workStart.slice(0, 16).replace("T", " ")} — ${window.workEnd.slice(0, 16).replace("T", " ")}（北京时间，结束时刻不含）`;
   const lines = [title, "", `工作统计：${workPeriodLabel}；确认截止 ${window.workTimezone === "America/Los_Angeles" ? reportStamp(now) + "（洛杉矶时间）" : now.toISOString()}。`, "",
@@ -862,8 +872,8 @@ export function buildSeoDigest(input: DigestInput) {
     if (waiting) dailyFocus.push(`复查近期上线页 ${link(waiting.title, waiting.url)}：核对生产 URL 和索引，等首个完整数据日再评估变化。`);
     if (mainClicks.current === null) dailyFocus.push("复核 GSC 采集回执并补齐最新完整日数据，再判断点击变化。");
   }
-  const plannedFocus = input.priorities.map(row => `${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""} · ${escaped(row.reason)} · ${escaped(row.action)}`);
-  const nextFocus = (window.kind === "weekly" ? plannedFocus : [...dailyFocus, ...plannedFocus]).slice(0, window.kind === "weekly" ? 8 : 3);
+  const plannedFocus = reportFocusLines(input.workPlan, input.priorities.map(row => `${row.url ? link(row.title, row.url) : escaped(row.title)}${row.keyword ? " · " + escaped(row.keyword) : ""}${row.country ? " · " + escaped(row.country) : ""}`));
+  const nextFocus = (window.kind === "weekly" ? plannedFocus : [...dailyFocus, ...plannedFocus]).slice(0, 3);
   if (nextFocus.length) nextFocus.forEach((row, i) => lines.push(`${i + 1}. ${row}`));
   else lines.push(window.kind === "weekly" ? "• 下周任务尚未排期，等待关键词研究和页面任务入库。" : "• 复核最新完整日的点击与曝光；有明显异常时再建立优化任务。");
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
@@ -881,7 +891,10 @@ export function buildSeoDigest(input: DigestInput) {
   return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes }), date: input.date, kind: window.kind, title, text, detailText, hash,
     ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
-    workWindow: { start: window.workStart, end: window.workEnd }, counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
+    workWindow: { start: window.workStart, end: window.workEnd },
+    executionWindow: { start: window.executionStart ?? window.workStart, end: window.executionEnd ?? window.workEnd,
+      timezone: window.executionTimezone ?? window.workTimezone },
+    counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
     recentPages: input.recentPages,
     deliveryStates: input.deliveryStates,

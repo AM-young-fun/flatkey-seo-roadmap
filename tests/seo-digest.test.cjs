@@ -150,7 +150,7 @@ test("new weekly drafts use the same closed LA Thursday-Wednesday period on Thur
  assert.equal(before.preliminary, true); assert.equal(ready.preliminary, false);
  assert.deepEqual(ready.reportPeriod, { start: "2026-11-12", end: "2026-11-18", timezone: "America/Los_Angeles" });
  assert.match(ready.text, /统计期\*\* 2026-11-12—2026-11-18（洛杉矶）/);
- assert.match(ready.text, /待用户审核/); assert.match(ready.detailText, /洛杉矶时间，结束时刻不含/);
+ assert.match(ready.text, /待用户审核/); assert.match(ready.detailText, /2026-11-13 — 2026-11-19（北京时间，周五至周四）/);
  assert.equal(buildSeoDigest({ ...base("2026-11-13"), kind: "weekly" }).reportPeriod, undefined);
  assert.throws(() => digestWindow("2026-11-21", "weekly"), /周四或周五/);
 });
@@ -161,12 +161,12 @@ test("future LA weekly work boundaries and preparation clocks follow DST", () =>
  assert.equal((Date.parse(spring.workEnd) - Date.parse(spring.workStart)) / 3600000, 167);
  assert.equal((Date.parse(autumn.workEnd) - Date.parse(autumn.workStart)) / 3600000, 169);
 });
-test("weekly deliveries are counted using exact LA boundaries and actual verification receipt time", () => {
+test("weekly deliveries are counted using Beijing Friday–Thursday boundaries and actual verification receipt time", () => {
  const publication = (id, stamp) => ({ id, title: id, url: "https://flatkey.ai/blog/" + id, kind: "source", publishedAt: stamp, verifiedAt: stamp, recordedAt: stamp });
  const report = buildSeoDigest({ ...base("2026-11-19"), kind: "weekly", publications: [
-  publication("before", "2026-11-12T07:59:59Z"), publication("start", "2026-11-12T08:00:00Z"),
-  publication("last", "2026-11-19T07:59:59Z"), publication("after", "2026-11-19T08:00:00Z"),
- ] });
+  publication("before", "2026-11-12T15:59:59Z"), publication("start", "2026-11-12T16:00:00Z"),
+  publication("last", "2026-11-19T15:59:59Z"), publication("after", "2026-11-19T16:00:00Z"),
+ ], now: new Date("2026-11-20T00:00:00+08:00") });
  assert.equal(report.counts.originals, 2);
 });
 test("new LA weeks keep stage values but do not compute a weekly change from six days", () => {
@@ -328,7 +328,7 @@ test("DingTalk daily and weekly cards show comparable data with the real dates a
  assert.match(daily.text, /Google 全站点击 5 → \*\*10\*\*（\+5 \/ \+100.0%） · 2026-11-09 → 2026-11-10/);
  assert.match(daily.text, /Google 全站曝光 50 → \*\*100\*\*/);
  assert.match(daily.text, /Google CTR 10.00% → 10.00%/);
- assert.match(daily.text, /页面组表现[\s\S]*过去 7 天的工作效果[\s\S]*关键词实测排名[\s\S]*技术异常[\s\S]*今日完成[\s\S]*数据状态/);
+ assert.match(daily.text, /页面组表现[\s\S]*近一个月优化效果[\s\S]*关键词实测排名[\s\S]*技术异常[\s\S]*今日完成[\s\S]*数据状态/);
  assert.doesNotMatch(daily.text, /private-diagnostic-marker|https:/);
  assert.match(daily.detailText, /private-diagnostic-marker|待审核/);
  const weekly = buildSeoDigest({ ...input, kind: "weekly" });
@@ -421,36 +421,34 @@ test("Friday platform reports remind only unfinished weekly and overdue approval
  assert.match(monday.detailText, /审批逾期 2 项/);
  assert.doesNotMatch(monday.detailText, /本周仍有/);
 });
-test("recent page comparison includes both weeks, excludes unverified and newer weekly records, dedupes by latest change and prioritizes freshness", () => {
+test("recent optimization comparison includes the full month and excludes new or unverified pages", () => {
  const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");
- const page = (name, day, kind = "landing", extra = {}) => ({ pageUrl: "https://flatkey.ai/" + name, siteDomain: "flatkey.ai", title: name, kind,
-   publishedAt: day + "T15:00:00Z", verifiedAt: day + "T15:05:00Z", verificationRecordedAt: day + "T15:10:00Z",
-   status: "verified", ...(kind === "landing" ? { approvalId: name, approvalItemId: name } : {}), ...extra });
- const publications = [page("new", "2026-11-04"), page("optimized", "2026-11-07", "optimization"), page("optimized", "2026-11-10", "optimization"),
-   page("friday", "2026-11-13", "optimization"), page("older", "2026-10-29", "optimization"),
+ const page = (name, day, kind = "optimization", extra = {}) => ({ pageUrl: "https://flatkey.ai/" + name, siteDomain: "flatkey.ai", title: name, kind,
+   publishedAt: day + "T15:00:00Z", verifiedAt: day + "T15:05:00Z", verificationRecordedAt: day + "T15:10:00Z", status: "verified", ...extra });
+ const publications = [page("new", "2026-11-04", "landing", { automaticWrite: { operation: "create" } }),
+   page("optimized", "2026-11-07"), page("optimized", "2026-11-10"), page("older", "2026-10-29"),
    page("unknown", "2026-11-10", "optimization", { status: "published" })];
  const search = (day, name, clicks) => ({ kind: "gsc-pages", complete: true, date: day, property: "sc-domain:flatkey.ai",
    observedAt: "2026-11-13T16:00:00Z", rows: [{ url: "https://flatkey.ai/" + name, clicks, impressions: clicks * 10 }] });
- const observations = [search("2026-11-09", "new", 100), search("2026-11-12", "optimized", 3), search("2026-11-09", "optimized", 1)];
- const approvals = [{ id: "new", items: [{ id: "new", operation: "new" }] }];
- const now = new Date("2026-11-13T17:00:00Z");
- const weekly = recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, true);
- assert.deepEqual(weekly.map(row => [row.title, row.change, row.cohort]), [["optimized", "optimization", "current"], ["new", "new", "previous"]]);
- assert.equal(weekly[0].before.clicks, 1);
- assert.equal(weekly[0].latest.clicks, 3);
- assert.equal(recentPublishedPages({ approvals, publications }, observations, "2026-11-13", now, false).some(row => row.title === "friday"), true);
+ const observations = [search("2026-11-03", "new", 1), search("2026-11-09", "new", 100),
+   search("2026-11-12", "optimized", 3), search("2026-11-09", "optimized", 1),
+   search("2026-10-28", "older", 1), search("2026-11-11", "older", 11)];
+ const monthly = recentPublishedPages({ approvals: [], publications }, observations, "2026-11-13", new Date("2026-11-13T17:00:00Z"), true);
+ assert.deepEqual(monthly.map(row => [row.title, row.change]), [["older", "optimization"], ["optimized", "optimization"]]);
+ assert.equal(monthly[1].before.clicks, 1);
+ assert.equal(monthly[1].latest.clicks, 3);
 });
-test("recent weekly pages use the LA publication day and do not include Thursday work or observations", () => {
+test("monthly optimization ranking keeps the traffic cutoff when execution work has another timezone", () => {
  const { recentPublishedPages } = require("../src/lib/seo-digest-recent-pages.ts");
- const page = (name, stamp) => ({ pageUrl: "https://flatkey.ai/" + name, siteDomain: "flatkey.ai", title: name, kind: "landing",
-  publishedAt: stamp, verifiedAt: stamp, verificationRecordedAt: stamp, status: "verified", automaticWrite: { operation: "create" } });
- const publications = [page("previous", "2026-11-12T07:59:59Z"), page("start", "2026-11-12T08:00:00Z"),
-  page("last", "2026-11-19T07:59:59Z"), page("after", "2026-11-19T08:00:00Z")];
- const window = digestWindow("2026-11-19", "weekly");
- const weekly = recentPublishedPages({ approvals: [], publications }, [], "2026-11-19", new Date("2026-11-19T08:30:00Z"), true, window);
- assert.deepEqual(weekly.map(row => [row.title, row.day, row.cohort]), [
-  ["last", "2026-11-18", "current"], ["start", "2026-11-12", "current"], ["previous", "2026-11-11", "previous"],
+ const page = (name, stamp) => ({ pageUrl: "https://flatkey.ai/" + name, siteDomain: "flatkey.ai", title: name, kind: "optimization",
+  publishedAt: stamp, verifiedAt: stamp, verificationRecordedAt: stamp, status: "verified" });
+ const publications = [page("last", "2026-11-18T08:00:00Z"), page("after", "2026-11-19T08:00:00Z")];
+ const observations = ["last", "after"].flatMap(name => [
+  { kind: "gsc-pages", complete: true, date: "2026-11-17", property: "sc-domain:flatkey.ai", observedAt: "2026-11-20T00:00:00Z", rows: [{ url: "https://flatkey.ai/" + name, clicks: 0, impressions: 1 }] },
+  { kind: "gsc-pages", complete: true, date: "2026-11-20", property: "sc-domain:flatkey.ai", observedAt: "2026-11-21T00:00:00Z", rows: [{ url: "https://flatkey.ai/" + name, clicks: 10, impressions: 20 }] },
  ]);
+ const window = { trafficStart: "2026-11-12", trafficEnd: "2026-11-18", workEnd: "2026-11-20T00:00:00+08:00", workTimezone: "Asia/Shanghai" };
+ assert.deepEqual(recentPublishedPages({ approvals: [], publications }, observations, "2026-11-19", new Date("2026-11-21T08:30:00Z"), true, window), []);
 });
 
 test("daily and weekly reports preserve linked plans and include the next scheduled tasks in the weekly card", () => {
@@ -505,20 +503,26 @@ test("account registrations keep UTC dates, real zero, later corrections, and in
 });
 
 
-test("daily card shows dated release effects and only counts confirmed work in the final section", () => {
+test("daily card shows the month of verified optimization gains in effect order and only counts confirmed work", () => {
+ const { bestMonthlyOptimizations } = require("../src/lib/seo-digest-recent-pages.ts");
+ const row = (name, day, beforeClicks, afterClicks, change = "optimization") => ({ day, change, url: "https://flatkey.ai/blog/" + name, title: name,
+  before: { date: "2026-10-16", property: "sc-domain:flatkey.ai", clicks: beforeClicks, impressions: beforeClicks * 10 },
+  latest: { date: "2026-11-15", property: "sc-domain:flatkey.ai", clicks: afterClicks, impressions: afterClicks * 10 },
+  beforeVisits: null, latestVisits: null });
  const date = "2026-11-17", report = buildSeoDigest({ ...base(date), notificationCompact: true, resolvedIssues: 2,
    priorities: [{ title: "approval-private-marker", reason: "pending", action: "review" }],
-   recentPages: [
-     { day: "2026-11-10", change: "optimization", url: "https://flatkey.ai/blog/updated", title: "Updated",
-       before: { date: "2026-11-09", clicks: 4 }, latest: { date: "2026-11-15", clicks: 11 },
-       beforeVisits: null, latestVisits: null },
-     { day: "2026-11-09", change: "new", url: "https://flatkey.ai/blog/outside-window", title: "Old",
-       before: null, latest: { date: "2026-11-15", clicks: 999 }, beforeVisits: null, latestVisits: null },
-   ] });
- assert.match(report.text, /过去 7 天上线.*2026-11-10—2026-11-16.*1 个已有上线后数据/);
- assert.match(report.text, /优化 \/blog\/updated · Google 点击 4 → \*\*11\*\*.*2026-11-09 → 2026-11-15/);
+   recentPages: bestMonthlyOptimizations([
+     row("updated", "2026-11-10", 4, 11),
+     row("older-month-gain", "2026-10-25", 10, 30),
+     row("outside-month", "2026-10-17", 0, 100),
+     row("new-page", "2026-11-09", 0, 999, "new"),
+     row("regression", "2026-11-09", 10, 0),
+   ]) });
+ assert.match(report.text, /近一个月优化.*2026-10-18—2026-11-16.*已核实提升 2 个页面/);
+ assert.match(report.text, /优化 \/blog\/updated · Google 点击 4 → \*\*11\*\*.*2026-10-16 → 2026-11-15/);
+ assert.ok(report.text.indexOf("/blog/older-month-gain") < report.text.indexOf("/blog/updated"), "larger improvements stay first even when they were optimized earlier in the month");
  assert.match(report.text, /修复 \*\*2 个问题\*\*/);
- assert.doesNotMatch(report.text, /outside-window|approval-private-marker|下一步/);
+ assert.doesNotMatch(report.text, /outside-month|new-page|regression|approval-private-marker|下一步/);
 });
 
 test("daily cards retain older verified sources with explicit dates instead of losing every metric", () => {
