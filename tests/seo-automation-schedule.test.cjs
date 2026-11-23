@@ -4,6 +4,9 @@ const root = path.resolve(__dirname, ".."), originalLoad = Module._load;
 let response = { data: null, error: null, retry() {} };
 Module._load = function (name, parent, ...rest) {
   if (name === "./useSeoAnalytics") return { useSeoRead: url => { assert.equal(url, "/api/operations"); return response; } };
+  // Paid review panels have independent data hooks and their own component tests.
+  if (name === "./ApprovedKeywordReview") return { ApprovedKeywordReview: () => null };
+  if (name === "./ApprovedOtherKeywordReview") return { ApprovedOtherKeywordReview: () => null };
   if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, property) => property === "__esModule" ? false : String(property) });
   return originalLoad.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest);
 };
@@ -24,6 +27,42 @@ const makeStatus = () => ({
   ], records: [],
 });
 const render = () => renderToStaticMarkup(React.createElement(SeoAutomationSchedule));
+
+test("retired executors stay out of current plans while protected automations keep their configured status", () => {
+  const plans = configuredAutomationPlans(new Date("2026-11-23T06:00:00Z"));
+  const retired = ["seo-09-30", "seo-13-30", "seo-14-30", "seo-15-00", "seo-16-00"];
+  for (const id of retired) {
+    assert.ok(!config.tasks.some(task => task.id === id), `${id} must not return to the snapshot`);
+    assert.ok(!plans.some(plan => plan.id === id));
+    assert.ok(!config.verificationScope.includes(id));
+  }
+  assert.ok(config.tasks.every(task => task.kind === "cron"));
+  assert.equal(config.tasks.find(task => task.id === "automation-2").status, "ACTIVE");
+  assert.equal(config.tasks.find(task => task.id === "flatkey-5").status, "ACTIVE");
+  for (const id of ["seo-10-00-2", "seo-3"]) {
+    assert.equal(config.tasks.find(task => task.id === id).status, "PAUSED");
+    assert.equal(plans.find(plan => plan.id === id).nextAt, null);
+  }
+  assert.deepEqual(new Set(config.verificationScope), new Set(config.tasks.map(task => task.id)));
+});
+
+test("LA gated wakeups remain candidates instead of applying Beijing workday execution claims", () => {
+  const plans = configuredAutomationPlans(new Date("2026-11-21T00:30:00Z")); // Saturday in Beijing.
+  for (const id of ["seo-16-00-ga4-search-console", "seo-09-10-flatkey", "seo-16-25", "seo-17-30"]) {
+    const task = config.tasks.find(task => task.id === id);
+    const plan = plans.find(plan => plan.id === id);
+    assert.equal(task.workdaysOnly, false, "Beijing workday filtering cannot represent the LA or Monday gates");
+    assert.match(plan.cadence, /^候选唤醒：每日 /);
+    assert.match(plan.note, /洛杉矶\d{2}:\d{2}目标窗口/);
+    assert.match(plan.note, /周一/);
+    assert.match(plan.note, /DST/);
+    assert.ok(plan.nextAt.startsWith("2026-11-21"), "candidate wakeups are not proof that business work may run");
+  }
+  assert.equal(config.tasks.find(task => task.id === "seo-09-00-github-traffic").workdaysOnly, true);
+  assert.equal(config.tasks.find(task => task.id === "flatkey-5").workdaysOnly, true);
+  assert.match(plans.find(plan => plan.id === "flatkey-5").note, /原ID.*原会话/);
+  assert.match(plans.find(plan => plan.id === "seo-10-00").note, /近24小时.*近7天/);
+});
 
 test("next-week preparation finishes before Thursday 16:00 and does not depend on the later weekly report", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-25T06:00:00Z"));
