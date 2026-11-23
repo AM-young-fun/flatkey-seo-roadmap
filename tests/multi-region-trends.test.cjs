@@ -43,10 +43,32 @@ mockFile("src/lib/services/serp-results.ts", {
   },
 });
 const { GET } = require("../src/app/api/seo/trends/route.ts");
-const { combinedSerpTrendPoints, multiRegionTrendPeriods, marketTrendCount, serpCheckTrendFrames, scopeTrendCohorts, trendModuleTargets } = require("../src/lib/ranking-trends.ts");
+const { combinedSerpTrendPoints, multiRegionTrendPeriods, marketTrendCount, marketTrendLineSegments, marketTrendComparison, serpCheckTrendFrames, scopeTrendCohorts, trendModuleTargets } = require("../src/lib/ranking-trends.ts");
 const { REGION_CODES } = require("../src/lib/seo.ts");
 const request = extra => new Request(`https://flatkey.test/api/seo/trends?region=all&start=2026-10-08&end=2026-10-16&refresh=1${extra ?? ""}`);
 beforeEach(t => { calls = []; failMarket = null; failCohort = false; scopedHistory = false; currentTargets = frozenTargets; t.mock.method(globalThis, "fetch", async () => { throw new Error("no provider requests from a trend read"); }); });
+
+test("partial 1/1525 stays visible but never connects to complete 586 from a different cohort", () => {
+  const complete = { date: "2026-11-01", counts: [0, 586, 0, 0], total: 600, ranked: 586, outside: 14, pending: 0, captured: 600, sites: ["flatkey.ai"], sources: ["dataforseo_serp"], scopeLabel: "正式监控", comparable: true, cohortHash: "full-600" };
+  const partial = { ...complete, date: "2026-11-17", counts: [0, 1, 0, 0], total: 1525, ranked: 1, outside: 0, pending: 1524, captured: 1, cohortHash: "changed-1525" };
+  const historical = [{ ...complete, ranked: 19, comparable: undefined, cohortHash: undefined }, { ...complete, ranked: 565, cohortHash: "older-set" }, complete, partial];
+  assert.deepEqual(historical.map(point => marketTrendCount(point)), [19, 565, 586, 1]);
+  assert.equal(marketTrendCount(partial, "comparison"), null);
+  assert.deepEqual(marketTrendLineSegments(historical), []);
+  assert.equal(marketTrendComparison(complete, partial), null);
+  assert.deepEqual(marketTrendLineSegments([complete, partial, complete]), [], "a missing/comparison gap cannot be bridged");
+});
+
+test("only explicit complete identical cohorts can connect or calculate change", () => {
+  const a = { date: "2026-11-01", counts: [600, 0, 0, 0], total: 1000, ranked: 600, outside: 400, pending: 0, captured: 1000, sites: ["flatkey.ai"], sources: ["dataforseo_serp"], comparable: true, cohortHash: "same-set", scopeLabel: "正式监控" };
+  const b = { ...a, date: "2026-11-15", ranked: 660, outside: 340 };
+  assert.deepEqual(marketTrendLineSegments([a, b]), [[600, 660]]);
+  assert.deepEqual(marketTrendComparison(a, b), { change: 60, rate: .1 });
+  for (const patch of [{ cohortHash: undefined }, { comparable: undefined }, { cohortHash: "another-set" }, { scopeLabel: "诊断补采" }]) {
+    assert.deepEqual(marketTrendLineSegments([a, { ...b, ...patch }]), []);
+    assert.equal(marketTrendComparison(a, { ...b, ...patch }), null);
+  }
+});
 
 test("one four-market read shares the immutable cohort and keeps failed, missing and measured-zero countries distinct", async () => {
   failMarket = "JP";

@@ -44,7 +44,8 @@ test("an existing Codex task is tracked in the work list without entering the ex
   const record = task({ id, sourceRowId: id, weekStart: "2026-11-16", dueAt: "2026-11-17T06:00:00Z",
     kind: "technical", channel: "product", pageType: "technical", status: "drafting",
     country: null, language: null, keyword: null, research: null });
-  const tracked = row(save(record, [], "save_task", "collector"));
+  assert.throws(() => save(record, [], "save_task", "collector"), { code: "task_scope_excluded" });
+  const tracked = { kind: "task", record: { ...record, version: 1, updatedAt: "2026-11-17T07:00:00Z" } };
   const plan = { kind: "plan", record: { weekStart: record.weekStart, status: "scheduled", taskIds: [id] } };
   const checkAt = new Date("2026-11-17T07:00:00Z");
   const records = [tracked, plan];
@@ -167,7 +168,7 @@ test("daily plans accept the new quotas, and reject duplicate daily Flatkey land
     blogLanguages: { en: 14, ja: 7, "pt-BR": 7, "es-ES": 7 } };
   const ready = (id, domain, path) => row(save(task({ id, siteDomain: domain, keyword: id, pageUrl: "https://" + domain + "/" + path, pageType: "landing" })));
   const first = ready("flatkey-1", "flatkey.ai", "a"), second = ready("flatkey-2", "flatkey.ai", "b");
-  const clusters = ["rackrate.org", "modelfit.cc", "jev-llm.com"].map((domain, i) => ready("cluster-" + i, domain, "new"));
+  const clusters = ["rackrate.org", "modelfit.cc", "rackrate.org"].map((domain, i) => ready("cluster-" + i, domain, "new"));
   const plan = (tasks, clusterGap) => ({
     id: "daily-plan", weekStart: "2026-11-09", title: "Daily cadence", status: "scheduled", taskIds: tasks.map(t => t.record.id),
     owner: "AI", preparedAt: now.toISOString(), reviewedAt: null, reviewedBy: null, evidence, notes: "", targets,

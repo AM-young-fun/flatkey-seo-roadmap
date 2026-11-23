@@ -1,6 +1,7 @@
 "use client";
 
 import { FeedbackButton } from "./FeedbackButton";
+import { GrowthReportSummary } from "./GrowthGoalSummary";
 import Link from "@/components/AppLink";
 import { useState } from "react";
 import { useReportReadyTiming } from "./useReportReadyTiming";
@@ -48,6 +49,7 @@ function ReportLine({ line }: { line: string }) {
 
 const reportSites = [
   ["rackrate.org", "RackRate"], ["modelfit.cc", "ModelFit"],
+  ["rougecue.org", "RougeCue"],
   ["mochichatbot.com", "MochiChatbot"], ["jev-llm.com", "JEV LLM"],
 ] as const;
 const reportModules = [["home", "首页"], ["blog", "博客"], ["models", "模型页"], ["gpu", "GPU"], ["prompts", "提示词"]] as const;
@@ -389,6 +391,7 @@ export function SeoDigestReports() {
           {exact ? <Link className={styles.secondary} href={route(kind, report.date)}>查看最新详情</Link> : null}
           {report.preliminary ? <span className={reportStyles.badge}>预览</span> : null}
         </div></header>
+        {report.growthSnapshot ? <GrowthReportSummary snapshot={report.growthSnapshot} /> : null}
         {report.reviewedBody && !report.dashboard ? <ReviewedReportBody text={report.text} label={report.draftBody ? "待审周报完整正文" : undefined} /> : <><dl className={reportStyles.metrics}>
           <div><dt>新增博客页面</dt><dd>{deliveryCount(blogPageCounts(report.counts).total, report.coverage?.publications)}
             <small>源文 {numberText(report.counts.originals)} · 译文 {numberText(report.counts.translations ?? 0)} · 旧文补译 {numberText(report.counts.backfillTranslations ?? 0)}</small></dd></div>

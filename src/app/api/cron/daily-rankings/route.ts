@@ -2,7 +2,6 @@ import { syncDisplaySourceVersion } from "@/lib/services/display-snapshots";
 import { refreshDisplayViews } from "@/lib/services/display-views";
 import { NextResponse } from "next/server";
 import { runSerpMonitorCron } from "@/lib/services/serp-monitor";
-import { runKeywordDiscoveryCycle } from "@/lib/services/keyword-cycle";
 import { loadSourceSyncHealth } from "@/lib/services/source-sync-health";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
@@ -41,17 +40,21 @@ async function handleCron(request: Request, scheduled = false) {
   try { await prisma.schedulerCheck.create({ data: { id: checkId } }); }
   catch { return NextResponse.json({ status: "UNAVAILABLE", message: "调度记录无法保存，未开始采集" }, { status: 503 }); }
   try {
-  const discovery = await runKeywordDiscoveryCycle({ deadline: startedAt + 180000 }).catch(() => ({ status: "UNAVAILABLE", ready: false, paidRequests: 0 }));
-  const [serp, sourceHealth] = await Promise.allSettled([runSerpMonitorCron({ allowStart: discovery.ready, periodKey: discovery.ready && "periodKey" in discovery ? discovery.periodKey : undefined, maxDurationMs: Math.max(0, 240000-(Date.now()-startedAt)) }), loadSourceSyncHealth()]);
-  const needsReview = serp.status === "rejected" || ["NEEDS_REVIEW", "UNAVAILABLE"].includes(discovery.status) || (serp.status === "fulfilled" && serp.value.status === "NEEDS_REVIEW");
+  const {runGrowthCollectionCron}=await import("@/lib/services/growth-collection");
+  const {runGrowthDiscoveryCron}=await import("@/lib/services/growth-discovery");
+  // Domain discovery is auxiliary and requires its own reviewed paid manifest.
+  // Never make current-page SERP monitoring wait for four Labs jobs.
+  const [growth, auxiliary, serp, sourceHealth] = await Promise.allSettled([runGrowthCollectionCron({deadline:startedAt+225000}),runGrowthDiscoveryCron({deadline:startedAt+210000}),runSerpMonitorCron({ allowStart: false, allowSubmit: false, maxDurationMs: Math.max(0, 240000-(Date.now()-startedAt)) }), loadSourceSyncHealth()]);
+  const discovery=auxiliary.status==="fulfilled"?auxiliary.value:{status:"NEEDS_REVIEW",paidRequests:0};
+  const needsReview = growth.status === "rejected" || auxiliary.status === "rejected" || discovery.status==="NEEDS_REVIEW" || serp.status === "rejected" || (growth.status === "fulfilled" && ["UNKNOWN","NEEDS_REVIEW"].includes(growth.value.status)) || (serp.status === "fulfilled" && serp.value.status === "NEEDS_REVIEW");
   await prisma.schedulerCheck.update({ where: { id: checkId }, data: { completedAt: new Date(), status: needsReview ? "NEEDS_REVIEW" : "COMPLETED", discoveryStatus: discovery.status,
-    serpStatus: serp.status === "fulfilled" ? serp.value.status : "NEEDS_REVIEW", paidRequests: discovery.paidRequests + (serp.status === "fulfilled" ? serp.value.paidRequests : 0) } });
+    serpStatus: growth.status === "fulfilled" ? growth.value.status : "NEEDS_REVIEW", paidRequests: discovery.paidRequests+(growth.status === "fulfilled" ? growth.value.paidRequests : 0) + (serp.status === "fulfilled" ? serp.value.paidRequests : 0) } });
   if (serp.status === "rejected") return NextResponse.json({ status: "NEEDS_REVIEW", message: "SERP原采集账本需要核对，请勿重复提交采集" }, { status: 503 });
   try {
     await syncDisplaySourceVersion();
     await refreshDisplayViews(startedAt + 285000);
   } catch { console.error("Display refresh deferred to next coordinator"); }
-  return NextResponse.json({ status: serp.value.status, discovery, serp: serp.value,
+  return NextResponse.json({ status: growth.status === "fulfilled" ? growth.value.status : "NEEDS_REVIEW", discovery, growth: growth.status === "fulfilled" ? growth.value : {status:"NEEDS_REVIEW",paidRequests:0}, serp: serp.value,
     // This is an honest baseline check, not a claim that the three protected
     // DingTalk tables have been pulled by the server.
     sourceSync: sourceHealth.status === "fulfilled" ? { ...sourceHealth.value, executed: false } : { status: "HEALTH_UNAVAILABLE", executed: false } },

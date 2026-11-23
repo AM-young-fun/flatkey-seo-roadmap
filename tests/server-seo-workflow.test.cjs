@@ -5,14 +5,15 @@ function enabled(job, { event = "workflow_dispatch", result = "success", unified
  const defaults = Object.fromEntries(Object.entries(workflow.on.workflow_dispatch.inputs).map(([name, config]) => [name, config.default]));
  return Boolean(vm.runInNewContext(workflow.jobs[job].if, { always: () => true, github: {ref:"refs/heads/main",event_name:event}, vars:{SEO_SERVER_COLLECTION_ENABLED:"true",SEO_UNIFIED_REPORTING_ENABLED:unified}, needs:{collect:{result}}, inputs:event === "workflow_dispatch" ? {...defaults,...inputs} : {} }));
 }
-test("local collection covers both DST slots with one Los Angeles midnight each day", () => {
+test("local collection keeps the approved Beijing execution slot and lets metadata determine closed source days", () => {
  const config = require("../src/lib/data/seo-automation-config.json");
  const local = config.tasks.find(task => task.id === "seo-16-00-ga4-search-console");
  assert.equal(workflow.on.schedule, undefined);
  // Keep both DST midnight slots while allowing the configured catch-up slot.
  assert.match(local.rrule, /^FREQ=DAILY;BYHOUR=[\d,]+;BYMINUTE=0;BYSECOND=0$/);
  const hours=local.rrule.match(/BYHOUR=([^;]+)/)[1].split(",").map(Number);
- assert.ok(hours.includes(15) && hours.includes(16));
+ assert.ok(hours.includes(16));
+ assert.ok(!hours.includes(15));
  assert.equal(new Set(hours).size,hours.length);
  assert.equal(local.status, "ACTIVE");
  for (const date of ["2026-11-17", "2026-07-17"]) {

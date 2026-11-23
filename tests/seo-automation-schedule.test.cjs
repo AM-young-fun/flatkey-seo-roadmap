@@ -94,43 +94,39 @@ test("paused paid queries have no advertised next execution; resumed and emergen
   assert.equal(automationDate(null), "未核实"); assert.equal(automationDate("invalid"), "未核实");
 });
 
-test("schedule renders real configuration source separately from success receipts with opt-in fee preview", () => {
+test("schedule shows arrangements without paid actions, logs or retired Friday sender", () => {
   response = { ...response, data: makeStatus(), error: null };
   const html = render();
-  assert.match(html, /电脑上的 Codex 任务/); assert.match(html, /服务器采集任务/);
-  assert.ok(html.includes("配置核对于 " + config.verifiedAt)); assert.match(html, /状态读取于/);
-  assert.match(html, /启用不等于已经执行成功/); assert.match(html, /自动付费未启用/);
-  assert.match(html, /当前配置暂停，不安排下一次自动执行/);
-  assert.match(html, /尚无已保存的采集或调度回执/);
-  assert.doesNotMatch(html, /2026\/12\/03|FREQ=|BYHOUR=|<input|<select|<form|role="switch"|开启并执行|账号|API Key/);
-  assert.equal((html.match(/<button/g) ?? []).length, 3);
-  assert.match(html, /查看费用与开启/);
-  assert.match(html, /查看本期补采费用/);
+  assert.match(html, /Codex 定时任务/); assert.match(html, /服务器定时任务/);
+  assert.match(html, /任务名称/); assert.match(html, /频率/); assert.match(html, /北京时间/); assert.match(html, /启停/);
+  assert.match(html, /隔周周四/); assert.match(html, /服务器调度检查与续跑/);
+  assert.doesNotMatch(html, /查看费用|补采|开启并执行|暂停新的付费提交|采集与调度回执|最近开始|最近完成|<details|<form|role="switch"/);
+  assert.doesNotMatch(html, new RegExp(config.tasks.find(task => task.id === "seo-10-00-2").name));
+  assert.equal((html.match(/<button/g) ?? []).length, 1);
 });
 
-test("enabled collection retains the current-period continuation entry", () => {
+test("collection state is read-only and contains no continuation entry", () => {
   const data = makeStatus(); data.controls.enabled = true;
   response = { ...response, data, error: null };
-  assert.match(render(), /查看本期补采费用/);
-  assert.match(render(), /暂停新的付费提交/);
+  assert.match(render(), /已启用/);
+  assert.doesNotMatch(render(), /付费|费用|暂停新的付费提交|查看本期/);
   data.controls.emergencyStopped = true;
-  assert.doesNotMatch(render(), /查看本期补采费用/);
-  assert.doesNotMatch(render(), /暂停新的付费提交/);
+  assert.doesNotMatch(render(), /付费|费用|暂停新的付费提交|查看本期/);
 });
 
-test("failed reads do not fall back to a static enabled snapshot or fabricated zero runs", () => {
+test("failed reads do not invent enabled arrangements or zero runs", () => {
   response = { ...response, data: null, error: "数据源暂不可用" };
   const html = render();
-  assert.match(html, /任务安排暂时无法读取/); assert.match(html, /启停状态和运行结果暂未知/);
-  assert.doesNotMatch(html, /配置已启用|服务器定时|已完成 0|0 项|0 次/);
+  assert.match(html, /任务安排暂时无法读取/);
+  assert.doesNotMatch(html, /已启用|服务器定时|已完成 0|0 项|0 次/);
 });
 
-test("recorded completion is displayed only with actual receipt dates and never inferred from healthy scheduling", () => {
+test("actual completion receipts remain outside the arrangements page", () => {
   const data = makeStatus();
   data.scheduler.state = "HEALTHY"; data.scheduler.lastCompletedAt = "2026-11-10T08:00:00Z";
   data.records = [{ id: "check:1", name: "线上调度检查", state: "已完成", startedAt: "2026-11-10T07:59:00Z", completedAt: "2026-11-10T08:00:00Z", detail: "付费提交 0 批" }];
   response = { ...response, data, error: null };
   const html = render();
-  assert.match(html, /最近一次调度检查已完成/); assert.match(html, /付费提交 0 批/);
-  assert.match(html, /不代表付费已开启、全部关键词已采集/); assert.match(html, /自动付费未启用/);
+  assert.match(html, /服务器调度检查与续跑/);
+  assert.doesNotMatch(html, /最近一次调度检查已完成|付费提交 0 批|2026\/11\/10/);
 });

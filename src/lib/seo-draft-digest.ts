@@ -2,6 +2,7 @@ import { z } from "zod";
 import { digestWindow, type SeoDigest } from "./seo-digest";
 import { ReviewedDigestError, reviewedTextHash } from "./seo-reviewed-digest";
 import { dashboardComparisonGroups, reportDashboardEvidenceSchema, sameReportDashboard } from "./seo-report-dashboard";
+import { growthHash, growthReportMissingFactLines } from "./growth-strategy";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 export const draftDigestCommandSchema = z.object({
@@ -35,6 +36,7 @@ export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Dat
   const title = input.text.split(/\r?\n/, 1)[0].replace(/^\*\*(.+)\*\*$/, "$1").replace(/^#{1,3}\s+/, "");
   if (!title || title.length > 160 || title.includes("\r")) throw new ReviewedDigestError("正文标题无效");
   if (input.attributionText && !input.text.includes(input.attributionText)) throw new ReviewedDigestError("涨跌分析须属于同一待审正文");
+  if (base.growthSnapshot && growthReportMissingFactLines(base.growthSnapshot, input.text).length) throw new ReviewedDigestError("正文与冻结growth事实不一致：须保留季度/批次目标、方向页面值与URL、原任务、行动及前后窗口；修改须另存同步来源快照");
   // Draft identities are separate from the approved body identity, so approval
   // creates another immutable snapshot instead of upgrading this row in place.
   const key = reviewedTextHash(JSON.stringify(["weekly-review-draft-v1", base.id, input.textSha256, input.sourceEvidenceSha256,
@@ -60,6 +62,7 @@ export function sameDraftDigest(stored: SeoDigest, expected: SeoDigest) {
   return stored.id === expected.id && stored.date === expected.date && stored.kind === "weekly" && !stored.reviewedBody
     && stored.title === expected.title && stored.text === expected.text && stored.detailText === expected.detailText
     && stored.hash === expected.hash && reviewedTextHash(stored.text) === stored.hash && sameReportDashboard(stored.dashboard, expected.dashboard)
+    && growthHash(stored.growthSnapshot) === growthHash(expected.growthSnapshot)
     && stored.readyAfter === expected.readyAfter && stored.deliveryProtocol === expected.deliveryProtocol
     && stored.workWindow.start === expected.workWindow.start && stored.workWindow.end === expected.workWindow.end
     && stored.reportPeriod?.start === expected.reportPeriod?.start && stored.reportPeriod?.end === expected.reportPeriod?.end

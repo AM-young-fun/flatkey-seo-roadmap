@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { envBool } from "@/lib/env";
-import { keywordCyclePlan, discoveryPageMatches } from "@/lib/keyword-cycle";
+import { keywordCyclePlan } from "@/lib/keyword-cycle";
 import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
-import { ENDPOINT, normalizeRankedKeywords, quoteForLimit, type DataForSeoNormalized } from "@/lib/dataforseo-labs.cjs";
+import { normalizeRankedKeywords, quoteForLimit, type DataForSeoNormalized } from "@/lib/dataforseo-labs.cjs";
+import { postDataForSeoLabsTask } from "./dataforseo-labs-client";
 import { buildDataForSeoImportPlan } from "@/lib/dataforseo-import-plan";
 import { rankingImportSchema } from "@/lib/ranking-import";
 import { importSeo } from "@/lib/services/seo-import";
@@ -21,39 +22,6 @@ const discoveryFailureCode = (error: unknown) => {
   const value = error as { code?: unknown; status?: unknown } | null;
   return typeof value?.code === "string" && /^[A-Z0-9_]{1,70}$/.test(value.code) ? `DISCOVERY_${value.code}` : error instanceof ImportRequestError ? `DISCOVERY_IMPORT_HTTP_${error.status}` : "DISCOVERY_CACHED_RESULT_REQUIRES_REVIEW";
 };
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
-async function verifyPage(site: string, keyword: string, value: string) {
-  let url: URL;
-  try { url = new URL(value); } catch { return null; }
-  const own = (candidate: URL) => candidate.protocol === "https:" && !candidate.username && !candidate.password && !candidate.port &&
-    (candidate.hostname === site || candidate.hostname === `www.${site}`);
-  if (!own(url)) return null;
-  const signal = AbortSignal.timeout(6000);
-  try {
-    for (let redirects = 0; redirects < 4; redirects++) {
-      const response = await fetch(url, { redirect: "manual", signal, headers: { Accept: "text/html" } });
-      if ([301,302,303,307,308].includes(response.status)) {
-        const location = response.headers.get("location"); await response.body?.cancel();
-        if (!location) return null; url = new URL(location, url); if (!own(url)) return null; continue;
-      }
-      if (response.status !== 200 || !response.headers.get("content-type")?.includes("text/html")) { await response.body?.cancel(); return null; }
-      const reader = response.body?.getReader(); if (!reader) return null;
-      let html = "", size = 0; const decoder = new TextDecoder();
-      try { while (size < 262144) { const chunk = await reader.read(); if (chunk.done) break; const remaining = 262144-size;
-        html += decoder.decode(chunk.value.subarray(0,remaining), {stream:true}); size += chunk.value.length; } }
-      finally { await reader.cancel(); }
-      html = html.replace(/<!--[\s\S]*?-->|<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
-      const title = text(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? ""), h1 = text(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? "");
-      if (/noindex/i.test(response.headers.get("x-robots-tag") ?? "") || /<meta\b[^>]*(?:noindex|none)[^>]*>/i.test(html)) return null;
-      const canonicalTag = (html.match(/<link\b[^>]*>/gi) ?? []).find(tag=>/\brel=["']canonical["']/i.test(tag));
-      const canonical = canonicalTag ? /\bhref=["']([^"']+)["']/i.exec(canonicalTag)?.[1] : null;
-      if (canonical && new URL(canonical,url).href.replace(/\/$/, "") !== url.href.replace(/\/$/, "")) return null;
-      return discoveryPageMatches(site, keyword, title, h1) ? { url: url.href, title, h1, checkedAt: new Date().toISOString() } : null;
-    }
-  } catch { /* Failed validation never promotes or deletes a keyword. */ }
-  return null;
-}
-
 async function applyDiscovery(snapshot: DataForSeoNormalized, requestId: string, deadline: number) {
   const site = snapshot.targetDomain;
   const memberships = await prisma.siteKeyword.findMany({ where: { siteDomain: site }, include: { keyword: true } });
@@ -90,33 +58,9 @@ async function applyDiscovery(snapshot: DataForSeoNormalized, requestId: string,
     await importSeo(frozenBatches[index]);
     await prisma.dataForSeoRun.update({where:{requestId},data:{importedBatches:index+1}});
   }
-  // Conservative automatic promotion; remaining discoveries stay in research.
-  // No invented "missing page" or pending-review state enters formal targets.
-  let inspected = 0;
-  for (const row of newRows) {
-    if (++inspected > 30 || Date.now()+20_000 > deadline) break;
-    const proofs: NonNullable<Awaited<ReturnType<typeof verifyPage>>>[] = [];
-    const urls = [...new Set(snapshot.rows.filter(page=>page.keyword === row.keyword).map(page=>page.url))].slice(0,3);
-    for (const url of urls) {
-      if (Date.now()+20_000 > deadline) break;
-      const verified = await verifyPage(site,row.keyword,url);
-      if (verified && !proofs.some(page=>page.url === verified.url)) proofs.push(verified);
-    }
-    const proof = proofs[0]; if (!proof) continue;
-    await prisma.$transaction(async tx=>{
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${site}`}))`;
-      const keyword = await tx.keyword.findUnique({where:{text:row.keyword}}); if (!keyword) return;
-      const changed = await tx.siteKeyword.updateMany({where:{siteDomain:site,keywordId:keyword.id,active:true,pool:"RESEARCH",curationId:null,reviewStatus:"UNREVIEWED"},
-        data:{pool:"FORMAL",mappingStatus:"READY",targetUrls:proofs.map(page=>page.url),reviewStatus:"DISCOVERY_PAGE_CONFIRMED",auditReason:"业务相关新词，当前公开页面标题或 H1 精确覆盖该搜索词，HTTP 200 且无收录禁止指令。"}});
-      if (!changed.count) return;
-      const snapshot = {keywordId:keyword.id,keyword:row.keyword,verdict:"VERIFIED",pageUrl:proof.url,canonicalUrl:proof.url,httpStatus:200,checkedAt:proof.checkedAt,
-        reason:"DataForSEO 发现后重新访问本站页面，标题或 H1 精确覆盖业务词，保留真实页面证据。",evidence:{title:proof.title,h1:proof.h1},
-        additionalPages:proofs.slice(1).map(page=>({pageUrl:page.url,canonicalUrl:page.url,httpStatus:200,checkedAt:page.checkedAt,reason:"逐页检查标题或 H1 精确覆盖该业务词，返回 HTTP 200，独立保留匹配证据。",evidence:{title:page.title,h1:page.h1}}))};
-      await tx.keywordSourceRow.upsert({where:{siteDomain_sourceId_rowKey:{siteDomain:site,sourceId:"page_audit",rowKey:`keyword:${keyword.id}`}},
-        create:{siteDomain:site,sourceId:"page_audit",rowKey:`keyword:${keyword.id}`,snapshot:json(snapshot),snapshotHash:createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),observedAt:new Date(proof.checkedAt)},
-        update:{}});
-    });
-  }
+  // Discovery is auxiliary evidence. A title/H1 hit is not a TopicMap decision:
+  // keep new words in RESEARCH, preserving the original review and exclusions.
+  // Formal admission uses the existing reviewed TopicMap workflow only.
   await prisma.dataForSeoRun.update({where:{requestId},data:{status:"COMPLETED",completedAt:new Date(),errorCode:null,summary:json({...plan.summary,newResearchWords:newRows.length})}});
   return true;
 }
@@ -164,9 +108,7 @@ export async function runKeywordDiscoveryCycle(options: { deadline?: number; now
       if (!liveConfig?.paidEnabled || liveConfig.authorizationVersion !== 1 || !live?.scheduleEnabled || live.connectionVersion !== connection.connectionVersion || live.encryptedCredentials !== connection.encryptedCredentials) throw new Error("DISCOVERY_CONNECTION_CHANGED");
       const auth = decryptDataForSeoCredentials(live.encryptedCredentials);
       paidRequests=1;
-      const response = await fetch(ENDPOINT,{method:"POST",redirect:"error",cache:"no-store",signal:AbortSignal.timeout(30000),
-        headers:{Authorization:`Basic ${Buffer.from(`${auth.apiLogin}:${auth.apiPassword}`).toString("base64")}`,"Content-Type":"application/json"},body:JSON.stringify([job.task])});
-      const rawResponse = await response.text();
+      const rawResponse = await postDataForSeoLabsTask(job.task,auth);
       run = await prisma.dataForSeoRun.update({where:{requestId:job.requestId},data:{rawResponse,collectedAt:new Date(),status:"RECEIVED"}});
     } catch {
       const errorCode = paidRequests ? "DISCOVERY_RESPONSE_UNCONFIRMED" : "DISCOVERY_PRECHECK_FAILED";

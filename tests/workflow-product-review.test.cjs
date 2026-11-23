@@ -14,7 +14,8 @@ test("product review accepts exactly the four explicit owned hosts and rejects d
   assert.equal(productReviewBelongsToSite(url, "modelfit.cc"), false);
 });
 test("product review saves real technical task and draft approval while retaining normal website boundaries", () => {
-  const t = mutate(task, "save_task");
+  assert.throws(() => mutate(task, "save_task"), { code: "task_scope_excluded" });
+  const t = {record:{...task,version:1,updatedAt:"2026-11-11T09:00:00Z"}};
   const a = mutate(approval, "save_approval", [{ kind: "task", record: t.record }]);
   assert.equal(a.record.status, "draft"); assert.equal(a.record.channel, "product");
   assert.equal(pageBelongsToSite(url, "flatkey.ai"), false);
@@ -30,7 +31,7 @@ test("product cannot disguise a content task or become source-blog publication",
 test("product approval must reference a product technical task; channel cannot change after submission", () => {
   const ordinary = mutate({ ...task, channel: "website", title: "官网技术核查", brief: require("./fixtures/chinese-task-brief.cjs")(evidence), nextAction: "核对官网准确版本", acceptanceCriteria: ["核对测试证据"] }, "save_task");
   assert.throws(() => mutate(approval, "save_approval", [{ kind: "task", record: ordinary.record }]), /同渠道技术任务/);
-  const t = mutate(task, "save_task"), rows = [{ kind: "task", record: t.record }];
+  const t = {record:{...task,version:1,updatedAt:"2026-11-11T09:00:00Z"}}, rows = [{ kind: "task", record: t.record }];
   assert.throws(() => mutate({ ...task, channel: "website" }, "save_task", rows, 1), /不能更换渠道/);
   const websiteItem = { ...item, pageUrl: "https://flatkey.ai/", previewContentVersion: "v2", evidence: [...evidence,
     { label: "桌面截图", url: "https://images.example.com/desktop.png", observedAt: "2026-11-11T09:00:00Z" },

@@ -80,18 +80,19 @@ function isTargetUrl(value, targetDomain) {
   } catch { return false; }
 }
 
-function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000, scope }) {
-  const approved = discoveryScope(scope);
+function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000, scope, approvedPageScope, offset = 0 }) {
+  const approved = approvedPageScope ?? discoveryScope(scope);
   const quote = quoteForLimit(limit); validateRunId(runId);
   if (!Number.isFinite(Date.parse(collectedAt))) fail("INVALID_COLLECTION_TIME", "An actual collection timestamp is required.");
   if (raw?.status_code !== 20000 || raw?.tasks_error !== 0 || raw?.tasks_count !== 1 || !Array.isArray(raw.tasks) || raw.tasks.length !== 1) fail("PROVIDER_STATUS", "DataForSEO did not confirm one successful task; inspect the saved response without resubmitting.");
   const task = raw.tasks[0];
+  if (approvedPageScope && (!Number.isSafeInteger(offset) || offset < 0 || task.data?.offset !== offset || task.data?.limit !== limit || task.data?.tag !== runId)) fail("RESPONSE_PAGE", "Page offset, limit or receipt tag differs from the approved page.");
   if (task.status_code !== 20000 || !Array.isArray(task.result) || task.result.length !== 1) fail("TASK_STATUS", "DataForSEO task did not return one successful result; inspect the saved response without resubmitting.");
   const result = task.result[0];
   if (result.target !== approved.targetDomain || result.location_code !== approved.locationCode || result.language_code !== approved.languageCode || (result.se_type && result.se_type !== "google")) fail("RESPONSE_SCOPE", "Response target or market differs from the approved domain and market.");
   const totalCount = nonNegativeInteger(result.total_count), itemsCount = nonNegativeInteger(result.items_count);
   const items = result.items === null && itemsCount === 0 ? [] : result.items;
-  if (!Array.isArray(items) || itemsCount !== items.length || items.length > limit || totalCount === null || totalCount < items.length) fail("RESPONSE_ITEMS", "Response item counts are invalid or exceed the approved single-request limit.");
+  if (!Array.isArray(items) || itemsCount !== items.length || items.length > limit || totalCount === null || totalCount < offset + items.length) fail("RESPONSE_ITEMS", "Response item counts are invalid or exceed the approved single-request limit.");
   const rows = [], rejectedItems = [], seen = new Set();
   for (const [itemIndex, item] of items.entries()) {
     const data = item?.keyword_data, ranked = item?.ranked_serp_element, serp = ranked?.serp_item;
@@ -125,10 +126,26 @@ function normalizeRankedKeywords(raw, { runId, collectedAt, limit = 1000, scope 
     taskId: typeof task.id === "string" ? task.id : null, estimatedMaxCostUsd: quote.maxCostUsd,
     actualCostMicros, actualCostUsd: actualCostMicros === null ? null : (actualCostMicros / 1000000).toFixed(6),
     costWithinEstimate: actualCostMicros === null ? null : actualCostMicros <= quote.maxCostMicros,
-    requestedLimit: limit, returnedItems: items.length, totalMatchingCount: totalCount, truncated: totalCount > items.length,
+    requestedLimit: limit, ...(approvedPageScope ? { requestedOffset: offset } : {}), returnedItems: items.length, totalMatchingCount: totalCount, truncated: totalCount > offset + items.length,
     additionalRequestsPerformed: 0, uniqueKeywords: new Set(rows.map(row => row.keyword)).size,
     rows, rejectedItems };
 }
 
+// Explicit reviewed-page helpers do not change the legacy four-market protocol
+// and do not grant permission to fetch another page.
+const PAGE_MARKETS = { US:[2840,"en","en"],JP:[2392,"ja","ja"],BR:[2076,"pt","pt-BR"],SG:[2702,"zh-CN","zh-CN"],ES:[2724,"es","es-ES"],FR:[2250,"fr","fr"],DE:[2276,"de","de"],VN:[2704,"vi","vi"],ID:[2360,"id","id"] };
+function approvedPageScope(scope) {
+  const market=PAGE_MARKETS[scope?.country];
+  if(!market||market[2]!==scope.language||!["flatkey.ai","rackrate.org","modelfit.cc"].includes(scope.site)||!Number.isSafeInteger(scope.offset)||scope.offset<0)fail("INVALID_PAGE_SCOPE","Exact reviewed site/country/language/offset is required.");
+  return {targetDomain:scope.site,region:scope.country,locationCode:market[0],languageCode:market[1]};
+}
+function buildApprovedRankedKeywordsPage(limit,runId,scope){
+  const approved=approvedPageScope(scope),task=buildRankedKeywordsTask(limit,runId,{targetDomain:scope.site,region:"US"});
+  return {...task,location_code:approved.locationCode,language_code:approved.languageCode,offset:scope.offset};
+}
+function normalizeApprovedRankedKeywordsPage(raw,options){
+  return normalizeRankedKeywords(raw,{...options,offset:options.scope.offset,approvedPageScope:approvedPageScope(options.scope)});
+}
 
-module.exports = { ENDPOINT, DEFAULT_RUN_ID, CollectorError, fail, quoteForLimit, parseCliArgs, buildRankedKeywordsTask, normalizeRankedKeywords };
+
+module.exports = { ENDPOINT, DEFAULT_RUN_ID, CollectorError, fail, quoteForLimit, parseCliArgs, buildRankedKeywordsTask, normalizeRankedKeywords, buildApprovedRankedKeywordsPage, normalizeApprovedRankedKeywordsPage };

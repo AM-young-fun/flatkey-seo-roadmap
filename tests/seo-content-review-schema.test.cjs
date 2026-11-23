@@ -26,13 +26,17 @@ test("versioned client contract exactly matches the selected current server sche
   const chunks = ast.statements.filter(node => ts.isVariableStatement(node) ? node.declarationList.declarations.some(row => names.has(row.name.getText(ast)))
     : ts.isFunctionDeclaration(node) && names.has(node.name?.text)).map(node => node.getText(ast));
   assert.equal(chunks.length, names.size, "update the explicit client contract dependency list");
-  assert.equal(crypto.createHash("sha256").update(chunks.join("\n")).digest("hex"), client.SOURCE_CONTRACT_SHA256);
-  const generated = ts.transpileModule('const { z } = require("zod");\n' + chunks.join("\n").replace(/^export /gm, ""), {
+  const marketSource = fs.readFileSync(path.join(__dirname, "../src/lib/seo-growth-markets.ts"), "utf8");
+  const marketAst = ts.createSourceFile("markets.ts", marketSource, ts.ScriptTarget.Latest, true);
+  const marketNames = new Set(["GROWTH_MARKET_LANGUAGES", "GROWTH_LANGUAGES", "GROWTH_COUNTRIES"]);
+  const marketChunks = marketAst.statements.filter(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(row => marketNames.has(row.name.getText(marketAst)))).map(node => node.getText(marketAst));
+  assert.equal(crypto.createHash("sha256").update([...marketChunks, ...chunks].join("\n")).digest("hex"), client.SOURCE_CONTRACT_SHA256);
+  const generated = ts.transpileModule('const { z } = require("zod");\n' + [...marketChunks, ...chunks].join("\n").replace(/^export /gm, ""), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText.replace(/^"use strict";\n/u, "").trim();
   const actual = fs.readFileSync(path.join(__dirname, "../scripts/lib/seo-content-review-schema.cjs"), "utf8");
   assert.equal(actual.slice(actual.indexOf('const { z } = require("zod");'), actual.indexOf("// BEGIN TASK BRIEF CLIENT CONTRACT")).trim(), generated);
-  assert.equal(client.CLIENT_CONTRACT_VERSION, "seo-content-review-workflow-039217d-v2");
+  assert.equal(client.CLIENT_CONTRACT_VERSION, "seo-content-review-growth-v15");
   assert.deepEqual(Object.keys(client.workflowTaskSchema.shape), Object.keys(server.workflowTaskSchema.shape));
   assert.deepEqual(Object.keys(client.workflowIssueSchema.shape), Object.keys(server.workflowIssueSchema.shape));
 });

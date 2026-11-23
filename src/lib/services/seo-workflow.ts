@@ -1,15 +1,18 @@
+import { isGrowthTopicPlaceholder } from "@/lib/seo-growth-markets";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requestRead } from "@/lib/request-read-scope";
-import { ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
+import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
-import { prepareWorkflowMutation, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
+import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
+import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { timedRead } from "@/lib/read-profile";
 
+const legacyKinds = Object.keys(WORKFLOW_SCHEMAS);
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 type LocalState = { records: WorkflowStoredRow[]; events: { requestId: string; requestHash: string; kind: WorkflowKind; record: WorkflowRecord }[] };
 function localDirectory(localPreview: boolean) {
@@ -33,7 +36,7 @@ export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: s
   requireDatabase();
   // Keep the canonical graph intact and avoid rewriting every JSON document in
   // PostgreSQL. The explicit list response is compacted after snapshot rules run.
-  const rows = await requestRead("workflow:database", () => timedRead("database", () => prisma.seoWorkflowRecord.findMany({ select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } })));
+  const rows = await requestRead("workflow:database", () => timedRead("database", () => prisma.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } }, select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } })));
   return timedRead("snapshot", async () => workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database"));
 }
 
@@ -120,9 +123,35 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
         if (!request.claim || !lease || lease.status !== "running" || lease.owner !== request.claim.owner || lease.fencingToken !== request.claim.fencingToken || lease.leaseUntil <= clock.now) throw new WorkflowError("lease_lost", "当前阶段租约无效；不能由旧执行器覆盖新回执");
       }
     }
-    const rows = await tx.seoWorkflowRecord.findMany();
+    const rows = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } } });
     const all = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
     const prepared = prepareWorkflowMutation(request, all, actor);
+    if (prepared.kind === "task" || prepared.kind === "plan") {
+      const tasks = prepared.kind === "task" ? [prepared.record as WorkflowTask] : all.filter(row => row.kind === "task" && (prepared.record as WorkflowPlan).taskIds.includes(row.record.id)).map(row => row.record as WorkflowTask);
+      const requiresExecutionCheck = (task: WorkflowTask) => !isCompletedGrowthEvidenceAppend(task, all.find(row => row.kind === "task" && row.record.id === task.id)?.record as WorkflowTask | undefined);
+      for (const task of tasks.filter(task => requiresExecutionCheck(task) && task.workflowContract === "growth-v1.5" && ["blog", "landing", "optimization", "cluster"].includes(task.kind) && ["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"].includes(task.status))) {
+        const member = task.keywordId ? await tx.siteKeyword.findUnique({ where: { siteDomain_keywordId: { siteDomain: task.siteDomain, keywordId: task.keywordId } }, select: { active: true, pool: true, topicId: true, topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }) : null;
+        const topic = task.topicId ? await tx.topic.findUnique({ where: { id: task.topicId }, select: { text: true, active: true, createdAt: true, sites: { select: { siteDomain: true } } } }) : null;
+        if (!member?.active || !member.keyword.active || member.pool !== "FORMAL" || member.keyword.text.normalize("NFKC").trim().toLowerCase() !== task.keyword?.normalize("NFKC").trim().toLowerCase() || !topic?.active || isGrowthTopicPlaceholder(topic.text) || !topic.sites.some(site => site.siteDomain === task.siteDomain) || member.topicId !== task.topicId && !member.topicAssignments.some(row => row.topicId === task.topicId)) throw new WorkflowError("growth_target_membership", "新制作任务须关联本站真实正式TopicMap词及原话题，不能编造ID或借用发现占位词", 422);
+        if (topic.createdAt >= new Date("2026-11-23T00:00:00Z") && !task.directionId) throw new WorkflowError("new_direction_approval_required", "新建话题须关联用户确认的方向卡，已有正式方向继续自动执行", 403);
+      }
+      const guarded = tasks.filter(task => requiresExecutionCheck(task) && task.directionId && ["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"].includes(task.status));
+      if (guarded.length) {
+        const { readGrowthStrategy } = await import("./growth-strategy");
+        const state = await readGrowthStrategy(tx);
+        const graph = new Map(all.filter(row => row.kind === "task").map(row => [row.record.id, row.record as WorkflowTask]));
+        for (const task of guarded) graph.set(task.id, task);
+        for (const task of guarded) {
+          let scope;
+          try { scope = assertGrowthDirectionScope(state, task); }
+          catch (error) { const failure = error as Error & { code: string; status: number }; throw new WorkflowError(failure.code, failure.message, failure.status); }
+          if (scope) {
+            const count = [...graph.values()].filter(row => !row.deletedAt && row.directionId === task.directionId && row.experimentId === task.experimentId && row.siteDomain === scope.site && row.topicId === scope.topicId && row.country === scope.country && row.language === scope.language && scope.kinds.some(kind => kind === row.kind || kind === "cluster_landing" && ["landing", "cluster"].includes(row.kind))).length;
+            if (count > scope.maxTasks) throw new WorkflowError("direction_task_limit", "该方向已超出人工批准的任务数量，请复用原任务或先确认投入范围", 403);
+          }
+        }
+      }
+    }
     if (prepared.kind === "approval") await validateInternalReviewAssets(prepared.record as WorkflowApproval, tx);
     if (prepared.kind === "publication") {
       const approvalId = (prepared.record as { approvalId: string }).approvalId;
@@ -147,7 +176,7 @@ export async function checkWorkflowApprovalRequest(input: unknown, localPreview 
   const request = workflowApprovalCheckSchema.parse(input), directory = localDirectory(localPreview);
   if (directory) return { ...checkWorkflowApproval(request, (await readLocal(directory)).records), storage: "local_preview" as const };
   requireDatabase();
-  const rows = await prisma.seoWorkflowRecord.findMany();
+  const rows = await prisma.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } } });
   const approval = rows.find(row => row.kind === "approval" && row.recordId === request.approvalId)?.payload as unknown as WorkflowApproval | undefined;
   if (approval) await validateInternalReviewAssets(approval, undefined, true);
   return { ...checkWorkflowApproval(request, rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }))), storage: "database" as const };

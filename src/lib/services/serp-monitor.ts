@@ -1,12 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Prisma, type SerpMonitorConfig, type SerpMonitorRun, type SerpMonitorTask } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decryptDataForSeoCredentials } from "@/lib/dataforseo-credentials";
 import { envBool } from "@/lib/env";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { loadScheduledSerpMonitoringCohort as loadSerpTargetCohort } from "@/lib/services/serp-targets";
-import { nextSerpPeriodKey, periodDue, serpPeriod, serpPeriodFromKey, scheduledSerpDue, SERP_SCHEDULE_LOCAL_TIME } from "@/lib/serp-periods";
-import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegion, normalizeSerpAdvanced, providerCostMicros, providerIdIsSafe, providerTaskEnvelope,
+import { nextSerpPeriodKey, periodDue, scheduledSerpDue, SERP_SCHEDULE_LOCAL_TIME } from "@/lib/serp-periods";
+import { buildSerpTask, groupSerpMarketQueries, configForSerpRegion, isSerpRegion, normalizeSerpAdvanced, normalizeSerpAtExplicitMarket, providerCostMicros, providerIdIsSafe, providerTaskEnvelope,
   quoteSerpTargets, SERP_CONFIG_ID, SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_NORMALIZATION_VERSION, SERP_PRICE_PER_QUERY_MICROS, SERP_TASK_GET_URL, SERP_TASK_POST_URL,
   serpTaskId, type SerpMonitorMutation } from "@/lib/dataforseo-serp";
 import { parseSerpSampleBalance, SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_MAX_QUERIES, SERP_SAMPLE_MAX_BUDGET_MICROS, SERP_SAMPLE_SAFETY_MARGIN_MICROS } from "@/lib/serp-sample";
@@ -17,6 +17,7 @@ import type { SerpTarget } from "@/lib/serp-targets";
 import { APPROVED_KEYWORD_REVIEW_SCOPE, APPROVED_KEYWORD_REVIEW_RUN_ID, assertApprovedKeywordReviewRun } from "@/lib/approved-keyword-review";
 import { APPROVED_OTHER_KEYWORD_REVIEW_SCOPE, APPROVED_OTHER_KEYWORD_REVIEW_RUN_ID,
   assertApprovedOtherKeywordReviewRun, getApprovedOtherKeywordReviewPlan, approvedOtherTask, normalizeApprovedOtherSerpResult, type ApprovedOtherCountry } from "@/lib/approved-other-keyword-review";
+import { GROWTH_COLLECTION_MARKETS, GROWTH_COLLECTION_SCOPE, assertGrowthCollectionApproval, buildGrowthCollectionRequest, collectionHash, type GrowthCollectionCountry, type GrowthCollectionQuery } from "@/lib/growth-collection";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const OPEN_RUNS = ["PLANNED", "RUNNING", "UNKNOWN"];
@@ -87,50 +88,6 @@ async function configureDisabled(input: Extract<SerpMonitorMutation, { action: "
 function requirePaidEnvironment() {
   if (!isSerpPaidEnvironmentEnabled()) throw new ImportRequestError("付费SERP抓取尚未启用，本次未请求供应商", 409);
 }
-async function reserveRun(id: string, expectedCohortHash: string, earlyPeriodKey?: string) {
-  requirePaidEnvironment();
-  const cohort = await loadSerpTargetCohort(), groups = groupSerpMarketQueries(cohort.targets), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS), period = earlyPeriodKey ? serpPeriodFromKey(earlyPeriodKey) : serpPeriod(new Date());
-  if (expectedCohortHash !== cohort.hash) throw new ImportRequestError("正式目标已变化，请重新预览目标和费用", 409);
-  if (groups.length === 0) throw new ImportRequestError("没有可监控的正式目标", 409);
-  const reservation = await prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
-    const existing = await tx.serpMonitorRun.findUnique({ where: { id } });
-    if (existing) {
-      if (existing.cohortHash !== expectedCohortHash) throw new ImportRequestError("采集标识已用于其他目标快照", 409);
-      return { run: existing, duplicate: true };
-    }
-    if (await tx.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: period.key, scope: "SCHEDULED" } } })) throw new ImportRequestError("本期已有SERP采集账本，请查看或续跑原记录，不能重复扣费", 409);
-    const row = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }), config = configuration(row);
-    if (!isSerpScheduleAuthorized(row)) throw new ImportRequestError("请先在数据管理开启隔周自动更新，本次未请求供应商", 409);
-    if (earlyPeriodKey && (!row?.nextDueAt || scheduledSerpDue(row.nextDueAt).toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000)) throw new ImportRequestError("只能提前执行24小时内的下一计划期", 409);
-    if (!earlyPeriodKey && row?.nextDueAt && scheduledSerpDue(row.nextDueAt).getTime() > Date.now()) throw new ImportRequestError(`尚未到下次隔周周四${SERP_SCHEDULE_LOCAL_TIME}的采集时间`, 409);
-    if (await tx.serpMonitorRun.findFirst({ where: { status: { in: OPEN_RUNS } }, select: { id: true } })) throw new ImportRequestError("已有未完成或结果不明的SERP采集，请续跑原账本，不能重复扣费", 409);
-    if (quote.maxCostMicros > config.maxRunCostMicros || await monthReserved(tx) + quote.maxCostMicros > config.maxMonthCostMicros) {
-      // Commit the pause rather than rolling it back with the error. Otherwise
-      // the next discovery cycle could keep spending while SERP is over cap.
-      await tx.serpMonitorConfig.updateMany({ where: { id: SERP_CONFIG_ID }, data: { paidEnabled: false, authorizationVersion: 0, revision: { increment: 1 } } });
-      return { run: null, duplicate: false };
-    }
-    const connection = await tx.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
-    if (!connection) throw new ImportRequestError("请先保存DataForSEO连接", 409);
-    decryptDataForSeoCredentials(connection.encryptedCredentials);
-    // Validate every query before reserving or sending the first paid batch.
-    const tasks = groups.map(group => { const taskId = serpTaskId(id, group.queryKey); return { id: taskId, runId: id, queryKey: group.queryKey, region: group.region,
-      keyword: group.keyword, targetsJson: json(group.targets), state: "PLANNED", requestJson: json(buildSerpTask(group, taskId, configForSerpRegion(group.region, config))) }; });
-    const run = await tx.serpMonitorRun.create({ data: { id, scope: "SCHEDULED", periodKey: period.key, periodLabel: period.label,
-      periodStart: new Date(`${period.start}T00:00:00+08:00`), periodEnd: new Date(`${period.end}T23:59:59.999+08:00`),
-      status: "PLANNED", cohortHash: cohort.hash, cohortJson: json(cohort.allTargets.map(target => cohort.targets.find(selected => selected.siteDomain === target.siteDomain && selected.keywordId === target.keywordId) ?? target)), configJson: json({ ...config,
-        paidQueryPolicyVersion: PAID_QUERY_POLICY_VERSION,
-        allTargetCount: cohort.allTargetCount, allTargetHash: cohort.allTargetHash,
-        selectedTargetIds: cohort.targets.map(target => `${target.siteDomain}:${target.keywordId}`),
-        connectionHash: connectionFingerprint(connection.encryptedCredentials) }),
-      queryCount: groups.length, targetCount: cohort.targets.length, estimatedCostMicros: quote.maxCostMicros, reservedCostMicros: quote.maxCostMicros, connectionVersion: connection.connectionVersion } });
-    await tx.serpMonitorTask.createMany({ data: tasks });
-    return { run, duplicate: false };
-  }, { maxWait: 10_000, timeout: 30_000 });
-  if (!reservation.run) throw new ImportRequestError("SERP采集超过单轮或月度预算上限，自动更新已暂停，本次未请求供应商", 409);
-  return { run: reservation.run, duplicate: reservation.duplicate };
-}
 async function credentials() {
   const connection = await prisma.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
   if (!connection) throw new ImportRequestError("DataForSEO连接不存在", 409);
@@ -157,7 +114,7 @@ async function readSubmissionBalance(connection: Awaited<ReturnType<typeof crede
   }
 }
 
-async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string, worker?: BatchContext, approvedReview?: "original" | "other"): Promise<number> {
+async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string, worker?: BatchContext, approvedReview?: "original" | "other", growthApproved = false): Promise<number> {
   // Leave room for balance lookup, reservation, one non-retryable POST, raw
   // persistence and its atomic receipt association before the worker exits.
   if (!hasTime(deadline, 75_000)) return 0;
@@ -192,6 +149,7 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
     const config = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
     const run = await tx.serpMonitorRun.findUniqueOrThrow({ where: { id: runId } });
+    let growthQueries:Map<string,GrowthCollectionQuery>|null=null;
     if (sampleAuthorizationHash) {
       if (process.env.DATAFORSEO_SERP_PAID_ENABLED === "true" || config?.paidEnabled || run.scope !== "SAMPLE" || run.sampleAuthorizationHash !== sampleAuthorizationHash) throw new ImportRequestError("小批授权不匹配，或全量计划未保持关闭", 409);
       const approved = rawRecord(run.configJson), cap = approved.sampleMaxBudgetMicros, balance = approved.sampleBalanceBeforeMicros;
@@ -240,13 +198,30 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
       } });
       if (approvedReview === "other") assertApprovedOtherKeywordReviewRun(run, allTasks);
       else assertApprovedKeywordReviewRun(run, allTasks);
+    } else if (growthApproved) {
+      const {readGrowthCollection}=await import("./growth-collection");
+      const meta=rawRecord(rawRecord(run.configJson).growthCollection),periodKey=typeof meta.periodKey==="string"?meta.periodKey:"";
+      const approval=await readGrowthCollection(periodKey,tx);
+      if(!approval)throw new ImportRequestError("本轮缺少真实人工批准的冻结清单",403);
+      assertGrowthCollectionApproval(approval);
+      const manifest=approval.manifest,allTasks=await tx.serpMonitorTask.findMany({where:{runId}});
+      growthQueries=new Map(manifest.queries.map(query=>[query.key,query]));
+      if(approval.runId!==runId||run.scope!==GROWTH_COLLECTION_SCOPE||meta.manifestHash!==manifest.hash||run.cohortHash!==manifest.hash||run.queryCount!==manifest.queries.length||run.reservedCostMicros!==manifest.maxCostMicros||run.estimatedCostMicros!==manifest.maxCostMicros||allTasks.length!==manifest.queries.length||config?.revision!==manifest.configRevision)throw new ImportRequestError("执行账本与已批清单、版本或费用不一致",409);
+      for(const task of allTasks){
+        const query=manifest.queries.find(query=>query.key===task.queryKey);
+        if(!query||task.id!==serpTaskId(runId,query.key)||task.keyword!==query.keyword||task.region!==query.country)throw new ImportRequestError("任务国家或原词扩大了人工批准范围",409);
+        const expectedTargets=query.targetIds.map(targetId=>{const target=manifest.targets.find(target=>target.id===targetId)!;return{siteDomain:target.site,keywordId:target.keywordId,keyword:target.keyword,targetUrls:target.publishedUrls};});
+        if(collectionHash(task.targetsJson)!==collectionHash(expectedTargets))throw new ImportRequestError("任务页面或站点范围与批准清单不符",409);
+        const expected=buildGrowthCollectionRequest(query,task.id),saved=rawRecord(task.requestJson);
+        if(Object.keys(saved).length!==Object.keys(expected).length||Object.entries(expected).some(([key,value])=>saved[key]!==value))throw new ImportRequestError("任务市场语言、深度或收费参数已变化",409);
+      }
     } else if (manualPageId) {
       const approved = rawRecord(run.configJson), pageUrl = typeof approved.optimizedPageUrl === "string" ? optimizedPageUrl(approved.optimizedPageUrl) : null;
       if (run.scope !== OPTIMIZED_PAGE_SCOPE || !pageUrl || optimizedPageId(pageUrl) !== manualPageId || approved.optimizedPageId !== manualPageId ||
         approved.optimizedDay !== monitorDay() || run.periodKey !== optimizedPagePeriod(manualPageId, monitorDay()) ||
         run.queryCount < 1 || run.queryCount > OPTIMIZED_PAGE_MAX_QUERIES || run.reservedCostMicros !== run.queryCount * SERP_PRICE_PER_QUERY_MICROS)
         throw new ImportRequestError("页面当日抓取授权不匹配，未提交任务", 409);
-    } else if (!isSerpScheduleAuthorized(config) || (run.scope ?? "SCHEDULED") !== "SCHEDULED") throw new ImportRequestError("全量付费SERP抓取已关闭或任务范围不符", 409);
+    } else throw new ImportRequestError("旧SCHEDULED新增付费已退役；请先审核本期确切清单和费用，原已付providerId仍可免费读取", 410);
     if (run.status === "UNKNOWN") throw new ImportRequestError("供应商接收结果不明，禁止重复提交", 409);
     if (run.connectionVersion !== connection.connectionVersion || rawRecord(run.configJson).connectionHash !== connection.connectionHash) throw new ImportRequestError("采集期间连接已变化，请先核对原账本", 409);
     if (worker?.balance && worker.balance.expiresAt <= Date.now()) return [];
@@ -254,17 +229,19 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
     if (active) return [];
     const selected = await tx.serpMonitorTask.findMany({ where: { runId, state: "PLANNED" }, orderBy: [{ keyword: "asc" }, { region: "asc" }], take: 100 });
     if (!selected.length) return [];
-    if (!approvedReview && run.scope !== OPTIMIZED_PAGE_SCOPE && rawRecord(run.configJson).paidQueryPolicyVersion !== PAID_QUERY_POLICY_VERSION) throw new ImportRequestError("旧四国广播批次已停止新增付费提交；保留已提交结果，重新核对国家范围与费用", 409);
+    if (!growthApproved && !approvedReview && run.scope !== OPTIMIZED_PAGE_SCOPE && rawRecord(run.configJson).paidQueryPolicyVersion !== PAID_QUERY_POLICY_VERSION) throw new ImportRequestError("旧四国广播批次已停止新增付费提交；保留已提交结果，重新核对国家范围与费用", 409);
     const approvedOtherQueries = approvedReview === "other" ? new Map(getApprovedOtherKeywordReviewPlan().queries.map(query => [query.queryKey, query])) : null;
     for (const task of selected) {
       const otherQuery = approvedOtherQueries?.get(task.queryKey);
       if (approvedReview === "other" && !otherQuery) throw new ImportRequestError("此词不在已批准的其他国家补采清单", 409);
-      const expected = approvedReview === "other"
+      const growthQuery=growthQueries?.get(task.queryKey);
+      if(growthApproved&&!growthQuery)throw new ImportRequestError("任务不在已审增长清单中",409);
+      const expected = growthQuery ? buildGrowthCollectionRequest(growthQuery,task.id) : approvedReview === "other"
         ? approvedOtherTask(otherQuery!, task.id)
         : buildSerpTask({ keyword: task.keyword, queryKey: task.queryKey, targets: [] }, task.id, configForSerpRegion(task.region as SerpMonitorConfiguration["region"]));
       const saved = rawRecord(task.requestJson);
       if (Object.keys(saved).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value]) => saved[key] !== value)) throw new ImportRequestError("国家、语言或查询参数与冻结账本不一致", 409);
-      if (!approvedReview && run.scope !== OPTIMIZED_PAGE_SCOPE) {
+      if (!growthApproved && !approvedReview && run.scope !== OPTIMIZED_PAGE_SCOPE) {
         const assigned = groupSerpMarketQueries((Array.isArray(task.targetsJson) ? task.targetsJson : []) as unknown as SerpTarget[]);
         if (!assigned.some(query => query.queryKey === task.queryKey && query.region === task.region)) throw new ImportRequestError("缺少此关键词国家的明确研究证据，未提交付费任务", 409);
       }
@@ -401,7 +378,9 @@ async function replayTasks(tasks: SerpMonitorTask[], config: SerpMonitorConfigur
       // Successful GET is the settled cost, including refunds. Submission raw
       // remains immutable evidence of the original prepayment.
       cost = (receipt.status_code === 20000 ? providerCostMicros(receipt.cost) : null) ?? cost;
-      const normalized = task.runId === APPROVED_OTHER_KEYWORD_REVIEW_RUN_ID
+      const growthMarket=rawRecord(config).growthCollection?GROWTH_COLLECTION_MARKETS[task.region as GrowthCollectionCountry]:null;
+      if(rawRecord(config).growthCollection&&!growthMarket)throw new Error("GROWTH_MARKET_UNSUPPORTED");
+      const normalized = growthMarket ? normalizeSerpAtExplicitMarket(raw,{providerTaskId:task.providerTaskId,keyword:task.keyword,config:{device:"desktop",depth:100,locationCode:growthMarket.locationCode,languageCode:growthMarket.languageCode},searchDomain:growthMarket.searchDomain}) : task.runId === APPROVED_OTHER_KEYWORD_REVIEW_RUN_ID
         ? normalizeApprovedOtherSerpResult(raw, { providerTaskId: task.providerTaskId, keyword: task.keyword, region: task.region as ApprovedOtherCountry })
         : normalizeSerpAdvanced(raw, { providerTaskId: task.providerTaskId, keyword: task.keyword,
           config: configForSerpRegion((task.region ?? config.region) as SerpMonitorConfiguration["region"], config) });
@@ -617,6 +596,24 @@ export async function resumeApprovedOtherKeywordReviewRun(allowSubmit: boolean, 
   return runDto(await finalizeRun(run.id));
 }
 
+/** Consume an explicitly approved exact manifest through the original guarded
+ * submit/poll/receipt machinery. No Labs dependency or scheduled switch change. */
+export async function resumeGrowthCollectionRun(runId:string,options:{allowSubmit?:boolean;deadline?:number}={}){
+  const run=await prisma.serpMonitorRun.findUniqueOrThrow({where:{id:runId}});
+  if(run.scope!==GROWTH_COLLECTION_SCOPE)throw new ImportRequestError("不是本轮增长清单的原采集账本",409);
+  await resumeSerpMonitorRun(runId,{deadline:options.deadline,allowSubmit:false});
+  let paidRequests=0;const worker:BatchContext={};
+  while(options.allowSubmit&&hasTime(options.deadline,75000)){
+    const current=await prisma.serpMonitorRun.findUniqueOrThrow({where:{id:runId}});
+    if(current.completedAt||current.status==="UNKNOWN")break;
+    const submitted=await submitOneBatch(runId,undefined,options.deadline,undefined,worker,undefined,true);
+    paidRequests+=submitted;if(!submitted)break;
+    // Keep durable provider receipts moving without repeating a paid POST.
+    await resumeSerpMonitorRun(runId,{deadline:options.deadline,allowSubmit:false,pollLimit:40});
+  }
+  return {...await runDto(await finalizeRun(runId)),paidRequests};
+}
+
 async function collectApprovedRunResults(runId: string, passes: number, deadline: number) {
   // Bounded free retrieval only. Each wave durably claims up to 40 known IDs;
   // no call enables paid submission, even if the page or worker is interrupted.
@@ -642,30 +639,26 @@ export async function mutateSerpMonitor(input: SerpMonitorMutation) {
     return { action: "replay", run: await runDto(await finalizeRun(input.runId)) };
   }
   if (input.action === "resume") return { action: "resume", run: await resumeSerpMonitorRun(input.runId) };
-  const reserved = await reserveRun(input.idempotencyKey, input.expectedCohortHash);
-  if (!reserved.duplicate) await submitOneBatch(reserved.run.id);
-  return { action: "start", duplicate: reserved.duplicate, run: await runDto(await finalizeRun(reserved.run.id)) };
+  throw new ImportRequestError("旧SCHEDULED start已退役；请审核本期增长清单和费用后沿新manifest执行",410);
 }
 
 // Authenticated cycle worker only: this advances the already configured slot,
 // preserving the same period key so tomorrow's cron cannot bill it again.
-export async function startSerpScheduledPeriod(periodKey: string, expectedCohortHash: string, deadline: number) {
-  const reserved = await reserveRun(`serp-cycle-${periodKey}`, expectedCohortHash, periodKey);
-  if (!reserved.duplicate) await submitOneBatch(reserved.run.id, undefined, deadline);
-  return runDto(await finalizeRun(reserved.run.id));
+export async function startSerpScheduledPeriod(_periodKey: string, _expectedCohortHash: string, _deadline: number) {
+  throw new ImportRequestError("旧SCHEDULED启动入口已退役；本期须使用确切人工已审manifest",410);
 }
 
-export async function runSerpMonitorCron(options: { maxDurationMs?: number; allowStart?: boolean; periodKey?: string } = {}) {
+export async function runSerpMonitorCron(options: { maxDurationMs?: number; allowStart?: boolean; allowSubmit?: boolean; periodKey?: string } = {}) {
   // Count reservation/DB time too, leaving the enclosing 300s route a safety
   // margin. The global external stop still blocks both paid and free traffic.
   const startedAt = Date.now(), deadline = startedAt + Math.min(240_000, Math.max(0, options.maxDurationMs ?? 240_000));
   if (envBool("DISABLE_EXTERNAL_FETCH")) return { status: "DISABLED", reason: "EXTERNAL_FETCH_DISABLED", paidRequests: 0 };
   if (!hasTime(deadline)) return { status: "TIME_BUDGET_EXHAUSTED", paidRequests: 0, continuationRequired: true };
   const row = await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
-  const canSpend = isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(row);
+  const canSpend = options.allowSubmit === true && isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(row);
   // A paused scheduled ledger may still contain paid tasks whose IDs are safe
   // to retrieve. Never include the separately authorized sample in this cron.
-  let run = await prisma.serpMonitorRun.findFirst({ where: { scope: "SCHEDULED", status: { in: OPEN_RUNS } }, orderBy: { createdAt: "asc" } });
+  const run = await prisma.serpMonitorRun.findFirst({ where: { scope: "SCHEDULED", status: { in: OPEN_RUNS } }, orderBy: { createdAt: "asc" } });
   if (!run) {
     // Upgrade previously saved captures locally, even while spending is off.
     const legacyIncomplete: Prisma.SerpMonitorTaskWhereInput = {
@@ -683,16 +676,9 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
           remainingQueries: 0, continuationRequired: false, run: await runDto(await finalizeRun(partial.id)) };
       }
     }
-    if (!canSpend) return { status: "DISABLED", reason: "PAID_SERP_DISABLED", paidRequests: 0 };
-    if (options.allowStart === false) return { status: "WAITING_FOR_DISCOVERY", paidRequests: 0 };
-    if (!row?.nextDueAt) return { status: "NOT_SCHEDULED", paidRequests: 0 };
-    if (scheduledSerpDue(row.nextDueAt).getTime() > Date.now() && !options.periodKey) return { status: "NOT_DUE", nextDueAt: scheduledSerpDue(row.nextDueAt).toISOString(), paidRequests: 0 };
-    const requestedPeriod = options.periodKey ? serpPeriodFromKey(options.periodKey) : serpPeriod(new Date());
-    const existingPeriod = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: requestedPeriod.key, scope: "SCHEDULED" } } });
-    if (existingPeriod) return { status: "PERIOD_ALREADY_CAPTURED", runId: existingPeriod.id, paidRequests: 0 };
-    if (!hasTime(deadline, 90_000)) return { status: "TIME_BUDGET_EXHAUSTED", paidRequests: 0, continuationRequired: true };
-    const cohort = await loadSerpTargetCohort();
-    run = (await reserveRun(`serp-${randomUUID()}`, cohort.hash, options.periodKey)).run;
+    // Standing switches are no longer a per-period fee approval. The old
+    // scheduled coordinator only drains known paid IDs and cached receipts.
+    return { status: canSpend ? "WAITING_FOR_REVIEWED_MANIFEST" : "DISABLED", reason: "REVIEWED_MANIFEST_REQUIRED", paidRequests: 0 };
   }
   let paidRequests = 0, freeResultsChecked = 0;
   const worker: BatchContext = {};
@@ -710,7 +696,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
     const latest = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: run.id } });
     let submitted = 0;
     const liveConfig = await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
-    if (latest.status !== "UNKNOWN" && isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(liveConfig) && hasTime(deadline, 75_000)) {
+    if (options.allowSubmit === true && latest.status !== "UNKNOWN" && isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(liveConfig) && hasTime(deadline, 75_000)) {
       submitted = await submitOneBatch(run.id, undefined, deadline, undefined, worker);
       if (submitted) paidRequests++;
     }
@@ -718,7 +704,7 @@ export async function runSerpMonitorCron(options: { maxDurationMs?: number; allo
   }
   const finished = await finalizeRun(run.id), dto = await runDto(finished);
   const remaining = (dto.taskCounts.PLANNED ?? 0) + (dto.taskCounts.SUBMITTING ?? 0) + (dto.taskCounts.QUEUED ?? 0) + (dto.taskCounts.RECEIVED ?? 0) + (dto.taskCounts.UNKNOWN ?? 0);
-  const stillEnabled = isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }));
+  const stillEnabled = options.allowSubmit === true && isSerpPaidEnvironmentEnabled() && isSerpScheduleAuthorized(await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } }));
   return { status: finished.status === "UNKNOWN" ? "NEEDS_REVIEW" : remaining ? stillEnabled ? "ACTIVE" : "PAUSED" : "FINISHED",
     runId: run.id, paidRequests, freeResultsChecked, remainingQueries: remaining, continuationRequired: remaining > 0, run: dto };
 }

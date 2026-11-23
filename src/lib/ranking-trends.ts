@@ -42,6 +42,9 @@ export type TrendPoint = {
   captured?: number;
   notFoundCaptured?: number;
   queryChanged?: number;
+  /** Explicitly verified comparison identity. Legacy absence means unknown. */
+  cohortHash?: string | null;
+  comparable?: boolean;
 };
 export type TrendModuleScope = { module: OverviewPageModule; basis: "current-registered-target-pages" };
 export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope };
@@ -77,8 +80,45 @@ export function multiRegionTrendPeriods(markets: MarketTrend[]) {
   }
   return [...periods.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
-export function marketTrendCount(point: TrendPoint | undefined): number | null {
-  return point && (point.captured ?? point.checked ?? point.ranked + point.outside) > 0 ? point.ranked : null;
+export function marketTrendCount(point: TrendPoint | undefined, mode: "observation" | "comparison" = "observation"): number | null {
+  if (!point || (point.captured ?? point.checked ?? point.ranked + point.outside) <= 0) return null;
+  if (mode === "comparison" && (point.comparable !== true || !point.cohortHash || point.sampleOnly
+    || point.total <= 0 || (point.captured ?? point.checked ?? point.ranked + point.outside) !== point.total
+    || point.pending !== 0 || (point.failed ?? 0) > 0 || (point.incomplete ?? 0) > 0 || (point.queued ?? 0) > 0 || (point.queryChanged ?? 0) > 0)) return null;
+  return point.ranked;
+}
+
+/** Observation values remain visible even when no valid between-period comparison exists. */
+export function comparableMarketTrendPoints(previous: TrendPoint | undefined, current: TrendPoint | undefined): boolean {
+  if (!previous || !current || marketTrendCount(previous, "comparison") === null || marketTrendCount(current, "comparison") === null) return false;
+  const sorted = (values: string[]) => JSON.stringify([...values].sort());
+  return previous.cohortHash === current.cohortHash && previous.total === current.total
+    && previous.scopeLabel === current.scopeLabel && sorted(previous.runScopes ?? []) === sorted(current.runScopes ?? [])
+    && sorted(previous.sites) === sorted(current.sites) && sorted(previous.sources) === sorted(current.sources);
+}
+
+export function marketTrendComparison(previous: TrendPoint | undefined, current: TrendPoint | undefined): { change: number; rate: number | null } | null {
+  if (!previous || !current || !comparableMarketTrendPoints(previous, current)) return null;
+  return { change: current.ranked - previous.ranked, rate: previous.ranked ? (current.ranked - previous.ranked) / previous.ranked : null };
+}
+
+export function marketTrendLineSegments(points: TrendPoint[]): Array<Array<number | null>> {
+  const segments: Array<Array<number | null>> = [];
+  for (let index = 1; index < points.length; index++) if (comparableMarketTrendPoints(points[index - 1], points[index])) {
+    const data = Array<number | null>(points.length).fill(null);
+    data[index - 1] = points[index - 1].ranked; data[index] = points[index].ranked;
+    segments.push(data);
+  }
+  return segments;
+}
+
+export function marketTrendComparabilityNote(point: TrendPoint): string {
+  const checked = point.captured ?? point.checked ?? point.ranked + point.outside;
+  if (point.total <= 0 || checked !== point.total || point.pending > 0 || (point.failed ?? 0) > 0 || (point.incomplete ?? 0) > 0 || (point.queued ?? 0) > 0 || (point.queryChanged ?? 0) > 0)
+    return `覆盖未齐（已查 ${checked}/${point.total}）；保留本期观察，不推断全量涨跌`;
+  if (point.sampleOnly) return "抽样范围；不作为全量环比";
+  if (!point.cohortHash || point.comparable !== true) return "原目标集合或可比性未核定；仅展示离散观察";
+  return "覆盖完整；仍须相邻期目标集合与范围相同才能比较";
 }
 export function multiRegionTrendResult(markets: MarketTrend[], range: { start: string; end: string }, asOf: string, points: TrendPoint[] = []): MultiRegionTrendResult {
   return { ...range, schemaVersion: 5, mode: "serp-markets", snapshot: null, asOf, points: markets.some(market => market.status === "ERROR") ? null : points,

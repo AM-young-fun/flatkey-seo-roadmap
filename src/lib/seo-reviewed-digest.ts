@@ -4,6 +4,7 @@ import { reportDay, digestWindow, type SeoDigest } from "./seo-digest";
 import { digestSnapshotId } from "./seo-digest-message.cjs";
 import { sameReportDashboard } from "./seo-report-dashboard";
 import { currentCanonicalWeeklyDraft } from "./seo-weekly-review-window";
+import { growthHash, growthReportMissingFactLines } from "./growth-strategy";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
@@ -43,10 +44,11 @@ export function buildReviewedSeoDigest(base: SeoDigest, raw: unknown, now = new 
   if (Buffer.byteLength(input.text, "utf8") > 24000 || Array.from(input.text).some(character => character.charCodeAt(0) < 32 && ![9, 10, 13].includes(character.charCodeAt(0)))
     || reviewedTextHash(input.text) !== input.textSha256) throw new ReviewedDigestError("正文长度、字符或 SHA256 不匹配");
   if (Date.parse(input.approvedAt) > now.getTime() || Date.parse(input.approvedAt) < Date.parse(base.generatedAt)) throw new ReviewedDigestError("审稿记录时间无效");
+  if (base.growthSnapshot && growthReportMissingFactLines(base.growthSnapshot, input.text).length) throw new ReviewedDigestError("已审正文与冻结growth事实不一致，不能改写页面值、链接、原任务、行动或效果比较后仍显示旧结构");
   const title = input.text.split(/\r?\n/, 1)[0].replace(/^\*\*(.+)\*\*$/, "$1").replace(/^#{1,3}\s+/, "");
   if (!title || title.length > 160 || title.includes("\r")) throw new ReviewedDigestError("正文标题无效");
   // Only exact string fields determine the new ID. JSONB object-key order cannot change it.
-  const id = digestSnapshotId({ date: input.date, text: input.text, detailText: input.text });
+  const id = digestSnapshotId({ date: input.date, text: input.text, detailText: input.text, ...(base.growthSnapshot ? { growthSnapshot: base.growthSnapshot } : {}) });
   if (id === base.id) throw new ReviewedDigestError("已审正文须另存不同的不可变快照", 409);
   return { ...base, id, title, text: input.text, detailText: input.text, hash: input.textSha256,
     generatedAt: now.toISOString(), draftBody: undefined,
@@ -63,6 +65,7 @@ export function sameReviewedDigest(stored: SeoDigest, expected: SeoDigest) {
   return stored.id === expected.id && stored.date === expected.date && stored.kind === "weekly" && !stored.draftBody
     && stored.title === expected.title && stored.text === expected.text && stored.detailText === expected.detailText
     && stored.hash === expected.hash && reviewedTextHash(stored.text) === stored.hash && sameReportDashboard(stored.dashboard, expected.dashboard)
+    && growthHash(stored.growthSnapshot) === growthHash(expected.growthSnapshot)
     && stored.readyAfter === expected.readyAfter && stored.deliveryProtocol === expected.deliveryProtocol
     && stored.preliminary === expected.preliminary && stored.workWindow.start === expected.workWindow.start && stored.workWindow.end === expected.workWindow.end
     && stored.reportPeriod?.start === expected.reportPeriod?.start && stored.reportPeriod?.end === expected.reportPeriod?.end

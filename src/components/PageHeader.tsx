@@ -21,8 +21,9 @@ const workspaceLinks = [
 ] as const;
 const GA4_REALTIME_URL = "https://analytics.google.com/analytics/web/#/a248149353p541304395/realtime/overview";
 
-export function PageHeader({ active }: {
+export function PageHeader({ active, marketControl = true }: {
   active: "loading" | "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports" | "optimization-effects";
+  marketControl?: boolean;
 }) {
   const preview = usePreviewMode();
   const [country, setCountry] = useSeoCountry();
@@ -60,7 +61,7 @@ export function PageHeader({ active }: {
         {workspaceLinks.map(([key, path, label, Icon]) => <Link key={key} href={path + query} className={styles.navLink} aria-current={activeWork === key ? "page" : undefined}><Icon size={17} aria-hidden="true" /><span>{label}</span></Link>)}
       </nav>
       <div className={styles.utilities}>
-        {!["approvals", "issues", "credentials", "automations"].includes(activeWork) ? <div className={styles.countryControl}><span className={styles.controlLabel}>市场</span><UiSelect className={styles.countrySelect} aria-label="国家" value={country} onChange={setCountry}
+        {marketControl && !["approvals", "issues", "credentials", "automations"].includes(activeWork) ? <div className={styles.countryControl}><span className={styles.controlLabel}>市场</span><UiSelect className={styles.countrySelect} aria-label="国家" value={country} onChange={setCountry}
           options={[{ value: "all", label: "全部国家" }, ...REGION_CODES.map(value => ({ value, label: REGIONS[value].label }))]} /></div> : null}
         <details className={styles.tools}>
           <summary className={styles.toolsButton} aria-label="工具与设置"><Settings2 size={16} aria-hidden="true" /><span>工具与设置</span><ChevronDown size={13} aria-hidden="true" /></summary>

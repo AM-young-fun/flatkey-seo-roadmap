@@ -1,6 +1,6 @@
 import { analyticsSiteForProperty, rangeDays, type AnalyticsObservation } from "./seo-analytics";
 import { shiftDay, type DateRange } from "./seo-date-range";
-import type { SeoCountry } from "./seo";
+import type { GrowthAnalysisCountry } from "./seo-growth-markets";
 import type { WorkflowPublication, WorkflowSnapshot } from "./seo-workflow";
 
 export const GSC_TIMEZONE = "America/Los_Angeles";
@@ -58,7 +58,7 @@ export function optimizationWeekComparison(days: MetricDay[], optimizedDay: stri
     beforeDays: pairedBefore.length || before.length, afterDays: pairedAfter.length || after.length };
 }
 
-export function completeGscReports(observations: AnalyticsObservation[], site: string, country: SeoCountry, range: DateRange, now: Date) {
+export function completeGscReports(observations: AnalyticsObservation[], site: string, country: GrowthAnalysisCountry, range: DateRange, now: Date) {
   const reports = new Map<string, GscPages>();
   const today = gscDate(now);
   for (const row of observations) {
@@ -84,7 +84,7 @@ export function optimizationRange(publishedAt: string, end: string): DateRange {
 }
 
 export function optimizationEffect(input: {
-  url: string; site: string; country: SeoCountry; publishedAt: string; end: string; now: Date; observations: AnalyticsObservation[];
+  url: string; site: string; country: GrowthAnalysisCountry; publishedAt: string; end: string; now: Date; observations: AnalyticsObservation[];
 }) {
   const launchDay = gscDate(new Date(input.publishedAt));
   const range = optimizationRange(input.publishedAt, input.end);
@@ -113,7 +113,7 @@ export function optimizationEffect(input: {
 
 export type OptimizationEffect = ReturnType<typeof optimizationEffect>;
 export type OptimizationReportRow = Omit<OptimizationEffect, "series"> & {
-  id: string; url: string; title: string; country: SeoCountry; publishedAt: string; change: string;
+  id: string; url: string; title: string; country: GrowthAnalysisCountry; publishedAt: string; change: string;
 };
 
 export function verifiedPagePublications(rows: WorkflowPublication[], cutoff: Date) {

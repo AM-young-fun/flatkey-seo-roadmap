@@ -4,13 +4,14 @@ import { ReportLoading } from "./ReportLoading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type * as echarts from "echarts";
 import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { marketTrendCount, serpTrendRange, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
+import { marketTrendComparabilityNote, marketTrendCount, marketTrendLineSegments, serpTrendRange, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import { createPendingDisplayPoll } from "@/lib/pending-display-poll";
 import { OVERVIEW_PAGE_MODULES, type OverviewPageModule } from "@/lib/seo-overview-scope";
+import { GrowthHistoricalReview } from "./GrowthHistoricalReview";
 
 const trendResults = new Map<string, MultiRegionTrendResult>();
 const SERIES = "进入前 100 的关键词";
@@ -100,6 +101,7 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
     let observer: ResizeObserver | undefined;
     const byPeriod = new Map(validPoints.map(point => [point.periodKey ?? point.date, point]));
     const dates = [...byPeriod.keys()];
+    const observations = [...byPeriod.values()];
     const option: echarts.EChartsOption = { animation: false, color: ["#3473bd"],
       tooltip: { trigger: "axis", renderMode: "richText", confine: true, formatter: (raw: unknown) => {
         const values = raw as { axisValue: string }[];
@@ -108,6 +110,8 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
         return [point.periodLabel ?? point.date, `当期关键词：${point.total} 词；已查 ${captured(point)} 词`,
           `${SERIES}：${point.ranked} 词`,
           ...rankBuckets.map((bucket, index) => `第 ${bucket.range} 名：${point.counts[index] ?? "—"} 词`),
+          `原范围：${point.scopeLabel || "范围待核"}`,
+          marketTrendComparabilityNote(point),
           `实际采集：${captureTime(point)}`].join("\n");
       } },
       grid: { left: 44, right: 12, top: 24, bottom: 32 },
@@ -118,10 +122,11 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
         }, color: "#64748b" }, axisLine: { lineStyle: { color: "#e2e8f0" } } },
       yAxis: { type: "value", min: 0, minInterval: 1, splitNumber: 4, axisLabel: { color: "#64748b" },
         splitLine: { lineStyle: { color: "#e9eef5", type: "dashed" } } },
-      series: [{ name: SERIES, type: "line", lineStyle: { width: 2.5 }, areaStyle: { opacity: 0.07 },
-        symbol: "emptyCircle", showSymbol: true, symbolSize: 7,
+      series: [{ name: SERIES, type: "scatter", symbol: "emptyCircle", symbolSize: 8,
         label: { show: dates.length <= 4, position: "top", color: "#334155", fontWeight: 600 }, labelLayout: { hideOverlap: true },
-        data: [...byPeriod.values()].map(point => point.ranked) }],
+        data: observations.map(point => marketTrendCount(point)) },
+        ...marketTrendLineSegments(observations).map(data => ({ name: "已核定可比区间", type: "line" as const,
+          lineStyle: { width: 2.5 }, connectNulls: false, showSymbol: false, data }))],
     };
     void import("@/lib/charts").then(({ init }) => {
       if (disposed) return;
@@ -136,7 +141,7 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
     {latest ? <>
       <div className="inventoryTrendSummary">
         <div className="inventoryTrendTotal">
-          <span>{historicalScope ? "原监控中进入前100" : "进入前 100"}</span>
+          <span>{captured(latest) < latest.total ? "已查部分进入前100" : historicalScope ? "原监控观察进入前100" : "进入前 100"}</span>
           <strong>{latest.ranked.toLocaleString()}</strong>
         </div>
         <div className="inventoryTrendPeriod">
@@ -152,7 +157,8 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
       </dl>
     </> : null}
     {error || failed.length ? <div className="loadError"><span>{error ? "趋势暂时无法读取" : `${failed.map(market => REGIONS[market.region].label).join("、")}趋势暂时无法读取`}</span><button onClick={() => retry(value => value + 1)}>重新加载</button></div> : null}
-    {!markets ? error ? null : <ReportLoading label="正在读取排名趋势" compact /> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "四国去重" : REGIONS[region].label}上榜关键词数折线图`} />}
-
+    {!markets ? error ? null : <ReportLoading label="正在读取排名趋势" compact /> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "四国去重" : REGIONS[region].label}历史排名离散观察图，仅核定可比区间连线`} />}
+    <p className="chartNote">保留各期原始观察值；覆盖不完整、目标集合不同或可比性未知的期次不连线、不计算环比。</p>
+    <GrowthHistoricalReview />
   </section>;
 }

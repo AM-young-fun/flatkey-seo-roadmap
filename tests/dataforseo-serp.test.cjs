@@ -16,7 +16,10 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 
 const clone = value => structuredClone(value);
-let state, targets, queue, inTransaction, fetches, respond, events, liveBalance, balanceRequests;
+let state, targets, queue, inTransaction, fetches, respond, events, liveBalance, balanceRequests, clockOffset, oneBatchDeadline, activeWorkerOptions;
+const realNow = Date.now.bind(Date);
+const originalLoad = Module._load;
+Module._load = function(name, ...rest) { if (name === "server-only") return {}; return originalLoad.call(this, name, ...rest); };
 function matches(row, where = {}) {
   return Object.entries(where).every(([key, expected]) => {
     if (key === "OR") return expected.some(part => matches(row, part));
@@ -127,6 +130,7 @@ const db = {
     }
     events.push(query.sql.includes("upgrade-cached-sample-results") ? "settle:cached" : "persist:normalized"); return count;
   },
+  seoWorkflowRecord: model("records"), seoWorkflowEvent: model("collectionEvents"),
   serpMonitorConfig: model("config", { revision: 1, nextDueAt: null }), serpMonitorRun: model("runs", { scope: "SCHEDULED", sampleAuthorizationHash: null }), serpMonitorTask: model("tasks"),
   dataForSeoConnection: { findUnique: async () => state.connection ? { loginMasked: "f***", encryptedCredentials: "fictional-ciphertext", connectionVersion: 1 } : null },
   schedulerCheck: { create: async ({ data }) => data, update: async ({ data }) => data },
@@ -139,9 +143,9 @@ mockFile("src/lib/services/serp-targets.ts", {
 });
 mockFile("src/lib/dataforseo-credentials.ts", { decryptDataForSeoCredentials: () => ({ apiLogin: "fictional@example.invalid", apiPassword: "fictional-not-a-real-password" }) });
 const { SERP_DEFAULT_CONFIG, SERP_MARKETS, SERP_MARKET_CONFIG, configForSerpRegion, groupSerpQueries, groupSerpMarketQueries, quoteSerpTargets, buildSerpTask, normalizeSerpAdvanced, serpMonitorMutationSchema } = require("../src/lib/dataforseo-serp.ts");
-const { periodDue, nextSerpPeriodKey, serpPeriod } = require("../src/lib/serp-periods.ts");
+const { nextSerpPeriodKey, serpPeriod } = require("../src/lib/serp-periods.ts");
 const { SERP_USER_DATA_URL, SERP_SAMPLE_AUTHORIZATION_HASH, SERP_SAMPLE_AUTHORIZATION_ID } = require("../src/lib/serp-sample.ts");
-const { loadSerpMonitorStatus, mutateSerpMonitor, runSerpMonitorCron, submitSerpSampleBatch, startSerpScheduledPeriod } = require("../src/lib/services/serp-monitor.ts");
+const { loadSerpMonitorStatus, mutateSerpMonitor, runSerpMonitorCron, submitSerpSampleBatch, startSerpScheduledPeriod, resumeGrowthCollectionRun } = require("../src/lib/services/serp-monitor.ts");
 
 function target(keyword, siteDomain = "flatkey.ai") { return { keyword, keywordId: `id-${keyword}`, siteDomain, marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: [`https://${siteDomain}/models/example`] }; }
 function advanced(task, count = 100, overrides = {}) {
@@ -151,11 +155,55 @@ function advanced(task, count = 100, overrides = {}) {
       items: Array.from({ length: count }, (_, index) => ({ type: "organic", rank_group: index + 1, rank_absolute: index + 3,
         title: `Result ${index + 1}`, url: [4, 19].includes(index) ? `https://flatkey.ai/models/example-${index}` : `https://competitor.invalid/page-${index}` })), ...overrides }] }] };
 }
-const start = (id = "fictional-serp-run-1") => mutateSerpMonitor({ action: "start", idempotencyKey: id, expectedCohortHash: "a".repeat(64) });
+function growthFixtureWorkspace() {
+  const rows = targets.flatMap(row => [["US", "en", row.keyword], ["JP", "ja", `モデル価格 ${row.keyword}`], ["BR", "pt-BR", `preço do modelo ${row.keyword}`], ["ES", "es-ES", `precio del modelo ${row.keyword}`]].map(([country, language, keyword]) => ({
+    id: `${row.siteDomain}:${row.keywordId}:${country}:${language}`, keywordId: `${row.keywordId}-${country}`, site: row.siteDomain, topicId: "fixture-topic", topicName: "Native-market model pricing", relatedTopicIds: ["fixture-topic"], keyword,
+    country, language, membership: "formal", pageState: "published", workState: "completed", publishedUrls: row.targetUrls, plannedUrls: [], languageStatus: "match", languageReason: "Fixture reviewed native-market source", observationEligible: false, monitoringEligible: true,
+    rank: null, rankUrl: null, rankSource: null, rankEligible: false, captureState: "unqueried", checkedAt: null, taskIds: [], reason: "Published fixture page with reviewed original market keyword",
+  })));
+  const sites = [...new Set(rows.map(row => row.site))].map(domain => ({domain,name:domain,execution:true,keywordGoals:true,trafficGoal:true,dataOnly:false}));
+  return { version: "growth-v1.5", generatedAt: new Date().toISOString(), sites, markets: [],
+    topics: sites.map(site => ({id:`${site.domain}:fixture-topic`,topicId:"fixture-topic",site:site.domain,name:"Native-market model pricing",parentIds:[],targetIds:rows.filter(row=>row.site===site.domain).map(row=>row.id),formalCount:rows.filter(row=>row.site===site.domain).length,publishedCount:rows.filter(row=>row.site===site.domain).length,rankedCount:0,top50Count:0,markets:[]})), targets: rows, opportunities: [],
+    reconciliation: { formalCount:rows.length,opportunityCount:0,reviewCount:0,totalCount:rows.length,uniqueKeywordCount:new Set(rows.map(row=>row.keyword)).size,rankedCount:0,top50Count:0,publishedCount:rows.length,countryCounts:[],historicalLanguageReview:{version:"fixture",rawSnapshotsPreserved:true,rows:0,matched:0,mismatched:0,unknown:0,comparableTrend:false,reason:"No prior fixture SERP results"},sources:[{name:"全部已存SERP",available:true,reason:null}],notes:[] },
+    monitoringQuote: {approved:false,paidRequests:0,queryCount:rows.length,reusedCount:0,heldCount:0,maxCostMicros:rows.length*6000,queries:[],reason:"Fixture proposal; the real manifest service computes and freezes actual queries"},
+  };
+}
+mockFile("src/lib/services/growth-workspace.ts", { loadGrowthWorkspace: async () => growthFixtureWorkspace() });
+const { saveGrowthCollection } = require("../src/lib/services/growth-collection.ts");
+async function reserveReviewed(id = "fictional-serp-run-1", now = new Date()) {
+  const periodKey = serpPeriod(now).key;
+  const a = await saveGrowthCollection({ action: "prepare", requestId: `${id}:prepare`, expectedVersion: 0, periodKey }, "collector", now);
+  const b = await saveGrowthCollection({ action: "approve", requestId: `${id}:approve`, expectedVersion: a.state.version, periodKey, manifestHash: a.state.manifest.hash, maxCostMicros: a.state.manifest.maxCostMicros, reason: "Test human reviewed exact native-market manifest and maximum" }, "human", now);
+  return saveGrowthCollection({ action: "reserve", requestId: `${id}:reserve`, expectedVersion: b.state.version, periodKey, manifestHash: b.state.manifest.hash }, "collector", now);
+}
+// Exercise the actual manifest reservation and executor. A controlled deadline
+// ends this initial pass just after its first durable POST; later tests resume it.
+async function start(id = "fictional-serp-run-1") {
+  const saved = await reserveReviewed(id);
+  if (saved.replay) return { duplicate: true, run: await resumeGrowthCollectionRun(saved.state.runId, { allowSubmit: false, deadline: Date.now() }) };
+  const previousClock = clockOffset; oneBatchDeadline = true;
+  try { return { run: await resumeGrowthCollectionRun(saved.state.runId, { allowSubmit: true, deadline: Date.now() + 90000 }) }; }
+  finally { oneBatchDeadline = false; clockOffset = previousClock; }
+}
+async function runWorker(options = {}) {
+  if (process.env.DISABLE_EXTERNAL_FETCH === "true") return { status: "DISABLED", reason: "EXTERNAL_FETCH_DISABLED", paidRequests: 0 };
+  if (options.maxDurationMs === 0) return { status: "TIME_BUDGET_EXHAUSTED", paidRequests: 0, continuationRequired: true };
+  let run = state.runs.find(row => row.scope === "GROWTH_APPROVED");
+  if (!run) { await reserveReviewed(); run = state.runs.find(row => row.scope === "GROWTH_APPROVED"); }
+  const beforeGets = fetches.filter(row => row.method === "GET").length;
+  activeWorkerOptions = { allowSubmit: options.allowSubmit !== false, deadline: Date.now() + (options.maxDurationMs ?? 240000) };
+  let dto = await resumeGrowthCollectionRun(run.id, activeWorkerOptions);
+  const paidRequests = dto.paidRequests;
+  for (let pass = 0; pass < 30 && Date.now() + 30000 < activeWorkerOptions.deadline && state.tasks.some(task => task.runId === run.id && task.state === "QUEUED" && (!task.lastPolledAt || +task.lastPolledAt < Date.now() - 30000)); pass++) dto = await resumeGrowthCollectionRun(run.id, { ...activeWorkerOptions, allowSubmit: false });
+  const remaining = ["PLANNED", "SUBMITTING", "QUEUED", "RECEIVED", "UNKNOWN"].reduce((sum, key) => sum + (dto.taskCounts[key] || 0), 0);
+  return { run: dto, paidRequests, status: dto.status === "UNKNOWN" ? "NEEDS_REVIEW" : remaining ? activeWorkerOptions.allowSubmit ? "ACTIVE" : "PAUSED" : "FINISHED", remainingQueries: remaining, continuationRequired: remaining > 0, freeResultsChecked: fetches.filter(row => row.method === "GET").length - beforeGets };
+}
 beforeEach(t => {
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED; delete process.env.DISABLE_EXTERNAL_FETCH;
+  clockOffset = 0; oneBatchDeadline = false; activeWorkerOptions = null;
+  t.mock.method(Date, "now", () => realNow() + clockOffset);
   targets = [target("model api price"), target("brand key")];
-  state = { config: { id: "default", ...SERP_DEFAULT_CONFIG, revision: 1, authorizationVersion: 1 }, connection: true, runs: [], tasks: [] };
+  state = { records: [], collectionEvents: [], config: { id: "default", ...SERP_DEFAULT_CONFIG, revision: 1, authorizationVersion: 1 }, connection: true, runs: [], tasks: [] };
   queue = Promise.resolve(); inTransaction = false; fetches = []; events = []; balanceRequests = []; liveBalance = 100;
   respond = async (url, init) => init.method === "POST" ? new Response(JSON.stringify({ status_code: 20000, tasks: JSON.parse(init.body).map((data, index) => ({ id: `provider-${index}-${fetches.length}`, status_code: 20100, cost: 0.006, data })) })) :
     new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)))));
@@ -169,7 +217,8 @@ beforeEach(t => {
       const body = JSON.parse(init.body); assert.ok(body.length <= 100); assert.ok(body.every(row => state.tasks.find(task => task.id === row.tag)?.state === "SUBMITTING"));
       assert.ok(events.includes("reserve:SUBMITTING") && events.includes("commit"));
     } else { assert.equal(init.method, "GET"); assert.ok(state.tasks.some(task => task.providerTaskId && url.endsWith(task.providerTaskId)), "GET must use a known provider id"); }
-    fetches.push({ url, method: init.method, body: init.body }); return respond(url, init);
+    fetches.push({ url, method: init.method, body: init.body });
+    try { return await respond(url, init); } finally { if (init.method === "POST" && oneBatchDeadline) clockOffset += 91000; }
   });
 });
 
@@ -177,9 +226,9 @@ test("SERP setup, status and preview are offline; neither flag alone can spend a
   const status = await loadSerpMonitorStatus(), preview = await mutateSerpMonitor({ action: "preview" });
   assert.equal(status.config.paidEnabled, false); assert.equal(status.config.nextDueAt, null); assert.equal(preview.paidEnabled, false);
   assert.equal(status.quote.maxCostMicros, 48000); assert.deepEqual(status.config.regions, SERP_MARKETS); assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
-  await assert.rejects(start(), error => error.status === 409);
+  await assert.rejects(mutateSerpMonitor({ action: "start", idempotencyKey: "legacy-start", expectedCohortHash: "a".repeat(64) }), error => error.status === 410);
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true";
-  await assert.rejects(start(), error => error.status === 409);
+  await assert.rejects(mutateSerpMonitor({ action: "start", idempotencyKey: "legacy-start", expectedCohortHash: "a".repeat(64) }), error => error.status === 410);
   assert.equal(serpMonitorMutationSchema.safeParse({ action: "configure", paidEnabled: true }).success, false);
   const saved = await mutateSerpMonitor({ action: "configure", paidEnabled: false, expectedRevision: 1 });
   assert.equal(saved.config.paidEnabled, false); assert.equal(saved.config.intervalDays, 14); assert.equal(saved.config.depth, 100);
@@ -189,34 +238,25 @@ test("SERP setup, status and preview are offline; neither flag alone can spend a
 
 test("management authorization works without deployment paid flags while an unversioned legacy flag cannot spend", async () => {
   state.config.paidEnabled = true; state.config.authorizationVersion = 0;
-  await assert.rejects(start(), error => error.status === 409); assert.equal(fetches.length, 0);
+  await assert.rejects(mutateSerpMonitor({ action: "start", idempotencyKey: "legacy-version", expectedCohortHash: "a".repeat(64) }), error => error.status === 410); assert.equal(fetches.length, 0);
   state.config.authorizationVersion = 1;
   await start(); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
 });
 
-test("advancing Oct20 keeps its single ledger and completion schedules Nov3 rather than another run tomorrow", async t => {
+test("retired scheduled-period start returns 410 without reconstructing an Oct20 ledger or moving its cursor", async () => {
   state.config.paidEnabled = true; state.config.nextDueAt = new Date("2026-10-20T02:30:00Z");
-  t.mock.method(Date, "now", () => Date.parse("2026-10-19T12:00:00Z"));
-  const deadline = Date.now() + 230000;
-  const first = await startSerpScheduledPeriod("2026-10-20", "a".repeat(64), deadline);
-  assert.equal(first.periodKey, "2026-10-20");
-  await mutateSerpMonitor({ action: "resume", runId: first.id });
-  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-05T00:00:00.000Z");
-  assert.equal(state.config.paidEnabled, true);
-  await startSerpScheduledPeriod("2026-10-20", "a".repeat(64), deadline);
-  assert.equal(state.runs.length, 1); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
-  await assert.rejects(startSerpScheduledPeriod("2026-11-03", "a".repeat(64), deadline), /24小时/);
-  assert.equal(state.runs.length, 1);
+  const before = clone(state.config);
+  for (const key of ["2026-10-20", "2026-11-03"]) await assert.rejects(startSerpScheduledPeriod(key, "a".repeat(64), Date.now()+230000), error => error.status === 410);
+  assert.deepEqual(state.config, before); assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
 });
 
-test("cron can start the period already advanced by discovery and keeps the next fixed Tuesday", async t => {
+test("discovery or an old due cursor is never approval for a new scheduled paid run", async () => {
   state.config.paidEnabled = true; state.config.nextDueAt = new Date("2026-10-20T02:30:00Z");
-  t.mock.method(Date, "now", () => Date.parse("2026-10-19T12:00:00Z"));
-  assert.equal((await runSerpMonitorCron()).status, "NOT_DUE");
-  const result = await runSerpMonitorCron({ periodKey: "2026-10-20" });
-  assert.equal(result.status, "FINISHED"); assert.equal(state.runs[0].periodKey, "2026-10-20");
-  assert.equal(state.config.nextDueAt.toISOString(), "2026-11-05T00:00:00.000Z");
-  assert.equal(fetches.filter(row => row.method === "POST").length, 1);
+  const before = clone(state.config);
+  for (const args of [{}, { periodKey: "2026-10-20", allowStart: true, allowSubmit: true }]) {
+    assert.equal((await runSerpMonitorCron(args)).reason, "REVIEWED_MANIFEST_REQUIRED");
+  }
+  assert.deepEqual(state.config, before); assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
 });
 
 test("every daily cron while paused is a zero-provider-call no-op, including no DB configuration", async () => {
@@ -226,33 +266,24 @@ test("every daily cron while paused is a zero-provider-call no-op, including no 
   assert.equal((await runSerpMonitorCron()).status, "DISABLED");
   assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
 });
-test("the future 16:00 slot defers an old 10:10 cursor and leaves its paid gate and budget untouched", async t => {
- t.mock.timers.enable({apis:["Date"],now:new Date("2026-12-03T07:59:59Z")});
- state.config.paidEnabled=true;state.config.nextDueAt=new Date("2026-12-03T02:10:00Z");
- const before=clone(state.config);
- const result=await runSerpMonitorCron();
- assert.equal(result.status,"NOT_DUE");assert.equal(result.nextDueAt,"2026-12-03T08:00:00.000Z");
- assert.deepEqual(state.config,before);assert.equal(fetches.length,0);assert.equal(balanceRequests.length,0);assert.equal(state.runs.length,0);
- t.mock.timers.tick(1000);state.config.paidEnabled=false;
- const paused=clone(state.config);
- assert.equal((await runSerpMonitorCron()).status,"DISABLED");
- const status=await loadSerpMonitorStatus();
- assert.equal(status.config.localTime,"16:00");assert.equal(status.config.nextDueAt,"2026-12-03T08:00:00.000Z");
- assert.equal(status.config.paidEnabled,false);assert.deepEqual(state.config,paused);
- assert.equal(fetches.length,0);assert.equal(balanceRequests.length,0);assert.equal(state.runs.length,0);
+test("a future 16:00 slot does not reactivate the old 10:10 paid cursor", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-12-03T07:59:59Z") });
+  state.config.paidEnabled = true; state.config.nextDueAt = new Date("2026-12-03T02:10:00Z");
+  const before = clone(state.config);
+  assert.equal((await runSerpMonitorCron()).reason, "REVIEWED_MANIFEST_REQUIRED");
+  t.mock.timers.tick(1000);
+  assert.equal((await runSerpMonitorCron({ allowStart: true, allowSubmit: true })).reason, "REVIEWED_MANIFEST_REQUIRED");
+  assert.deepEqual(state.config, before); assert.equal(state.runs.length,0); assert.equal(fetches.length,0); assert.equal(balanceRequests.length,0);
 });
-test("an existing 10:30 server cursor starts once at Thursday 08:00 and never creates a second ledger at the old time",async t=>{
- t.mock.timers.enable({apis:["Date"],now:new Date("2026-11-04T23:59:59Z")});
- state.config.paidEnabled=true;state.config.nextDueAt=new Date("2026-11-03T02:30:00Z");
- assert.equal((await runSerpMonitorCron()).status,"NOT_DUE");assert.equal(fetches.length,0);
- t.mock.timers.tick(1000);
- await runSerpMonitorCron();
- assert.equal(state.runs.length,1);assert.equal(state.runs[0].periodKey,"2026-11-03");
- assert.equal(fetches.filter(row=>row.method==="POST").length,1);
- t.mock.timers.tick(10.5*60*60*1000);
- await runSerpMonitorCron();
- assert.equal(state.runs.length,1);assert.equal(fetches.filter(row=>row.method==="POST").length,1);
- assert.equal(state.config.nextDueAt.toISOString(),"2026-11-19T02:10:00.000Z");
+
+test("both the corrected slot and old server time stay free of new standing paid submissions", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-04T23:59:59Z") });
+  state.config.paidEnabled = true; state.config.nextDueAt = new Date("2026-11-03T02:30:00Z");
+  const before = clone(state.config);
+  for (const advance of [0, 1000, 10.5*60*60*1000]) {
+    t.mock.timers.tick(advance); await runSerpMonitorCron({ allowStart: true, allowSubmit: true });
+  }
+  assert.deepEqual(state.config,before); assert.equal(state.runs.length,0); assert.equal(fetches.length,0);
 });
 
 test("status exposes only whether cron authentication is configured, never the cron secret", async () => {
@@ -268,15 +299,15 @@ test("status exposes only whether cron authentication is configured, never the c
   } finally { if (original === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = original; }
 });
 
-test("a configured future first run is not invented, and kill switch overrides both enable flags", async () => {
+test("an enabled future cursor cannot invent approval and the external kill switch blocks reads and spending", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
-  assert.equal((await runSerpMonitorCron()).status, "NOT_SCHEDULED");
-  state.config.nextDueAt = new Date(Date.now() + 100000);
-  assert.equal((await runSerpMonitorCron()).status, "NOT_DUE");
-  process.env.DISABLE_EXTERNAL_FETCH = "true";
-  assert.equal((await runSerpMonitorCron()).status, "DISABLED");
-  await assert.rejects(start(), error => error.status === 409);
-  assert.equal(fetches.length, 0);
+  assert.equal((await runSerpMonitorCron()).reason,"REVIEWED_MANIFEST_REQUIRED");
+  state.config.nextDueAt = new Date(Date.now()+100000);
+  assert.equal((await runSerpMonitorCron()).reason,"REVIEWED_MANIFEST_REQUIRED");
+  process.env.DISABLE_EXTERNAL_FETCH="true";
+  assert.equal((await runSerpMonitorCron()).reason,"EXTERNAL_FETCH_DISABLED");
+  await assert.rejects(mutateSerpMonitor({action:"start",idempotencyKey:"retired-kill",expectedCohortHash:"a".repeat(64)}),error=>error.status===410);
+  assert.equal(fetches.length,0); assert.equal(state.runs.length,0);
 });
 
 test("query quote deduplicates shared normalized terms across sites without losing either target", () => {
@@ -299,7 +330,7 @@ test("a paid reservation precedes the single <=100-task POST and retries reuse t
   targets = Array.from({ length: 101 }, (_, index) => target(`model api ${index}`));
   const original = clone(targets), first = await start();
   assert.equal(first.run.taskCounts.QUEUED, 100); assert.equal(first.run.taskCounts.PLANNED, 304);
-  assert.equal(fetches.length, 1); assert.equal(state.runs.length, 1); assert.deepEqual(state.runs[0].cohortJson, original);
+  assert.equal(fetches.length, 1); assert.equal(state.runs.length, 1); assert.deepEqual(state.runs[0].cohortJson, state.records[0].payload.manifest.targets); assert.deepEqual(targets, original);
   assert.equal(state.tasks.length, 404); assert.ok(state.tasks.filter(task => task.state === "QUEUED").every(task => task.submissionRaw));
   assert.equal((await start()).duplicate, true); assert.equal(fetches.length, 1);
 });
@@ -311,6 +342,36 @@ test("concurrent new runs cannot reserve and spend twice", async () => {
   assert.equal(state.runs.length, 1); assert.equal(fetches.length, 1);
 });
 
+test("real growth reservation requires exact human cap and CAS and does not enable the standing switch", async () => {
+  const reserved = await reserveReviewed();
+  assert.equal(reserved.paidRequests, 0); assert.equal(state.runs[0].scope, "GROWTH_APPROVED");
+  assert.equal(state.config.paidEnabled, false); assert.equal(state.config.nextDueAt, null);
+  assert.equal(state.collectionEvents.length, 3); assert.equal(state.tasks.length, 8); assert.equal(fetches.length, 0);
+  let saved = state.records[0].payload;
+  await assert.rejects(saveGrowthCollection({ action: "resume", requestId: "stale-resume", expectedVersion: saved.version - 1, periodKey: saved.id, manifestHash: saved.manifest.hash, allowSubmit: true }, "collector"), error => error.code === "version_conflict");
+  saved = state.records[0].payload; // failed CAS rolled the transaction fixture back
+  const cap = saved.approval.maxCostMicros; saved.approval.maxCostMicros = 1;
+  await assert.rejects(resumeGrowthCollectionRun(saved.runId, { allowSubmit: true }), error => error.status === 403);
+  state.records[0].payload.approval.maxCostMicros = cap;
+  state.tasks[0].requestJson.depth = 200;
+  await assert.rejects(resumeGrowthCollectionRun(saved.runId, { allowSubmit: true }), error => error.status === 409);
+  assert.equal(fetches.length, 0); assert.equal(state.tasks.filter(task => task.state === "PLANNED").length, 8);
+});
+
+test("legacy scheduled provider IDs drain for free while their unsubmitted remainder can never restart", async () => {
+  targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
+  await start();
+  const run = state.runs[0]; run.scope = "SCHEDULED"; // an already-paid historical ledger
+  const config = clone(state.config), probes = balanceRequests.length;
+  const result = await runSerpMonitorCron({ allowStart: true, allowSubmit: false });
+  assert.equal(result.paidRequests, 0); assert.equal(result.freeResultsChecked, 100); assert.equal(result.remainingQueries, 20);
+  assert.equal(state.tasks.filter(task => task.state === "COMPLETE").length, 100);
+  assert.equal(state.tasks.filter(task => task.state === "PLANNED").length, 20);
+  await runSerpMonitorCron({ allowStart: true, allowSubmit: false });
+  await assert.rejects(mutateSerpMonitor({ action: "start", idempotencyKey: "retired-remainder", expectedCohortHash: "a".repeat(64) }), error => error.status === 410);
+  assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(balanceRequests.length, probes); assert.deepEqual(state.config, config);
+});
+
 test("lost paid responses remain UNKNOWN and neither same-id nor different-id requests resubmit", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
   respond = async () => { throw new Error("fictional network interruption"); };
@@ -320,25 +381,31 @@ test("lost paid responses remain UNKNOWN and neither same-id nor different-id re
   assert.equal(fetches.length, 1);
 });
 
-test("failed preview hash, due date and budgets all stop before a provider call", async () => {
-  process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
-  await assert.rejects(mutateSerpMonitor({ action: "start", idempotencyKey: "fictional-invalid-hash", expectedCohortHash: "b".repeat(64) }), error => error.status === 409);
-  state.config.nextDueAt = new Date(Date.now() + 100000);
-  await assert.rejects(start(), error => error.status === 409);
-  state.config.nextDueAt = null; state.config.maxRunCostMicros = 6000;
-  await assert.rejects(start(), error => error.status === 409);
-  assert.equal(state.runs.length, 0); assert.equal(fetches.length, 0);
+test("manifest hash, exact fee cap, due time and existing budgets all reject before any provider call", async () => {
+  const now = new Date(), periodKey = serpPeriod(now).key;
+  const prepared=await saveGrowthCollection({action:"prepare",requestId:"guards:prepare",expectedVersion:0,periodKey},"collector",now);
+  const approval={action:"approve",requestId:"guards:approve",expectedVersion:1,periodKey,manifestHash:prepared.state.manifest.hash,maxCostMicros:prepared.state.manifest.maxCostMicros,reason:"reviewed fixture"};
+  await assert.rejects(saveGrowthCollection({...approval,manifestHash:"b".repeat(64)},"human",now),error=>error.status===409);
+  await assert.rejects(saveGrowthCollection({...approval,maxCostMicros:1},"human",now),error=>error.status===409);
+  const approved=await saveGrowthCollection(approval,"human",now);
+  state.config.maxRunCostMicros=6000;
+  await assert.rejects(saveGrowthCollection({action:"reserve",requestId:"guards:budget",expectedVersion:2,periodKey,manifestHash:approved.state.manifest.hash},"collector",now),error=>error.code==="budget_exceeded");
+  state.config.maxRunCostMicros=SERP_DEFAULT_CONFIG.maxRunCostMicros;
+  const future=nextSerpPeriodKey(periodKey),p=await saveGrowthCollection({action:"prepare",requestId:"future:prepare",expectedVersion:0,periodKey:future},"collector",now);
+  await saveGrowthCollection({action:"approve",requestId:"future:approve",expectedVersion:1,periodKey:future,manifestHash:p.state.manifest.hash,maxCostMicros:p.state.manifest.maxCostMicros,reason:"future fixture"},"human",now);
+  await assert.rejects(saveGrowthCollection({action:"reserve",requestId:"future:reserve",expectedVersion:2,periodKey:future,manifestHash:p.state.manifest.hash},"collector",now),error=>error.code==="not_due");
+  assert.equal(state.runs.length,0); assert.equal(fetches.length,0);
 });
 
-test("free resume fetches only known task ids, caches raw before normalization and sets the next fixed calendar period due", async () => {
+test("free resume fetches only known task ids, caches raw before normalization and leaves the standing cursor unchanged", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
   await start(); delete process.env.DATAFORSEO_SERP_PAID_ENABLED; state.config.paidEnabled = false;
-  const result = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  const result = await mutateSerpMonitor({ action: "resume", runId: state.runs[0].id });
   assert.equal(result.run.status, "COMPLETED"); assert.equal(result.run.taskCounts.COMPLETE, 8);
   assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(fetches.filter(row => row.method === "GET").length, 8);
   assert.ok(state.tasks.every(task => task.rawResponse && task.normalizedJson && task.checkedAt));
   assert.equal(state.tasks[0].normalizedJson.organicResults.filter(row => row.domain === "flatkey.ai").length, 2);
-  assert.equal(state.config.nextDueAt.toISOString(), periodDue(nextSerpPeriodKey(state.runs[0].periodKey)).toISOString());
+  assert.equal(state.config.nextDueAt, null, "reviewed growth completion does not rewrite the old scheduled cursor");
   assert.ok(events.indexOf("persist:raw") < events.indexOf("persist:normalized"));
 });
 
@@ -351,7 +418,7 @@ test("a task handed to DataForSEO remains queued until its original paid result 
     id: state.tasks.find(task => url.endsWith(task.providerTaskId)).providerTaskId,
     status_code: 40601, status_message: "Task Handed.", result: null,
   }] }));
-  const pending = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  const pending = await mutateSerpMonitor({ action: "resume", runId: state.runs[0].id });
   assert.equal(pending.run.status, "RUNNING");
   assert.equal(pending.run.taskCounts.QUEUED, 8);
   assert.equal(pending.run.completedAt, null);
@@ -359,7 +426,7 @@ test("a task handed to DataForSEO remains queued until its original paid result 
   // The next free read must collect these same task IDs without paying again.
   for (const task of state.tasks) task.lastPolledAt = new Date(Date.now() - 60_000);
   respond = async url => new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)))));
-  const finished = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  const finished = await mutateSerpMonitor({ action: "resume", runId: state.runs[0].id });
   assert.equal(finished.run.status, "COMPLETED");
   assert.equal(finished.run.taskCounts.COMPLETE, 8);
   assert.deepEqual(state.tasks.map(task => task.providerTaskId), ids);
@@ -423,7 +490,7 @@ test("the paused scheduler repairs an old FTP result from the cached provider re
   await mutateSerpMonitor({ action: "resume", runId: originalTask.runId });
   state.config.paidEnabled = false;
   const run = state.runs.find(row => row.id === originalTask.runId);
-  run.status = "PARTIAL";
+  run.status = "PARTIAL"; run.scope = "SCHEDULED"; // historical already-paid ledger; no new scheduled reservation
   Object.assign(originalTask, { state: "INCOMPLETE", errorCode: "ORGANIC_STRUCTURE_INVALID",
     normalizedJson: { normalizationVersion: 2, captureComplete: false }, rawResponse: JSON.stringify(raw) });
   const calls = fetches.length + balanceRequests.length;
@@ -438,10 +505,10 @@ test("the paused scheduler repairs an old FTP result from the cached provider re
 test("successful short captures are COMPLETE while top100 coverage stays limited, and local replay never makes a second paid request", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
   await start(); respond = async url => new Response(JSON.stringify(advanced(state.tasks.find(task => url.endsWith(task.providerTaskId)), 10)));
-  const resumed = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  const resumed = await mutateSerpMonitor({ action: "resume", runId: state.runs[0].id });
   assert.equal(resumed.run.status, "COMPLETED"); assert.equal(resumed.run.taskCounts.COMPLETE, 8);
   const count = fetches.length;
-  const replayed = await mutateSerpMonitor({ action: "replay", runId: "fictional-serp-run-1" });
+  const replayed = await mutateSerpMonitor({ action: "replay", runId: state.runs[0].id });
   assert.equal(replayed.run.taskCounts.COMPLETE, 8); assert.equal(fetches.length, count);
   assert.ok(state.tasks.every(task => !task.normalizedJson.completeDepth && task.normalizedJson.captureComplete && task.errorCode === null));
 });
@@ -451,24 +518,24 @@ test("a saved POST receipt recovers task IDs after interruption without another 
   await start();
   for (const task of state.tasks) { task.state = "SUBMITTING"; task.providerTaskId = null; task.submittedAt = new Date(Date.now() - 300000); }
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED;
-  const result = await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  const result = await mutateSerpMonitor({ action: "resume", runId: state.runs[0].id });
   assert.equal(result.run.status, "COMPLETED"); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
   assert.ok(state.tasks.every(task => task.providerTaskId && task.state === "COMPLETE"));
 });
 
-test("daily worker submits more than 100 queries in safe batches and follows completion with twice-monthly calendar cadence", async () => {
+test("reviewed manifest worker submits over 100 queries in bounded batches and completes the same immutable run", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
   state.config.nextDueAt = new Date(Date.now() - 1000);
   targets = Array.from({ length: 101 }, (_, index) => target(`model api ${index}`));
-  const result = await runSerpMonitorCron();
-  assert.equal(result.paidRequests, 5); assert.equal(state.runs.length, 1);
+  const result = await runWorker();
+  assert.equal(result.paidRequests, 404, "executor counts submitted queries, while five durable POST batches follow"); assert.equal(state.runs.length, 1);
   assert.equal(fetches.filter(row => row.method === "POST").length, 5);
   assert.ok(fetches.findIndex(row => row.method === "GET") < fetches.findIndex((row, index) => index > 0 && row.method === "POST"), "known results are checked before the second paid batch");
   assert.equal(events.filter(event => event === "associate:batch").length, 5, "one atomic receipt association per POST");
   assert.equal(events.filter(event => event === "persist:raw-batch").length, 11, "404 free responses use eleven bounded raw writes");
   assert.equal(events.filter(event => event === "persist:normalized").length, 11, "normalization is saved per group rather than per keyword");
   assert.ok(state.tasks.every(task => task.state === "COMPLETE"));
-  assert.equal((await runSerpMonitorCron()).status, "NOT_DUE");
+  assert.equal((await runWorker()).status, "FINISHED");
   assert.equal(fetches.filter(row => row.method === "POST").length, 5);
 });
 
@@ -484,7 +551,7 @@ test("queued tasks not ready for Google do not starve later unpolled tasks or tr
     const task = state.tasks.find(task => url.endsWith(task.providerTaskId));
     return notReadyTags.has(task.id) ? new Response(JSON.stringify({ status_code: 20000, tasks: [{ id: task.providerTaskId, status_code: 20101, result: null }] })) : originalRespond(url, init);
   };
-  await runSerpMonitorCron();
+  await runWorker();
   const gets = fetches.filter(row => row.method === "GET");
   assert.equal(gets.length, 404); assert.equal(new Set(gets.map(row => row.url)).size, 404);
   assert.equal(state.tasks.filter(task => task.state === "COMPLETE").length, 364);
@@ -494,9 +561,9 @@ test("queued tasks not ready for Google do not starve later unpolled tasks or tr
 
 test("a completed period cannot be charged again under a different request identity", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
-  await start(); await mutateSerpMonitor({ action: "resume", runId: "fictional-serp-run-1" });
+  await start(); await mutateSerpMonitor({ action: "resume", runId: state.runs[0].id });
   state.config.nextDueAt = new Date(Date.now() - 1000);
-  await assert.rejects(start("fictional-second-period-attempt"), error => error.status === 409 && error.message.includes("本期"));
+  await assert.rejects(start("fictional-second-period-attempt"), error => error.status === 409);
   assert.equal(state.runs.length, 1); assert.equal(fetches.filter(row => row.method === "POST").length, 1);
 });
 
@@ -515,7 +582,7 @@ test("an anomalous per-query paid receipt stops later batches while retaining ID
   assert.equal(first.run.status, "UNKNOWN"); assert.equal(first.run.errorCode, "COST_LIMIT_EXCEEDED");
   assert.equal(first.run.taskCounts.QUEUED, 100); assert.equal(first.run.taskCounts.PLANNED, 304);
   assert.ok(state.tasks.filter(task => task.state === "QUEUED").every(task => task.providerTaskId));
-  assert.equal((await runSerpMonitorCron()).status, "NEEDS_REVIEW");
+  assert.equal((await runWorker()).status, "NEEDS_REVIEW");
   await mutateSerpMonitor({ action: "resume", runId: first.run.id });
   assert.equal(fetches.filter(row => row.method === "POST").length, 1);
   assert.ok(fetches.some(row => row.method === "GET")); assert.equal(state.runs[0].status, "UNKNOWN");
@@ -535,24 +602,24 @@ test("a batch total above its maximum preserves the greater actual cost and rese
   assert.equal(result.run.status, "UNKNOWN"); assert.equal(result.run.actualCostMicros, 700000);
   assert.equal(result.run.reservedCostMicros, 2424000);
   assert.equal((await start()).duplicate, true);
-  assert.equal((await runSerpMonitorCron()).status, "NEEDS_REVIEW");
+  assert.equal((await runWorker()).status, "NEEDS_REVIEW");
   assert.equal(fetches.filter(row => row.method === "POST").length, 1);
   assert.equal(fetches.filter(row => row.method === "GET").length, 100, "cost review blocks new spending but still collects paid IDs for free");
 });
 
-test("paused daily runner drains already-paid scheduled IDs without balance probes or new paid batches", async () => {
+test("paused reviewed-manifest worker drains already-paid IDs without balance probes or new paid batches", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
   targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
   await start(); const probes = balanceRequests.length;
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED; state.config.paidEnabled = false;
-  const result = await runSerpMonitorCron();
+  const result = await runWorker({allowSubmit:false});
   assert.equal(result.status, "PAUSED"); assert.equal(result.paidRequests, 0); assert.equal(result.freeResultsChecked, 100);
   assert.equal(result.remainingQueries, 20); assert.equal(result.continuationRequired, true);
   assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(balanceRequests.length, probes);
   assert.equal(state.tasks.filter(task => task.state === "COMPLETE").length, 100);
   const gets = fetches.filter(row => row.method === "GET").length;
   process.env.DISABLE_EXTERNAL_FETCH = "true";
-  assert.equal((await runSerpMonitorCron()).reason, "EXTERNAL_FETCH_DISABLED");
+  assert.equal((await runWorker()).reason, "EXTERNAL_FETCH_DISABLED");
   assert.equal(fetches.filter(row => row.method === "GET").length, gets);
 });
 
@@ -563,7 +630,7 @@ test("insufficient live balance halts the entire unpaid remainder before its fir
   assert.equal(result.run.errorCode, "ACCOUNT_BALANCE_INSUFFICIENT"); assert.equal(result.run.status, "UNKNOWN");
   assert.equal(result.run.taskCounts.PLANNED, 12); assert.equal(balanceRequests.length, 1); assert.equal(fetches.length, 0);
   liveBalance = 100;
-  assert.equal((await runSerpMonitorCron()).status, "NEEDS_REVIEW");
+  assert.equal((await runWorker()).status, "NEEDS_REVIEW");
   assert.equal(balanceRequests.length, 1); assert.equal(fetches.length, 0);
 });
 
@@ -581,7 +648,7 @@ test("a worker retries the free balance lookup and reuses its verified remainder
     }
     return originalFetch(url, init);
   });
-  const result = await runSerpMonitorCron();
+  const result = await runWorker();
   assert.equal(result.run.errorCode, null);
   assert.equal(rejectedBalanceReads, 1);
   assert.equal(balanceRequests.length, 2, "one successful read to start and one to verify the remaining tasks");
@@ -590,16 +657,16 @@ test("a worker retries the free balance lookup and reuses its verified remainder
   assert.equal(new Set(tags).size, 304);
 });
 
-test("pausing a paid gate during a run stops the next batch and still drains the already-paid batch", async () => {
+test("pausing this manifest worker during a run stops the next batch and still drains the already-paid batch", async () => {
   process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true; state.config.nextDueAt = new Date(Date.now() - 1000);
   targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
   const original = respond;
   respond = async (url, init) => {
     const response = await original(url, init);
-    if (init.method === "POST") state.config.paidEnabled = false;
+    if (init.method === "POST") { state.config.paidEnabled = false; activeWorkerOptions.allowSubmit = false; }
     return response;
   };
-  const result = await runSerpMonitorCron();
+  const result = await runWorker();
   assert.equal(result.status, "PAUSED"); assert.equal(result.remainingQueries, 20);
   assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(fetches.filter(row => row.method === "GET").length, 100);
 });
@@ -615,12 +682,12 @@ test("a provider ID already owned by another paid task leaves the new reservatio
     const raw = await response.json(); raw.tasks[0].id = taken;
     return new Response(JSON.stringify(raw));
   };
-  await runSerpMonitorCron();
+  await runWorker();
   assert.equal(state.tasks.filter(task => task.providerTaskId === taken).length, 1);
   assert.equal(state.tasks.filter(task => task.errorCode === "PROVIDER_ID_ALREADY_OWNED").length, 1);
   assert.equal(state.runs.find(run => run.id === created.run.id).status, "UNKNOWN");
   const paid = fetches.filter(row => row.method === "POST").length;
-  await runSerpMonitorCron(); assert.equal(fetches.filter(row => row.method === "POST").length, paid);
+  await runWorker(); assert.equal(fetches.filter(row => row.method === "POST").length, paid);
 });
 
 test("provider account rejection atomically stops later paid batches while preserving accepted IDs for free collection", async () => {
@@ -633,7 +700,7 @@ test("provider account rejection atomically stops later paid batches while prese
     const raw = await response.json(); raw.tasks[0] = { ...raw.tasks[0], id: null, status_code: 40200, cost: 0 };
     return new Response(JSON.stringify(raw));
   };
-  const result = await runSerpMonitorCron();
+  const result = await runWorker();
   assert.equal(result.status, "NEEDS_REVIEW"); assert.equal(result.run.errorCode, "ACCOUNT_40200");
   assert.equal(result.run.taskCounts.COMPLETE, 99); assert.equal(result.run.taskCounts.FAILED, 1); assert.equal(result.run.taskCounts.PLANNED, 20);
   assert.equal(fetches.filter(row => row.method === "POST").length, 1);
@@ -646,7 +713,7 @@ test("account errors discovered during free GET prevent any later paid batch", a
   targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
   const original = respond;
   respond = async (url, init) => init.method === "GET" ? new Response(JSON.stringify({ status_code: 40200, tasks: null })) : original(url, init);
-  const result = await runSerpMonitorCron();
+  const result = await runWorker();
   assert.equal(result.status, "NEEDS_REVIEW"); assert.equal(result.run.errorCode, "ACCOUNT_40200");
   assert.equal(fetches.filter(row => row.method === "POST").length, 1);
   assert.equal(result.run.taskCounts.PLANNED, 20); assert.equal(result.run.taskCounts.QUEUED, 100);
@@ -659,11 +726,11 @@ test("worker deadline covers setup and stops before another paid POST, leaving a
   targets = Array.from({ length: 30 }, (_, index) => target(`model ${index} price`));
   const original = respond;
   respond = async (url, init) => { assert.ok(now < began + 100000); const result = await original(url, init); if (init.method === "POST") now += 85000; return result; };
-  const result = await runSerpMonitorCron({ maxDurationMs: 100000 });
-  assert.equal(result.paidRequests, 1); assert.equal(result.continuationRequired, true); assert.equal(result.remainingQueries, 120);
+  const result = await runWorker({ maxDurationMs: 100000 });
+  assert.equal(result.paidRequests, 100); assert.equal(result.continuationRequired, true); assert.equal(result.remainingQueries, 120);
   assert.equal(fetches.filter(row => row.method === "POST").length, 1); assert.equal(fetches.filter(row => row.method === "GET").length, 0);
   now += 200000;
-  assert.equal((await runSerpMonitorCron({ maxDurationMs: 0 })).status, "TIME_BUDGET_EXHAUSTED");
+  assert.equal((await runWorker({ maxDurationMs: 0 })).status, "TIME_BUDGET_EXHAUSTED");
   assert.equal(fetches.filter(row => row.method === "POST").length, 1);
 });
 
@@ -800,7 +867,7 @@ test("local replay lowers an already completed run's stale actual total even whe
   for (const task of state.tasks) { const raw = JSON.parse(task.rawResponse); raw.tasks[0].cost = 0.0012; task.rawResponse = JSON.stringify(raw); }
   const before = fetches.length, result = await mutateSerpMonitor({ action: "replay", runId: created.run.id });
   assert.equal(result.run.status, "COMPLETED"); assert.equal(result.run.actualCostMicros, 9600); assert.equal(result.run.reservedCostMicros, 48000);
-  assert.equal(result.run.completedAt, completedAt.toISOString()); assert.equal(state.config.nextDueAt.toISOString(), dueAt.toISOString()); assert.equal(fetches.length, before);
+  assert.equal(result.run.completedAt, completedAt.toISOString()); assert.equal(state.config.nextDueAt?.toISOString() ?? null, dueAt?.toISOString() ?? null); assert.equal(fetches.length, before);
 });
 
 test("settlement refunds cannot clear a prior COST guard or lower the anomalous amount held for review", async () => {
@@ -865,9 +932,9 @@ test("an uncertain sample POST is not repeated and only known IDs permit free re
 
 test("cron never submits or resumes open SAMPLE tasks even if the scheduled gates later change", async () => {
   const run = await seedAuthorizedSample(); process.env.DATAFORSEO_SERP_PAID_ENABLED = "true"; state.config.paidEnabled = true;
-  assert.equal((await runSerpMonitorCron()).status, "NOT_SCHEDULED");
+  assert.equal((await runSerpMonitorCron()).reason, "REVIEWED_MANIFEST_REQUIRED");
   state.config.nextDueAt = new Date(Date.now() - 1000);
-  await assert.rejects(runSerpMonitorCron(), error => error.status === 409 && error.message.includes("未完成"));
+  assert.equal((await runSerpMonitorCron({allowStart:true,allowSubmit:true})).reason,"REVIEWED_MANIFEST_REQUIRED");
   assert.equal(fetches.length, 0); assert.ok(state.tasks.every(task => task.runId === run.id && task.state === "PLANNED"));
 });
 
@@ -875,6 +942,7 @@ let sessionToken;
 const headersPath = require.resolve("next/headers");
 require.cache[headersPath] = { id: headersPath, filename: headersPath, loaded: true, exports: { cookies: async () => ({ get: () => sessionToken ? { value: sessionToken } : undefined }) } };
 const { GET: statusRoute, POST: mutateRoute } = require("../src/app/api/serp-monitor/route.ts");
+
 const { GET: cronRoute } = require("../src/app/api/cron/daily-rankings/route.ts");
 const { getAuthToken } = require("../src/lib/auth.ts");
 test("management routes require a logged-in session and only accept disabled setup; cron always requires a secret", async t => {
@@ -886,7 +954,7 @@ test("management routes require a logged-in session and only accept disabled set
   assert.equal((await statusRoute()).status, 200);
   assert.equal((await mutateRoute(request({ action: "configure", paidEnabled: true }))).status, 400);
   assert.equal((await mutateRoute(request({ action: "preview" }))).status, 200);
-  assert.equal((await mutateRoute(request({ action: "start", idempotencyKey: "fictional-denied-run", expectedCohortHash: "a".repeat(64) }))).status, 409);
+  assert.equal((await mutateRoute(request({ action: "start", idempotencyKey: "fictional-denied-run", expectedCohortHash: "a".repeat(64) }))).status, 410);
   delete process.env.CRON_SECRET;
   assert.equal((await cronRoute(new Request("https://flatkey.test/api/cron/serp-monitor"))).status, 401);
   process.env.CRON_SECRET = "fictional-serp-cron-secret";

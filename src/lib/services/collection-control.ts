@@ -4,13 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { envBool } from "@/lib/env";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { decryptDataForSeoCredentials, signDataForSeoPreview, verifyDataForSeoPreview } from "@/lib/dataforseo-credentials";
-import { quoteSerpTargets, SERP_CONFIG_ID, SERP_MARKETS, SERP_PRICE_PER_QUERY_MICROS } from "@/lib/dataforseo-serp";
-import { parseSerpSampleBalance, SERP_SAMPLE_SAFETY_MARGIN_MICROS, SERP_USER_DATA_URL } from "@/lib/serp-sample";
+import { quoteSerpTargets, SERP_CONFIG_ID, SERP_MARKETS } from "@/lib/dataforseo-serp";
+import { parseSerpSampleBalance, SERP_USER_DATA_URL } from "@/lib/serp-sample";
 import { keywordCyclePlan } from "@/lib/keyword-cycle";
-import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey, scheduledSerpDue, SERP_SCHEDULE_LOCAL_TIME } from "@/lib/serp-periods";
+import { nextSerpPeriodKey, serpPeriod, serpPeriodFromKey, SERP_SCHEDULE_LOCAL_TIME } from "@/lib/serp-periods";
 import { loadScheduledSerpMonitoringCohort as loadSerpMonitoringCohort } from "@/lib/services/serp-targets";
-import { runKeywordDiscoveryCycle, inspectDiscoveryRun, replayDiscoveryRun } from "@/lib/services/keyword-cycle";
-import { runSerpMonitorCron, startSerpScheduledPeriod } from "@/lib/services/serp-monitor";
+import { inspectDiscoveryRun, replayDiscoveryRun } from "@/lib/services/keyword-cycle";
 import type { CollectionControlMutation, CollectionSchedulePreview, CollectionCycleProgress } from "@/lib/collection-control";
 
 const TTL = 6 * 60 * 60_000;
@@ -39,48 +38,6 @@ async function balance(value: Awaited<ReturnType<typeof account>>) {
     if (!response.ok) throw new Error("BALANCE_UNAVAILABLE");
     return parseSerpSampleBalance(await response.json());
   } catch { throw new ImportRequestError("无法确认认证或余额，未提交付费抓取", 409); }
-}
-
-async function recoverUnverifiedBalance(
-  runId: string,
-  approved: z.infer<typeof claimsSchema>,
-  connection: Awaited<ReturnType<typeof account>>,
-) {
-  // Only this read failure happened before submitting the next paid batch.
-  // A lost submission response still requires provider-side reconciliation.
-  const available = await balance(connection);
-  await prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"serp-monitor:budget"}))`;
-    const config = await tx.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
-    const liveConnection = await tx.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" } });
-    const run = await tx.serpMonitorRun.findUniqueOrThrow({ where: { id: runId } });
-    if (!config?.paidEnabled || config.authorizationVersion !== 1 || config.revision !== approved.revision + 1
-      || config.maxRunCostMicros !== approved.maxRunCostMicros
-      || !liveConnection?.scheduleEnabled || liveConnection.connectionVersion !== approved.connectionVersion
-      || fingerprint(liveConnection.encryptedCredentials) !== approved.connectionHash) {
-      throw new ImportRequestError("连接或计划已变化，请重新核对费用", 409);
-    }
-    if (run.status === "RUNNING" && !run.errorCode) return;
-    if (run.status !== "UNKNOWN" || run.errorCode !== "ACCOUNT_BALANCE_UNVERIFIED" || run.scope !== "SCHEDULED"
-      || run.periodKey !== approved.periodKey || run.connectionVersion !== approved.connectionVersion
-      || (run.configJson as { connectionHash?: string } | null)?.connectionHash !== approved.connectionHash
-      || run.reservedCostMicros > approved.maxRunCostMicros) {
-      throw new ImportRequestError("原账本状态或预算已变化，请核对原采集记录", 409);
-    }
-    const ambiguous = await tx.serpMonitorTask.count({ where: { runId, OR: [
-      { state: { in: ["SUBMITTING", "UNKNOWN"] } },
-      { state: "PLANNED", OR: [{ submittedAt: { not: null } }, { providerTaskId: { not: null } }, { submissionRaw: { not: null } }] },
-      { state: { in: ["QUEUED", "RECEIVED"] }, providerTaskId: null },
-    ] } });
-    if (ambiguous) throw new ImportRequestError("原账本有提交结果未核实的任务，不能续跑", 409);
-    const planned = await tx.serpMonitorTask.count({ where: { runId, state: "PLANNED" } });
-    const remainingCost = planned * SERP_PRICE_PER_QUERY_MICROS;
-    if ((run.actualCostMicros ?? 0) + remainingCost > run.reservedCostMicros
-      || available < remainingCost + SERP_SAMPLE_SAFETY_MARGIN_MICROS) {
-      throw new ImportRequestError("余额或原预算不足以覆盖剩余查询，未提交付费抓取", 409);
-    }
-    await tx.serpMonitorRun.update({ where: { id: run.id }, data: { status: "RUNNING", errorCode: null } });
-  });
 }
 
 export async function previewCollectionSchedule(futureOnly?: true): Promise<CollectionSchedulePreview> {
@@ -139,36 +96,6 @@ export async function mutateCollectionControl(input: CollectionControlMutation) 
   return runCollectionCycle(approved);
 }
 
-async function runCollectionCycle(approved: z.infer<typeof claimsSchema>): Promise<CollectionCycleProgress> {
-  const config = await prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID } });
-  const connection = await account();
-  if (!config?.paidEnabled || config.authorizationVersion !== 1 || config.revision !== approved.revision + 1 || !connection.scheduleEnabled || config.maxRunCostMicros !== approved.maxRunCostMicros) throw new ImportRequestError("自动更新已关闭或计划变化，请刷新后查看", 409);
-  const period = serpPeriodFromKey(approved.periodKey), deadline = Date.now() + 230_000;
-  let run = await prisma.serpMonitorRun.findUnique({ where: { periodKey_scope: { periodKey: period.key, scope: "SCHEDULED" } } });
-  if (run && ["COMPLETED", "PARTIAL", "FAILED"].includes(run.status)) return { action: "runCycle", phase: "COMPLETE", finished: true, runId: run.id, message: "本期已结束，下次按原计划隔两周执行。" };
-  if (!run) {
-    if (!config.nextDueAt || scheduledSerpDue(config.nextDueAt).toISOString() !== period.dueAt || Date.parse(period.dueAt) - Date.now() > 86400000) throw new ImportRequestError("只能在计划时间前24小时内提前执行本轮", 409);
-    const discovery = await runKeywordDiscoveryCycle({ periodKey: period.key, deadline: Date.now() + 150_000 });
-    if (["NEEDS_REVIEW", "UNAVAILABLE", "DISABLED", "NOT_DUE"].includes(discovery.status)) throw new ImportRequestError(`新词发现已停止（${discovery.status}），请查看原采集记录，勿重复提交`, 409);
-    if (!discovery.ready) return { action: "runCycle", phase: "DISCOVERY", finished: false, message: `Flatkey新词发现已完成${"completedMarkets" in discovery ? discovery.completedMarkets : 0}/${keywordCyclePlan(new Date(),period.key).jobs.length}个国家，正在筛选去重并核对页面。` };
-    const cohort = await loadSerpMonitoringCohort(), quote = quoteSerpTargets(cohort.targets, SERP_MARKETS);
-    if (quote.maxCostMicros > approved.maxRunCostMicros) {
-      // Freeze spending after discovery; a larger cohort needs a new explicit
-      // fee preview, never silently expanding the previous authorization.
-      await prisma.serpMonitorConfig.updateMany({ where: { id: SERP_CONFIG_ID }, data: { paidEnabled: false, authorizationVersion: 0, revision: { increment: 1 } } });
-      throw new ImportRequestError(`新词筛选后需查询${quote.keywordQueryCount}词，SERP预算$${(quote.maxCostMicros/1e6).toFixed(3)}，超过已确认上限；自动更新已暂停，请重新确认费用`, 409);
-    }
-    const created = await startSerpScheduledPeriod(period.key, cohort.hash, deadline);
-    run = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: created.id } });
-  }
-  if (run.status === "UNKNOWN") {
-    if (run.errorCode !== "ACCOUNT_BALANCE_UNVERIFIED") {
-      throw new ImportRequestError("本期有响应不明的请求，已停止新的付费提交，请核对原账本", 409);
-    }
-    await recoverUnverifiedBalance(run.id, approved, connection);
-  }
-  const progress = await runSerpMonitorCron({ allowStart: false, maxDurationMs: Math.max(0, deadline - Date.now()) });
-  if (progress.status === "NEEDS_REVIEW") throw new ImportRequestError("本期执行异常，请查看原采集记录", 409);
-  return { action: "runCycle", phase: progress.status === "FINISHED" ? "COMPLETE" : "SERP", finished: progress.status === "FINISHED", runId: run.id,
-    remainingQueries: "remainingQueries" in progress ? progress.remainingQueries : undefined, message: progress.status === "FINISHED" ? `本期已完成，下一期隔周周四${SERP_SCHEDULE_LOCAL_TIME}（北京时间）按付费开关执行。` : "正在按关键词已审核的目标国家查询实际排名，已提交的查询不会重复扣费。" };
+async function runCollectionCycle(_approved: z.infer<typeof claimsSchema>): Promise<CollectionCycleProgress> {
+  throw new ImportRequestError("旧整批执行入口已停用；请先通过增长工作台冻结并审核本期正式已建页清单、市场语言和费用，再消费同一清单", 410);
 }

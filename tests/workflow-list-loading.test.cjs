@@ -100,7 +100,7 @@ test("list/full service reads use the original simple select and preserve canoni
   t.after(() => { if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved; });
   const { loadWorkflowSnapshot } = require("../src/lib/services/seo-workflow.ts");
   const full = await loadWorkflowSnapshot({ operational: true, workList: true });
-  assert.deepEqual(calls[0], { select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } });
+  assert.deepEqual(calls[0], { where: { kind: { in: Object.keys(require("../src/lib/seo-workflow.ts").WORKFLOW_SCHEMAS) } }, select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } });
   assert.deepEqual(full.tasks[0].research, rows[0].record.research);
   assert.equal(full.approvals[0].items[0].reviewContent, rows[1].record.items[0].reviewContent);
   equalDisplay(full, workflowWorkList(full));
