@@ -67,3 +67,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## 本季度话题与11月24日首轮循环（用户2026-11-23后续批准）
+
+- 本季规则使用 docs/seo-quarter-2026-closeout-v2.json 及 docs/seo-growth-v15-runtime-contract.md 的最新条款，保留v1历史。北京时间2026-11-24沿原入口、原时段启动首轮；不新建job、不改时间/启停/模型/项目。
+- 季度先完成全话题—国家语种—关键词—页面—原任务规划；未来可用原产能按主攻60%、基本覆盖25%、热点/机会实验15%分配，不改已排taskIds/dueAt、不打断租约、不扩原额度。日常优化/竞争观察/排名/7-14-28天复查持续；新热点和验证机会进入独立新增批次，不周周重写整库。
+- 方向调整可增补关键词、调整未来执行投入、可恢复暂缓；保留原ID、原词、原国、历史和原冻结分母。重大新方向或季度正式目标版本变化先交具体方案人审，不物理删词或缩N凑达标。
+- 本次已完成1409项目标的完整季度审核底账及937项新主国建议；391中性词明确保留待核，不凭诊断查询环境硬判英语或主国。季度规则/源数据快照已锁版不等于已由用户核定季度N；确切清单审核后才走原human冻结入口，既有合法任务继续。
+- RougeCue的GSC/GA4接入、查询、权限排查及补数按用户指示暂缓；不将其缺源当0，也不擅自将四站3000目标改成三站。其他五站正常补采/验收。官网Prompt素材原任务与此SEO关键词目标分开，原授权与安排不改。
+- 日报、周报保持已批准模板、源日期、版本/hash及先审后发；本次用户要求的今天日报只在当前聊天输出供审核，不发群。

@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { reportDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
-import { dailyReportArchiveOnly } from "@/lib/seo-report-time.cjs";
+import { dailyReportArchiveOnly, reportDayStart } from "@/lib/seo-report-time.cjs";
 import { gscDate, gscPeriodEnd, OPTIMIZATION_BASELINE_DAYS, OPTIMIZATION_HISTORY_DAYS, optimizationReportRows, verifiedPagePublications } from "../seo-page-effects";
 import { technicalQaReport } from "../seo-technical-qa-report";
 import { analyticsObservationSchema, analyticsStorageKind, scopedAnalytics, type AnalyticsObservation } from "@/lib/seo-analytics";
@@ -26,7 +26,7 @@ import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { isExecutableWorkflowPlan, shiftWorkflowDay } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
-import { digestDailyRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
+import { digestDailyNativeRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { digestExecutionPeriod, digestReportExecutionWeek, summarizeDigestWorkPlan } from "../seo-digest-work-plan";
 import { loadSerpTasks } from "./serp-results";
 import { loadApprovedWeeklyKeywordCapture } from "./approved-weekly-keyword-capture";
@@ -35,6 +35,7 @@ import { buildReviewedSeoDigest, sameReviewedDigest } from "../seo-reviewed-dige
 import { loadGrowthReportSnapshot } from "./growth-strategy";
 import { growthHash, unavailableGrowthReportSnapshot } from "../growth-strategy";
 import { weeklyReportRange } from "../seo-date-range";
+import { loadGrowthWorkspace } from "./growth-workspace";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -81,6 +82,10 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     : new Date(Math.min(now.getTime(), Date.parse(window.readyAfter)));
   const monitoringEnd = [gscPeriodEnd(monitoringAsOf), window.trafficEnd].sort()[0];
   const monitoringStart = shiftWorkflowDay(monitoringEnd, -(OPTIMIZATION_HISTORY_DAYS + OPTIMIZATION_BASELINE_DAYS + 2));
+  // Freeze the projection at the report day's end: a later receipt must not
+  // hide the actual day's earlier diagnostic result when a daily is refreshed.
+  const dailyRankingAsOf = new Date(Math.min(now.getTime(), Date.parse(reportDayStart(shiftWorkflowDay(window.trafficEnd, 1))) - 1));
+  const dailyGrowthWorkspace = kind === "daily" ? loadGrowthWorkspace(false, dailyRankingAsOf) : null;
   const reads = await Promise.allSettled([
     loadWorkflowSnapshot({ week: executionWeek, allHistory: true }, false),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(executionWeek, 7) }, false),
@@ -90,13 +95,14 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     ] }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(workStart), lt: new Date(Math.min(now.getTime(), Date.parse(workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
     (async () => {
+      if (dailyGrowthWorkspace) return digestDailyNativeRankingNotes(await dailyGrowthWorkspace, window.trafficEnd);
       if (kind === "weekly") {
         const approvedCapture = await loadApprovedWeeklyKeywordCapture({ start: window.trafficStart, end: window.trafficEnd, asOf: now });
         if (approvedCapture) return approvedCapture.notes;
         if (date === "2026-11-13") return [];
       }
-      const tasks = await loadSerpTasks("all", "en", "desktop", kind === "daily" ? shiftWorkflowDay(date, -42) : workStart.slice(0, 10), date);
-      return kind === "daily" ? digestDailyRankingNotes(tasks, now, window.trafficEnd) : digestRankingNotes(tasks, workStart, workEnd, now);
+      const tasks = await loadSerpTasks("all", "en", "desktop", workStart.slice(0, 10), date);
+      return digestRankingNotes(tasks, workStart, workEnd, now);
     })(),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
@@ -105,7 +111,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     hasClosedHistory ? loadDailySeoPageGroupsHistory({ ...historyQuery, ruleVersion: DAILY_SEO_PAGE_GROUP_RULE_VERSION }) : Promise.resolve(undefined),
     loadRegistrationPeriods(reportHistoryStart, window.trafficEnd),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(executionWeek, -7) }, false),
-    loadGrowthReportSnapshot(date, false, now),
+    dailyGrowthWorkspace ? dailyGrowthWorkspace.then(workspace => loadGrowthReportSnapshot(date, false, now, { workspace })) : loadGrowthReportSnapshot(date, false, now),
   ]);
   const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档", "GA4 首次获客日报", "GA4 页面组和同日注册漏斗", "GA4 首次获客注册区间", "上周执行计划", "季度目标与方向证据"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: executionWeek, allHistory: true }, "database");

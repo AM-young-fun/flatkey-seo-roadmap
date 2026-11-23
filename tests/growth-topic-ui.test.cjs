@@ -90,6 +90,13 @@ test("planned URL is not presented as published and task link uses its original 
   assert.doesNotMatch(html, /href="https:\/\/flatkey.ai\/planned"|页面分析与效果/);
   assert.match(html, /href="\/work\/original-task"/);
 });
+test("secondary terms expose the original task main word and separate unapproved market candidates", () => {
+  const relation={taskId:'original-task',originalKeyword:'rent gpu server',country:'US',language:'en',pageUrl:'https://flatkey.ai/gpu',source:'task_page',sourceKeywordId:'secondary',status:'confirmed',reason:'explicit same page'};
+  const confirmed=target('secondary',{keyword:'a100 rental',taskRelations:[relation]});
+  const candidate=target('unknown',{country:null,language:null,taskIds:[],taskRelations:[{...relation,status:'candidate'}]});
+  const html=renderToStaticMarkup(React.createElement(GrowthTargetTable,{data:data([confirmed,candidate]),scope:defaultGrowthScope,targets:[confirmed,candidate]}));
+  assert.match(html,/同页原任务 · 原主词：rent gpu server/);assert.match(html,/同页任务线索（市场待核）/);assert.match(html,/不授目标市场或执行批准/);assert.match(html,/尚未确认关联任务/);assert.equal((html.match(/href="\/work\/original-task"/g)||[]).length,2);
+});
 test("unassigned formal identity shows the existing original-country observation without claiming unqueried or a formal rank", () => {
   const targets=[target("unassigned",{country:null,language:null,wordLanguage:"en",rankEligible:false,rank:null,rankUrl:null,rankSource:null,checkedAt:null,languageStatus:"unknown",languageReason:"目标国家待核，诊断不授长期主国",captureState:"unqueried",relatedObservations:[{country:"US",language:"en",rank:6,url:"https://flatkey.ai/blog/32b-70b-model-vram-guide",source:"serp",checkedAt:"2026-11-23T03:24:56Z",languageStatus:"match"}]})];
   const html=renderToStaticMarkup(React.createElement(GrowthTargetTable,{data:data(targets),scope:defaultGrowthScope,targets}));

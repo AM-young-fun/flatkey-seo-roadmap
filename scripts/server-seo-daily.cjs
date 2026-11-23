@@ -128,6 +128,12 @@ async function run() {
     const flatkey = site.domain === "flatkey.ai";
     const range = windows.find(window => window.site === site.domain).ga4;
     for (const source of ["GA4", "GSC"]) {
+      if (site.googleCollectionDeferred === true) {
+        unavailable++;
+        const gap = { site: site.domain, country: country ?? "all", source, status: "deferred", reason: site.googleCollectionDeferReason };
+        scopes.push(gap); console.log(JSON.stringify(gap));
+        continue;
+      }
       if (source === "GSC" && !site.gsc) {
         unavailable++;
         const gap = { site: site.domain, country: country ?? "all", source, status: "not_configured", reason: "source_property_unverified" };

@@ -55,3 +55,38 @@ test('historical language projection preserves the original period/cohort denomi
  const rows=[evidence({period:{id:'old',label:'10月第2期',scope:'SCHEDULED',cohortHash:'original-a',originalTargetCount:1500,originalQueryCount:1500}}),evidence({keyword:'nvidia b300',country:'JP',language:'ja',period:{id:'new',label:'11月第2期',scope:'SCHEDULED',cohortHash:'original-b',originalTargetCount:1525,originalQueryCount:1525}})];
  const before=JSON.stringify(rows),periods=reviewGrowthHistoricalPeriods(rows),latest=periods.find(p=>p.id==='new');assert.equal(latest.originalTargetCount,1525);assert.equal(latest.checkedQueries,1);assert.equal(latest.unknownLanguageTargets,1);assert.equal(latest.matchedRankedTargets,0);assert.equal(latest.comparable,false);assert.equal(latest.rawSnapshotPreserved,true);assert.equal(JSON.stringify(rows),before);
 });
+
+test('explicit secondary keywords reuse the original same-page task only in their existing market and preserve the original main word',()=>{
+ const original={id:'original-page-task',siteDomain:'flatkey.ai',keyword:'rent gpu server',keywordId:'original-main',country:'US',language:'en',pageUrl:url,status:'in_progress',kind:'optimization'};
+ const data=input({memberships:[member(),member({keywordId:'k2',keyword:'gpu rental'})],tasks:[original,{...original,id:'different-country',country:'JP',language:'ja'},{...original,id:'different-language',language:'ja'},{...original,id:'other-site',siteDomain:'modelfit.cc'},{...original,id:'deleted',deletedAt:time}],ranks:[]});
+ const before=JSON.stringify(data),result=buildGrowthWorkspace(data);
+ for(const row of result.targets){assert.deepEqual(row.taskIds,['original-page-task']);assert.equal(row.taskRelations.length,1);assert.equal(row.taskRelations[0].originalKeyword,'rent gpu server');assert.equal(row.taskRelations[0].status,'confirmed');assert.equal(row.taskRelations[0].source,'task_page');assert.equal(row.taskRelations[0].sourceKeywordId,row.keywordId);}
+ assert.equal(result.reconciliation.formalCount,2);assert.equal(JSON.stringify(data),before);assert.equal(data.tasks[0].keywordId,'original-main');
+});
+
+test('same-page task clues never assign an unknown target market, approve execution, or promote a research keyword',()=>{
+ const task={id:'original',siteDomain:'flatkey.ai',keyword:'rent gpu server',country:'US',language:'en',pageUrl:url,status:'in_progress',kind:'optimization'};
+ const result=buildGrowthWorkspace(input({memberships:[member({marketAssignment:null}),member({keywordId:'research',keyword:'gpu rental',pool:'RESEARCH',marketAssignment:null})],tasks:[task],ranks:[]}));
+ for(const row of result.targets){assert.equal(row.country,null);assert.equal(row.language,null);assert.deepEqual(row.taskIds,[]);assert.equal(row.taskRelations[0].status,'candidate');assert.equal(row.taskRelations[0].country,'US');assert.deepEqual(row.planningProofs,[]);assert.equal(row.monitoringEligible,false);}
+ assert.equal(result.targets.find(row=>row.keywordId==='research').membership,'opportunity');assert.equal(result.reconciliation.formalCount,1);
+});
+
+test('shared Topic, sheet source, a different URL/query, and observed rank URLs cannot invent same-page task intent',()=>{
+ const task={id:'original',siteDomain:'flatkey.ai',keyword:'rent gpu server',country:'US',language:'en',pageUrl:url,status:'in_progress'};
+ const result=buildGrowthWorkspace(input({memberships:[member({targetUrls:[],sourceUrl:'https://alidocs.dingtalk.com/a/sheet'}),member({keywordId:'query',keyword:'gpu rental',targetUrls:[url+'?country=us']}),member({keywordId:'path',keyword:'gpu guide',targetUrls:[url+'-other']})],tasks:[task]}));
+ for(const row of result.targets){assert.deepEqual(row.taskIds,[]);assert.equal(row.taskRelations,undefined);}
+});
+
+test('a real published same-page receipt links its original task and scope; drafts, future, and conflicting publications cannot',()=>{
+ const task={id:'original',siteDomain:'flatkey.ai',keyword:'rent gpu server',country:'US',language:'en',pageUrl:'https://flatkey.ai/old-page',status:'verified'};
+ const pub={id:'receipt',taskId:'original',siteDomain:'flatkey.ai',country:'US',language:'en',pageUrl:url,status:'verified',publishedAt:time};
+ const data=input({tasks:[task],publications:[pub],inventory:[],ranks:[]});
+ let result=buildGrowthWorkspace(data);assert.deepEqual(result.targets[0].taskIds,['original']);assert.equal(result.targets[0].taskRelations[0].publicationId,'receipt');assert.deepEqual(result.targets[0].publishedUrls,[url]);
+ for(const patch of [{id:undefined},{status:'draft'},{publishedAt:'2026-11-24T00:00:00Z'},{country:'JP',language:'ja'},{siteDomain:'modelfit.cc'}]){result=buildGrowthWorkspace({...data,publications:[{...pub,...patch}]});assert.deepEqual(result.targets[0].taskIds,[]);assert.equal(result.targets[0].pageState,'planned');}
+});
+
+test('only an owned explicit source page may link a secondary term and alias task links merge without mutating target identity',()=>{
+ const task={id:'original',siteDomain:'flatkey.ai',keyword:'rent gpu server',country:'US',language:'en',pageUrl:url,status:'verified'};
+ const result=buildGrowthWorkspace(input({memberships:[member({keywordId:'a',targetUrls:[]}),member({keywordId:'z',targetUrls:[],sourceUrl:url+'#section'})],tasks:[task],ranks:[]}));
+ assert.equal(result.targets.length,1);assert.equal(result.targets[0].id,growthTargetId('flatkey.ai','gpu pricing','US','en'));assert.equal(result.targets[0].keywordId,'a');assert.deepEqual(result.targets[0].taskIds,['original']);assert.equal(result.targets[0].taskRelations[0].sourceKeywordId,'z');assert.deepEqual(result.targets[0].aliasKeywordIds,['z']);
+});

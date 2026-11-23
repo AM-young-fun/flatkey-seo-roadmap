@@ -1,0 +1,118 @@
+{
+  "id": "seo-closeout-2026",
+  "version": 2,
+  "approvedRequirementsSha256": "d53214a334724023690caa39de07c2a77dc12e8d4236962a9cf4a308121b3b6a",
+  "deadline": "2027-02-05T23:59:59+08:00",
+  "executionSites": [
+    "flatkey.ai",
+    "rackrate.org",
+    "modelfit.cc"
+  ],
+  "trafficGoal": {
+    "weeklyOrganicSessions": 3000,
+    "sites": [
+      "flatkey.ai",
+      "rackrate.org",
+      "modelfit.cc",
+      "rougecue.org"
+    ],
+    "timezone": "America/Los_Angeles",
+    "finalWindow": {
+      "start": "2027-01-28",
+      "end": "2027-02-03"
+    },
+    "missingSitePolicy": "retain_null_do_not_relabel_partial_as_total"
+  },
+  "keywordGoals": {
+    "top100Coverage": 0.6,
+    "top50ShareOfRanked": 0.8,
+    "identity": [
+      "site",
+      "normalizedOriginalKeyword",
+      "targetCountry",
+      "targetLanguage"
+    ],
+    "searchEngine": "google",
+    "device": "desktop",
+    "maxEvidenceAgeDays": 14,
+    "unqueriedAndUnknownRemainInDenominator": true,
+    "zeroRankedCannotPassQuality": true,
+    "baselineFreezeRequiresReviewedExactManifest": true,
+    "baselineStatus": "pending_manifest_review"
+  },
+  "quarterPlanning": {
+    "basePlan": "complete_once_then_versioned_authorized_deltas",
+    "routineWorkContinues": [
+      "approved_content",
+      "optimization",
+      "competitor_observation",
+      "rank_monitoring",
+      "7_14_28_day_review"
+    ],
+    "ongoingAdditions": [
+      "current_verified_hotspots",
+      "validated_new_opportunities"
+    ],
+    "newTargets": "separate_first_admission_batch_three_calendar_months",
+    "doNotGrowFrozenQuarterDenominator": true
+  },
+  "marketPlanning": {
+    "flatkeyPrimary": {
+      "US": "en",
+      "JP": "ja",
+      "BR": "pt-BR",
+      "SG": "zh-CN"
+    },
+    "newTargetSuggestedShares": {
+      "US": 0.35,
+      "JP": 0.25,
+      "BR": 0.2,
+      "SG": 0.15,
+      "otherCombined": 0.05
+    },
+    "neutralModelNames": "language_review_required",
+    "diagnosticCountryGrantsPrimaryAssignment": false,
+    "historicalCnMovesToSg": false
+  },
+  "reporting": {
+    "weeklyWindow": "LA Thursday through Wednesday",
+    "prepareAt": "Thursday 16:30 Asia/Shanghai",
+    "planningDeadline": "Thursday 16:00 Asia/Shanghai",
+    "template": "approved_six_blocks_and_latest_authorized_simplifications",
+    "groupSend": "exact_version_user_approval",
+    "thursdayDaily": "archive_only"
+  },
+  "paidCollection": "exact_manifest_and_cap_approval_first_reuse_saved_results",
+  "rougeCue": {
+    "googleCollection": "deferred_by_user_20261123",
+    "resumeRequiresUserDirection": true,
+    "originalTrafficGoalRetained": true
+  },
+  "promptMaterialsAutomation": "unchanged_separate_from_SEO_keywords",
+  "supersedes": "seo-quarter-2026-closeout-v1.json",
+  "firstCycleDate": "2026-11-24",
+  "cycleTimezone": "Asia/Shanghai",
+  "capacityAllocation": {
+    "approved": true,
+    "primaryDirections": 0.6,
+    "basicCoverage": 0.25,
+    "hotspotAndOpportunityExperiments": 0.15,
+    "unit": "future_available_original_capacity",
+    "preserveExistingPlanTaskIdsAndDueDates": true,
+    "existingLeasesNotInterrupted": true,
+    "totalQuotasUnchanged": true
+  },
+  "directionAdjustment": {
+    "reviewFrequency": "weekly",
+    "decisions": [
+      "increase",
+      "maintain",
+      "adjust",
+      "defer"
+    ],
+    "majorDirectionRequiresHumanDecision": true,
+    "removeExecution": "reversible_defer_with_reason_preserve_original_ids_and_history",
+    "newTargets": "new_admission_batch",
+    "frozenQuarterBaseline": "keep_original_with_authorized_versioned_change_only"
+  }
+}

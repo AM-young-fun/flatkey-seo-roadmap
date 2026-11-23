@@ -6,6 +6,16 @@ import type { GrowthDriver, GrowthPublicationReference, GrowthReportSnapshot } f
 
 const shift = (day: string, n: number) => new Date(Date.parse(day + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 const pageKey = (url: string) => { const value = new URL(url); return value.origin + value.pathname.replace(/\/$/, ""); };
+const routeLanguages: Record<string, string> = { en: "en", zh: "zh-CN", es: "es-ES", fr: "fr", pt: "pt-BR", ru: "ru", ja: "ja", vi: "vi", de: "de", id: "id" };
+const reportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" });
+const publishedReportDay = (value: string) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? null : reportDate.format(date); };
+/** A localized page describes its own language, not the keyword's target market. */
+function pageRoute(url: string, site: string) {
+  const parts = new URL(url).pathname.split("/").filter(Boolean);
+  const localized = site === "flatkey.ai" && Object.hasOwn(routeLanguages, parts[0] ?? "");
+  const language = site === "flatkey.ai" ? localized ? routeLanguages[parts[0]] : "en" : null;
+  return { module: parts[localized ? 1 : 0] ?? "home", language };
+}
 /** Conservative contribution evidence only. Missing page rows are not converted
  * to zero and page/country/source slices are never added into a causal total. */
 export function growthPageContributionDirections(workspace: GrowthWorkspace, publications: (GrowthPublicationReference & { title?: string })[], observations: AnalyticsObservation[], period: { start: string; end: string }, now = new Date()): GrowthReportSnapshot["directions"] {
@@ -38,10 +48,11 @@ export function growthPageContributionDirections(workspace: GrowthWorkspace, pub
       const topics = [...new Set(targets.map(target => target.topicId).filter((id): id is string => Boolean(id)))];
       const target = targets.find(target => target.country === country) ?? targets[0];
       const pages = publications.filter(publication => publication.status === "verified" && pageKey(publication.pageUrl) === urlKey);
-      const actualChanges = pages.filter(publication => publication.publishedAt.slice(0, 10) >= period.start && publication.publishedAt.slice(0, 10) <= period.end);
+      const actualChanges = pages.filter(publication => { const day = publishedReportDay(publication.publishedAt); return day !== null && day >= period.start && day <= period.end; });
       const taskIds = [...new Set([...targets.flatMap(target => target.taskIds), ...pages.map(page => page.taskId)])];
-      const module = new URL(page.url).pathname.split("/").filter(Boolean).find(part => !["en", "zh", "ja", "pt", "es"].includes(part)) ?? "home";
-      drivers.push({ title: pages.find(publication => publication.title)?.title ?? `页面 ${new URL(page.url).pathname}`, url: page.url, topicId: topics.length === 1 ? topics[0] : null, module, country, language: target?.language ?? "und", source: kind === "gsc-pages" ? "GSC" : "GA4", metric: kind === "gsc-pages" ? "clicks" : "sessions", previous, current, window: { ...period, previousStart: start, previousEnd: shift(period.start, -1), timezone: "America/Los_Angeles" }, publicationIds: actualChanges.map(page => page.id), taskIds,
+      const route = pageRoute(page.url, site), pageLanguages = [...new Set(pages.map(page => page.language).filter((language): language is string => Boolean(language)))];
+      const language = route.language ?? (pageLanguages.length === 1 ? pageLanguages[0] : target?.language ?? "und");
+      drivers.push({ title: pages.find(publication => publication.title)?.title ?? `页面 ${new URL(page.url).pathname}`, url: page.url, topicId: topics.length === 1 ? topics[0] : null, module: route.module, country, language, source: kind === "gsc-pages" ? "GSC" : "GA4", metric: kind === "gsc-pages" ? "clicks" : "sessions", previous, current, window: { ...period, previousStart: start, previousEnd: shift(period.start, -1), timezone: "America/Los_Angeles" }, publicationIds: actualChanges.map(page => page.id), taskIds,
         explanation: actualChanges.length ? `本期存在${actualChanges.some(page => page.kind === "optimization") ? "优化" : "上线"}回执，页面贡献${current - previous > 0 ? "增加" : "减少"}${Math.abs(current - previous)}；需结合原词原市场及外部需求核实动作作用。` : `既有页面的${kind === "gsc-pages" ? "Google点击" : "自然会话"}贡献${current > previous ? "增加" : "减少"}${Math.abs(current - previous)}，本期未找到该页新上线/优化回执。`,
         limitation: "这是同窗口相关贡献；查询需求、竞品变化及本站优势尚待补证，不据此证明因果。页面、国家、来源切片不相加。",
         nextAction: current > previous ? "复核本语言查询、需求持续性、竞争缺口与转化；有优势证据后提交加码方案，优先补原页和原任务" : "沿原页原任务核查曝光/排名/CTR、索引、竞争变化与页面改动，再确定刷新内容、修复问题或继续观察" });

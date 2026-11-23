@@ -2,7 +2,7 @@ import { isGrowthTopicPlaceholder } from "./seo-growth-markets";
 import languageReview from "./data/ranking-word-language-review-20261123.json";
 import { isOwnedBrandKeyword } from "./keyword-market-policy";
 import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
-import type { GrowthHistoricalPeriod, GrowthLanguageStatus, GrowthMarket, GrowthMonitoringQuery, GrowthSite, GrowthTarget, GrowthTopic, GrowthWorkspace } from "./growth-types";
+import type { GrowthHistoricalPeriod, GrowthLanguageStatus, GrowthMarket, GrowthMonitoringQuery, GrowthSite, GrowthTarget, GrowthTaskRelation, GrowthTopic, GrowthWorkspace } from "./growth-types";
 
 export const GROWTH_SITES: GrowthSite[] = [
   { domain: "flatkey.ai", name: "Flatkey", execution: true, keywordGoals: true, trafficGoal: true, dataOnly: false },
@@ -80,7 +80,15 @@ function mergeGrowthTargets(a: GrowthTarget | undefined, b: GrowthTarget): Growt
   const winner=score(a)>score(b)?a:score(a)<score(b)?b:String(a.keywordId).localeCompare(String(b.keywordId))<=0?a:b;
   const provenance=[...(a.memberProvenance??[]),...(b.memberProvenance??[])];
   const members=[...new Map(provenance.map(row=>[row.keywordId,row])).values()].sort((x,y)=>x.keywordId.localeCompare(y.keywordId));
-  return {...winner,memberProvenance:members,aliasKeywordIds:members.map(row=>row.keywordId).filter(id=>id!==winner.keywordId)};
+  const taskRelations=mergeTaskRelations([...(a.taskRelations??[]),...(b.taskRelations??[])]);
+  return {...winner,memberProvenance:members,aliasKeywordIds:members.map(row=>row.keywordId).filter(id=>id!==winner.keywordId),
+    taskIds:unique([...a.taskIds,...b.taskIds]),...(taskRelations.length?{taskRelations}:{})};
+}
+
+const pageIdentity = (value: string, site: string) => { const own=growthPublicUrl(value,site);if(!own)return null;const url=new URL(own);url.hash="";return url.href; };
+function mergeTaskRelations(rows: GrowthTaskRelation[]): GrowthTaskRelation[] {
+  return [...new Map(rows.map(row=>[JSON.stringify([row.taskId,row.pageUrl,row.source,row.publicationId,row.sourceKeywordId,row.status]),row])).values()]
+    .sort((a,b)=>a.taskId.localeCompare(b.taskId)||a.pageUrl.localeCompare(b.pageUrl)||a.source.localeCompare(b.source));
 }
 
 function assignedMarkets(value: unknown): { country: string; language: string }[] {
@@ -131,6 +139,23 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
   for (const member of input.memberships) {const key=wordIdentity(member.site,member.keyword),current=memberIndex.get(key);if(!current||memberScore(member)>memberScore(current)||memberScore(member)===memberScore(current)&&member.keywordId.localeCompare(current.keywordId)<0)memberIndex.set(key,member);}
   for (const row of input.ranks) { const key = growthTargetId(row.site, row.keyword, row.country, row.language); rankIndex.set(key, [...(rankIndex.get(key) ?? []), row]);if(row.keywordId){const memberKey=`${row.site}\u0000${row.keywordId}\u0000${growthWordKey(row.keyword)}`;ranksByMember.set(memberKey,[...(ranksByMember.get(memberKey)??[]),row]);} }
   for (const row of input.publications) publicationIndex.set(row.taskId, [...(publicationIndex.get(row.taskId) ?? []), row]);
+  // Only explicit member->page and original task/publication->same page edges
+  // qualify. Topic similarity and observed rank URLs do not prove task intent.
+  // This index must never participate in market fallback or formal commitments.
+  const pageTasks=new Map<string,{task:GrowthTaskInput;pageUrl:string;source:"task_page"|"publication";publicationId?:string;country:string|null;language:string|null}[]>();
+  const addPageTask=(task:GrowthTaskInput,value:string,source:"task_page"|"publication",country:string|null,language:string|null,publicationId?:string)=>{
+    const pageUrl=pageIdentity(value,task.siteDomain);if(!pageUrl)return;
+    const key=`${task.siteDomain}\u0000${pageUrl}`;pageTasks.set(key,[...(pageTasks.get(key)??[]),{task,pageUrl,source,country,language,...(publicationId?{publicationId}:{})}]);
+  };
+  for(const task of liveTasks){
+    if(task.pageUrl)addPageTask(task,task.pageUrl,"task_page",task.country??null,task.language??null);
+    for(const publication of publicationIndex.get(task.id)??[]){
+      if(!publication.id||publication.siteDomain&&publication.siteDomain!==task.siteDomain||!["published","verified"].includes(publication.status)||stamp(publication.publishedAt)<=0||stamp(publication.publishedAt)>now)continue;
+      // Conflicting publication scope is not permission to move an original task.
+      if(task.country&&publication.country&&task.country!==publication.country||task.language&&publication.language&&task.language!==publication.language)continue;
+      addPageTask(task,publication.pageUrl,"publication",task.country??publication.country??null,task.language??publication.language??null,publication.id);
+    }
+  }
   const matchingTasks = (site: string, keyword: string) => taskIndex.get(wordIdentity(site, keyword)) ?? [];
   for (const row of input.memberships) {
     if (!goalSites.has(row.site) || isOwnedBrandKeyword(row.keyword)) continue;
@@ -149,10 +174,20 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
     // fallback; only the original task/real formal commitment can fill a gap.
     if(!markets.length)for (const task of derived?tasks.filter(task=>proofs.some(proof=>proof.taskId===task.id)):tasks) if (task.country && task.language && !markets.some(market => market.country === task.country && market.language === task.language)) markets.push({ country: task.country, language: task.language });
     const scopes: { country: string | null; language: string | null }[] = markets.length ? markets : [{ country: null, language: null }];
+    const memberPages=unique([...row.targetUrls,...(row.sourceUrl?[row.sourceUrl]:[])].flatMap(value=>pageIdentity(value,row.site)??[]));
     for (const scope of scopes) {
-      const scopedTasks = tasks.filter(task => task.country === scope.country && task.language === scope.language);
+      const scopedTasks = tasks.filter(task => scope.country && scope.language && task.country === scope.country && task.language === scope.language);
+      const taskRelations=mergeTaskRelations(memberPages.flatMap(pageUrl=>(pageTasks.get(`${row.site}\u0000${pageUrl}`)??[]).flatMap(link=>{
+        if(scopedTasks.some(task=>task.id===link.task.id))return [];
+        if(scope.country&&link.country&&scope.country!==link.country||scope.language&&link.language&&scope.language!==link.language)return [];
+        const confirmed=Boolean(scope.country&&scope.language&&link.country===scope.country&&link.language===scope.language);
+        return [{taskId:link.task.id,originalKeyword:link.task.keyword??null,country:link.country,language:link.language,pageUrl,source:link.source,...(link.publicationId?{publicationId:link.publicationId}:{}),sourceKeywordId:row.keywordId,status:confirmed?"confirmed" as const:"candidate" as const,
+          reason:confirmed?"明确关联同一官网页面，原任务或该页发布回执市场、语言一致；保留原任务主词与ID":"同页原任务线索；目标或原任务市场语言待核，不授长期主国或执行批准"}];
+      })));
+      const relatedTaskIds=new Set(taskRelations.filter(link=>link.status==="confirmed").map(link=>link.taskId));
+      const linkedTasks=[...scopedTasks,...liveTasks.filter(task=>relatedTaskIds.has(task.id))];
       const plannedUrls = unique([...row.targetUrls, ...scopedTasks.flatMap(task => task.pageUrl ? [task.pageUrl] : [])].flatMap(url => growthPublicUrl(url, row.site) ?? []));
-      const publishedUrls = unique([...plannedUrls.filter(url => inventory.has(url)), ...scopedTasks.flatMap(task => publicationIndex.get(task.id) ?? []).filter(publication => ["published", "verified"].includes(publication.status) && stamp(publication.publishedAt) > 0 && stamp(publication.publishedAt) <= now && (!publication.language || publication.language === scope.language)).flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? [])]);
+      const publishedUrls = unique([...plannedUrls.filter(url => inventory.has(url)), ...scopedTasks.flatMap(task => publicationIndex.get(task.id) ?? []).filter(publication => ["published", "verified"].includes(publication.status) && stamp(publication.publishedAt) > 0 && stamp(publication.publishedAt) <= now && (!publication.language || publication.language === scope.language)).flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? []),...taskRelations.filter(link=>link.status==="confirmed"&&link.source==="publication").map(link=>link.pageUrl)]);
       const originalLanguage=wordProof(row.site,row.keywordId,row.keyword);
       const language = reviewGrowthLanguage(row.keyword, scope.country, scope.language, input.languageReviews,originalLanguage);
       const id = growthTargetId(row.site, row.keyword, scope.country, scope.language);
@@ -160,9 +195,9 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
       const candidate:GrowthTarget={ id, keywordId: row.keywordId, site: row.site, topicId: topic?.id ?? null, topicName: topic?.text ?? null, relatedTopicIds: topics.map(topic => topic.id), keyword: row.keyword, ...scope, membership,
         sourcePool:row.pool,sourceActive:row.active&&row.keywordActive,membershipSource,wordLanguage:originalLanguage?.language??null,planningProofs:proofs.filter(proof=>proof.country===scope.country&&proof.language===scope.language),memberProvenance:[{keywordId:row.keywordId,keyword:row.keyword,pool:row.pool,active:row.active&&row.keywordActive}],aliasKeywordIds:[],
         pageState: publishedUrls.length ? "published" : plannedUrls.length ? "planned" : "unmapped", publishedUrls, plannedUrls,
-        workState: publishedUrls.length ? "completed" : scopedTasks.some(task => !["planned", "failed", "blocked"].includes(task.status)) ? "in_progress" : membership === "formal" || scopedTasks.length ? "planned" : "unknown",
+        workState: publishedUrls.length ? "completed" : linkedTasks.some(task => !["planned", "failed", "blocked"].includes(task.status)) ? "in_progress" : membership === "formal" || linkedTasks.length ? "planned" : "unknown",
         rank: null, rankUrl: null, rankSource: null, checkedAt: null, languageStatus: language.status, languageReason: language.reason,
-        captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: unique(scopedTasks.map(task => task.id)), reason };
+        captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: unique(linkedTasks.map(task => task.id)),...(taskRelations.length?{taskRelations}:{}), reason };
       targets.set(id,mergeGrowthTargets(targets.get(id),candidate));
     }
   }

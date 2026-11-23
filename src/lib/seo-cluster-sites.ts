@@ -6,8 +6,10 @@ export const CLUSTER_SITES = [
   { domain: "rackrate.org", name: "RackRate", ga4: "558899190", gsc: "https://rackrate.org/", ga4TimeZone: "Asia/Shanghai" },
   { domain: "modelfit.cc", name: "ModelFit", ga4: "558978062", gsc: "https://modelfit.cc/", ga4TimeZone: "Asia/Shanghai" },
   // Read-only onboarding verified in the managed GA4 account on 2026-11-23.
-  // Search Console access/property and registration events remain unverified.
-  { domain: "rougecue.org", name: "RougeCue", ga4: "565596386", gsc: null, ga4TimeZone: "America/Los_Angeles" },
+  // Google sources were explicitly deferred by the user on 2026-11-23. Keep
+  // the property and existing evidence; collectors must not retry either source.
+  { domain: "rougecue.org", name: "RougeCue", ga4: "565596386", gsc: null, ga4TimeZone: "America/Los_Angeles",
+    googleCollectionDeferred: true, googleCollectionDeferReason: "user_deferred_google_sources" },
 ] as const;
 
 export const ROUGECUE_SOURCE_VERIFICATION = {
