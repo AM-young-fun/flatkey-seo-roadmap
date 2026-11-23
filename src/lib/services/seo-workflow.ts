@@ -7,7 +7,7 @@ import { ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMut
 import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
-import { WORK_LIST_APPROVAL_ITEM_DETAIL_KEYS, WORK_LIST_TASK_DETAIL_KEYS, workflowListRecords } from "@/lib/seo-workflow-list";
+import { timedRead } from "@/lib/read-profile";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 type LocalState = { records: WorkflowStoredRow[]; events: { requestId: string; requestHash: string; kind: WorkflowKind; record: WorkflowRecord }[] };
@@ -25,27 +25,15 @@ function requireDatabase() { if (!process.env.DATABASE_URL) throw new WorkflowEr
 
 export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean } = {}, localPreview = false) {
   const directory = localDirectory(localPreview);
-  const listOnly = options.operational === true && options.workList === true;
   if (directory) {
-    const rows = (await readLocal(directory)).records;
-    return workflowSnapshot(listOnly ? workflowListRecords(rows) : rows, options, "local_preview");
+    const rows = (await timedRead("local", () => readLocal(directory))).records;
+    return timedRead("snapshot", async () => workflowSnapshot(rows, options, "local_preview"));
   }
   requireDatabase();
-  // Project out task/review bodies inside PostgreSQL: fetching full JSON and
-  // trimming it in the route still pays the database transfer and parse cost.
-  // This opt-in list path never feeds the mutation/approval transaction graph.
-  const rows = listOnly ? await prisma.$queryRaw<Array<{ kind: string; payload: Prisma.JsonValue }>>(Prisma.sql`
-    /* workflow:work-list */
-    SELECT kind, CASE
-      WHEN kind = 'task' THEN payload - ${WORK_LIST_TASK_DETAIL_KEYS}::text[]
-      WHEN kind = 'approval' THEN jsonb_set(payload, '{items}', COALESCE((
-        SELECT jsonb_agg(item - ${WORK_LIST_APPROVAL_ITEM_DETAIL_KEYS}::text[] ORDER BY position)
-        FROM jsonb_array_elements(payload->'items') WITH ORDINALITY AS items(item, position)
-      ), '[]'::jsonb))
-      ELSE payload END AS payload
-    FROM "SeoWorkflowRecord" ORDER BY "updatedAt" DESC
-  `) : await prisma.seoWorkflowRecord.findMany({ select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } });
-  return workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database");
+  // Keep the canonical graph intact and avoid rewriting every JSON document in
+  // PostgreSQL. The explicit list response is compacted after snapshot rules run.
+  const rows = await timedRead("database", () => prisma.seoWorkflowRecord.findMany({ select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } }));
+  return timedRead("snapshot", async () => workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database"));
 }
 
 export async function loadWorkflowTaskDetail(taskId: string, localPreview = false): Promise<WorkflowTaskDetail> {

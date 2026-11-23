@@ -4,10 +4,10 @@ const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename, l
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 Module._load = function (name, ...rest) { if (name === "server-only") return {}; return load.call(this, name, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
-const { workflowListRecords, WORK_LIST_TASK_DETAIL_KEYS, WORK_LIST_APPROVAL_ITEM_DETAIL_KEYS } = require("../src/lib/seo-workflow-list.ts");
+const { workflowWorkList } = require("../src/lib/seo-workflow-list.ts");
+const baseline = require("./fixtures/workflow-list-reference.ts");
+const { workTaskHref } = require("../src/lib/seo-workspace-routes.ts");
 const { workflowSnapshot } = require("../src/lib/seo-workflow-state.ts");
-const { workflowTaskHasProgress, approvalReviewReadiness } = require("../src/lib/seo-workflow.ts");
-const { pendingTaskApproval } = require("../src/lib/seo-approval-display.ts");
 const now = new Date("2026-11-23T03:00:00Z"), at = "2026-11-20T03:00:00Z";
 const evidence = [{ label: "Desktop screenshot", url: "https://staging-website.flatkey.ai/desktop.png", observedAt: at }, { label: "Mobile screenshot", url: "https://staging-website.flatkey.ai/mobile.png", observedAt: at }];
 const stored = { version: 3, recordedAt: at, updatedAt: at };
@@ -17,68 +17,103 @@ const record = (kind, record) => ({ kind, record });
 const sourceRows = () => [record("task", task()), record("approval", approval())];
 const list = rows => workflowSnapshot(rows, { operational: true, workList: true }, "database", now);
 
-test("list projection removes large detail bodies while keeping review readiness, progress and every list summary", t => {
-  const rows = sourceRows(), original = structuredClone(rows), projected = workflowListRecords(rows);
-  const full = list(rows), compact = list(projected);
-  assert.deepEqual(compact.summary, full.summary);
-  assert.deepEqual(compact.workWeek, full.workWeek);
-  for (const key of ["tasks", "approvals"]) assert.deepEqual(compact[key].map(row => row.id), full[key].map(row => row.id));
-  assert.equal(workflowTaskHasProgress(compact.tasks[0]), workflowTaskHasProgress(full.tasks[0]));
-  const before = pendingTaskApproval(full.tasks[0], full.approvals), after = pendingTaskApproval(compact.tasks[0], compact.approvals);
-  assert.equal(after.item.id, before.item.id);
-  assert.deepEqual(approvalReviewReadiness(after.item), approvalReviewReadiness(before.item));
-  for (const key of WORK_LIST_TASK_DETAIL_KEYS) assert.equal(Object.hasOwn(compact.tasks[0], key), false);
-  for (const key of WORK_LIST_APPROVAL_ITEM_DETAIL_KEYS) assert.equal(Object.hasOwn(after.item, key), false);
-  assert.deepEqual(rows, original, "projection must never mutate the canonical input graph");
-  const beforeBytes = Buffer.byteLength(JSON.stringify(full)), afterBytes = Buffer.byteLength(JSON.stringify(compact));
+function equalDisplay(snapshot, dto) {
+  const reviews = baseline.multilingualReviews(snapshot);
+  assert.deepEqual(dto.summary, snapshot.summary);
+  assert.deepEqual(dto.workWeek, snapshot.workWeek);
+  assert.deepEqual(dto.tasks.map(row => row.id), snapshot.tasks.map(row => row.id));
+  const filters = new URLSearchParams({ country: "JP", taskType: "landing-update", status: "all", range: "week", q: "api" });
+  for (const task of snapshot.tasks) {
+    const row = dto.tasks.find(row => row.id === task.id), review = reviews.get(task.id);
+    assert.equal(row.displayStatus, baseline.workTaskStatus(task, snapshot));
+    assert.deepEqual(row.review, review ? { id: review.approval.id, title: review.approval.title, key: review.key, languages: review.languages } : null);
+    assert.equal(workTaskHref(row, filters), workTaskHref(task, filters));
+    for (const key of ["id", "weekStart", "title", "siteDomain", "business", "country", "language", "kind", "pageType", "pageUrl", "keyword", "owner", "dueAt", "nextAction", "failureReason"]) assert.deepEqual(row[key], task[key]);
+  }
+  for (const state of ["active", "all", "scheduled", "accepted", "review", "rejected", "failed", "completed"]) {
+    const before = snapshot.tasks.filter(task => state === "all" || (state === "active" ? baseline.workTaskStatus(task, snapshot) !== "completed" : baseline.workTaskStatus(task, snapshot) === state)).map(row => row.id);
+    const after = dto.tasks.filter(task => state === "all" || (state === "active" ? task.displayStatus !== "completed" : task.displayStatus === state)).map(row => row.id);
+    assert.deepEqual(after, before);
+  }
+  // Review-title search and language grouping must retain the exact old rows.
+  for (const query of ["", "待审", "api", "Codex"]) {
+    const before = snapshot.tasks.filter(task => [task.title, task.keyword, task.pageUrl, task.owner, reviews.get(task.id)?.approval.title].some(value => value?.toLowerCase().includes(query.toLowerCase())));
+    const after = dto.tasks.filter(task => [task.title, task.keyword, task.pageUrl, task.owner, task.review?.title].some(value => value?.toLowerCase().includes(query.toLowerCase())));
+    const merge = (tasks, reviewFor) => { const seen = new Set(); return tasks.filter(task => { const key = reviewFor(task)?.key; if (!key) return true; if (seen.has(key)) return false; seen.add(key); return true; }).map(task => task.id); };
+    assert.deepEqual(merge(after, task => task.review), merge(before, task => reviews.get(task.id)));
+  }
+}
+
+test("explicit list DTO keeps all display rules and drops the graph only after the canonical snapshot", t => {
+  const rows = sourceRows(), original = structuredClone(rows), snapshot = list(rows), dto = workflowWorkList(snapshot);
+  equalDisplay(snapshot, dto);
+  assert.equal(dto.format, "list");
+  for (const key of ["approvals", "publications", "runs", "issues", "optimizations", "historicalImports", "plan"]) assert.equal(Object.hasOwn(dto, key), false);
+  for (const key of ["research", "brief", "progress", "evidence", "approval", "acceptanceCriteria"]) assert.equal(Object.hasOwn(dto.tasks[0], key), false);
+  assert.deepEqual(rows, original);
+  const beforeBytes = Buffer.byteLength(JSON.stringify(snapshot)), afterBytes = Buffer.byteLength(JSON.stringify(dto));
   assert.ok(afterBytes < beforeBytes * 0.02);
-  t.diagnostic(`Synthetic body-heavy task and approval snapshot: ${beforeBytes} -> ${afterBytes} bytes (${(100 * (1 - afterBytes / beforeBytes)).toFixed(2)}% smaller); not a production timing measurement.`);
+  t.diagnostic(`Synthetic body-heavy full snapshot -> list DTO: ${beforeBytes} -> ${afterBytes} bytes; not a production timing measurement.`);
 });
 
-test("carried, future, deleted, dependent and post-publication rollback tasks retain their original list membership", () => {
+test("all statuses, cross-week carry, future tasks, deleted records, dependencies and rollback retain the original display", () => {
   const publication = { id: "pub-main", taskId: "task-main", weekStart: "2026-11-16", siteDomain: "rackrate.org", kind: "landing", pageUrl: "https://rackrate.org/gpu/test", language: "en", contentVersion: "v3", publicationPolicy: "cluster_post_review", status: "verified", publishedAt: at, clusterRelease: { repository: "owned/repo", commitSha: "a".repeat(40) }, ...stored };
-  const postReview = approval({ siteDomain: "rackrate.org", decisions: [{ itemIds: ["item-main"], decision: "rejected", recordedAt: at, note: "修正参数" }] });
+  const postReview = approval({ siteDomain: "rackrate.org", decisions: [{ itemIds: ["item-main"], decision: "changes_requested", recordedAt: at, note: "修正参数" }] });
   postReview.items[0] = { ...postReview.items[0], pageUrl: publication.pageUrl, postPublicationId: publication.id };
   const rows = [record("task", task({ weekStart: "2026-11-16", siteDomain: "rackrate.org", pageUrl: publication.pageUrl, status: "verified" })), record("approval", postReview), record("publication", publication), record("task", task({ id: "future", weekStart: "2026-11-30", dueAt: "2026-11-30T07:00:00Z", dependencies: ["task-main"] })), record("task", task({ id: "deleted", deletedAt: at }))];
-  const full = list(rows), compact = list(workflowListRecords(rows));
-  assert.deepEqual(compact.workWeek, full.workWeek);
-  assert.deepEqual(compact.summary, full.summary);
-  assert.deepEqual(compact.tasks.map(row => row.id), ["task-main", "future"]);
-  assert.deepEqual(compact.tasks.map(row => row.id), full.tasks.map(row => row.id));
-  assert.deepEqual(compact.publications, full.publications);
-  assert.deepEqual(compact.workWeek.pendingRollbackTaskIds, ["task-main"]);
+  for (const [id, status, extra] of [["planned", "planned", { progress: [], evidence: [], contentVersion: null }], ["failed", "failed", {}], ["observing", "observing", {}], ["research-empty", "researching", { kind: "research", progress: [], evidence: [], contentVersion: null }], ["technical-progress", "researching", { kind: "technical", progress: [], contentVersion: null, evidence: [{ label: "核对", artifact: "check", observedAt: "2026-11-21T03:00:00Z" }] }]]) rows.push(record("task", task({ id, status, ...extra })));
+  const snapshot = list(rows), dto = workflowWorkList(snapshot);
+  equalDisplay(snapshot, dto);
+  assert.deepEqual(snapshot.workWeek.pendingRollbackTaskIds, ["task-main"]);
+  assert.ok(dto.tasks.find(row => row.id === "future"));
+  assert.equal(dto.tasks.some(row => row.id === "deleted"), false);
 });
 
-test("database list reads project JSON before transfer; full snapshots retain their complete payloads", async t => {
+test("multilingual pending reviews, missing materials, superseded/rejected versions and verified publications match the old UI", () => {
+  const en = task(), ja = task({ id: "task-ja", pageUrl: "https://flatkey.ai/ja/models/test", country: "JP", language: "ja" });
+  const review = approval(); review.items.push({ ...review.items[0], id: "item-ja", taskId: ja.id, pageUrl: ja.pageUrl, language: "ja" });
+  const rows = [record("task", en), record("task", ja), record("approval", review)];
+  let snapshot = list(rows), dto = workflowWorkList(snapshot);
+  equalDisplay(snapshot, dto);
+  assert.deepEqual(dto.tasks[0].review.languages, ["en", "ja"]);
+  assert.equal(dto.tasks[0].review.key, dto.tasks[1].review.key);
+  for (const decision of ["rejected", "approved", "changes_requested"]) {
+    review.decisions = [{ itemIds: ["item-main"], decision }]; snapshot = list(rows); dto = workflowWorkList(snapshot); equalDisplay(snapshot, dto);
+  }
+  review.decisions = []; review.items[0].evidence = [];
+  snapshot = list(rows); dto = workflowWorkList(snapshot); equalDisplay(snapshot, dto);
+  assert.notEqual(dto.tasks.find(row => row.id === en.id).displayStatus, "review");
+  rows.push(record("publication", { id: "pub-verified", weekStart: en.weekStart, taskId: en.id, siteDomain: en.siteDomain, status: "verified", kind: "source_blog", contentVersion: en.contentVersion, pageUrl: en.pageUrl, publishedAt: at }));
+  rows.push(record("approval", { ...approval({ id: "replacement", status: "approved", supersedesApprovalIds: [review.id] }), decisions: [{ itemIds: ["item-main"], decision: "approved" }] }));
+  snapshot = list(rows); dto = workflowWorkList(snapshot); equalDisplay(snapshot, dto);
+  assert.equal(dto.tasks.find(row => row.id === en.id).displayStatus, "completed");
+});
+
+test("list/full service reads use the original simple select and preserve canonical details", async t => {
   const calls = [], rows = sourceRows();
   const prismaPath = require.resolve("../src/lib/prisma.ts");
   require.cache[prismaPath] = { id: prismaPath, filename: prismaPath, loaded: true, exports: { prisma: {
-    $queryRaw: async query => { calls.push(query); return workflowListRecords(rows).map(row => ({ kind: row.kind, payload: row.record })); },
+    $queryRaw: async () => assert.fail("list loading must not run full-table JSON rewriting"),
     seoWorkflowRecord: { findMany: async options => { calls.push(options); return rows.map(row => ({ kind: row.kind, payload: row.record })); } },
   } } };
   const saved = process.env.DATABASE_URL; process.env.DATABASE_URL = "postgresql://test.invalid/test";
   t.after(() => { if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved; });
   const { loadWorkflowSnapshot } = require("../src/lib/services/seo-workflow.ts");
-  const compact = await loadWorkflowSnapshot({ operational: true, workList: true });
-  assert.match(calls[0].sql, /workflow:work-list/);
-  assert.match(calls[0].sql, /payload - \?::text\[\]/);
-  assert.match(calls[0].sql, /jsonb_agg\(item - \?::text\[\] ORDER BY position\)/);
-  assert.deepEqual(calls[0].values, [WORK_LIST_TASK_DETAIL_KEYS, WORK_LIST_APPROVAL_ITEM_DETAIL_KEYS]);
-  assert.equal(compact.tasks[0].research, undefined);
-  const full = await loadWorkflowSnapshot({ allHistory: true });
-  assert.deepEqual(calls[1].select, { kind: true, payload: true });
+  const full = await loadWorkflowSnapshot({ operational: true, workList: true });
+  assert.deepEqual(calls[0], { select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } });
   assert.deepEqual(full.tasks[0].research, rows[0].record.research);
   assert.equal(full.approvals[0].items[0].reviewContent, rows[1].record.items[0].reviewContent);
+  equalDisplay(full, workflowWorkList(full));
 });
 
-test("local-preview list matches the lean contract while task detail remains complete for review and editing", async t => {
+test("local preview and task detail retain the complete canonical record", async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "workflow-list-")), rows = sourceRows();
   fs.writeFileSync(path.join(directory, "workflow.json"), JSON.stringify({ records: rows, events: [] }));
   const saved = process.env.SEO_WORKFLOW_PREVIEW_DIR; process.env.SEO_WORKFLOW_PREVIEW_DIR = directory;
   t.after(() => { fs.rmSync(directory, { recursive: true, force: true }); if (saved === undefined) delete process.env.SEO_WORKFLOW_PREVIEW_DIR; else process.env.SEO_WORKFLOW_PREVIEW_DIR = saved; });
   const { loadWorkflowSnapshot, loadWorkflowTaskDetail } = require("../src/lib/services/seo-workflow.ts");
-  const compact = await loadWorkflowSnapshot({ operational: true, workList: true }, true);
-  assert.equal(compact.tasks[0].brief, undefined);
+  const full = await loadWorkflowSnapshot({ operational: true, workList: true }, true);
+  assert.deepEqual(full.tasks[0].brief, rows[0].record.brief);
   const detail = await loadWorkflowTaskDetail("task-main", true);
   assert.equal(detail.task.brief.reason, rows[0].record.brief.reason);
   assert.equal(detail.approvals[0].items[0].reviewContent, rows[1].record.items[0].reviewContent);

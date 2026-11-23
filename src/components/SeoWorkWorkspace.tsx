@@ -1,8 +1,8 @@
 "use client";
 
 import { ReportLoading } from "./ReportLoading";
+import { pendingTaskApproval } from "@/lib/seo-approval-display";
 
-import { groupApprovalPages, pendingTaskApproval } from "@/lib/seo-approval-display";
 import { ReviewChangeSummary } from "./SeoPageApprovals";
 import { SeoListDateControl, useSeoListDateRange } from "./SeoDateControl";
 import { dateInListRange } from "@/lib/seo-date-range";
@@ -10,13 +10,14 @@ import Link, { useLinkStatus } from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
-import { approvalReviewReadiness, approvalItemNeedsHuman, workflowApprovalEffectiveItemStatus, workflowTaskHasProgress } from "@/lib/seo-workflow";
+import { approvalReviewReadiness } from "@/lib/seo-workflow";
 import type { WorkflowSnapshot, WorkflowTask, WorkflowTaskDetail, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
 import { WorkflowEvidence } from "./WorkflowEvidence";
 import { PageHeader } from "./PageHeader";
 import { SeoAutomationSchedule } from "./SeoAutomationSchedule";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
+import { workTaskStatus, type WorkflowListTask, type WorkflowWorkList } from "@/lib/seo-workflow-list";
 import { UiSelect } from "./UiSelect";
 import { useSeoCountry } from "./useSeoCountry";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
@@ -63,7 +64,7 @@ const workTaskTypes = [
   { value: "promotion", label: "推广与内链" },
   { value: "review", label: "复盘" },
 ];
-function editorialTaskType(task: WorkflowTask) {
+function editorialTaskType(task: Pick<WorkflowTask, "kind" | "pageType" | "pageUrl">) {
   const blog = task.pageType === "blog" || /\/blog(?:\/|$)/.test(task.pageUrl ?? "");
   if (task.kind === "blog") return "blog-create";
   if (task.kind === "landing") return "landing-create";
@@ -71,7 +72,7 @@ function editorialTaskType(task: WorkflowTask) {
   if (task.kind === "cluster" && task.pageUrl) return blog ? "blog-update" : "landing-update";
   return task.kind;
 }
-function EditorialTaskTag({ task }: { task: WorkflowTask }) {
+function EditorialTaskTag({ task }: { task: Pick<WorkflowTask, "kind" | "pageType" | "pageUrl"> }) {
   const type = editorialTaskType(task);
   const label = workTaskTypes.find(option => option.value === type)?.label;
   return label ? <span className={styles.taskTypeTag} data-task-type={type}>{label}</span> : null;
@@ -261,48 +262,6 @@ export function OptimizationHistory({ optimization }: { optimization: WorkflowOp
   </details>;
 }
 
-function workTaskStatus(task: WorkflowTask, data?: Pick<WorkflowSnapshot, "approvals" | "publications" | "workWeek"> | null) {
-  const approvals = data?.approvals ?? [];
-  const pending = pendingTaskApproval(task, approvals);
-  if (!pending && approvals.some(approval => approval.siteDomain === task.siteDomain && approval.items.some(item =>
-    item.taskId === task.id && item.contentVersion === task.contentVersion && item.pageUrl === task.pageUrl
-    && (!task.language || item.language === task.language)
-    && (!item.codeSource || !task.branchObservation || task.branchObservation.headSha === item.codeSource.commitSha)
-    && workflowApprovalEffectiveItemStatus(approval, item.id, approvals) === "rejected"
-  ))) return "rejected";
-  if (task.status === "blocked" || task.status === "failed") return "failed";
-  if (pending && approvalReviewReadiness(pending.item).ready) return "review";
-  if (data?.workWeek?.pendingRollbackTaskIds.includes(task.id)) return "accepted";
-  if (["verified", "observing"].includes(task.status)) return "completed";
-  const publication = data?.publications.find(row => row.taskId === task.id && row.contentVersion === task.contentVersion && row.status === "verified"
-    && !["translation", "backfill_translation"].includes(row.kind));
-  if (publication) return "completed";
-  return workflowTaskHasProgress(task) ? "accepted" : "scheduled";
-}
-
-function multilingualReviews(data: WorkflowSnapshot | null) {
-  const byTask = new Map<string, { approval: WorkflowApproval; languages: string[]; key: string }>();
-  if (!data) return byTask;
-  const tasks = new Map(data.tasks.map(task => [task.id, task]));
-  for (const approval of data.approvals ?? []) {
-    if (approval.status === "draft") continue;
-    const pending = approval.items.filter(item => {
-      const task = tasks.get(item.taskId);
-      return data.workWeek?.activeApprovalItems[approval.id]?.includes(item.id)
-        && task?.siteDomain === approval.siteDomain && task.pageUrl === item.pageUrl && task.contentVersion === item.contentVersion
-        && approvalItemNeedsHuman(item, [task]) && approvalReviewReadiness(item).ready
-        && workflowApprovalEffectiveItemStatus(approval, item.id, data.approvals) === "pending";
-    });
-    for (const group of groupApprovalPages(pending)) {
-      const languages = [...new Set(group.items.map(item => item.language))];
-      if (languages.length < 2) continue;
-      for (const item of group.items) {
-        if (!byTask.has(item.taskId)) byTask.set(item.taskId, { approval, languages, key: approval.id + ":" + group.key });
-      }
-    }
-  }
-  return byTask;
-}
 
 const workViews = {
   tasks: "工作任务",
@@ -330,24 +289,28 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const [query, setQuery] = useState(params.get("q") ?? ""), [monday] = useState(currentMonday);
   const filter = (key: string, value: string) => { const params = new URLSearchParams(location.search); const defaultValue = isTaskList && key === "status" ? "active" : "all"; if (value === defaultValue) params.delete(key); else params.set(key, value); history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash); dispatchEvent(new PopStateEvent("popstate")); };
   const time = useSeoListDateRange(isTaskList ? "work" : "calendar");
-  const result = useSeoRead<WorkflowSnapshot>(isTaskList ? "/api/seo/workflow?operational=1&workList=1" : `/api/seo/workflow?week=${encodeURIComponent(week)}`);
+  const snapshotResult = useSeoRead<WorkflowSnapshot>(isTaskList ? null : `/api/seo/workflow?week=${encodeURIComponent(week)}`);
+  const listResult = useSeoRead<WorkflowWorkList>(isTaskList ? "/api/seo/workflow?operational=1&workList=1&format=list" : null);
+  const result = isTaskList ? listResult : snapshotResult;
   const relatedTaskHistory = useSeoRead<WorkflowSnapshot>(view === "issues" ? "/api/seo/workflow?allHistory=true" : null);
-  const data = result.data;
+  const data = snapshotResult.data;
+  const current = isTaskList ? listResult.data : data;
   const relatedTasks = [...(data?.tasks ?? []), ...(relatedTaskHistory.data?.tasks ?? [])];
   const matchesScope = (record: { siteDomain: string; country?: string | null; language?: string | null }) => (site === "all" || record.siteDomain === site) && (country === "all" || record.country === country) && (language === "all" || record.language === language);
-  const taskScope = data?.tasks.filter(task => matchesScope(task) && (business === "all" || task.business === business)) ?? [];
+  const taskScope = current?.tasks.filter(task => matchesScope(task) && (business === "all" || task.business === business)) ?? [];
 
   const taskFilters = new URLSearchParams(params.toString());
   if (query) taskFilters.set("q", query); else taskFilters.delete("q");
-  const reviews = multilingualReviews(isTaskList ? data : null);
-  const overdue = new Set(data?.workWeek?.overdueTaskIds);
+  const reviews = new Map(listResult.data?.tasks.flatMap(task => task.review ? [[task.id, task.review] as const] : []) ?? []);
+  const overdue = new Set(current?.workWeek?.overdueTaskIds);
+  const displayStatus = (task: WorkflowTask | WorkflowListTask) => "displayStatus" in task ? task.displayStatus : workTaskStatus(task, data);
   const tasks = taskScope.filter(task => {
-    const state = workTaskStatus(task, data);
+    const state = displayStatus(task);
     const type = editorialTaskType(task);
     return (taskType === "all" || type === taskType)
       && (time.preset === "week" && overdue.has(task.id) || dateInListRange(task.dueAt, time.range))
       && (status === "all" || (status === "active" ? state !== "completed" : state === status))
-      && [task.title, task.keyword, task.pageUrl, task.owner, reviews.get(task.id)?.approval.title].some(value => value?.toLowerCase().includes(query.toLowerCase()));
+      && [task.title, task.keyword, task.pageUrl, task.owner, reviews.get(task.id)?.title].some(value => value?.toLowerCase().includes(query.toLowerCase()));
   });
   const listedReviews = new Set<string>();
   const taskRows = tasks.filter(task => {
@@ -364,11 +327,11 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const issues = issueScope.filter(issue => (status === "all" || issue.status === status) &&
     [issue.title, issue.owner, issue.pageUrl].some(value => value?.toLowerCase().includes(query.trim().toLowerCase())));
   useEffect(() => {
-    if (embedded || !data) return;
+    if (embedded || !current) return;
     function revealRecord() {
       const id = location.hash.slice(1);
       if (view === "tasks" && id.startsWith("task-")) {
-        const legacyTask = data?.tasks.find(task => "task-" + task.id === id || "task-" + encodeURIComponent(task.id) === id);
+        const legacyTask = current?.tasks.find(task => "task-" + task.id === id || "task-" + encodeURIComponent(task.id) === id);
         if (legacyTask) router.replace(workTaskHref(legacyTask, new URLSearchParams(location.search)));
         return;
       }
@@ -382,11 +345,11 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     revealRecord();
     window.addEventListener("hashchange", revealRecord);
     return () => window.removeEventListener("hashchange", revealRecord);
-  }, [data, embedded, router, view]);
+  }, [current, embedded, router, view]);
   const siteTaskIds = new Set(data?.tasks.filter(task => site === "all" || task.siteDomain === site).map(task => task.id));
   const runs = data?.runs.filter(record => site === "all" || record.taskIds.some(id => siteTaskIds.has(id))) ?? [];
   const verified = publications.filter(record => record.status === "verified");
-  const chosenWeek = data?.weekStart ?? (week === "next" ? shiftDay(monday, 7) : /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : monday);
+  const chosenWeek = current?.weekStart ?? (week === "next" ? shiftDay(monday, 7) : /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : monday);
   return <Container className={embedded ? styles.embedded : workspace.shell}>
     {!embedded ? <PageHeader active={view === "tasks" ? "work" : view} /> : null}
     {!embedded ? <div className={workspace.titleRow}>
@@ -404,8 +367,8 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       <UiSelect aria-label="页面语言筛选" value={language} onChange={value => filter("language", value)} options={[{ value: "all", label: "全部语言" }, ...languages]} /></> : null}
     </div> : null}
     {view === "runs" ? <SeoAutomationSchedule /> : null}
-    {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div> : !data ? <ReportLoading label={`正在读取${title}`} /> : <>
-      {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
+    {result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><button className={styles.secondary} onClick={result.retry}>重新读取</button></div> : !current ? <ReportLoading label={`正在读取${title}`} /> : <>
+      {current.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       {view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
         {["open", "investigating", "blocked", "resolved"].map(status => <div key={status}><span>{stateLabel(status)}</span><strong>{issueScope.filter(issue => issue.status === status).length}</strong></div>)}
       </section> : view === "deliveries" ? <section className={`${styles.summary} ${styles.summaryPair}`} aria-label="发布验收摘要">
@@ -420,22 +383,22 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           const review = reviews.get(task.id);
           const delayed = overdue.has(task.id) || Boolean(review && taskScope.some(other => reviews.get(other.id)?.key === review.key && overdue.has(other.id)));
           const delayBadge = delayed ? <span className={styles.badge} data-state="review_pending">延期</span> : null;
-          const rowStatus = workTaskStatus(task, data);
-          const rollbackPending = data.workWeek?.pendingRollbackTaskIds.includes(task.id);
-          if (review) return <Link className={styles.taskLink} href={`/approvals?approvalId=${encodeURIComponent(review.approval.id)}`} key={review.key} prefetch={false}>
-            <span><strong>{review.approval.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><EditorialTaskTag task={task} /><span>{review.languages.length} 个语言 · {review.languages.join("、")}</span></small></span>
+          const rowStatus = displayStatus(task);
+          const rollbackPending = current.workWeek?.pendingRollbackTaskIds.includes(task.id);
+          if (review) return <Link className={styles.taskLink} href={`/approvals?approvalId=${encodeURIComponent(review.id)}`} key={review.key} prefetch={false}>
+            <span><strong>{review.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><EditorialTaskTag task={task} /><span>{review.languages.length} 个语言 · {review.languages.join("、")}</span></small></span>
             <span className={styles.taskMeta}>{delayBadge}<TaskStatus status="review" /></span>
             <TaskLinkIndicator />
           </Link>;
           return <Link
           className={styles.taskLink} href={workTaskHref(task, taskFilters)} id={`task-${task.id}`} key={task.id} prefetch={false}>
           <span><strong>{task.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><EditorialTaskTag task={task} /><span>{task.keyword ?? "不适用关键词"} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</span></small>{rollbackPending ? <small>下一步：撤销未通过审核的发布</small> : rowStatus === "failed" || delayed && task.nextAction ? <small className={styles.taskDiagnostic}>{task.failureReason} {task.nextAction ? `下一步：${task.nextAction}` : ""}</small> : null}</span>
-          <span className={styles.taskMeta}>{delayBadge}<TaskStatus status={rowStatus} /><small>{delayed ? "原计划 " : ""}{displayTime(task.dueAt)} · {task.owner}</small>{delayed && data.workWeek?.catchUpDate ? <small>补齐跟进 {data.workWeek.catchUpDate} 北京时间</small> : null}</span>
+          <span className={styles.taskMeta}>{delayBadge}<TaskStatus status={rowStatus} /><small>{delayed ? "原计划 " : ""}{displayTime(task.dueAt)} · {task.owner}</small>{delayed && current.workWeek?.catchUpDate ? <small>补齐跟进 {current.workWeek.catchUpDate} 北京时间</small> : null}</span>
           <TaskLinkIndicator />
           </Link>;
         })}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}
       </section> : null}
-      {tab === "deliveries" ? <section aria-label="正式页面发布验收"><p className={styles.muted}>发布成功和验收成功分别保留。翻译、历史补译和源文单独统计；Sitemap 首次发现不计为发布。</p>{publications.length ? publications.map(record => <details key={record.id} className={styles.record}><summary><span><strong>{record.title}</strong><small>{publicationKinds[record.kind]} · {siteName(record.siteDomain)} · {record.language}</small></span><WorkflowStatus status={record.status} /></summary><div className={styles.detail}><a href={record.pageUrl} target="_blank" rel="noreferrer">{record.pageUrl} ↗</a><p>发布 {displayTime(record.publishedAt)} · 验收 {displayTime(record.verifiedAt)} · 版本 {record.contentVersion}</p><p>目标词：{record.keyword ?? "未核实"} · {record.country ? markets[record.country] : "未指定目标市场"}</p>{record.failureReason ? <p className={styles.warning}>{record.failureReason}</p> : null}{record.liveCheck ? <p><CheckCircle2 size={14} /> 正式内容、canonical、语言与链接已核对。此检查不等于 Google 已收录。</p> : <p className={styles.muted}>尚无正式页验收记录。</p>}<WorkflowEvidence evidence={record.evidence} />{record.approvalId ? <p><Link href={`/approvals?approvalId=${encodeURIComponent(record.approvalId)}`}>查看此次发布审批 →</Link></p> : <p className={styles.muted}>历史发布尚无本次规则的审批关联，不作为新发布授权。</p>}<Link href={pageHref(record.pageUrl, record.country)}>进入页面效果 →</Link></div></details>) : <p className={styles.empty}>尚无此范围的发布回执。</p>}{(data.historicalImports ?? []).filter(archive => site === "all" || archive.siteDomain === site).map(archive => <HistoricalDeliveries key={archive.id} archive={archive} country={country} language={language} business={business} />)}</section> : null}
+      {tab === "deliveries" ? <section aria-label="正式页面发布验收"><p className={styles.muted}>发布成功和验收成功分别保留。翻译、历史补译和源文单独统计；Sitemap 首次发现不计为发布。</p>{publications.length ? publications.map(record => <details key={record.id} className={styles.record}><summary><span><strong>{record.title}</strong><small>{publicationKinds[record.kind]} · {siteName(record.siteDomain)} · {record.language}</small></span><WorkflowStatus status={record.status} /></summary><div className={styles.detail}><a href={record.pageUrl} target="_blank" rel="noreferrer">{record.pageUrl} ↗</a><p>发布 {displayTime(record.publishedAt)} · 验收 {displayTime(record.verifiedAt)} · 版本 {record.contentVersion}</p><p>目标词：{record.keyword ?? "未核实"} · {record.country ? markets[record.country] : "未指定目标市场"}</p>{record.failureReason ? <p className={styles.warning}>{record.failureReason}</p> : null}{record.liveCheck ? <p><CheckCircle2 size={14} /> 正式内容、canonical、语言与链接已核对。此检查不等于 Google 已收录。</p> : <p className={styles.muted}>尚无正式页验收记录。</p>}<WorkflowEvidence evidence={record.evidence} />{record.approvalId ? <p><Link href={`/approvals?approvalId=${encodeURIComponent(record.approvalId)}`}>查看此次发布审批 →</Link></p> : <p className={styles.muted}>历史发布尚无本次规则的审批关联，不作为新发布授权。</p>}<Link href={pageHref(record.pageUrl, record.country)}>进入页面效果 →</Link></div></details>) : <p className={styles.empty}>尚无此范围的发布回执。</p>}{(data?.historicalImports ?? []).filter(archive => site === "all" || archive.siteDomain === site).map(archive => <HistoricalDeliveries key={archive.id} archive={archive} country={country} language={language} business={business} />)}</section> : null}
       {tab === "optimizations" ? <section aria-label="优化版本与观察窗口">{optimizations.length ? optimizations.map(row => <OptimizationHistory key={row.id} optimization={row} />) : <p className={styles.empty}>尚无此范围的优化记录。先保存优化前基线，审核稿、上线回执和后续观察会关联到同一页面。</p>}</section> : null}
       {tab === "issues" ? <section className={styles.listPanel} aria-labelledby="issue-list-title">
         <div className={styles.sectionHeading}><h2 id="issue-list-title">问题台账</h2><span className={styles.count}>{issues.length} 项</span></div>
