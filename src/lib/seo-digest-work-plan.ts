@@ -12,6 +12,11 @@ export function digestExecutionWeek(date: string, kind: DigestKind = "daily") {
   return kind === "daily" && [5, 6, 0].includes(weekday(day)) ? shiftDay(monday, 7) : monday;
 }
 
+/** Daily archive dates follow the source day; choose its execution cycle, not the collection day's. */
+export function digestReportExecutionWeek(date: string, kind: DigestKind) {
+  return digestExecutionWeek(kind === "daily" ? shiftDay(date, -1) : date, kind);
+}
+
 export function digestExecutionPeriod(weekStart: string) {
   const start = shiftDay(weekStart, -3), end = shiftDay(weekStart, 3);
   const workdays = Array.from({ length: 7 }, (_, index) => shiftDay(start, index))

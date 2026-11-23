@@ -1,6 +1,6 @@
 const { test } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), ts = require("typescript");
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
-const { digestExecutionWeek, digestExecutionPeriod, summarizeDigestWorkPlan } = require("../src/lib/seo-digest-work-plan.ts");
+const { digestExecutionWeek, digestReportExecutionWeek, digestExecutionPeriod, summarizeDigestWorkPlan } = require("../src/lib/seo-digest-work-plan.ts");
 const { buildSeoDigest, digestWindow } = require("../src/lib/seo-digest.ts");
 const task = (id, weekStart, dueAt, patch = {}) => ({ id, weekStart, dueAt, siteDomain: "flatkey.ai", kind: "blog", title: id,
   pageUrl: null, keyword: id, country: "US", language: "en", owner: "AI", status: "ready", nextAction: "核对原任务后执行", ...patch });
@@ -18,6 +18,13 @@ test("execution cycles use Friday and Monday–Thursday without changing the LA 
   assert.equal(window.trafficStart, "2026-11-12"); assert.equal(window.trafficEnd, "2026-11-18");
   assert.equal(window.executionStart, "2026-11-13T00:00:00+08:00");
   assert.equal(window.executionEnd, "2026-11-20T00:00:00+08:00");
+});
+
+test("daily plans follow their actual source day across the Thursday-to-Friday cycle boundary", () => {
+  assert.equal(digestReportExecutionWeek("2026-11-20", "daily"), "2026-11-16", "Friday collection reports Thursday's cycle");
+  assert.equal(digestReportExecutionWeek("2026-11-21", "daily"), "2026-11-23", "Saturday archive reports Friday's new cycle");
+  assert.equal(digestReportExecutionWeek("2026-11-23", "daily"), "2026-11-23", "Sunday remains its own source day in the new cycle");
+  assert.equal(digestReportExecutionWeek("2026-11-19", "weekly"), "2026-11-16");
 });
 
 test("plans include prior Friday, preserve original links and distinguish real candidates", () => {
