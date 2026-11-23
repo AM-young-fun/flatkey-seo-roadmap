@@ -16,7 +16,7 @@ const repo = "AM-young-fun/flatkey-seo-roadmap";
 const samples = [
   ["https://flatkey.ai/", "sc-domain:flatkey.ai"],
   ["https://flatkey.ai/es/blog/gpu-server", "sc-domain:flatkey.ai"],
-  ...CLUSTER_SITES.map(({ domain, gsc }) => [`https://${["jev-llm.com", "mochichatbot.com"].includes(domain) ? "www." : ""}${domain}/`, gsc]),
+  ...CLUSTER_SITES.filter(site => site.gsc).map(({ domain, gsc }) => [`https://${["jev-llm.com", "mochichatbot.com"].includes(domain) ? "www." : ""}${domain}/`, gsc]),
 ];
 async function inspect(inspectionUrl, siteUrl, token) {
   try {

@@ -4,3 +4,5 @@ let last,calls=0;const orig=Module._load;Module._load=function(n,...args){if(n==
 const base='https://workspace.invalid/api/seo/analytics/import?start=2026-10-01&end=2026-11-17';
 test('bounded site metric projection includes payload without changing default metadata read',async()=>{assert.equal((await GET(new Request(base+'&kind=gsc-site:JP:jev-llm.com&projection=site-metrics'))).status,200);assert.equal(last.select.payload,true);await GET(new Request(base+'&kind=gsc-site:JP:jev-llm.com'));assert.equal(last.select.payload,undefined)});
 test('page payloads and unscoped metric projections fail before database access',async()=>{const count=calls;assert.equal((await GET(new Request(base+'&projection=site-metrics'))).status,400);assert.equal((await GET(new Request(base+'&kind=gsc-pages&projection=site-metrics'))).status,400);assert.equal(calls,count)});
+
+test('RougeCue bounded site metric projection follows registered source mapping',async()=>{const r=await GET(new Request(base+'&kind=ga4-site:rougecue.org&projection=site-metrics'));assert.equal(r.status,200);assert.equal(last.select.payload,true);assert.equal(last.where.kind,'ga4-site:rougecue.org')});

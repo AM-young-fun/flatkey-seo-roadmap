@@ -93,8 +93,8 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
       .sort((a, b) => b[1].size - a[1].size || b[0].localeCompare(a[0]))[0]?.[0];
     const daily = period?.start === period?.end && Boolean(period);
     const date = daily ? period!.end : commonDate ?? fallback ?? null;
-    const selectionReason = daily ? "日报仅统计所选当日，缺失不回退到其他日期" : commonDate ? `最近五站共同完整日${latestSourceDate && latestSourceDate > commonDate ? `；部分站点已有 ${latestSourceDate} 数据，未跨日期混排` : ""}`
-      : date ? `无五站共同完整日；在最新来源日 ${latestSourceDate} 及向前7天内优先完整站覆盖，再选最新日期`
+    const selectionReason = daily ? "日报仅统计所选当日，缺失不回退到其他日期" : commonDate ? `最近${sites.length}站共同完整日${latestSourceDate && latestSourceDate > commonDate ? `；部分站点已有 ${latestSourceDate} 数据，未跨日期混排` : ""}`
+      : date ? `无${sites.length}站共同完整日；在最新来源日 ${latestSourceDate} 及向前7天内优先完整站覆盖，再选最新日期`
         : "最近14天内缺少可用完整日期，未回退到更旧数据";
     const currentBySite = new Map<string, PageObservation>();
     for (const row of ready.filter(row => row.date === date)) {

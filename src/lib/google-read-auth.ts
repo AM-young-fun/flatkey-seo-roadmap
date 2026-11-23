@@ -5,7 +5,8 @@ import { readFile } from "node:fs/promises";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 type ErrorCode = "missing_credentials" | "invalid_credentials" | "auth_failed" |
-  "forbidden" | "rate_limited" | "unavailable" | "invalid_response";
+  "forbidden" | "rate_limited" | "unavailable" | "invalid_response" |
+  "source_window_open" | "source_hour_ambiguous" | "source_quality_incomplete" | "source_buckets_unverified";
 
 export class GoogleReadError extends Error {
   constructor(public readonly code: ErrorCode, message: string, public readonly status?: number) {

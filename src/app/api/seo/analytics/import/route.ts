@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { analyticsObservationSchema, analyticsStorageKind, type AnalyticsObservation } from "@/lib/seo-analytics";
 import { propertyToday } from "@/lib/seo-date-range";
-import { clusterDomainForProperty, siteReportToday } from "@/lib/seo-cluster-sites";
+import { CLUSTER_SITES, clusterDomainForProperty, siteReportToday } from "@/lib/seo-cluster-sites";
+import { GROWTH_COUNTRIES } from "@/lib/seo-growth-markets";
 
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
@@ -111,7 +112,9 @@ export async function GET(request: Request) {
   }
   const kind = params.get("kind");
   const siteMetrics = params.get("projection") === "site-metrics";
-  if (siteMetrics && (!kind || !/^(?:ga4|gsc)-site(?::(?:US|JP|ES|BR))?(?::(?:rackrate\.org|modelfit\.cc|jev-llm\.com|mochichatbot\.com))?$/.test(kind))) {
+  const allowedSiteMetricKinds = new Set([undefined, ...CLUSTER_SITES.map(site => site.domain)].flatMap(site =>
+    (["ga4-site", "gsc-site"] as const).flatMap(metric => (["all", ...GROWTH_COUNTRIES] as const).map(country => analyticsStorageKind(metric, country, site)))));
+  if (siteMetrics && (!kind || !allowedSiteMetricKinds.has(kind))) {
     return Response.json({ message: "指标投影仅支持明确的站点指标范围" }, { status: 400, headers });
   }
   const rows = await prisma.seoAnalyticsDay.findMany({

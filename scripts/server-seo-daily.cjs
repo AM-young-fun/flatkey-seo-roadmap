@@ -20,9 +20,10 @@ require.extensions[".ts"] = (module, file) => {
 
 
 const { analyticsObservationSchema, analyticsStorageKind } = require("../src/lib/seo-analytics.ts");
-const { collectionDateRange, seoToday, shiftDay } = require("../src/lib/seo-date-range.ts");
+const { collectionDateRange, seoToday, shiftDay, weeklyReportRange } = require("../src/lib/seo-date-range.ts");
 const { CLUSTER_SITES, clusterDomainForProperty } = require("../src/lib/seo-cluster-sites.ts");
-const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages } = require("../src/lib/services/ga4-organic.ts");
+const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages, fetchGa4ExactOrganicWeek } = require("../src/lib/services/ga4-organic.ts");
+const { collectGrowthWeeklyTraffic } = require("./lib/seo-growth-weekly-traffic.cjs");
 const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = require("../src/lib/gsc-source.ts");
 const { saveCollectionReceipt } = require("./server-seo-receipt.cjs");
 const collectionStartedAt = new Date().toISOString();
@@ -121,11 +122,18 @@ async function run() {
   const coverage = (await api("?" + new URLSearchParams({ start, end }))).rows;
   if (!Array.isArray(coverage)) throw new Error("invalid_coverage");
   const saved = new Map(coverage.map(row => [row.kind + ":" + row.date, row]));
-  // Get all five global scopes before country slices so cross-site Top pages can be verified first.
+  // Get every registered global scope before country slices; a source with no
+  // verified property remains unavailable rather than acquiring guessed access.
   for (const country of [undefined, "US", "JP", "ES", "BR"]) for (const site of sites) {
     const flatkey = site.domain === "flatkey.ai";
     const range = windows.find(window => window.site === site.domain).ga4;
     for (const source of ["GA4", "GSC"]) {
+      if (source === "GSC" && !site.gsc) {
+        unavailable++;
+        const gap = { site: site.domain, country: country ?? "all", source, status: "not_configured", reason: "source_property_unverified" };
+        scopes.push(gap); console.log(JSON.stringify(gap));
+        continue;
+      }
       try {
         let sourceDates = 0;
         const common = { country, source: "google-api" };
@@ -211,12 +219,21 @@ async function run() {
       }
     }
   }
+  let growthTraffic;
+  try {
+    growthTraffic = await collectGrowthWeeklyTraffic({ sites, period: weeklyReportRange(reportingDate), fetchWeek: fetchGa4ExactOrganicWeek, credential, now: collectionNow });
+    for (const row of growthTraffic.results) console.log(JSON.stringify({ kind: "growth-weekly-traffic", ...row }));
+    if (!growthTraffic.complete) qualityIssues.push({ metric: "four_site_exact_week", reasons: ["same_la_window_incomplete"] });
+  } catch {
+    growthTraffic = { complete: false, reason: "exact_week_collection_unavailable", paidRequests: 0 };
+    qualityIssues.push({ metric: "four_site_exact_week", reasons: ["exact_week_collection_unavailable"] });
+  }
   const finalRows = (await api("?" + new URLSearchParams({ start, end }))).rows;
   if (!Array.isArray(finalRows)) throw new Error("invalid_final_coverage");
   const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
-  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues };
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues, growthTraffic };
   receiptAttempted = true;
   await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), result });
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));

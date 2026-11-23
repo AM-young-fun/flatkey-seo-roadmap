@@ -2,6 +2,26 @@ import type { GrowthTarget, GrowthTopic, GrowthWorkspace } from "@/lib/growth-ty
 
 export type GrowthScope = { site: string; country: string; language: string; membership: "formal" | "opportunity" | "review"; search: string };
 export const defaultGrowthScope: GrowthScope = { site: "all", country: "all", language: "all", membership: "formal", search: "" };
+export type GrowthRankingView = "all" | "formal";
+
+/** Ranking observations have their own scope; a formal TopicMap membership is
+ * not a condition for an existing exact-market rank to be visible. */
+export function growthRankingEvidence(data: GrowthWorkspace, scope: GrowthScope, view: GrowthRankingView) {
+  const targets = [...new Map(data.targets.map(target => [target.id, target])).values()].filter(target =>
+    (view === "all" || target.membership === "formal") && (scope.site === "all" || target.site === scope.site)
+    && (scope.country === "all" || target.country?.toUpperCase() === scope.country)
+    && (scope.language === "all" || target.language === scope.language));
+  const ranked = targets.filter(target => target.rankEligible && target.rankSource === "serp" && target.languageStatus === "match"
+    && target.country && target.language && target.checkedAt && target.rank !== null && target.rank >= 1 && target.rank <= 100);
+  const currentIds = new Set(ranked.map(target => target.id)), generatedAt = Date.parse(data.generatedAt);
+  const background = targets.filter(target => !currentIds.has(target.id) && target.rank !== null && target.rankSource).map(target => {
+    const expired = target.checkedAt && Number.isFinite(generatedAt) && generatedAt - Date.parse(target.checkedAt) > 14 * 86400000;
+    const kind: "database" | "gsc" | "expired" | "unverified" = target.rankSource === "database" ? "database" : target.rankSource === "gsc" ? "gsc" : expired ? "expired" : "unverified";
+    return { target, kind };
+  });
+  return { targets, ranked, background,
+    uniqueWords: new Set(ranked.map(target => target.keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase())).size };
+}
 
 export function readGrowthScope(params: URLSearchParams): GrowthScope {
   const membership = params.get("pool");
@@ -74,6 +94,7 @@ export function growthRankKind(target: GrowthTarget): string {
 }
 
 export function growthRankText(target: GrowthTarget): string {
+  if (!target.country || !target.language) return "目标身份待核";
   if (target.rankEligible && target.rank != null) return `第 ${target.rank} 名`;
   if (target.languageStatus === "mismatch") return "语言不匹配";
   if (target.rank != null) return `${target.rankSource === "gsc" ? "GSC均位" : "已有观察"} ${target.rank} · 待核定`;

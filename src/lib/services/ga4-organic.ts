@@ -4,6 +4,9 @@ import { GA4_HOST_SCOPE, GA4_REGISTRATION_METRIC, ga4RegistrationFilter, FLATKEY
 import { getGoogleReadAccessToken, GoogleReadError } from "../google-read-auth";
 import { propertyToday, shiftDay, validRange, type DateRange } from "../seo-date-range";
 import type { SearchRegionCode } from "../seo";
+import { createHash } from "node:crypto";
+import { reportDayStart } from "../seo-report-time.cjs";
+import { growthExactTrafficSchema, type GrowthExactTrafficEvidence } from "../growth-exact-traffic";
 
 export const GA4_ORGANIC_CHANNEL = "Organic Search";
 export const GA4_CHANNEL_DIMENSION = "sessionDefaultChannelGroup";
@@ -400,4 +403,68 @@ export async function fetchGa4OrganicPeriod(range: DateRange, country?: SearchRe
     scope: "session-organic-search" as const, users: users.reasons.length ? null : users.value,
     registrations: registrations.reasons.length ? null : registrations.value,
     quality: { complete: reasons.length === 0, reasons } };
+}
+
+/** Exact four-site goal window. Source metadata remains authoritative; only the
+ * reporting interval is LA. Sparse buckets require a same-scope scalar zero
+ * receipt, never an assumed zero. Runs inside the existing daily collector. */
+export async function fetchGa4ExactOrganicWeek(
+  site: GrowthExactTrafficEvidence["site"], property: string, sourceTimezone: string,
+  range: DateRange, now = new Date(),
+): Promise<GrowthExactTrafficEvidence> {
+  if (!/^\d+$/.test(property) || !validRange(range) || Date.parse(range.end) - Date.parse(range.start) !== 6 * 86400000) {
+    throw new GoogleReadError("invalid_response", "完整周属性或日期无效");
+  }
+  const nextDay = shiftDay(range.end, 1), from = Date.parse(reportDayStart(range.start)), to = Date.parse(reportDayStart(nextDay));
+  if (to > now.getTime()) throw new GoogleReadError("source_window_open", "完整洛杉矶周尚未结束");
+  const native = sourceTimezone === "America/Los_Angeles";
+  const format = new Intl.DateTimeFormat("en-CA", { timeZone: sourceTimezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
+  const localHour = (instant: number) => {
+    const parts = Object.fromEntries(format.formatToParts(new Date(instant)).map(part => [part.type, part.value]));
+    return `${parts.year}${parts.month}${parts.day}${parts.hour}`;
+  };
+  const instants = Array.from({ length: (to - from) / 3600000 }, (_, index) => from + index * 3600000);
+  const buckets = native ? Array.from({ length: 7 }, (_, index) => shiftDay(range.start, index).replaceAll("-", "")) : instants.map(localHour);
+  // Ambiguous source DST hours cannot be split with dateHour. Native LA uses
+  // daily buckets (167/169-hour weeks remain correct); other ambiguities hold.
+  if (new Set(buckets).size !== buckets.length) throw new GoogleReadError("source_hour_ambiguous", "原属性存在重复小时，不能凭dateHour拆分");
+  const dimension = native ? "date" : "dateHour";
+  const sourceDate = (hour: string) => `${hour.slice(0, 4)}-${hour.slice(4, 6)}-${hour.slice(6, 8)}`;
+  const dates = native ? range : { start: sourceDate(localHour(from)), end: sourceDate(localHour(to - 3600000)) };
+  const hostnames = site === "flatkey.ai" ? [...FLATKEY_ENTRY_HOSTS] : [site, `www.${site}`];
+  const filters = [exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL), ga4HostFilter(hostnames)];
+  const bucketFilter = (values: string[]) => ({ filter: { fieldName: dimension, inListFilter: { values, caseSensitive: true } } });
+  const query: ReportQuery = { dateRanges: [{ startDate: dates.start, endDate: dates.end }], dimensions: [{ name: dimension }], metrics: [{ name: "sessions" }],
+    dimensionFilter: { andGroup: { expressions: [...filters, bucketFilter(buckets)] } }, keepEmptyRows: true, limit: "1000" };
+  const token = await accessToken(), report = await requestReport(property, token, "runReport", query);
+  if (report.metadata?.timeZone !== sourceTimezone || qualityReasons(report).length) throw new GoogleReadError("source_quality_incomplete", "原属性metadata时区或完整性未通过核验");
+  const rows = report.rows ?? [], values = new Map<string, number>();
+  if (report.rowCount !== undefined && report.rowCount !== rows.length || rows.length > buckets.length) throw new GoogleReadError("invalid_response", "完整周分桶未完整返回");
+  for (const row of rows) {
+    const key = row.dimensionValues?.[0]?.value;
+    if (!key || !buckets.includes(key) || values.has(key) || row.dimensionValues?.length !== 1 || row.metricValues?.length !== 1) throw new GoogleReadError("invalid_response", "完整周分桶重复或越界");
+    values.set(key, metric(row, 0));
+  }
+  const missing = buckets.filter(bucket => !values.has(bucket));
+  if (missing.length) {
+    const confirmation = await requestReport(property, token, "runReport", { dateRanges: query.dateRanges, metrics: query.metrics,
+      dimensionFilter: { andGroup: { expressions: [...filters, bucketFilter(missing)] } }, keepEmptyRows: true });
+    const zero = confirmation.rows ?? [];
+    if (confirmation.metadata?.timeZone !== sourceTimezone || qualityReasons(confirmation).length || confirmation.rowCount !== 1 || zero.length !== 1
+      || (zero[0].dimensionValues ?? []).length || zero[0].metricValues?.length !== 1 || metric(zero[0], 0) !== 0) {
+      throw new GoogleReadError("source_buckets_unverified", "缺少时段未获同范围零值证据，保留待补");
+    }
+    for (const bucket of missing) values.set(bucket, 0);
+  }
+  const observedAt = new Date().toISOString(), digest = createHash("sha256").update(JSON.stringify(query)).digest("hex");
+  const reference = `https://analyticsdata.googleapis.com/v1beta/properties/${property}:runReport#sha256=${digest}`;
+  return growthExactTrafficSchema.parse({ id: `ga4-week:${site}:${range.start}:${range.end}:${observedAt}`, site, propertyId: property,
+    ...range, timezone: "America/Los_Angeles", sourceTimezone: report.metadata.timeZone,
+    metadata: { propertyId: property, timeZone: report.metadata.timeZone, observedAt, reference },
+    source: "google-api", observedAt, reference, scope: "session-organic-search", channelDimension: GA4_CHANNEL_DIMENSION, channelValue: GA4_ORGANIC_CHANNEL,
+    hostScope: GA4_HOST_SCOPE, hostnames, complete: true, sessions: [...values.values()].reduce((sum, value) => sum + value, 0),
+    intervalStart: new Date(from).toISOString(), intervalEnd: new Date(to).toISOString(), method: native ? "native_days" : "utc_hours",
+    ...(native ? { days: buckets.map(date => ({ date: sourceDate(date), sessions: values.get(date)!, complete: true })) }
+      : { hours: instants.map((instant, index) => ({ utcStart: new Date(instant).toISOString(), sourceDateHour: buckets[index], sessions: values.get(buckets[index])!, complete: true })) }),
+  });
 }

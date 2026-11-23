@@ -46,7 +46,7 @@ test("each leaderboard is capped at five and report text shows dates, URL, value
  const input={date:"2026-11-11",now,observations:[],pageObservations:[gs("2026-11-10",pages),ga("2026-11-10",gaPages)],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:"verified",optimizationCoverage:"verified"};
  const report=buildSeoDigest(input);
  assert.equal(report.pagePerformance.reduce((n,r)=>n+r.pages.length,0),10);
- assert.match(report.text,/Google 点击 · 分模块 Top 3.*2026-11-10.*覆盖 1\/5 站/);assert.match(report.text,/自然搜索访问（会话） · 分模块 Top 3/);
+ assert.match(report.text,/Google 点击 · 分模块 Top 3.*2026-11-10.*覆盖 1\/6 站/);assert.match(report.text,/自然搜索访问（会话） · 分模块 Top 3/);
  assert.match(report.text,/https:\/\/flatkey.ai\/p7.*Google 点击 8/);assert.match(report.text,/缺少前一日基线/);assert.match(report.text,/覆盖缺口/);
  assert.equal(buildSeoDigest({...input,date:"2026-11-13",kind:"weekly",now:new Date("2026-11-13T10:00:00Z")}).pagePerformance.length,2);
 });
@@ -60,14 +60,14 @@ test("unsafe or foreign hosts and source records fetched in the future cannot en
  assert.equal(rank([gs("2026-11-10",[[url("a"),4]],{observedAt:"2026-11-12T10:00:00Z"})])[0].date,null);
 });
 
-const properties = [["flatkey.ai","541304395"],["mochichatbot.com","561876347"],["jev-llm.com","555043733"],["rackrate.org","558899190"],["modelfit.cc","558978062"]];
-test("10:30 Beijing mixed timezones prefer the latest common five-site day rather than hiding Flatkey", () => {
+const properties = [["flatkey.ai","541304395"],["mochichatbot.com","561876347"],["jev-llm.com","555043733"],["rackrate.org","558899190"],["modelfit.cc","558978062"],["rougecue.org","565596386"]];
+test("10:30 Beijing mixed timezones prefer the latest common six-site day rather than hiding Flatkey", () => {
  const collectedAt="2026-11-11T02:30:00Z";
  const common=properties.map(([host,property])=>ga("2026-11-09",[[host,"/page",8]],{property,observedAt:collectedAt}));
  const newer=properties.slice(3).map(([host,property])=>ga("2026-11-10",[[host,"/newer",50]],{property,observedAt:collectedAt}));
  const result=rank([...common,...newer])[1];
- assert.equal(result.date,"2026-11-09");assert.equal(result.coveredSites.length,5);assert.equal(result.pages.length,5);
- assert.ok(result.pages.some(page=>page.site==="flatkey.ai"));assert.match(result.selectionReason,/最近五站共同完整日.*2026-11-10/);
+ assert.equal(result.date,"2026-11-09");assert.equal(result.coveredSites.length,6);assert.equal(result.pages.length,5);
+ assert.ok(result.coveredSites.includes("rougecue.org"));assert.ok(result.pages.some(page=>page.site==="flatkey.ai"));assert.match(result.selectionReason,/最近6站共同完整日.*2026-11-10/);
 });
 test("without a common day use the most complete site coverage within seven days, break ties by recency", () => {
  const rows=properties.slice(0,3).flatMap(([host,property])=>["2026-11-08","2026-11-09"].map(date=>ga(date,[[host,"/a",4]],{property})));
