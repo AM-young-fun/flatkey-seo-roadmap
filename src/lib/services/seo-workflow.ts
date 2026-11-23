@@ -3,6 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requestRead } from "@/lib/request-read-scope";
 import { ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
@@ -26,13 +27,13 @@ function requireDatabase() { if (!process.env.DATABASE_URL) throw new WorkflowEr
 export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean } = {}, localPreview = false) {
   const directory = localDirectory(localPreview);
   if (directory) {
-    const rows = (await timedRead("local", () => readLocal(directory))).records;
+    const rows = (await requestRead(`workflow:local:${directory}`, () => timedRead("local", () => readLocal(directory)))).records;
     return timedRead("snapshot", async () => workflowSnapshot(rows, options, "local_preview"));
   }
   requireDatabase();
   // Keep the canonical graph intact and avoid rewriting every JSON document in
   // PostgreSQL. The explicit list response is compacted after snapshot rules run.
-  const rows = await timedRead("database", () => prisma.seoWorkflowRecord.findMany({ select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } }));
+  const rows = await requestRead("workflow:database", () => timedRead("database", () => prisma.seoWorkflowRecord.findMany({ select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } })));
   return timedRead("snapshot", async () => workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database"));
 }
 
