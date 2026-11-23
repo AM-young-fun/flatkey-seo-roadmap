@@ -27,7 +27,7 @@ function isTrendResult(data: MultiRegionTrendResult) {
       (market.status === "ERROR" && market.points === null || market.status === "READY" && Array.isArray(market.points))));
 }
 
-export function RankingTrend({region = "all", module = "all"}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule}) {
+export function RankingTrend({region = "all", module = "all", historicalScope = false}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule; historicalScope?: boolean}) {
   const [range, setRange] = useState(() => serpTrendRange());
   const key = `serp-markets-v5:current-target-modules-v2:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
   const moduleLabel = OVERVIEW_PAGE_MODULES.find(([value]) => value === module)?.[1];
@@ -131,12 +131,12 @@ export function RankingTrend({region = "all", module = "all"}:{region?:"all" | S
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [validPoints, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>上榜关键词数趋势</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · {moduleLabel}</p></div></div>
+    <div className="dailyHeading"><div><h2>{historicalScope ? "历史目标词监控趋势" : "上榜关键词数趋势"}</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · {moduleLabel}{historicalScope ? " · 原定时监控快照；全站合并总数见上方" : ""}</p></div></div>
     {module !== "all" ? <p className="chartNote">按当前登记目标页筛选历史实测；不代表当时的模块归属。</p> : null}
     {latest ? <>
       <div className="inventoryTrendSummary">
         <div className="inventoryTrendTotal">
-          <span>进入前 100</span>
+          <span>{historicalScope ? "原监控中进入前100" : "进入前 100"}</span>
           <strong>{latest.ranked.toLocaleString()}</strong>
         </div>
         <div className="inventoryTrendPeriod">

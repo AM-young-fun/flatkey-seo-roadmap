@@ -51,11 +51,11 @@ export function SeoOverview() {
             : <ModuleSeoReport range={context.range} comparison={context.comparison} module={module} country={country} showDetails={false} />}
         </section>
         <div className={styles.rankings}>
-          <RankingTrend region={country} module={module} />
+          <RankingTrend region={country} module={module} historicalScope />
         </div>
       </div>
       <div className={styles.network}>
-        <KeywordNetwork region={country} module={module} />
+        <KeywordNetwork region={country} module={module} historicalScope />
       </div>
     </div>
   </main>;
