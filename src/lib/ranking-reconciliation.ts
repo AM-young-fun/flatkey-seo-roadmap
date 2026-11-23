@@ -66,7 +66,8 @@ export function reconcileRankings(input: RankingReconciliationInput) {
     if (!eligible(check.keyword)) continue;
     const key = pair(check.keyword, check.country), membership = memberships.get(check.keywordId);
     if (!publicationTargets.includes(check) && input.memberships.length && !membership) continue;
-    if (membership && (membership.active === false || obj(membership.keyword).active === false || membership.pool !== "FORMAL")) continue;
+    if (membership && (membership.active === false || obj(membership.keyword).active === false)) continue;
+    if (!publicationTargets.includes(check) && membership && membership.pool !== "FORMAL") continue;
     const urls = [...check.targetUrls, ...array(membership?.targetUrls).map(text)];
     const pages = urls.flatMap(url => {
       const parsed = publicUrl(url); if (!parsed || urlLanguage(parsed) !== check.language.split("-")[0]) return [];

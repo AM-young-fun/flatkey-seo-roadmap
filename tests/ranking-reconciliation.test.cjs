@@ -16,7 +16,7 @@ test('a newer checked miss does not resurrect an old indexed hit or fabricate ra
  const input=base();input.checks=[check('a100 rental','US',null)];input.discovery.items=[discovery('a100 rental')];
  const r=reconcileRankings(input);assert.equal(r.total,0);assert.equal(r.historical.length,1);assert.equal(r.unrankedBuilt.length,1);assert.equal(r.unrankedBuilt[0].captured,true);assert.equal(r.quote.newQueryCount,0);
 });
-test('unbuilt plans and candidate library entries cannot become built unranked pages or paid query requests',()=>{
+test('unbuilt plans and archived library entries cannot become built unranked pages or paid query requests',()=>{
  const input=base();input.checks=[check('example pricing','US',null)];input.inventory=[];const r=reconcileRankings(input);assert.equal(r.unrankedBuilt.length,0);assert.equal(r.quote.maxCostMicros,0);
  input.inventory=[{url,lastSeen:date}];input.memberships[0].active=false;assert.equal(reconcileRankings(input).unrankedBuilt.length,0);
 });
@@ -24,6 +24,7 @@ test('published page targets reuse their real keyword ID and create one unapprov
  const input=base();input.checks=[];input.memberships=[{keywordId:'real-cuda-id',active:true,pool:'FORMAL',keyword:{text:'cuda version compatibility',active:true},targetUrls:[url]}];input.workflow.tasks=[{id:'t',keyword:'cuda version compatibility',country:'US',language:'en'}];
  input.workflow.publications=[{id:'p1',taskId:'t',status:'verified',publishedAt:date,pageUrl:url,language:'en'},{id:'p2',taskId:'t',status:'verified',publishedAt:date,pageUrl:url+'-second',language:'en'}];
  const r=reconcileRankings(input);assert.equal(r.unrankedBuilt.length,1);assert.equal(r.unrankedBuilt[0].pages.length,2);assert.equal(r.quote.newQueryCount,1);assert.equal(r.quote.maxCostMicros,12000);assert.equal(r.missing[0].keywordId,'real-cuda-id');assert.equal(r.missing[0].approved,false);
+ input.memberships[0].pool='RESEARCH';assert.equal(reconcileRankings(input).unrankedBuilt.length,1,'actual publication still counts before a library promotion');
 });
 test('wrong-country English wording on translated pages remains held, never a repeated paid country query',()=>{
  const input=base();input.checks=[];input.workflow.tasks=[{id:'t',keyword:'gpu direct storage',country:'JP',language:'ja'}];input.workflow.publications=[{id:'p',taskId:'t',status:'verified',publishedAt:date,pageUrl:'https://flatkey.ai/ja/blog/gpu-direct-storage',language:'ja'}];
