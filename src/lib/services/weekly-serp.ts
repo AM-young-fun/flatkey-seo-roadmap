@@ -7,10 +7,23 @@ import { serpPeriod, serpCaptureBelongsToWeek } from "@/lib/serp-periods";
 import { weeklyKeywordComparison, type WeeklyPageRank, type WeeklyRankingReport } from "@/lib/weekly-keyword-comparison";
 import { isThursdayReport, WEEKLY_REPORT_TIMEZONE, type reportPeriods } from "@/lib/weekly-traffic";
 import { timedRead } from "@/lib/read-profile";
+import { loadApprovedWeeklyKeywordCapture } from "./approved-weekly-keyword-capture";
 
 const nextDay = (value: string) => new Date(Date.parse(`${value}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
-export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) {
+export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>, asOf?: Date) {
   const publicationDay = nextDay(periods.current.end), previousPublicationDay = nextDay(periods.previous.end);
+  const approvedCapture = await timedRead("weekly.approved-keyword-capture", () => loadApprovedWeeklyKeywordCapture({
+    start: periods.current.start, end: periods.current.end, asOf,
+  }));
+  if (approvedCapture) {
+    // These two approved diagnostic cohorts are one evidence packet. They are
+    // neither a scheduled four-country cycle nor a comparable previous period.
+    return { comparison: null, ranking: { source: "dataforseo_serp", captureWeek: true, publicationDay,
+      waiting: !approvedCapture.complete, baseline: false, noNewCapture: false, comparisonReference: null,
+      unresolvedWords: 0, capturedKeywords: approvedCapture.capturedKeywords, latestCheckedAt: approvedCapture.latestCheckedAt,
+      status: approvedCapture.complete ? "READY" : "WAITING", sampleOnly: false, nextCaptureAt: null,
+      approvedCapture } };
+  }
   const slot = serpPeriod(`${publicationDay}T02:30:00Z`);
   // Reporting calendars never move the independent paid collection slot.
   const captureDay = isThursdayReport(periods.current.start)
@@ -97,5 +110,6 @@ export async function loadWeeklySerp(periods: ReturnType<typeof reportPeriods>) 
   return { comparison, ranking: { source: "dataforseo_serp", captureWeek, publicationDay, waiting, baseline: hasResults && !hadPrevious,
     noNewCapture, comparisonReference, unresolvedWords: missingWords.length-confirmedLosses.length, capturedKeywords: capturedWords.size, latestCheckedAt: dates.sort().at(-1) ?? null,
     status: waiting ? "WAITING" : !captureWeek ? "NOT_SCHEDULED" : run?.status === "COMPLETED" ? "READY" : run ? "FAILED" : "PAID_DISABLED",
-    sampleOnly: hasResults && !run, nextCaptureAt: captureWeek ? slot.dueAt : serpPeriod(`${nextDay(slot.end)}T02:30:00Z`).dueAt } };
+    sampleOnly: hasResults && !run, nextCaptureAt: captureWeek ? slot.dueAt : serpPeriod(`${nextDay(slot.end)}T02:30:00Z`).dueAt,
+    approvedCapture: null } };
 }

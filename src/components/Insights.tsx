@@ -14,6 +14,7 @@ import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS } from "@/lib/seo";
 import { reportPeriods, activeReportPeriods, relativeChange } from "@/lib/weekly-traffic";
 import type { WeeklyKeywordComparison } from "@/lib/weekly-keyword-comparison";
+import type { ApprovedWeeklyKeywordCapture } from "@/lib/approved-weekly-keyword-capture";
 import type { WeeklyTrafficEvidence } from "@/lib/weekly-traffic-evidence";
 import type { WeeklyReportDiagnosis } from "@/lib/weekly-report-diagnosis";
 import type { WeeklyReportDraftPayload } from "@/lib/weekly-report-draft";
@@ -33,7 +34,8 @@ type InsightData = {
   periods: ReturnType<typeof activeReportPeriods>; history: string[];
   traffic: { trafficScope?: "organic_search"; current: Week | null; previous: Week | null; currentSites: string[]; previousSites: string[]; comparable: boolean; complete?: boolean; siteTraffic?: {siteDomain:string;current:Pick<Week,"newUsers"|"newRegistrations"|"registrationRate">|null}[]; changes: { newUsers: number | null; newRegistrations: number | null; registrationRate: number | null; ratePoints: number | null } };
   comparison: WeeklyKeywordComparison | null;
-  ranking?: { captureWeek: boolean; waiting: boolean; baseline: boolean; noNewCapture: boolean; comparisonReference?: {kind:"FIRST_ISSUE";label:string;checkedAt:string|null;capturedKeywords:number} | null; unresolvedWords?: number; capturedKeywords: number; latestCheckedAt: string | null; status: string; sampleOnly: boolean };
+  ranking?: { captureWeek: boolean; waiting: boolean; baseline: boolean; noNewCapture: boolean; comparisonReference?: {kind:"FIRST_ISSUE";label:string;checkedAt:string|null;capturedKeywords:number} | null; unresolvedWords?: number; capturedKeywords: number; latestCheckedAt: string | null; status: string; sampleOnly: boolean;
+    approvedCapture?: Pick<ApprovedWeeklyKeywordCapture, "targetCount" | "capturedKeywords" | "rankedKeywords" | "unresolvedKeywords" | "comparable" | "rankBuckets"> | null };
   evidence?: (WeeklyTrafficEvidence & { collectedAt: string; timezone: string }) | null;
   diagnosis: WeeklyReportDiagnosis;
   draft?: WeeklyReportDraftPayload | null;
@@ -94,20 +96,27 @@ const number = (value: number | null | undefined) => value == null ? "待补采"
 const delta = (value: number) => `${value > 0 ? "+" : ""}${value.toLocaleString()}`;
 function WeeklyKeywordChanges({ data }: { data: InsightData | null }) {
   const report = data?.comparison, ranking = data?.ranking;
-  const showChanges = !ranking?.waiting && (!ranking?.noNewCapture || ranking?.baseline);
-  const rows: { label: string; current?: number; previous?: number; delta?: number; color: string }[] = report
+  const approved = ranking?.approvedCapture;
+  const showChanges = !approved && !ranking?.waiting && (!ranking?.noNewCapture || ranking?.baseline);
+  const rows: { label: string; current?: number; previous?: number; delta?: number; color: string }[] = approved
+    ? [{ label: "前100合计", current: approved.rankedKeywords, color: "#23395c" },
+      { label: "前10名", current: approved.rankBuckets.top10, color: "#10b981" },
+      { label: "11–30名", current: approved.rankBuckets.rank11to30, color: "#4385ff" },
+      { label: "31–50名", current: approved.rankBuckets.rank31to50, color: "#f5a000" },
+      { label: "51–100名", current: approved.rankBuckets.rank51to100, color: "#ff791b" }]
+    : report
     ? [{ label: "前100合计", current: report.current, previous: report.previous, delta: report.net, color: "#23395c" }, ...report.buckets]
     : ["前100合计", "前10名", "11–30名", "31–50名", "51–100名"].map((label, index) => ({ label, color: ["#23395c", "#10b981", "#4385ff", "#f5a000", "#ff791b"][index] }));
   const maximum = Math.max(1, ...rows.flatMap(row => [row.current ?? 0, row.previous ?? 0]));
   return <section className="dailyPanel weeklyKeywords">
-    <div className="dailyHeading"><div><h2>关键词排名环比</h2><p className="chartNote">DataForSEO SERP · 四国关键词去重{ranking?.latestCheckedAt ? ` · 最近采集 ${new Date(ranking.latestCheckedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}` : ""}</p></div></div>
+    <div className="dailyHeading"><div><h2>关键词排名环比</h2><p className="chartNote">DataForSEO SERP · {approved ? "本次已批准清单" : "四国关键词去重"}{ranking?.latestCheckedAt ? ` · 最近采集 ${new Date(ranking.latestCheckedAt).toLocaleDateString("zh-CN", { timeZone: approved ? "America/Los_Angeles" : "Asia/Shanghai" })}${approved ? "（洛杉矶）" : ""}` : ""}</p></div></div>
     {!data ? <p className="muted">正在读取关键词报告…</p> : <>
-      {ranking ? <p className="weeklyRankingState">{ranking.waiting ? "关键词采集中，完成后整理本周变化。" : ranking.baseline ? `首次基线：已采集 ${ranking.capturedKeywords} 个词，实际有排名的 ${report?.current ?? 0} 个词全部记为新增。${ranking.sampleOnly ? "当前仅为已保存的小批结果，全量付费未执行。" : ""}` : !ranking.captureWeek ? "本周未安排关键词采集，展示最近一期结果，不计算新的排名变化。" : ranking.status === "PAID_DISABLED" ? "本周为采集周，付费抓取尚未开启。" : ranking.status === "FAILED" ? "本轮部分结果不可用，仅展示有效记录，不计作排名流失。" : "本轮采集已完成。"}</p> : null}
-      {ranking?.comparisonReference ? <p className="chartNote">对比第一期 · {ranking.comparisonReference.label}{ranking.comparisonReference.checkedAt ? `（${new Date(ranking.comparisonReference.checkedAt).toLocaleDateString("zh-CN",{timeZone:"Asia/Shanghai"})}）` : ""}：已查 {ranking.comparisonReference.capturedKeywords} 词，本期已查 {ranking.capturedKeywords} 词。新增含采集范围扩大后首次发现的排名词。</p> : null}
-      {!report ? <p className="chartNote">尚无已保存的有效排名结果，完成采集后展示。</p> : null}
+      {ranking ? <p className="weeklyRankingState">{approved ? `本次清单 ${approved.targetCount.toLocaleString("zh-CN")} 词，已取得回执 ${approved.capturedKeywords.toLocaleString("zh-CN")} 词，确认前100有排名 ${approved.rankedKeywords.toLocaleString("zh-CN")} 词，未确认 ${approved.unresolvedKeywords.toLocaleString("zh-CN")} 词。与历史监控范围不同，不计算新增、减少或净变化。` : ranking.waiting ? "关键词采集中，完成后整理本周变化。" : ranking.baseline ? `首次基线：已采集 ${ranking.capturedKeywords} 个词，实际有排名的 ${report?.current ?? 0} 个词全部记为新增。${ranking.sampleOnly ? "当前仅为已保存的小批结果，全量付费未执行。" : ""}` : !ranking.captureWeek ? "本周未安排关键词采集，展示最近一期结果，不计算新的排名变化。" : ranking.status === "PAID_DISABLED" ? "本周为采集周，付费抓取尚未开启。" : ranking.status === "FAILED" ? "本轮部分结果不可用，仅展示有效记录，不计作排名流失。" : "本轮采集已完成。"}</p> : null}
+      {!approved && ranking?.comparisonReference ? <p className="chartNote">对比第一期 · {ranking.comparisonReference.label}{ranking.comparisonReference.checkedAt ? `（${new Date(ranking.comparisonReference.checkedAt).toLocaleDateString("zh-CN",{timeZone:"Asia/Shanghai"})}）` : ""}：已查 {ranking.comparisonReference.capturedKeywords} 词，本期已查 {ranking.capturedKeywords} 词。新增含采集范围扩大后首次发现的排名词。</p> : null}
+      {!report && !approved ? <p className="chartNote">尚无已保存的有效排名结果，完成采集后展示。</p> : null}
       <div className="keywordComparisonSummary"><div><span>本期新增</span><strong className="metricIncrease">{report && showChanges ? `+${report.entered}` : "—"}</strong></div><div><span>本期减少</span><strong className="metricDecrease">{report && showChanges ? report.removed ? `−${report.removed}` : "0" : "—"}</strong></div><div><span>净变化</span><strong>{report && showChanges ? delta(report.net) : "—"}</strong></div></div>
-      <div className="siteTrafficTable keywordComparisonTable"><table><thead><tr><th>排名区间</th><th>{ranking?.comparisonReference ? "第一期词数" : "上期词数"}</th><th>本期词数</th><th>数量变化</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><th><i style={{ background: row.color }} />{row.label}</th><td><div className="reportBarCell"><span className="reportBarTrack"><i className="previousReportBar" style={{ width: `${(row.previous ?? 0) / maximum * 100}%` }} /></span><strong>{ranking?.baseline ? "—" : row.previous?.toLocaleString() ?? "—"}</strong></div></td><td><div className="reportBarCell"><span className="reportBarTrack"><i style={{ width: `${(row.current ?? 0) / maximum * 100}%`, background: row.color }} /></span><strong>{row.current?.toLocaleString() ?? "—"}</strong></div></td><td><span className={`reportDelta ${(row.delta ?? 0) > 0 ? "increase" : (row.delta ?? 0) < 0 ? "decrease" : ""}`}>{row.delta == null || !showChanges ? "—" : delta(row.delta)}</span></td></tr>)}</tbody></table></div>
-      {ranking?.unresolvedWords ? <p className="chartNote">另有 {ranking.unresolvedWords} 个上期排名词本次缺少有效结果，未计为排名流失；净变化表示已取得的排名记录数量变化。</p> : null}
+      <div className="siteTrafficTable keywordComparisonTable"><table><thead><tr><th>排名区间</th><th>{!approved && ranking?.comparisonReference ? "第一期词数" : "上期词数"}</th><th>本期词数</th><th>数量变化</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><th><i style={{ background: row.color }} />{row.label}</th><td><div className="reportBarCell"><span className="reportBarTrack"><i className="previousReportBar" style={{ width: `${(row.previous ?? 0) / maximum * 100}%` }} /></span><strong>{ranking?.baseline ? "—" : row.previous?.toLocaleString() ?? "—"}</strong></div></td><td><div className="reportBarCell"><span className="reportBarTrack"><i style={{ width: `${(row.current ?? 0) / maximum * 100}%`, background: row.color }} /></span><strong>{row.current?.toLocaleString() ?? "—"}</strong></div></td><td><span className={`reportDelta ${(row.delta ?? 0) > 0 ? "increase" : (row.delta ?? 0) < 0 ? "decrease" : ""}`}>{row.delta == null || !showChanges ? "—" : delta(row.delta)}</span></td></tr>)}</tbody></table></div>
+      {approved ? approved.unresolvedKeywords > 0 ? <p className="chartNote">本次有 {approved.unresolvedKeywords.toLocaleString("zh-CN")} 词因返回范围不足、查询改写或缺少有效回执，尚不能确认是否进入前100；未将这些词认定为无排名或排名流失。</p> : null : ranking?.unresolvedWords ? <p className="chartNote">另有 {ranking.unresolvedWords} 个上期排名词本次缺少有效结果，未计为排名流失；净变化表示已取得的排名记录数量变化。</p> : null}
     </>}
   </section>;
 }

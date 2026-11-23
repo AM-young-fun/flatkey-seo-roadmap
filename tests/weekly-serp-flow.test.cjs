@@ -1,11 +1,12 @@
 const assert=require("node:assert/strict"), {test}=require("node:test");
 const fs=require("node:fs"),path=require("node:path"),Module=require("node:module"),ts=require("typescript");
 require.extensions[".ts"]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
-let mode="baseline",run=null,includes=[],firstRun=null,firstLookup=[];
+let mode="baseline",run=null,includes=[],firstRun=null,firstLookup=[],approvedCapture=null,approvedReads=[],approvedFailure=null;
 const model={keywordId:"flatkey",keyword:"flatkey",siteDomain:"flatkey.ai",targetUrls:["https://flatkey.ai/"]};
 const saved=(rank,status="RANKED")=>({...model,status,rank,pages:rank?[{url:"https://flatkey.ai/",rankGroup:rank}]:[],captureComplete:status!=="PENDING",checkedAt:"2026-10-16T03:00:00Z"});
 const original=Module._load;
 Module._load=function(request,parent,main){
+ if(request==="./approved-weekly-keyword-capture")return {loadApprovedWeeklyKeywordCapture:async(input)=>{approvedReads.push(input);if(approvedFailure)throw approvedFailure;return approvedCapture;}};
  if(request==="@/lib/prisma")return {prisma:{serpMonitorRun:{findUnique:async()=>run,findFirst:async(query)=>{firstLookup.push(query);return firstRun;}}}};
  if(request==="@/lib/services/serp-targets")return {loadSerpTargetCohort:async()=>({targets:[model]})};
  if(request==="@/lib/services/serp-results")return {loadSerpTasks:async(region,_lang,_device,_start,end,runId)=>{includes.push(runId);
@@ -84,4 +85,33 @@ test("LA Thursday reports associate both historical Wednesday and new Thursday c
  result=await loadWeeklySerp(reportPeriods("2026-11-26"));assert.equal(result.ranking.captureWeek,true);
  assert.equal(result.ranking.nextCaptureAt,"2026-12-03T08:00:00.000Z");
  assert.equal(new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles"}).format(new Date(result.ranking.nextCaptureAt)),"2026-12-03");
+});
+
+test("actual approved captures appear in the non-scheduled LA week as one packet with no invented comparison",async()=>{
+ const now=new Date("2026-11-23T04:00:00Z"); includes=[]; approvedReads=[];
+ approvedCapture={runIds:["approved-keyword-review-20261123-v1","approved-other-keyword-review-20261123-v1"],
+  window:{start:"2026-11-19",end:"2026-11-25",timeZone:"America/Los_Angeles",asOf:now.toISOString()},
+  sourceHash:"a".repeat(64),complete:false,newQueryCount:1498,reusedQueryCount:1,targetCount:1499,
+  capturedKeywords:1494,rankedKeywords:127,verifiedOutsideTop100:1360,unresolvedKeywords:12,
+  countries:[{country:"CN",targetCount:16}],pages:[{title:"Actual page",url:"https://flatkey.ai/blog/example",rank:8,
+   keywordId:"original-id",keyword:"original query",country:"US",checkedAt:"2026-11-23T03:00:00Z",reused:false,sourceRunId:"approved-keyword-review-20261123-v1"}],
+  latestCheckedAt:"2026-11-23T03:00:00Z",notes:["1498条新查询，另1条复用既有结果。","CN16词单列；中性词仅为本次查询环境，不改主国家。"],comparable:false};
+ const result=await loadWeeklySerp(reportPeriods("2026-11-19"),now);
+ assert.equal(result.comparison,null); assert.equal(result.ranking.captureWeek,true); assert.equal(result.ranking.noNewCapture,false);
+ assert.equal(result.ranking.baseline,false); assert.equal(result.ranking.comparisonReference,null);
+ assert.equal(result.ranking.waiting,true); assert.equal(result.ranking.unresolvedWords,0,"no previous-period loss is inferred");
+ assert.equal(result.ranking.capturedKeywords,1494); assert.equal(result.ranking.approvedCapture,approvedCapture);
+ assert.equal(result.ranking.approvedCapture.sourceHash,"a".repeat(64)); assert.equal(result.ranking.approvedCapture.pages[0].url,"https://flatkey.ai/blog/example");
+ assert.deepEqual(approvedReads,[{start:"2026-11-19",end:"2026-11-25",asOf:now}]);
+ assert.deepEqual(includes,[],"never select a latest-country run or compare the old scheduled inventory");
+ approvedCapture={...approvedCapture,complete:true,capturedKeywords:1499};
+ const complete=await loadWeeklySerp(reportPeriods("2026-11-19"),now);
+ assert.equal(complete.ranking.waiting,false); assert.equal(complete.ranking.baseline,false); assert.equal(complete.comparison,null);
+ approvedCapture=null;
+});
+
+test("an unavailable approved-capture source cannot silently fall back to stale scheduled numbers",async()=>{
+ includes=[];approvedFailure=new Error("saved approved capture source unavailable");
+ await assert.rejects(loadWeeklySerp(reportPeriods("2026-11-19")),/approved capture source unavailable/);
+ assert.deepEqual(includes,[]);approvedFailure=null;
 });

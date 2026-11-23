@@ -25,6 +25,9 @@ Module._load = function (name, ...rest) {
   if (name === '@/lib/prisma') return { prisma: { seoReportVersion: { findUnique: async ({ where }) => saved.get(where.id) } } };
   if (name === '@/lib/services/import-tokens') return { authenticateImportToken: async req => req.headers.get('authorization') === 'Bearer fixture' };
   if (name === '@/lib/seo-analytics-access') return { authorizeAnalyticsRead: async () => false, analyticsLocalPreview: () => false, privateAnalyticsHeaders: { 'cache-control': 'private, no-store' } };
+  // Supplemental-note authorization is tested separately; preparation never
+  // requests it and should not initialize browser-only account dependencies.
+  if (name === '@/lib/seo-workflow-http') return { authorizeWorkflow: async () => { throw Error('preparation must not request supplemental-note access'); } };
   if (name === '@/lib/services/seo-digest-recovery') return { DigestRecoveryError: class extends Error {} };
   if (name.startsWith('@/lib/services/')) return {};
   return originalLoad.call(this, name, ...rest);

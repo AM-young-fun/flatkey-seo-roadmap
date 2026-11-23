@@ -29,6 +29,7 @@ import { workflowSnapshot } from "@/lib/seo-workflow-state";
 import { digestDailyRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { digestExecutionPeriod, digestReportExecutionWeek, summarizeDigestWorkPlan } from "../seo-digest-work-plan";
 import { loadSerpTasks } from "./serp-results";
+import { loadApprovedWeeklyKeywordCapture } from "./approved-weekly-keyword-capture";
 import { currentCanonicalWeeklyDraft } from "../seo-weekly-review-window";
 import { buildReviewedSeoDigest, sameReviewedDigest } from "../seo-reviewed-digest";
 
@@ -85,7 +86,15 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       { kind: { in: pageArchiveKinds } },
     ] }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(workStart), lt: new Date(Math.min(now.getTime(), Date.parse(workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
-    kind === "weekly" && date === "2026-11-13" ? Promise.resolve([]) : loadSerpTasks("all", "en", "desktop", kind === "daily" ? shiftWorkflowDay(date, -42) : workStart.slice(0, 10), date),
+    (async () => {
+      if (kind === "weekly") {
+        const approvedCapture = await loadApprovedWeeklyKeywordCapture({ start: window.trafficStart, end: window.trafficEnd, asOf: now });
+        if (approvedCapture) return approvedCapture.notes;
+        if (date === "2026-11-13") return [];
+      }
+      const tasks = await loadSerpTasks("all", "en", "desktop", kind === "daily" ? shiftWorkflowDay(date, -42) : workStart.slice(0, 10), date);
+      return kind === "daily" ? digestDailyRankingNotes(tasks, now) : digestRankingNotes(tasks, workStart, workEnd, now);
+    })(),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),
     loadAccountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
@@ -171,9 +180,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       originals: archive.publications.filter(page => page.kind === "source_blog").length, translations: archive.publications.filter(page => page.kind === "translation").length,
       liveVerified: archive.publications.filter(page => page.verificationState === "live_verified").length, artifactOnly: archive.publications.filter(page => page.verificationState === "artifact_verified").length,
       unknownFirstVerification: archive.publications.filter(page => !page.firstVerifiedAt).length, pendingEvidence: archive.auditBacklog.pending, pendingRevisions: archive.pendingRevisions.count })),
-    rankingNotes: reads[4].status !== "fulfilled" ? [] : kind === "daily"
-      ? digestDailyRankingNotes(reads[4].value, now)
-      : digestRankingNotes(reads[4].value, workStart, workEnd, now),
+    rankingNotes: reads[4].status === "fulfilled" ? reads[4].value : [],
     resolvedIssues: reads[0].status === "fulfilled" ? workflow.issues.filter(issue => issue.status === "resolved" && issue.resolvedAt
       && issue.resolutionEvidence.length && Date.parse(issue.resolvedAt) >= startStamp
       && Date.parse(issue.resolvedAt) < Math.min(now.getTime(), Date.parse(workEnd))).length : null,
