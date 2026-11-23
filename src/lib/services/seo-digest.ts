@@ -93,7 +93,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
         if (date === "2026-11-13") return [];
       }
       const tasks = await loadSerpTasks("all", "en", "desktop", kind === "daily" ? shiftWorkflowDay(date, -42) : workStart.slice(0, 10), date);
-      return kind === "daily" ? digestDailyRankingNotes(tasks, now) : digestRankingNotes(tasks, workStart, workEnd, now);
+      return kind === "daily" ? digestDailyRankingNotes(tasks, now, window.trafficEnd) : digestRankingNotes(tasks, workStart, workEnd, now);
     })(),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     loadGithubChannels(start, window.trafficEnd),

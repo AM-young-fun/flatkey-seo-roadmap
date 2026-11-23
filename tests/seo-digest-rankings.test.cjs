@@ -55,3 +55,13 @@ test("daily rank evidence uses the latest verified capture even on a day without
  assert.match(notes, /model api · 第 8 名（此前第 12 名） · \/models\/api/);
  assert.doesNotMatch(notes, /2026-11-17/);
 });
+
+test("daily report ranks require receipts from the exact LA statistics day", () => {
+ const tasks = [row("2026-11-1", 8), row("2026-10-2", 12)];
+ const now = new Date("2026-11-17T10:00:00Z");
+ assert.deepEqual(digestDailyRankingNotes(tasks, now, "2026-11-17"), []);
+ assert.match(digestDailyRankingNotes(tasks, now, "2026-11-10").join("\n"), /2026-11-10.*查到排名 1/);
+ const boundary = row("2026-11-1", 8, { checkedAt: "2026-11-10T07:59:00Z" });
+ assert.deepEqual(digestDailyRankingNotes([boundary], now, "2026-11-10"), []);
+ assert.match(digestDailyRankingNotes([boundary], now, "2026-11-09").join("\n"), /2026-11-09/);
+});

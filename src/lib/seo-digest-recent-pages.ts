@@ -84,13 +84,13 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
     const launch = new Date(page.publishedAt), day = publicationDay(page.publishedAt);
     const key = analyticsKey(page.siteDomain, page.pageUrl);
     const gscLaunchDay = gscDate(launch), gsc = search.get(key) ?? [];
-    const latest = gsc.filter(row => row.date > gscLaunchDay).sort((a, b) => b.date.localeCompare(a.date) || Number(b.property.startsWith("sc-domain:")) - Number(a.property.startsWith("sc-domain:")))[0] ?? null;
-    const before = gsc.filter(row => row.date < gscLaunchDay && (!latest || row.property === latest.property)).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+    const latest = gsc.filter(row => row.date > gscLaunchDay && (weekly || row.date === periodEnd)).sort((a, b) => b.date.localeCompare(a.date) || Number(b.property.startsWith("sc-domain:")) - Number(a.property.startsWith("sc-domain:")))[0] ?? null;
+    const before = gsc.filter(row => (weekly ? row.date < gscLaunchDay : row.date === shiftDay(periodEnd, -1)) && (!latest || row.property === latest.property)).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
     const zone = CLUSTER_SITES.find(site => site.domain === page.siteDomain)?.ga4TimeZone ?? "America/Los_Angeles";
     const gaLaunchDay = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(launch);
     const ga4 = (visits.get(key) ?? []).sort((a, b) => b.date.localeCompare(a.date));
-    const beforeVisits = ga4.find(row => row.date < gaLaunchDay) ?? null;
-    const latestVisits = ga4.find(row => row.date > gaLaunchDay) ?? null;
+    const beforeVisits = ga4.find(row => weekly ? row.date < gaLaunchDay : row.date === shiftDay(periodEnd, -1)) ?? null;
+    const latestVisits = ga4.find(row => row.date > gaLaunchDay && (weekly || row.date === periodEnd)) ?? null;
     return { url: page.pageUrl, title: page.title, day, change: change as "new" | "optimization", cohort: "current" as "current" | "previous", before, latest, beforeVisits, latestVisits };
   }));
 }

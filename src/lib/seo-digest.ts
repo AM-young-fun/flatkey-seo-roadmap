@@ -1,7 +1,8 @@
 import { registrationPeriodComparison, registrationPeriodSelection, type RegistrationPeriod } from "./seo-registration-period";
 import type { DailySeoTrafficHistory } from "./daily-seo-traffic";
 import { DAILY_SEO_PAGE_GROUPS, type DailySeoPageGroupsHistory } from "./daily-seo-page-groups";
-import type { recentPublishedPages } from "./seo-digest-recent-pages";
+import { bestMonthlyOptimizations, type recentPublishedPages } from "./seo-digest-recent-pages";
+import { summarizeReportTechnical } from "./seo-report-technical-summary";
 import { seoToday, weeklyReportRange } from "./seo-date-range";
 import { SEO_REPORT_LA_SWITCH_DATE, reportDay, reportDayStart, reportStamp, reportTime } from "./seo-report-time.cjs";
 import type { AccountRegistrationSummary } from "./seo-account-registrations";
@@ -143,17 +144,20 @@ export function comparableMetric(observations: DigestObservation[], site: string
   const latest = completeMetricDays(losAngelesWeek ? observations.filter(row => row.timezone === "America/Los_Angeles") : observations, site, metric, country);
   // A weekly distinct-user metric must be queried over the full interval, not summed from daily users.
   if (window.kind === "weekly" && metric === "registrations") return { current: null, previous: null, dates: [] as string[], previousDates: [] as string[], timezone: null, canCompare: false, reason: "周注册需区间去重数据，未用每日人数相加" };
-  const possible: string[] = [];
   if (window.kind === "daily") {
-    // If yesterday is unavailable, report the nearest consecutive comparable pair explicitly.
-    for (let i = 0; i < 14; i++) possible.push(shift(window.trafficEnd, -i));
-  } else {
-    for (let d = window.trafficStart; d <= window.trafficEnd; d = shift(d, 1)) possible.push(d);
+    const current = latest.get(window.trafficEnd), previous = latest.get(shift(window.trafficEnd, -1));
+    const canCompare = Boolean(current && previous && current.timezone === previous.timezone);
+    return { current: current?.[metric] ?? null, previous: previous?.[metric] ?? null,
+      dates: current ? [current.date] : [], previousDates: previous ? [previous.date] : [],
+      timezone: current?.timezone ?? previous?.timezone ?? null, canCompare,
+      reason: !current ? "当日数据待补，未用其他日期替代" : !previous ? "缺少前一日基线" : !canCompare ? "来源时区不可比" : null };
   }
+  const possible: string[] = [];
+  for (let d = window.trafficStart; d <= window.trafficEnd; d = shift(d, 1)) possible.push(d);
   const pairs = possible.flatMap(day => {
-    const current = latest.get(day), previous = latest.get(shift(day, window.kind === "weekly" ? -7 : -1));
+    const current = latest.get(day), previous = latest.get(shift(day, -7));
     return current && previous && current.timezone === previous.timezone ? [{ current, previous }] : [];
-  }).slice(0, window.kind === "daily" ? 1 : 7);
+  }).slice(0, 7);
   if (!pairs.length) {
     const incompatible = losAngelesWeek && observations.some(row => row.site === site && (row.country ?? "all") === country
       && row.source === (metric === "clicks" || metric === "impressions" ? "GSC" : "GA4") && row.timezone !== "America/Los_Angeles"
@@ -168,7 +172,7 @@ export function comparableMetric(observations: DigestObservation[], site: string
     previous: pairs.reduce((n, p) => n + p.previous[metric]!, 0),
     dates: pairs.map(p => p.current.date), previousDates: pairs.map(p => p.previous.date), timezone: pairs[0].current.timezone,
     canCompare: !losAngelesWeek || pairs.length === 7,
-    reason: pairs.length < (window.kind === "weekly" ? 7 : 1) || pairs.at(-1)?.current.date !== window.trafficEnd ? "最新日期未齐，仅比较列出的日期" : null,
+    reason: pairs.length < 7 || pairs.at(-1)?.current.date !== window.trafficEnd ? "最新日期未齐，仅比较列出的日期" : null,
   };
 }
 
@@ -321,8 +325,8 @@ function cardPageGroups(input: DigestInput, window: ReturnType<typeof digestWind
     return DAILY_SEO_PAGE_GROUPS.map(({ key, name }) => {
       const points = groups.find(group => group.key === key)?.points;
       const cutoff = dailyEvidenceEnd(input.now ?? new Date(), window.trafficEnd);
-      const current = latestVerifiedDailyPoint(points, cutoff, point => point.totalUsers !== null && point.pageViews !== null);
-      const funnelPoint = latestVerifiedDailyPoint(points, cutoff, point => !!point.funnel);
+      const current = latestVerifiedDailyPoint(points, cutoff, point => point.date === window.trafficEnd && point.totalUsers !== null && point.pageViews !== null);
+      const funnelPoint = latestVerifiedDailyPoint(points, cutoff, point => point.date === window.trafficEnd && !!point.funnel);
       const previous = points?.find(point => point.date === shift(current?.date ?? cutoff, -1));
       const previousFunnel = points?.find(point => point.date === shift(funnelPoint?.date ?? cutoff, -1));
       if (!current && !funnelPoint) return `${name} · 待补采`;
@@ -350,10 +354,13 @@ function cardPageGroups(input: DigestInput, window: ReturnType<typeof digestWind
 }
 
 function dailyWorkEffectLines(recent: DigestInput["recentPages"], date: string) {
-  const end = shift(date, -1), start = shift(end, -29);
-  const pages = (recent ?? []).filter(row => row.day >= start && row.day <= end);
+  const end = shift(date, -1);
+  const pages = bestMonthlyOptimizations(recent?.filter(row => row.day >= shift(end, -29) && row.day <= end && row.latest?.date === end && row.before?.date === shift(end, -1))).map(page => ({ ...page,
+    beforeVisits: page.beforeVisits?.date === shift(end, -1) ? page.beforeVisits : null,
+    latestVisits: page.latestVisits?.date === end ? page.latestVisits : null,
+  }));
   const evidence = pages.filter(page => page.before && page.latest);
-  const lines = [`近一个月优化（洛杉矶时间 ${start}—${end}） · 已核实提升 ${evidence.length} 个页面`];
+  const lines = [`当日优化效果（洛杉矶时间 ${end}） · 已核实提升 ${evidence.length} 个页面`];
   for (const page of evidence.slice(0, 4)) {
     const path = shortCardText(new URL(page.url).pathname, 64);
     const search = !page.latest ? "" : page.before
@@ -414,8 +421,8 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const scope = "首次来源为自然搜索";
   const acquisitionEnd = dailyEvidenceEnd(now, window.trafficEnd);
   const currentAcquisition = latestVerifiedDailyPoint(input.dailyAcquisition?.points, acquisitionEnd,
-    point => point.newUsers !== null && point.newRegistrations !== null);
-  const previousAcquisition = input.dailyAcquisition?.points.find(point => point.date === shift(currentAcquisition?.date ?? acquisitionEnd, -1));
+    point => point.date === window.trafficEnd && point.newUsers !== null && point.newRegistrations !== null);
+  const previousAcquisition = input.dailyAcquisition?.points.find(point => point.date === shift(window.trafficEnd, -1));
   const acquisitionDates = currentAcquisition ? ` · ${previousAcquisition?.date ?? "上期缺失"} → ${currentAcquisition.date}（洛杉矶）${currentAcquisition.date !== window.trafficEnd ? `；${window.trafficEnd} 待核验，展示最近已核实日` : ""}` : "";
   const acquisition = weekly ? null : currentAcquisition?.newUsers ?? null;
   const ctr = (side: "current" | "previous") => {
@@ -448,7 +455,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     `**${weekly ? "本周" : "今日"}结论** ${heading} · GA4 自然搜索去重注册 ${headlineRegistration}`,
     ...(pageSummary ? [`重点页面 ${pagePath(pageSummary.url)} · Google 点击 ${cardComparison(pageSummary.previous, pageSummary.value, pageCanCompare)}`] : []),
     `**统计期** ${dateLabel}（洛杉矶）｜对比 ${previousLabel}`,
-    "**数据说明** 使用各来源最近已结束日的有效数据；GA4 最新数据可能继续更新，实际覆盖日期见各项。",
+    weekly ? "**数据说明** 使用各来源最近已结束日的有效数据；GA4 最新数据可能继续更新，实际覆盖日期见各项。" : "**数据说明** 仅统计所选当日；缺项待补，不用其他日期替代。GA4 最新数据可能继续更新。",
     `**生成** ${window.workTimezone === "America/Los_Angeles" ? reportStamp(now) + "（洛杉矶时间）" : new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now) + "（北京时间）"}`,
     ...(weekly && window.workTimezone === "America/Los_Angeles" ? ["**审核** 周报草稿，待用户审核；各来源实际覆盖日期见下方"] : []),
     "", `**1. ${weekly ? "业务结果与搜索表现" : "全站自然搜索"}**`];
@@ -464,10 +471,12 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     `• Google CTR ${previousCtr === null ? "待更新" : formatCtr(previousCtr)} → ${currentCtr === null ? "待更新" : formatCtr(currentCtr)}${ctrDelta}`);
   if (input.accountRegistrations) lines.push(`• Flatkey 账户注册 ${cardNumber(input.accountRegistrations.users)}${input.accountRegistrations.users === null ? "" : " 人"} · UTC${weekly && window.workTimezone === "America/Los_Angeles" ? "（独立来源日桶，非洛杉矶周合计）" : ""}`);
 
-  lines.push("", weekly ? "**2. 重点页面**" : "**页面组表现**");
-  const groups = cardPageGroups(input, window);
-  if (groups.length) lines.push(...groups.map(row => "• " + row));
-  else lines.push("• 页面组同日注册漏斗的可比数据待更新");
+  if (weekly) {
+    lines.push("", "**2. 重点页面**");
+    const groups = cardPageGroups(input, window);
+    if (groups.length) lines.push(...groups.map(row => "• " + row));
+    else lines.push("• 页面组同日注册漏斗的可比数据待更新");
+  }
   if (weekly && pageChanges.length) {
     const dates = bestPage?.comparisonDates?.length ? bestPage.comparisonDates : bestPage?.date ? [bestPage.date] : [];
     lines.push(`Google 页面点击（本期 ${dateCoverage(dates)}）`,
@@ -476,13 +485,14 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
 
   const rankingNotes = input.rankingNotes ?? [];
   if (!weekly) {
-    lines.push("", "**2. 近一个月优化效果**", ...dailyWorkEffectLines(input.recentPages, input.date));
+    lines.push("", "**2. 当日优化效果**", ...dailyWorkEffectLines(input.recentPages, input.date));
     lines.push("", "**3. 关键词实测排名**", ...(rankingNotes.length ? rankingNotes.map(note => "• " + shortCardText(note, 180))
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
-    lines.push("", "**技术异常**", ...dailyTechnicalLines(input.technicalQa));
+    const technical = summarizeReportTechnical(dailyTechnicalLines(input.technicalQa));
+    lines.push("", "**技术异常**", ...(technical.issues.length ? technical.issues.map(issue => "• " + issue) : ["• " + technical.message]));
     lines.push("", "**4. 今日完成**", `• 新增博客页面 **${completed.blogs.total} 页**（源文 ${completed.blogs.originals} 篇、译文 ${completed.blogs.translations} 页、旧文补译 ${completed.blogs.backfillTranslations} 页），优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
-    const groups = input.pageGroups?.groups.filter(group => latestVerifiedDailyPoint(group.points, acquisitionEnd, point => point.totalUsers !== null && point.pageViews !== null && !!point.funnel)).length ?? 0;
-    lines.push("", `**数据状态** GA4 会话截至 ${sessions.latest ?? "待更新"} · GSC 点击截至 ${clicks.latest ?? "待更新"} · 获客/注册截至 ${currentAcquisition?.date ?? "待更新"} · 最近已核实页面组 ${groups}/4 组（各组日期见上）`);
+    const groups = input.pageGroups?.groups.filter(group => latestVerifiedDailyPoint(group.points, acquisitionEnd, point => point.date === window.trafficEnd && point.totalUsers !== null && point.pageViews !== null && !!point.funnel)).length ?? 0;
+    lines.push("", `**数据状态** 统计日 ${window.trafficEnd} · GA4 会话 ${sessions.current === null ? "待补" : "已核验"} · GSC 点击 ${clicks.current === null ? "待补" : "已核验"} · 获客/注册 ${currentAcquisition?.date ?? "待补"} · 当日页面组 ${groups}/4 组`);
     return lines.join("  \n");
   }
 
@@ -690,7 +700,7 @@ export function buildSeoDigest(input: DigestInput) {
   const weeklyHighlights = thisWeek ? november13Highlights : undefined;
   const weeklyTraffic = window.kind === "weekly" ? weeklyTrafficRows(input, window) : undefined;
   const pagePerformance = digestTopPages(input.pageObservations ?? [], input.date, now,
-    window.kind === "weekly" ? { start: window.trafficStart, end: window.trafficEnd } : undefined);
+    { start: window.trafficStart, end: window.trafficEnd });
   const start = Date.parse(window.executionStart ?? window.workStart), end = Math.min(now.getTime(), Date.parse(window.executionEnd ?? window.workEnd));
   const publications = [...new Map(input.publications.filter(row => confirmedInWindow(row, start, end) && safeLink(row.url)
     && Date.parse(row.publishedAt) <= Date.parse(row.verifiedAt)).map(row => [row.url, row])).values()];
