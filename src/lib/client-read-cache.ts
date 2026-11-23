@@ -7,26 +7,46 @@ export class ClientReadError extends Error {
 export function createClientReadCache(fetcher: typeof fetch = fetch, now = Date.now) {
   const entries = new Map<string, { value: unknown; expires: number }>();
   const pending = new Map<string, Promise<unknown>>();
+  const invalidationListeners = new Set<() => void>();
   let generation = 0;
   return {
-    clear() { generation++; entries.clear(); pending.clear(); },
+    clear() {
+      generation++; entries.clear(); pending.clear();
+      invalidationListeners.forEach(listener => listener());
+    },
+    revision: () => generation,
+    subscribe(listener: () => void) {
+      invalidationListeners.add(listener);
+      return () => { invalidationListeners.delete(listener); };
+    },
     peek<T>(url: string): T | null { return entries.get(url)?.value as T ?? null; },
+    peekFresh<T>(url: string): T | null {
+      const saved = entries.get(url);
+      return saved && saved.expires > now() ? saved.value as T : null;
+    },
     read<T>(url: string, force = false, ttl = 60_000): Promise<T> {
       const saved = entries.get(url);
       if (!force && saved && saved.expires > now()) return Promise.resolve(saved.value as T);
       if (pending.has(url)) return pending.get(url) as Promise<T>;
       const started = generation;
       const request = (async () => {
-        const readStarted = performance.now();
-        const response = await fetcher(url, { cache: "no-store" });
-        const data = await response.json();
-        logReadTiming(url,response,readStarted,data);
-        if (!response.ok) throw new ClientReadError(data.message ?? "数据读取失败，请重试", response.status);
-        if (started === generation) {
-          entries.set(url, { value: data, expires: now() + (data?.displaySnapshot?.pending ? Math.min(ttl,4000) : ttl) });
-          if (entries.size > 32) entries.delete(entries.keys().next().value!);
+        try {
+          const readStarted = performance.now();
+          const response = await fetcher(url, { cache: "no-store" });
+          const data = await response.json();
+          logReadTiming(url,response,readStarted,data);
+          if (!response.ok) throw new ClientReadError(data.message ?? "数据读取失败，请重试", response.status);
+          if (started === generation) {
+            entries.set(url, { value: data, expires: now() + (data?.displaySnapshot?.pending ? Math.min(ttl,4000) : ttl) });
+            if (entries.size > 32) entries.delete(entries.keys().next().value!);
+          }
+          return data as T;
+        } catch (error) {
+          // A failed refresh must not make a previous success look current on
+          // the next navigation. An old session cannot invalidate a new one.
+          if (started === generation) entries.delete(url);
+          throw error;
         }
-        return data as T;
       })();
       pending.set(url, request);
       void request.finally(() => { if (pending.get(url) === request) pending.delete(url); }).catch(() => {});

@@ -22,6 +22,7 @@ import { PageOptimizationActions } from "./PageOptimizationActions";
 export { classifyPage } from "@/lib/seo-page-inventory";
 type Row = CatalogRow;
 type Inventory = { pages: InventoryPage[]; capturedAt: string | null; storage: string };
+type Worklist = { sites?: { domain: string; keywords?: { keyword: string; targetUrls?: string[] }[] }[] };
 type Metric = "sessions" | "registrations" | "clicks";
 type PageDay = { date: string; sessions: number | null; registrations: number | null; clicks: number | null };
 type Detail = SeoAnalytics & { pageDaily: PageDay[] };
@@ -72,8 +73,24 @@ export function PageChart({ points, metric, label, launchDay }: {
 export function PageCatalog({ category, categoryLabel, range, comparison, categoryControl }: { category: string; categoryLabel: string; range: DateRange; comparison: DateRange | null; categoryControl?: ReactNode }) {
   const [country] = useSeoCountry();
   const [site, setSite] = useState("flatkey.ai");
-  const [targets, setTargets] = useState<Row[]>([]), [inventory, setInventory] = useState<Inventory | null>(null);
-  const [error, setError] = useState(""), [loading, setLoading] = useState(true);
+  // Both endpoints contain every site. Keep their reads independent of the
+  // selected site, so switching sites only reshapes the shared private data.
+  const worklist = useSeoRead<Worklist>("/api/seo/worklist");
+  const catalog = useSeoRead<Inventory>("/api/seo/pages");
+  const inventory = catalog.data;
+  const loading = !worklist.data && !worklist.error || !inventory && !catalog.error;
+  const error = [worklist.error && `工作清单 · ${worklist.error}`, catalog.error && `Sitemap 清单 · ${catalog.error}`].filter(Boolean).join("；");
+  const targets = useMemo<Row[]>(() => {
+    const urls = new Map<string, Set<string>>();
+    for (const keyword of worklist.data?.sites?.find(entry => entry.domain === site)?.keywords ?? []) {
+      for (const target of keyword.targetUrls ?? []) {
+        const url = catalogUrl(target, site); if (!url) continue;
+        if (!urls.has(url)) urls.set(url, new Set());
+        urls.get(url)!.add(keyword.keyword);
+      }
+    }
+    return [...urls].map(([url, keywords]) => ({ url, keywords: [...keywords] }));
+  }, [worklist.data, site]);
   const [search, setSearch] = useState(""), [page, setPage] = useState(1);
   const [sort, setSort] = useState<Metric>("sessions"), [ascending, setAscending] = useState(false);
   const [selected, setSelected] = useState<string | null>(null), [metric, setMetric] = useState<Metric>("sessions");
@@ -99,28 +116,6 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
     history.pushState(null, "", location.pathname + "?" + params); dispatchEvent(new PopStateEvent("popstate")); setPage(1);
   };
   useEffect(() => { if (selected) detailHeading.current?.focus(); }, [selected]);
-  useEffect(() => {
-    const controller = new AbortController();
-    const read = async (url: string) => { const response = await fetch(url, { signal: controller.signal }); const data = await response.json(); if (!response.ok) throw Error(data.message ?? "清单读取失败"); return data; };
-    Promise.allSettled([read("/api/seo/worklist"), read("/api/seo/pages")]).then(results => {
-      if (controller.signal.aborted) return;
-      const [worklist, catalog] = results; const urls = new Map<string, Set<string>>();
-      if (worklist.status === "fulfilled") {
-        for (const keyword of worklist.value.sites?.find((entry: { domain: string }) => entry.domain === site)?.keywords ?? []) {
-          for (const target of keyword.targetUrls ?? []) {
-          const url = catalogUrl(target, site); if (!url) continue;
-            if (!urls.has(url)) urls.set(url, new Set()); urls.get(url)!.add(keyword.keyword);
-          }
-        }
-        setTargets([...urls].map(([url, keywords]) => ({ url, keywords: [...keywords] })));
-      }
-      if (catalog.status === "fulfilled") setInventory(catalog.value);
-      setError(results.flatMap((result, index) => result.status === "rejected"
-        ? [`${index === 0 ? "工作清单" : "Sitemap 清单"} · ${result.reason.message}`] : []).join("；"));
-      setLoading(false);
-    });
-    return () => controller.abort();
-  }, [site]);
   const performance = useSeoRead<CatalogPerformance>(analyticsUrl(range, [], country, site) + "&pages=all&landingDaily=1");
   const current = readState(performance);
   const details = useSeoRead<Detail>(selected ? analyticsUrl(range, [selected], country, site) + "&pageDaily=1" : null);

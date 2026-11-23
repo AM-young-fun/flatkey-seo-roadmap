@@ -1,15 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { overviewPayload } from "@/lib/overview-payload";
-import { compactDashboard } from "@/lib/dashboard-payload";
 import { activeReportPeriods, reportPeriods } from "@/lib/weekly-traffic";
 import { serpTrendRange } from "@/lib/ranking-trends";
-import { keywordDisplayRows } from "@/lib/keyword-display-rows";
-import { candidateKeywordCount } from "@/lib/keyword-inventory";
-import { loadDashboard } from "./dashboard-data";
-import { buildWeeklyReport } from "./weekly-report";
-import { loadKeywordOkr } from "./keyword-okr";
-import { loadOptimizedPageMonitor } from "./optimized-page-monitor";
-import { buildDisplayTrends } from "./display-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
 import { overviewModule } from "@/lib/seo-overview-scope";
 const trafficDisplayVersion = "organic-search-weekly-v6";
@@ -22,6 +13,14 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const research = params.get("includeResearch") ?? "0";
   if (!["0","1"].includes(research)) throw new Error("词池范围无效");
   if (view === "dashboard") return {key:`display-v1:dashboard:${site}:${research}:${dashboardDisplayVersion}`, build:async () => {
+    // A saved display read only needs its key. Load reconstruction code when a
+    // bootstrap/background rebuild actually needs it, outside the read path.
+    const [{ loadDashboard }, { loadKeywordOkr }, { loadOptimizedPageMonitor },
+      { overviewPayload }, { compactDashboard }, { keywordDisplayRows }, { candidateKeywordCount }] = await Promise.all([
+      import("./dashboard-data"), import("./keyword-okr"), import("./optimized-page-monitor"),
+      import("@/lib/overview-payload"), import("@/lib/dashboard-payload"),
+      import("@/lib/keyword-display-rows"), import("@/lib/keyword-inventory"),
+    ]);
     const value = compactDashboard(await loadDashboard(site,"dataforseo_serp","week",new Date(),research === "1",{currentOnly:true}));
     if (value.usingDemoData) throw new Error("Live inventory unavailable");
     if (value.serpOverview) {
@@ -43,12 +42,18 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
     if (periods.current.start > activeReportPeriods().current.start) throw new Error("周报尚未结束");
     // Scope is part of the durable cache identity: never serve a saved
     // all-channel payload in the organic-search report after deployment.
-    return {key:`display-v1:traffic:${periods.current.start}:${trafficDisplayVersion}`,build:async () => ({value:await buildWeeklyReport(periods)})};
+    return {key:`display-v1:traffic:${periods.current.start}:${trafficDisplayVersion}`,build:async () => {
+      const { buildWeeklyReport } = await import("./weekly-report");
+      return { value: await buildWeeklyReport(periods) };
+    }};
   }
   if (view === "trends") {
     const range = serpTrendRange(params.get("start") ?? undefined,params.get("end") ?? undefined,new Date());
     const module = overviewModule(params.get("module"));
-    return {key:`display-v1:trends:${site}:${range.start}:${range.end}:${module}:${trendsDisplayVersion}`,build:async () => ({value:await buildDisplayTrends(site,range,new Date(),module)})};
+    return {key:`display-v1:trends:${site}:${range.start}:${range.end}:${module}:${trendsDisplayVersion}`,build:async () => {
+      const { buildDisplayTrends } = await import("./display-trends");
+      return { value: await buildDisplayTrends(site,range,new Date(),module) };
+    }};
   }
   throw new Error("页面类型无效");
 }

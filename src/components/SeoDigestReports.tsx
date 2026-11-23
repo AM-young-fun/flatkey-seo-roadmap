@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, RefreshCw } from "lucide-react";
 import { executionViewRoutes, workTaskHref } from "@/lib/seo-workspace-routes";
@@ -8,7 +9,6 @@ import { shiftDay, weeklyReportDate, weeklyReportRange, WEEKLY_REPORT_SWITCH_DAT
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
 import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
-import { ReviewedReportBody } from "./ReviewedReportBody";
 import { ReportModuleShares } from "./ReportTrafficPanels";
 import { reportFocusLines, reportTaskStatuses } from "@/lib/seo-report-plan-display";
 import { summarizeReportTechnical } from "@/lib/seo-report-technical-summary";
@@ -20,6 +20,10 @@ import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import { UiSelect } from "./UiSelect";
 import styles from "./SeoWorkWorkspace.module.css";
 import reportStyles from "./SeoDigestReports.module.css";
+
+const ReviewedReportBody = dynamic(() => import("./ReviewedReportBody").then(module => module.ReviewedReportBody), {
+  loading: () => <ReportLoading label="正在读取报告正文" />,
+});
 
 const reportDateLabel = (date: string) => new Intl.DateTimeFormat("zh-CN", {
   timeZone: "UTC", year: "numeric", month: "short", day: "numeric", weekday: "short",

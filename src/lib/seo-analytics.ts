@@ -136,7 +136,8 @@ export function scopedAnalytics(observations: AnalyticsObservation[]): Analytics
 export function analyticsView(range: DateRange, urls: string[], observations: AnalyticsObservation[]) {
   const dates = rangeDays(range);
   const dateSet = new Set(dates);
-  const records = scopedAnalytics(observations).filter(record => dateSet.has(record.date));
+  const records = scopedAnalytics(urls.length ? observations : observations.filter(record =>
+    record.kind === "ga4-site" || record.kind === "gsc-site")).filter(record => dateSet.has(record.date));
   const site = records.filter(row => row.kind === "ga4-site");
   const gaPages = records.filter(row => row.kind === "ga4-pages");
   const gsPages = records.filter(row => row.kind === "gsc-pages");
