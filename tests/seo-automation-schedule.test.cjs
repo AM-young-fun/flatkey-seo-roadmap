@@ -39,23 +39,23 @@ test("retired executors stay out of current plans while protected automations ke
   assert.ok(config.tasks.every(task => task.kind === "cron"));
   assert.equal(config.tasks.find(task => task.id === "automation-2").status, "ACTIVE");
   assert.equal(config.tasks.find(task => task.id === "flatkey-5").status, "ACTIVE");
-  for (const id of ["seo-10-00-2", "seo-3"]) {
+  for (const id of ["seo-10-00-2"]) {
     assert.equal(config.tasks.find(task => task.id === id).status, "PAUSED");
     assert.equal(plans.find(plan => plan.id === id).nextAt, null);
   }
   assert.deepEqual(new Set(config.verificationScope), new Set(config.tasks.map(task => task.id)));
 });
 
-test("LA gated wakeups remain candidates instead of applying Beijing workday execution claims", () => {
+test("Beijing schedules retain Monday backfill gates and source timezones", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-21T00:30:00Z")); // Saturday in Beijing.
   for (const id of ["seo-16-00-ga4-search-console", "seo-09-10-flatkey", "seo-16-25", "seo-17-30"]) {
     const task = config.tasks.find(task => task.id === id);
     const plan = plans.find(plan => plan.id === id);
     assert.equal(task.workdaysOnly, false, "Beijing workday filtering cannot represent the LA or Monday gates");
     assert.match(plan.cadence, /^候选唤醒：每日 /);
-    assert.match(plan.note, /洛杉矶\d{2}:\d{2}目标窗口/);
+    assert.match(plan.note, /北京时间\d{2}:\d{2}/);
     assert.match(plan.note, /周一/);
-    assert.match(plan.note, /DST/);
+    assert.doesNotMatch(plan.note, /真实DST/);
     assert.ok(plan.nextAt.startsWith("2026-11-21"), "candidate wakeups are not proof that business work may run");
   }
   assert.equal(config.tasks.find(task => task.id === "seo-09-00-github-traffic").workdaysOnly, true);
