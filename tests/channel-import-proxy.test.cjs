@@ -3,6 +3,8 @@ const root=path.resolve(__dirname,'..'),load=Module._load,resolve=Module._resolv
 Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,name.startsWith('@/')?path.join(root,'src',name.slice(2)):name,parent,...rest);};
 Module._load=function(name,...rest){
  if(name==='@/lib/auth')return {AUTH_COOKIE_NAME:'session',isAuthEnabled:()=>true,isValidAuthToken:async()=>false};
+ if(name.includes('services/ranking-coverage-access'))return {authorizeSavedRankingCoverage:async req=>!req.headers.has('origin')&&req.headers.get('authorization')==='Bearer fixture'};
+ if(name.includes('services/growth-workspace'))return {loadGrowthWorkspace:async()=>({version:'growth-v1.5',targets:[],topics:[]})};
  if(name.includes('services/import-tokens'))return {authenticateImportToken:async req=>req.headers.get('authorization')==='Bearer fixture'};
  if(name.includes('seo-analytics-access'))return {authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>false,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
  if(name.includes('services/seo-registration-period'))return {loadRegistrationPeriods:async()=>[],saveRegistrationPeriod:async input=>require('../src/lib/seo-registration-period.ts').registrationPeriodSchema.parse(input)};
@@ -45,3 +47,19 @@ test('registration period import delegates exact route to its own token check an
 });
 
 test('basic analytics health reaches its own credential handler but nested or private paths stay protected',async()=>{const endpoint='https://flatkey.test/api/seo/analytics/health';assert.equal((await proxy(new NextRequest(endpoint))).headers.get('x-middleware-next'),'1');assert.equal((await proxy(new NextRequest(endpoint+'/admin'))).status,401);assert.equal((await proxy(new NextRequest(endpoint+'-private'))).status,401)});
+
+test('growth exact GET/write routes reach their credential handlers, while neighbors and unsupported methods remain protected',async()=>{
+ const origin='https://flatkey.test';
+ for(const route of ['/api/seo/growth','/api/seo/growth/strategy','/api/seo/growth/collection','/api/seo/growth/discovery']){
+  assert.equal((await proxy(new NextRequest(origin+route))).headers.get('x-middleware-next'),'1');
+  for(const suffix of ['/admin','-private','/nested'])assert.equal((await proxy(new NextRequest(origin+route+suffix,{headers:{authorization:'Bearer fixture'}}))).status,401);
+  for(const method of ['DELETE','PUT'])assert.equal((await proxy(new NextRequest(origin+route,{method,headers:{authorization:'Bearer fixture'}}))).status,401);
+  const post=await proxy(new NextRequest(origin+route,{method:'POST'}));
+  if(route==='/api/seo/growth')assert.equal(post.status,401);else assert.equal(post.headers.get('x-middleware-next'),'1');
+ }
+});
+test('delegated growth data still rejects absent/wrong/foreign-origin credentials before returning real data',async()=>{
+ const endpoint='https://flatkey.test/api/seo/growth',route=require('../src/app/api/seo/growth/route.ts');
+ for(const headers of [{},{authorization:'Bearer wrong'},{authorization:'Bearer fixture',origin:'https://foreign.test'}])assert.equal((await route.GET(new Request(endpoint,{headers}))).status,401);
+ assert.equal((await route.GET(new Request(endpoint,{headers:{authorization:'Bearer fixture'}}))).status,200);
+});
