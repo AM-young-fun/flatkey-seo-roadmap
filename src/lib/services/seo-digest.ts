@@ -4,7 +4,8 @@ import { DAILY_SEO_TRAFFIC_DEFAULTS, dailySeoPropertyDate } from "../daily-seo-t
 import { DAILY_SEO_PAGE_GROUP_RULE_VERSION } from "../daily-seo-page-groups";
 import { loadDailySeoTrafficHistory } from "./daily-seo-traffic";
 import { loadDailySeoPageGroupsHistory } from "./daily-seo-page-groups";
-import { recentPublishedPages } from "../seo-digest-recent-pages";
+import { recentPublishedPages, monthlyOptimizationChanges } from "../seo-digest-recent-pages";
+import { loadMonthlyPageArchive } from "./monthly-page-archive";
 import { actionCardPayload, messageHash } from "../seo-digest-message.cjs";
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
@@ -44,16 +45,16 @@ const pageArchiveKinds = (["ga4-pages", "gsc-pages"] as const)
 
 export async function loadRecentDigestPages(date: string, kind: DigestKind, now = new Date()) {
   const { trafficEnd } = digestWindow(date, kind);
-  const [workflow, archive] = await Promise.all([
-    loadWorkflowSnapshot({ allHistory: true }),
-    timedRead("monthly-archive", () => prisma.seoAnalyticsDay.findMany({ where: { date: { gte: shiftWorkflowDay(trafficEnd, -59), lte: trafficEnd },
-      kind: { in: pageArchiveKinds } }, select: { payload: true } })),
-  ]);
-  const pages = archive.flatMap(({ payload }) => {
-    const parsed = analyticsObservationSchema.safeParse(payload);
-    return parsed.success ? scopedAnalytics([parsed.data]) : [];
+  const workflow = await loadWorkflowSnapshot({ allHistory: true });
+  const targets = [...monthlyOptimizationChanges(workflow, date, now, kind === "weekly", digestWindow(date, kind)).values()].map(entry => entry.page);
+  const archive = await loadMonthlyPageArchive(targets, shiftWorkflowDay(trafficEnd, -59), trafficEnd);
+  return timedRead("monthly-assemble", async () => {
+    const pages = archive.flatMap(({ payload }) => {
+      const parsed = analyticsObservationSchema.safeParse(payload);
+      return parsed.success ? scopedAnalytics([parsed.data]) : [];
+    });
+    return recentPublishedPages(workflow, pages, date, now, kind === "weekly", digestWindow(date, kind));
   });
-  return recentPublishedPages(workflow, pages, date, now, kind === "weekly", digestWindow(date, kind));
 }
 
 export async function loadDigestWorkPlan(date: string, kind: DigestKind) {

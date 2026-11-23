@@ -22,7 +22,7 @@ export function bestMonthlyOptimizations(pages: readonly RecentPublishedPage[] |
 }
 
 type WeeklyPageWindow = { trafficStart: string; trafficEnd: string; workEnd: string; workTimezone: string };
-export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, observations: AnalyticsObservation[], end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow): RecentPublishedPage[] {
+export function monthlyOptimizationChanges(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow) {
   const periodEnd = weekly && weeklyWindow ? weeklyWindow.trafficEnd : shiftDay(end, -1);
   const periodStart = shiftDay(periodEnd, -29);
   const cutoff = now.getTime();
@@ -47,6 +47,13 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
     const prior = latestChanges.get(entry.page.pageUrl);
     if (!prior || Date.parse(entry.page.publishedAt) > Date.parse(prior.page.publishedAt)) latestChanges.set(entry.page.pageUrl, entry);
   }
+  return latestChanges;
+}
+
+export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, observations: AnalyticsObservation[], end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow): RecentPublishedPage[] {
+  const periodEnd = weekly && weeklyWindow ? weeklyWindow.trafficEnd : shiftDay(end, -1);
+  const publicationDay = (stamp: string) => gscDate(new Date(stamp));
+  const latestChanges = monthlyOptimizationChanges(workflow, end, now, weekly, weeklyWindow);
   const search = new Map<string, SearchPoint[]>(), visits = new Map<string, VisitPoint[]>();
   const gaPaths = new Map<string, string>();
   const analyticsKey = (site: string, url: string) => site + "|" + url;
