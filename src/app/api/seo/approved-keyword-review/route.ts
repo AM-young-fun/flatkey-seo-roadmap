@@ -13,7 +13,14 @@ function failure(error: unknown) {
   return workflowErrorResponse(error);
 }
 export async function GET(request: Request) {
-  try { await authorizeWorkflow(request); return Response.json(await loadApprovedKeywordReview(), { headers: workflowHeaders }); }
+  try {
+    await authorizeWorkflow(request);
+    if (new URL(request.url).searchParams.has("evidenceOffset")) {
+      const { GET: readSavedEvidence } = await import("./evidence/route");
+      return readSavedEvidence(request);
+    }
+    return Response.json(await loadApprovedKeywordReview(), { headers: workflowHeaders });
+  }
   catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

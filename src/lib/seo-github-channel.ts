@@ -44,10 +44,10 @@ export function githubComparable(rows: GithubChannel[], kind: "views" | "clones"
     ? keys.reduce((n, d) => n + days.get(d)!.count, 0) : null;
   return { current: sum(dates), previous: sum(previousDates), dates, previousDates, expectedDays };
 }
-function reportReferrals(own: GithubChannel[], start: string, end: string, weekly: boolean) {
+function reportReferrals(own: GithubChannel[], start: string, end: string) {
   const quality = (row: GithubChannel["referrals"][number]) => row.status === "ok" ? 2 : row.reason === "ga4_no_matching_utm_data" ? 1 : 0;
   return own.flatMap(row => row.referrals)
-    .filter(row => row.end <= end && (weekly ? row.start === start && row.end === end : row.start === row.end && row.start >= shift(end, -7)))
+    .filter(row => row.start === start && row.end === end)
     .sort((a, b) => b.end.localeCompare(a.end) || quality(b) - quality(a) || b.observedAt.localeCompare(a.observedAt));
 }
 
@@ -62,7 +62,7 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
       const views = githubComparable(own, "views", start, end, weekly), clones = githubComparable(own, "clones", start, end, weekly);
       const period = weekly ? `${shift(start, -7)}～${shift(end, -7)} 对比 ${start}～${end} UTC`
         : views.dates.length ? `${views.dates[0]}～${views.dates.at(-1)} UTC` : "日期待更新";
-      const referral = reportReferrals(own, start, end, weekly)[0];
+      const referral = reportReferrals(own, start, end)[0];
       const arrival = referral?.status === "ok" ? `${referral.sessions}会话/${referral.users}去重访客` : referral?.reason === "ga4_no_matching_utm_data" ? "无匹配UTM数据（非0）" : "待更新";
       lines.push(`• [${repository.split("/")[1]}](https://github.com/${repository})：Stars ${latest.stars ?? "待更新"} / Forks ${latest.forks ?? "待更新"}（${latest.observedAt.slice(0, 10)}快照）；浏览 ${views.previous ?? "待更新"}→${views.current ?? "待更新"}，克隆 ${clones.previous ?? "待更新"}→${clones.current ?? "待更新"}；${period}；到站 ${arrival}${referral ? `，${referral.start}～${referral.end} ${referral.timezone}` : ""}；UTM ${latest.linkAudit.attributedLinks ?? "?"}/${latest.linkAudit.flatkeyLinks ?? "?"}。`);
       continue;
@@ -82,7 +82,7 @@ export function githubDigestLines(rows: GithubChannel[], start: string, end: str
       if (!weekly && pair.dates.length === 1) { const point = series(own, key, end).get(pair.dates[0])!; lines.push(`  该UTC日去重${key === "views" ? "访客" : "克隆者"} ${point.uniques}。`); }
     }
     if (weekly) lines.push("  周去重访客/克隆者待精确区间数据；未把每日unique相加。GitHub API原始14日总数只作来源窗口，未当周报总数。");
-    const referrals = reportReferrals(own, start, end, weekly);
+    const referrals = reportReferrals(own, start, end);
     const referral = referrals[0];
     lines.push(referral?.status === "ok" ? `  GitHub UTM→Flatkey 到站会话 ${referral.sessions}，去重访客 ${referral.users}；${referral.start}～${referral.end} ${referral.timezone}${referral.end < end ? "，最新完整日滞后于报表目标日" : ""}。` : referral?.reason === "ga4_no_matching_utm_data" ? "  GitHub UTM→Flatkey 到站会话/访客：暂无匹配数据；未记为 0。" : "  GitHub UTM→Flatkey 到站会话/访客：待更新；没有把仓库浏览或克隆当作到站点击。");
     if (weekly) {

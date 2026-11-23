@@ -144,8 +144,12 @@ function trafficChange(previous: number | null, current: number | null) {
   return `${delta > 0 ? "+" : ""}${(delta / previous * 100).toFixed(1)}%`;
 }
 
-function RecentPageTraffic({ pages }: { pages: SeoDigest["recentPages"] }) {
-  const best = bestMonthlyOptimizations(pages ?? []);
+function RecentPageTraffic({ pages, day }: { pages: SeoDigest["recentPages"]; day?: string }) {
+  const best = bestMonthlyOptimizations(day ? pages?.filter(page => page.day >= shiftDay(day, -29) && page.day <= day && page.latest?.date === day && page.before?.date === shiftDay(day, -1)).map(page => ({ ...page,
+    beforeVisits: page.beforeVisits?.date === shiftDay(day, -1) ? page.beforeVisits : null,
+    latestVisits: page.latestVisits?.date === day ? page.latestVisits : null,
+  })) : pages);
+  const label = day ? "当日优化效果" : "近一个月优化效果";
   const changeCell = (before: number | null, current: number | null, points = false) => {
     if (current === null) return <>{before !== null ? <>{numberText(before)}{points ? "%" : ""} → </> : null}<span className={reportStyles.trafficMissing}>待出数</span></>;
     if (before === null) return <>{numberText(current)}{points ? "%" : ""}<small>暂无基线</small></>;
@@ -156,10 +160,10 @@ function RecentPageTraffic({ pages }: { pages: SeoDigest["recentPages"] }) {
       </small></>;
   };
   return <section className={reportStyles.section}>
-    <div className={reportStyles.sectionHeading}><h3>近一个月优化效果 · 前 10</h3><Link className={styles.secondary} href="/optimization-effects">查看全部优化效果 ↗</Link></div>
-    <p className={reportStyles.note}>按 Google 点击增量、曝光增量排序；仅展示有前后对比且取得提升的页面。</p>
-    {!best.length ? <p className={reportStyles.note}>{!pages ? "优化效果数据待更新。" : "近一个月暂无有完整对比且取得提升的页面。"}</p> : <div className={reportStyles.tableScroll}>
-      <table className={`${reportStyles.comparison} ${reportStyles.recentComparison}`} aria-label="近一个月优化效果前十">
+    <div className={reportStyles.sectionHeading}><h3>{label} · 前 10</h3><Link className={styles.secondary} href="/optimization-effects">查看全部优化效果 ↗</Link></div>
+    <p className={reportStyles.note}>{day ? `${day}，与前一日对比。` : ""}按 Google 点击增量、曝光增量排序；仅展示有前后对比且取得提升的页面。</p>
+    {!best.length ? <p className={reportStyles.note}>{!pages ? "优化效果数据待更新。" : `${day ? "当日" : "近一个月"}暂无有完整对比且取得提升的页面。`}</p> : <div className={reportStyles.tableScroll}>
+      <table className={`${reportStyles.comparison} ${reportStyles.recentComparison}`} aria-label={label + "前十"}>
         <thead><tr><th scope="col">页面 / 上线</th><th scope="col">Google 点击</th><th scope="col">Google 曝光</th><th scope="col">点击率</th><th scope="col">自然访问</th></tr></thead>
         <tbody>
             {best.map(page => {
@@ -229,12 +233,13 @@ function TechnicalIssues({ text }: { text?: string | string[] }) {
 }
 
 const planKinds = [["optimization", "页面优化"], ["blog", "博客关键词"], ["landing", "Flatkey 落地页关键词"], ["cluster_landing", "集群新增落地页"], ["research", "关键词研究"], ["cluster_work", "集群站其他任务"], ["other_work", "其他任务"]] as const;
-function ReportWorkPlan({ plan, weekly }: { plan?: SeoDigest["workPlan"]; weekly: boolean }) {
+function ReportWorkPlan({ plan: sourcePlan, weekly, day }: { plan?: SeoDigest["workPlan"]; weekly: boolean; day?: string }) {
+  const plan = sourcePlan && day ? { ...sourcePlan, periodStart: day, periodEnd: day, tasks: sourcePlan.tasks.filter(task => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) === day) } : sourcePlan;
   const filters = plan ? new URLSearchParams({ range: "custom", rangeStart: plan.periodStart ?? plan.weekStart, rangeEnd: plan.periodEnd ?? shiftDay(plan.weekStart, 6) }) : undefined;
   return <section className={reportStyles.section}>
-    <h3>{weekly ? "下周工作计划" : "本周计划进度"}</h3>
+    <h3>{day ? "当日工作进度" : weekly ? "下周工作计划" : "本周计划进度"}</h3>
     {!plan ? <p className={reportStyles.note}>工作台暂无{weekly ? "下周" : "本周"}计划记录。</p> : <>
-      <p className={reportStyles.note}>{plan.periodStart ?? plan.weekStart} — {plan.periodEnd ?? shiftDay(plan.weekStart, 6)} · {plan.periodStart ? "周五至周四" : "原计划"} · <Link href={`/work?${filters}`}>查看该周全部任务</Link></p>
+      <p className={reportStyles.note}>{day ?? `${plan.periodStart ?? plan.weekStart} — ${plan.periodEnd ?? shiftDay(plan.weekStart, 6)} · ${plan.periodStart ? "周五至周四" : "原计划"}`} · <Link href={`/work?${filters}`}>{day ? "查看当天全部任务" : "查看该周全部任务"}</Link></p>
       {planKinds.map(([kind, label]) => {
         const tasks = plan.tasks.filter(task => task.kind === kind);
         if ((kind === "cluster_work" || kind === "research" || kind === "other_work") && !tasks.length) return null;
@@ -303,9 +308,9 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
       <h3>SEO 技术质检</h3>
       <TechnicalIssues text={dashboard?.technicalText || technical?.lines} />
     </section> : null}
-    <RecentPageTraffic pages={recentPages} />
+    <RecentPageTraffic pages={recentPages} day={weekly ? undefined : reportPeriod?.start} />
     {weekly ? <ReportWorkPlan plan={currentWorkPlan} weekly={false} /> : null}
-    <ReportWorkPlan plan={workPlan} weekly={weekly} />
+    <ReportWorkPlan plan={workPlan} weekly={weekly} day={weekly ? undefined : reportPeriod?.start} />
     <section className={reportStyles.section}>
       <h3>{weekly ? "下周优先关注" : "明日优先关注"}</h3>
       {focus.length ? <ul className={reportStyles.issueList}>{focus.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul> : <p className={reportStyles.note}>暂无待办</p>}
