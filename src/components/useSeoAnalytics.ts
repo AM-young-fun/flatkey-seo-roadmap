@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { clientReadCache } from "@/lib/client-read-cache";
 import type { DateRange } from "@/lib/seo-date-range";
 import type { SeoCountry } from "@/lib/seo";
@@ -33,31 +33,38 @@ export type SeoAnalytics = DateRange & {
 };
 
 export function useSeoRead<T>(url: string | null) {
-  const [result, setResult] = useState<{ url: string; data: T | null; error: string | null } | null>(null);
-  const [refresh, setRefresh] = useState(0);
+  const revision = useSyncExternalStore(clientReadCache.subscribe, clientReadCache.revision, () => 0);
+  const [result, setResult] = useState<{ url: string; revision: number; data: T | null; error: string | null } | null>(null);
+  const [refresh, setRefresh] = useState({ url, id: 0 });
+  const consumedRefresh = useRef(0);
   useEffect(() => {
+    const force = refresh.url === url && refresh.id > consumedRefresh.current;
+    consumedRefresh.current = refresh.id;
     if (!url) return;
     let active = true, pending = false;
-    async function read() {
+    async function read(force = false) {
       if (!url || pending) return;
       pending = true;
       try {
-        const data = await clientReadCache.read<T>(url, refresh > 0, 60_000);
-        if (active) setResult({ url, data, error: null });
+        const data = await clientReadCache.read<T>(url, force, 60_000);
+        if (active && revision === clientReadCache.revision()) setResult({ url, revision, data, error: null });
       } catch (error) {
-        if (active) setResult({ url, data: null, error: error instanceof Error ? error.message : "数据读取失败" });
+        if (active && revision === clientReadCache.revision()) setResult({ url, revision, data: null, error: error instanceof Error ? error.message : "数据读取失败" });
       } finally { pending = false; }
     }
-    void read();
+    void read(force);
     const readWhenVisible = () => { if (!document.hidden) void read(); };
     document.addEventListener("visibilitychange", readWhenVisible);
     return () => {
       active = false;
       document.removeEventListener("visibilitychange", readWhenVisible);
     };
-  }, [url, refresh]);
-  const current = result?.url === url ? result : null;
-  return { data: current?.data ?? null, error: current?.error ?? null, retry: () => setRefresh(value => value + 1) };
+  }, [url, refresh, revision]);
+  const current = result?.url === url && result.revision === revision ? result : null;
+  // Only this URL and this session's fresh cache can fill the first render.
+  // Failed reads keep their error rather than falling back to a success.
+  const cached = url && revision === clientReadCache.revision() ? clientReadCache.peekFresh<T>(url) : null;
+  return { data: current ? current.data : cached, error: current?.error ?? null, retry: () => setRefresh(value => ({ url, id: value.id + 1 })) };
 }
 
 export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all", site?: string): string {

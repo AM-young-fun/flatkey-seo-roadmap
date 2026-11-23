@@ -1,6 +1,6 @@
 const { test } = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
-const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
+const React = require("react"), { renderToReadableStream } = require("react-dom/server");
 const root = path.resolve(__dirname, ".."), load = Module._load;
 const body = "**已审完整周报**\n\n业务与搜索表现：注册78人。\n\n<script>not executable</script>";
 const report = { id: "seo-digest:2026-11-19:0123456789abcdef", date: "2026-11-19", kind: "weekly", title: "已审完整周报", generatedAt: "2026-11-19T11:00:00Z",
@@ -9,6 +9,9 @@ const report = { id: "seo-digest:2026-11-19:0123456789abcdef", date: "2026-11-19
   organicRegistrations: { current: 999123 }, registrationCoverageNote: "stale registration coverage", registrationCorrection: true };
 let selectedReport = report;
 Module._load = function (name, parent, ...rest) {
+  // Match Next's App Router compiler alias and exercise its real lazy/Suspense
+  // implementation. Plain Node's next/dynamic defaults to the Pages runtime.
+  if (name === "next/dynamic") return load.call(this, "next/dist/shared/lib/app-dynamic.js", parent, ...rest);
   if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams("period=weekly&date=2026-11-19"), useRouter: () => ({ push() {} }) };
   if (name === "next/link") return { __esModule: true, default: props => React.createElement("a", { href: props.href }, props.children) };
   if (name === "./useSeoAnalytics") return { numberText: String, shanghaiStamp: String, useSeoRead: () => ({ data: { report: selectedReport, dates: [selectedReport.date] }, retry() {} }) };
@@ -22,15 +25,20 @@ for (const ext of [".ts", ".tsx"]) require.extensions[ext] = (module, file) => m
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
 }).outputText, file);
 const { SeoDigestReports } = require("../src/components/SeoDigestReports.tsx");
-test("reviewed snapshots show the exact safe body without stale structured metrics or dynamic correction text", () => {
-  const html = renderToStaticMarkup(React.createElement(SeoDigestReports));
+async function renderReport() {
+  const stream = await renderToReadableStream(React.createElement(SeoDigestReports));
+  await stream.allReady;
+  return new Response(stream).text();
+}
+test("reviewed snapshots show the exact safe body without stale structured metrics or dynamic correction text", async () => {
+  const html = await renderReport();
   assert.match(html, /已审周报完整正文/); assert.match(html, /注册78人/);
   assert.doesNotMatch(html, /<script|not executable/);
   assert.doesNotMatch(html, /999123|stale registration coverage|事后修订|待审页面版本|SEO 注册人数/);
 });
 
 
-test("a pending weekly review preserves other modules with concise plans and the monthly optimization entry", () => {
+test("a pending weekly review preserves other modules with concise plans and the monthly optimization entry", async () => {
   const nextTask = {id:"next-blog",weekStart:"2026-11-23",siteDomain:"flatkey.ai",scheduled:true,kind:"blog",title:"知识蒸馏成本比较",keyword:"知識蒸留",country:"JP",language:"ja",status:"ready",dueAt:"2026-11-23T02:00:00Z",pageUrl:null,action:"先读 /Users/private/research.md，然后执行完整内部制作说明"};
   const optimized = (id, before, latest) => ({url:"https://flatkey.ai/blog/"+id,title:id,day:"2026-11-10",change:"optimization",cohort:"previous",
     before:{date:"2026-11-09",property:"sc-domain:flatkey.ai",clicks:before,impressions:100},
@@ -47,7 +55,7 @@ test("a pending weekly review preserves other modules with concise plans and the
     organicRegistrations:{current:81,previous:80}, organicRegistrationCanCompare:true,
   };
   try {
-    const html=renderToStaticMarkup(React.createElement(SeoDigestReports));
+    const html=await renderReport();
     for(const title of ["新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","模块流量占比","GitHub 提示词渠道","GA4 行为与转化","SEO 技术质检","暂无问题","本周计划进度","下周工作计划","下周优先关注","2026-11-16","2026-11-23","知识蒸馏成本比较","JP / ja","待领取","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
     assert.match(html,/href="\/optimization-effects"/);
     assert.match(html,/href="https:\/\/flatkey-seo-roadmap\.vercel\.app\/work\/next-blog\?week=2026-11-23"/);

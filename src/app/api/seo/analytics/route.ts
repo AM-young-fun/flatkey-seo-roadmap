@@ -49,9 +49,14 @@ export async function GET(request: Request) {
     return Response.json({ message: "请选择已结束日期；一次最多366天和25个所选站点页面。" }, { status: 400, headers });
   }
   try {
-    const kinds = priority ? ["gsc-pages" as const] : analyticsKinds.filter(kind => pageQueries === (kind === "gsc-page-queries"));
+    // Site summaries use only daily site totals. Reading the page archives here
+    // also deserializes and validates every landing/search URL for no output.
+    const siteSummary = !urls.length && !allPages && !pageDaily && requestedModule === null;
+    const kinds = priority ? ["gsc-pages" as const] : pageQueries ? ["gsc-page-queries" as const]
+      : siteSummary ? ["ga4-site" as const, "gsc-site" as const]
+        : analyticsKinds.filter(kind => kind !== "gsc-page-queries");
     const rows = analyticsLocalPreview(request)
-      ? await readAnalyticsEvidence(range, country, site?.domain)
+      ? await readAnalyticsEvidence(range, country, site?.domain, kinds)
       : (await prisma.seoAnalyticsDay.findMany({
         where: { date: { gte: range.start, lte: range.end }, kind: { in: kinds.map(kind => analyticsStorageKind(kind, country, site?.domain)) } },
         select: { payload: true },

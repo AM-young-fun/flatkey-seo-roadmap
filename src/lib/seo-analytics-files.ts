@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { analyticsObservationSchema, type AnalyticsObservation } from "./seo-analytics";
+import { analyticsObservationSchema, type AnalyticsKind, type AnalyticsObservation } from "./seo-analytics";
 import type { DateRange } from "./seo-date-range";
 import type { SeoCountry } from "./seo";
 import { clusterDomainForProperty, type ClusterDomain } from "./seo-cluster-sites";
@@ -31,7 +31,7 @@ export async function writeAnalyticsEvidence(input: unknown) {
   }
 }
 
-export async function readAnalyticsEvidence(range: DateRange, country: SeoCountry = "all", site?: ClusterDomain) {
+export async function readAnalyticsEvidence(range: DateRange, country: SeoCountry = "all", site?: ClusterDomain, kinds?: readonly AnalyticsKind[]) {
   const directory = analyticsDirectory();
   const names = await readdir(directory).catch(error => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -40,7 +40,8 @@ export async function readAnalyticsEvidence(range: DateRange, country: SeoCountr
   const best = new Map<string, { file: string; quality: number; timestamp: number }>();
   for (const file of names) {
     const match = /^(\d{4}-\d{2}-\d{2})~(ga4-site|ga4-pages|gsc-site|gsc-pages|gsc-page-queries)(?:~([A-Z]{2}))?(?:~((?!host~)[a-z0-9.-]+))?(?:~(host))?~([01])~(\d+)\.json$/.exec(file);
-    if (!match || (match[3] ?? "all") !== country || match[4] !== site || match[1] < range.start || match[1] > range.end) continue;
+    if (!match || (match[3] ?? "all") !== country || match[4] !== site || match[1] < range.start || match[1] > range.end
+      || kinds && !kinds.includes(match[2] as AnalyticsKind)) continue;
     const key = match[1] + "~" + match[2];
     const entry = { file, quality: Number(match[6]) + (match[5] === "host" ? 2 : 0), timestamp: Number(match[7]) };
     const previous = best.get(key);
