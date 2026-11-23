@@ -1,5 +1,6 @@
 "use client";
 
+import { FeedbackButton } from "./FeedbackButton";
 import { useState } from "react";
 import { CLUSTER_SITES, type ClusterDomain } from "@/lib/seo-cluster-sites";
 import type { DateRange } from "@/lib/seo-date-range";
@@ -38,7 +39,7 @@ function SiteRow({ site, url }: {
           : site.name}
         <small>{site.domain}</small>
         <a className={styles.siteAction} href={"/pages?" + new URLSearchParams({ ...Object.fromEntries(new URL(url, "https://workspace.invalid").searchParams), site: site.domain })}>选择该站页面 →</a>
-        {report.error ? <button type="button" onClick={report.retry}>重试</button>
+        {report.error ? <FeedbackButton type="button" onClick={report.retry} pending={report.pending} pendingLabel="正在读取…">重试</FeedbackButton>
           : !site.ga4 && !site.gsc ? <small>待开通报表权限</small>
           : !report.data ? <small>读取中</small>
           : !recorded.length ? <small>所选日期暂无数据</small> : null}

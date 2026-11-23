@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { BusinessAnalytics } from "@/lib/seo-business-analytics";
 import { businessEventLabels } from "@/lib/seo-business-events";
 import type { DateRange } from "@/lib/seo-date-range";

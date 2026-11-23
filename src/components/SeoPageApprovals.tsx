@@ -4,8 +4,12 @@ import { SeoApprovalSkeleton } from "./SeoApprovalWorkspace";
 
 import { approvalPreview, groupApprovalPages, visibleApprovalItemStatus, type ReviewItem } from "@/lib/seo-approval-display";
 import { approvalReviewReadiness, approvalItemNeedsHuman, shiftWorkflowDay, workflowWeek } from "@/lib/seo-workflow";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useFeedbackRouter as useRouter } from "./useFeedbackRouter";
 import { useRef, useState, type FormEvent } from "react";
+import { FeedbackButton } from "./FeedbackButton";
+import { useBusyIndicator } from "./useBusyIndicator";
+import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { workflowApprovalEffectiveItemStatus, workflowApprovalStatus, WORKFLOW_SITES, type WorkflowApproval, type WorkflowSnapshot, type WorkflowTask } from "@/lib/seo-workflow";
 import { UiSelect } from "./UiSelect";
@@ -73,6 +77,7 @@ function ReviewPageGroup({ group, preferredTask, statusFor }: {
 function useApprovalWrite() {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [conflict, setConflict] = useState(false);
   const pending = useRef<{ identity: string; body: object } | null>(null), inFlight = useRef(false);
+  useBusyIndicator(busy, "正在记录审批决定…");
   async function save(identity: string, build: () => ApprovalInput, expectedVersion: number) {
     if (inFlight.current) return null;
     inFlight.current = true; setBusy(true); setError("");
@@ -85,8 +90,9 @@ function useApprovalWrite() {
       if (!response.ok) { if (["version_conflict", "idempotency_conflict"].includes(result.code)) setConflict(true); throw new Error(result.message ?? "审批记录未保存，请保留内容后重试。"); }
       if (!result.stored || result.kind !== "approval" || !result.record?.id) throw new Error("尚未收到完整保存回执，请重试确认。");
       pending.current = null;
+      actionSucceeded("审批决定已记录。");
       return result.record as WorkflowApproval;
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "审批记录未保存。"); return null; }
+    } catch (cause) { const message = cause instanceof Error ? cause.message : "审批记录未保存。"; setError(message); actionFailed(message); return null; }
     finally { inFlight.current = false; setBusy(false); }
   }
   return { save, busy, error, conflict };
@@ -138,7 +144,7 @@ function DecisionForm({ approval, allApprovals, tasks, activeItems, preferredTas
       <div className={styles.formGrid}><label>审核人<input required maxLength={200} value={reviewer} onChange={event => setReviewer(event.target.value)} /></label><label className={styles.spanAll}>决定理由 / 需修改的具体内容<textarea required rows={3} maxLength={5000} value={note} onChange={event => setNote(event.target.value)} /></label></div>
       <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />我已核对所选 {selectedItems.length} 项的变更摘要{decision === "approved" ? postReview ? "和正式页面" : "和测试预览" : ""}，同意记录“{labels[decision]}”决定。</label>
       {decision === "approved" && selectedItems.some(item => !approvalReviewReadiness(item).ready) ? <p role="alert">所选版本缺少同版本测试链接或桌面/手机截图，请要求修改，由执行任务补齐材料后自动送审。</p> : null}
-      <button type="submit" className={styles.primary} disabled={!confirmed || !selectedItems.length || !reviewer.trim() || !note.trim() || decision === "approved" && selectedItems.some(item => !approvalReviewReadiness(item).ready)}>{write.busy ? "记录中…" : `确认${labels[decision]} ${selectedItems.length} 项`}</button>
+      <FeedbackButton type="submit" className={styles.primary} pending={write.busy} pendingLabel="正在记录决定…" disabled={!confirmed || !selectedItems.length || !reviewer.trim() || !note.trim() || decision === "approved" && selectedItems.some(item => !approvalReviewReadiness(item).ready)}>{`确认${labels[decision]} ${selectedItems.length} 项`}</FeedbackButton>
     </fieldset><WriteError error={write.error} conflict={write.conflict} onRefresh={onRefresh} />
   </form>;
 }
@@ -206,10 +212,10 @@ export function SeoPageApprovals() {
   const shown = focused ? [focused, ...filtered.filter(approval => approval.id !== focused.id)] : filtered;
   return <>
     {data || loadError ? <div className={review.approvalRefresh}>
-      <button type="button" className={styles.secondary} onClick={refresh}><RefreshCw size={14} aria-hidden="true" />刷新</button>
+      <FeedbackButton className={styles.secondary} onClick={refresh} pending={result.pending || history.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
     </div> : null}
     {notice ? <p role="status" className={review.notice}>{notice}</p> : null}
-    {loadError ? <div className={styles.empty} role="alert"><p>{loadError}</p><button type="button" className={styles.secondary} onClick={refresh}>重试读取审批单</button></div> : !data || !displayData ? <SeoApprovalSkeleton /> : <>
+    {loadError ? <div className={styles.empty} role="alert"><p>{loadError}</p><FeedbackButton className={styles.secondary} onClick={refresh} pending={result.pending || history.pending} pendingLabel="正在读取…">重试读取审批单</FeedbackButton></div> : !data || !displayData ? <SeoApprovalSkeleton /> : <>
       {data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       <section className={`${styles.summary}`} aria-label="跨周审批摘要">
         <div><span>待审批单</span><strong>{numberText(data.summary.pendingApprovals)}</strong></div>

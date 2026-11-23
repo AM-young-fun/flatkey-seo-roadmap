@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { clientReadCache } from "@/lib/client-read-cache";
+import { actionFailed, actionSucceeded, interactionFeedback } from "../lib/interaction-feedback";
 import type { DateRange } from "@/lib/seo-date-range";
 import type { SeoCountry } from "@/lib/seo";
 
@@ -34,29 +35,49 @@ export type SeoAnalytics = DateRange & {
 
 export function useSeoRead<T>(url: string | null) {
   const revision = useSyncExternalStore(clientReadCache.subscribe, clientReadCache.revision, () => 0);
-  const [result, setResult] = useState<{ url: string; revision: number; data: T | null; error: string | null } | null>(null);
+  const [result, setResult] = useState<{ url: string; revision: number; attempt: number; data: T | null; error: string | null } | null>(null);
   const [refresh, setRefresh] = useState({ url, id: 0 });
+  const [readState, setReadState] = useState<{ url: string; revision: number; pending: boolean } | null>(null);
   const consumedRefresh = useRef(0);
+  const busy = useRef<string | null>(null);
   useEffect(() => {
     const force = refresh.url === url && refresh.id > consumedRefresh.current;
     consumedRefresh.current = refresh.id;
     if (!url) return;
     let active = true, pending = false;
+    let finishRead: (() => void) | undefined;
     async function read(force = false) {
       if (!url || pending) return;
       pending = true;
+      busy.current = url;
+      const network = force || clientReadCache.peekFresh<T>(url) === null;
+      if (network) setReadState({ url, revision, pending: true });
+      const finish = network ? interactionFeedback.begin("read", "正在加载页面数据…") : () => {};
+      finishRead = finish;
       try {
         const data = await clientReadCache.read<T>(url, force, 60_000);
-        if (active && revision === clientReadCache.revision()) setResult({ url, revision, data, error: null });
+        if (active && revision === clientReadCache.revision()) {
+          setResult({ url, revision, attempt: refresh.id, data, error: null });
+          if (force) actionSucceeded("数据已刷新。");
+        }
       } catch (error) {
-        if (active && revision === clientReadCache.revision()) setResult({ url, revision, data: null, error: error instanceof Error ? error.message : "数据读取失败" });
-      } finally { pending = false; }
+        if (active && revision === clientReadCache.revision()) {
+          const message = error instanceof Error ? error.message : "数据读取失败";
+          setResult({ url, revision, attempt: refresh.id, data: null, error: message });
+          if (force) actionFailed(message);
+        }
+      } finally {
+        finish(); if (finishRead === finish) finishRead = undefined; pending = false;
+        if (active) { busy.current = null; setReadState({ url, revision, pending: false }); }
+      }
     }
     void read(force);
     const readWhenVisible = () => { if (!document.hidden) void read(); };
     document.addEventListener("visibilitychange", readWhenVisible);
     return () => {
       active = false;
+      finishRead?.();
+      if (busy.current === url) busy.current = null;
       document.removeEventListener("visibilitychange", readWhenVisible);
     };
   }, [url, refresh, revision]);
@@ -64,7 +85,14 @@ export function useSeoRead<T>(url: string | null) {
   // Only this URL and this session's fresh cache can fill the first render.
   // Failed reads keep their error rather than falling back to a success.
   const cached = url && revision === clientReadCache.revision() ? clientReadCache.peekFresh<T>(url) : null;
-  return { data: current ? current.data : cached, error: current?.error ?? null, retry: () => setRefresh(value => ({ url, id: value.id + 1 })) };
+  const data = current ? current.data : cached, error = current?.error ?? null;
+  const pending = Boolean(url && (readState?.url === url && readState.revision === revision && readState.pending
+    || !data && !error || refresh.url === url && refresh.id > (current?.attempt ?? 0)));
+  return { data, error, pending, loading: pending && !data, refreshing: pending && Boolean(data), retry: () => {
+    if (!url || busy.current === url) return;
+    busy.current = url;
+    setRefresh(value => ({ url, id: value.id + 1 }));
+  } };
 }
 
 export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all", site?: string): string {

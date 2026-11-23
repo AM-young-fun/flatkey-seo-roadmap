@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import styles from "./BusinessMeasurementStatus.module.css";
 
 export function BusinessMeasurementStatus({ compact = false }: { compact?: boolean }) {

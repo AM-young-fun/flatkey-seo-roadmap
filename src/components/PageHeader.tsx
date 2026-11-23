@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, ChartNoAxesCombined, Clock3, ChevronDown, CircleCheck, ExternalLink, KeyRound, LayoutDashboard, ListTodo, Search, Settings2, TrendingUp } from "lucide-react";
 import { usePreviewMode } from "./PreviewMode";
@@ -22,7 +22,7 @@ const workspaceLinks = [
 const GA4_REALTIME_URL = "https://analytics.google.com/analytics/web/#/a248149353p541304395/realtime/overview";
 
 export function PageHeader({ active }: {
-  active: "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports" | "optimization-effects";
+  active: "loading" | "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports" | "optimization-effects";
 }) {
   const preview = usePreviewMode();
   const [country, setCountry] = useSeoCountry();

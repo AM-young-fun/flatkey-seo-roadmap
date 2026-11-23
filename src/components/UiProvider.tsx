@@ -5,6 +5,7 @@ import zhCN from "antd/locale/zh_CN";
 import type { ThemeConfig } from "antd";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
+import { InteractionFeedback } from "./InteractionFeedback";
 
 export const uiTheme: ThemeConfig = {
   token: {
@@ -85,5 +86,5 @@ export function UiProvider({ children }: { children: ReactNode }) {
     locale={zhCN}
     theme={uiTheme}
     select={{ variant: "outlined", suffixIcon: <ChevronDown size={14} aria-hidden="true" />, classNames: { popup: { root: "uiSelectPopup" } } }}
-  >{children}</ConfigProvider>;
+  >{children}<InteractionFeedback /></ConfigProvider>;
 }

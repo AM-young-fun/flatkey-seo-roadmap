@@ -6,6 +6,7 @@ require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, file);
 const { createClientReadCache } = require("../src/lib/client-read-cache.ts");
+const { interactionFeedback } = require("../src/lib/interaction-feedback.ts");
 const hookPath = path.resolve(__dirname, "../src/components/useSeoAnalytics.ts");
 let harness, cache;
 const react = {
@@ -138,4 +139,35 @@ test("pending display snapshots expire at four seconds and invalidation subscrip
   await store.read("/pending"); assert.equal(calls, 2);
   store.clear(); assert.equal(store.revision(), 1); assert.equal(invalidations, 1);
   unsubscribe(); store.clear(); assert.equal(invalidations, 1);
+});
+
+test("a manual refresh keeps the current view, reports pending immediately, and rejects repeated clicks until it settles", async () => {
+  let complete, calls=0;
+  const store=createClientReadCache(async()=>{calls++;return calls===1?Response.json({total:17}):new Promise(resolve=>{complete=resolve;});});
+  await store.read('/slow-refresh');const ui=mount(store);ui.render('/slow-refresh');await settle();
+  const before=ui.render('/slow-refresh');assert.equal(before.pending,false);
+  before.retry();before.retry();before.retry();
+  const waiting=ui.render('/slow-refresh');assert.equal(waiting.pending,true);assert.equal(waiting.refreshing,true);assert.equal(waiting.data.total,17);
+  waiting.retry();assert.equal(calls,2);
+  complete(Response.json({total:18}));await settle();
+  const done=ui.render('/slow-refresh');assert.equal(done.pending,false);assert.equal(done.data.total,18);ui.unmount();
+});
+
+test("unmount releases the visible loading indicator while a shared request finishes in the background", async () => {
+  let complete;
+  const store=createClientReadCache(()=>new Promise(resolve=>{complete=resolve;}));
+  const ui=mount(store);assert.equal(ui.render('/left-page').pending,true);
+  assert.equal(interactionFeedback.snapshot().activities.length,1);
+  ui.unmount();assert.equal(interactionFeedback.snapshot().activities.length,0);
+  complete(Response.json({total:19}));await settle();assert.equal(interactionFeedback.snapshot().activities.length,0);
+});
+
+test("an expired visible-page read exposes pending state so its refresh button cannot become a silent no-op", async()=>{
+  let now=0,calls=0,complete;
+  const store=createClientReadCache(async()=>{calls++;return calls===1?Response.json({total:17}):new Promise(resolve=>{complete=resolve;});},()=>now);
+  await store.read('/background-refresh');const ui=mount(store);ui.render('/background-refresh');await settle();
+  now=61000;ui.visible();
+  const waiting=ui.render('/background-refresh');assert.equal(waiting.pending,true);assert.equal(waiting.refreshing,true);assert.equal(waiting.data.total,17);
+  waiting.retry();assert.equal(calls,2);complete(Response.json({total:18}));await settle();
+  assert.equal(ui.render('/background-refresh').pending,false);ui.unmount();
 });

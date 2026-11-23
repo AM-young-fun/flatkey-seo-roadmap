@@ -1,4 +1,7 @@
 "use client";
+import { FeedbackButton } from "./FeedbackButton";
+import { useActionFeedback } from "./useActionFeedback";
+import { useBusyIndicator } from "./useBusyIndicator";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
@@ -44,6 +47,8 @@ export function ApprovedOtherKeywordReview() {
   const [live, setLive] = useState<Review | null>(null);
   const [notice, setNotice] = useState("");
   const [running, setRunning] = useState(false);
+  const refreshing = useActionFeedback("正在读取本批采集回执…");
+  useBusyIndicator(running, "正在处理本批采集回执…");
   const [query, setQuery] = useState(""), [country, setCountry] = useState("all"), [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
   const mounted = useRef(true), stopped = useRef(false), busy = useRef(false);
@@ -64,8 +69,10 @@ export function ApprovedOtherKeywordReview() {
   const canContinue = data?.approved && data.run?.status !== "COMPLETED" &&
     (data.gate.firstRunComplete || (data.run && (data.run.taskCounts.PLANNED ?? 0) === 0));
   const refresh = async () => {
+    if (!refreshing.start()) return;
     try { const value = await requestView(); if (mounted.current) { setLive(value); setNotice(""); } }
     catch (cause) { if (mounted.current) setNotice(cause instanceof Error ? cause.message : "本批记录暂时无法读取"); }
+    finally { refreshing.finish(); }
   };
   const start = async () => {
     if (busy.current) return;
@@ -81,13 +88,13 @@ export function ApprovedOtherKeywordReview() {
   return <section className={styles.root} aria-labelledby="approved-other-keyword-review-title">
     <div className={styles.heading}>
       <div><h4 id="approved-other-keyword-review-title">其他国家补采</h4><p>已确认国家与语言：新查467词，复用1词；保留原词、编号与页面。</p></div>
-      <button className={styles.button} type="button" disabled={running} onClick={refresh}><RefreshCw size={13} aria-hidden="true" />刷新补采结果</button>
+      <FeedbackButton className={styles.button} disabled={running} onClick={refresh} pending={refreshing.pending} pendingLabel="正在刷新回执…"><RefreshCw size={13} aria-hidden="true" />刷新补采结果</FeedbackButton>
     </div>
     {error ? <p className={styles.warning} role="alert">补采记录暂时无法读取：{error}。请刷新核对，当前不显示推算结果。</p> : !data ? <p className={styles.note} role="status">正在读取补采清单与原批次回执…</p> : <>
       <p className={styles.status} role="status">{runLabel(data)}</p>
       {!data.gate.firstRunComplete ? <p className={styles.warning}>{data.gate.reason || "请等待首批1031词采集完成后，再执行本批补采。"}</p> : null}
       <div className={styles.controls}>
-        <button className={styles.button} type="button" disabled={running || !canContinue} onClick={start}>执行已批准的467词补采（上限$2.802）</button>
+        <FeedbackButton className={styles.button} disabled={running || !canContinue} pending={running} pendingLabel="正在处理本批回执…" onClick={start}>执行已批准的467词补采（上限$2.802）</FeedbackButton>
         {running ? <button className={styles.button} type="button" onClick={() => { stopped.current = true; setNotice("已请求停止后续提交，正在等待当前请求回执；不会重复提交。"); }}>停止后续补采提交</button> : null}
       </div>
       {notice ? <p className={styles.note} role="status" aria-live="polite">{notice}</p> : null}

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { dashboardStore, DashboardReadError } from "@/lib/dashboard-client";
 import { createPendingDisplayPoll } from "@/lib/pending-display-poll";
+import { interactionFeedback } from "@/lib/interaction-feedback";
 
 export function useDashboard(site = "all", source = "dataforseo_serp", includeResearch = false) {
   const key = `${site}:${source}:${includeResearch ? "library" : "formal"}`;
@@ -10,10 +11,14 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
   const refresh = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
     let active = true;
+    const reads = new Set<() => void>();
     const pendingPoll = createPendingDisplayPoll(() => { void update(true); });
     const update = async (force = false) => {
       if (!pendingPoll.canRead()) return;
       pendingPoll.cancel();
+      const finish = force || !dashboardStore.peek(site, source, includeResearch)
+        ? interactionFeedback.begin("read", "正在加载总览数据…") : () => {};
+      reads.add(finish);
       try {
         const data = await dashboardStore.read(site, source, force, includeResearch);
         pendingPoll.update(Boolean(data.displaySnapshot?.pending));
@@ -27,7 +32,7 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
           return;
         }
         setState(previous => ({ key, data: previous.key === key ? previous.data : dashboardStore.peek(site, source, includeResearch), error: error instanceof Error ? error.message : "加载失败", cached: previous.cached }));
-      }
+      } finally { finish(); reads.delete(finish); }
     };
     let completed = false;
     void dashboardStore.hydrate(site, source, includeResearch).then(data => {
@@ -42,6 +47,7 @@ export function useDashboard(site = "all", source = "dataforseo_serp", includeRe
     window.addEventListener("seo-rankings-updated", onRankingsUpdated);
     return () => {
       active = false; pendingPoll.dispose();
+      reads.forEach(finish => finish()); reads.clear();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);

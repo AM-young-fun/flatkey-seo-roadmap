@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useState } from "react";
 import { Select, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";

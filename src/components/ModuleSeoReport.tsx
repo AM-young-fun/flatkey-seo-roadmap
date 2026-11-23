@@ -1,4 +1,5 @@
 "use client";
+import { FeedbackButton } from "./FeedbackButton";
 import { useEffect, useRef, useState } from "react";
 import type * as echarts from "echarts";
 import { overviewMetricSummary, type ModuleAnalytics } from "@/lib/seo-overview-analytics";
@@ -38,7 +39,7 @@ export function ModuleSeoReport({ range, comparison, module, country, showDetail
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [data, metric, label]);
   return <section className={`${styles.report} ${styles.compact} ${moduleStyles.report}`} aria-label="页面模块自然搜索统计">
-    {current.error ? <div className={styles.error} role="alert">{current.error}<button type="button" onClick={current.retry}>重试</button></div> : null}
+    {current.error ? <div className={styles.error} role="alert">{current.error}<FeedbackButton type="button" onClick={current.retry} pending={current.pending} pendingLabel="正在读取…">重试</FeedbackButton></div> : null}
     <div className={`${styles.metrics} ${moduleStyles.metrics}`}>{metrics.map(([key, name]) => {
       const stat = overviewMetricSummary(data, key), previous = baseline ? overviewMetricSummary(baseline, key) : null;
       return <article key={key}><h3>{name}</h3><strong>{numberText(stat.total)}</strong>

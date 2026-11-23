@@ -1,8 +1,9 @@
 "use client";
 
+import { FeedbackButton } from "./FeedbackButton";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
 import { shiftDay } from "@/lib/seo-date-range";
 import { gscPeriodEnd, formatCtr } from "@/lib/seo-page-effects";
@@ -29,7 +30,7 @@ export function PagePriorityWorkspace() {
   const start = Math.min(page, Math.max(0, Math.ceil(rows.length / 20) - 1));
   const ctr = (period: typeof rows[number]["current"]) => period?.impressions ? period.clicks / period.impressions : null;
   return <section className={styles.listPanel} aria-label="页面优化优先级">
-    <div className={styles.sectionHeading}><h1>页面优化优先级</h1><div className={styles.toolbarActions}><Link className={styles.secondary} href="/opportunities">返回关键词列表</Link><button type="button" className={styles.secondary} onClick={result.retry}>刷新</button></div></div>
+    <div className={styles.sectionHeading}><h1>页面优化优先级</h1><div className={styles.toolbarActions}><Link className={styles.secondary} href="/opportunities">返回关键词列表</Link><FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在刷新…">刷新</FeedbackButton></div></div>
     <div className={styles.toolbar}>
       <UiSelect aria-label="优化站点" value={site} onChange={value => { setSite(value); setPage(0); }} options={sites.map(value => ({ value, label: value }))} />
       <UiSelect aria-label="优化市场" value={country} onChange={value => { setMarket(value as SeoCountry); setPage(0); }} options={REGION_CODES.map(value => ({ value, label: REGIONS[value].label }))} />

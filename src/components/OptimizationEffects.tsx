@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { FeedbackButton } from "./FeedbackButton";
+import Link from "@/components/AppLink";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, ChevronRight, RefreshCw, Search } from "lucide-react";
@@ -115,7 +116,7 @@ function EffectComparison({ page, optimizedAt, country }: { page: OptimizedEffec
   const result = useSeoRead<{ pageDaily: GaDay[]; optimizationEffect: OptimizationEffect }>(
     range.start <= range.end ? analyticsUrl(range, [page.url], country, page.site) + "&pageDaily=1&effectAt=" + encodeURIComponent(stamp) : null,
   );
-  if (result.error) return <div className={effects.panel} role="alert"><p>{result.error}</p><button type="button" className={styles.secondary} onClick={result.retry}>重试</button></div>;
+  if (result.error) return <div className={effects.panel} role="alert"><p>{result.error}</p><FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重试</FeedbackButton></div>;
   if (!result.data) return <p className={effects.panel} role="status">{range.start <= range.end ? "正在读取页面数据…" : "暂无完整日期的数据。"}</p>;
   const { pageDaily, optimizationEffect: { series, launchDay } } = result.data;
   const gaDays = pageDaily.filter(day => day.date < gaToday);
@@ -170,7 +171,7 @@ export function OptimizationEffects() {
   return <div className={effects.workspace}>
     <div className={effects.header}><h1>优化效果</h1><div className={styles.toolbarActions}>
       {detail ? <Link className={styles.secondary} href={effectHref(country, params)}>返回优化页面列表</Link> : null}
-      <button type="button" className={styles.secondary} onClick={result.retry}><RefreshCw size={14} aria-hidden="true" />刷新</button>
+      <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
     </div></div>
     {result.error ? <p className={effects.panel} role="alert">{result.error}</p>
       : !result.data ? <p className={effects.panel} role="status">正在读取已优化页面…</p> : <>

@@ -1,4 +1,7 @@
 "use client";
+import { FeedbackButton } from "./FeedbackButton";
+import { useActionFeedback } from "./useActionFeedback";
+import { useBusyIndicator } from "./useBusyIndicator";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
@@ -42,13 +45,17 @@ export function ApprovedKeywordReview() {
   const [live, setLive] = useState<ApprovedReview | null>(null);
   const [notice, setNotice] = useState("");
   const [running, setRunning] = useState(false);
+  const refreshing = useActionFeedback("正在读取本批采集回执…");
+  useBusyIndicator(running, "正在处理本批采集回执…");
   const mounted = useRef(true), stopped = useRef(false), busy = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stopped.current = true; }; }, []);
   const data = live ?? saved;
   const error = live ? null : readError;
   const refresh = async () => {
+    if (!refreshing.start()) return;
     try { const value = await requestView(); if (mounted.current) { setLive(value); setNotice(""); } }
     catch (cause) { if (mounted.current) setNotice(cause instanceof Error ? cause.message : "本批记录暂时无法读取"); }
+    finally { refreshing.finish(); }
   };
   const start = async () => {
     if (busy.current) return;
@@ -75,14 +82,14 @@ export function ApprovedKeywordReview() {
   return <section className={styles.root} aria-labelledby="approved-keyword-review-title">
     <div className={styles.heading}>
       <div><h4 id="approved-keyword-review-title">本次关键词复核</h4><p>按已确认的清单查看进度、费用和其他市场观察词。</p></div>
-      <button className={styles.button} type="button" onClick={refresh} disabled={running}><RefreshCw size={13} aria-hidden="true" />刷新本批结果</button>
+      <FeedbackButton className={styles.button} onClick={refresh} disabled={running} pending={refreshing.pending} pendingLabel="正在刷新回执…"><RefreshCw size={13} aria-hidden="true" />刷新本批结果</FeedbackButton>
     </div>
     {error ? <p className={styles.warning} role="alert">本批记录暂时无法读取：{error}。请刷新核对，当前不显示推算结果。</p>
       : !data ? <p className={styles.note} role="status">正在读取已批准清单与采集回执…</p>
       : <>
         <p className={styles.status} role="status">{runLabel(data)}</p>
         <div className={styles.controls}>
-          <button className={styles.button} type="button" disabled={running || !data.approved || data.run?.status === "COMPLETED"} onClick={start}>执行已批准的1031词采集（上限$6.186）</button>
+          <FeedbackButton className={styles.button} disabled={running || !data.approved || data.run?.status === "COMPLETED"} pending={running} pendingLabel="正在处理本批回执…" onClick={start}>执行已批准的1031词采集（上限$6.186）</FeedbackButton>
           {running ? <button className={styles.button} type="button" onClick={() => { stopped.current = true; setNotice("已请求停止后续提交，正在等待当前请求回执；不会重复提交。"); }}>停止后续提交</button> : null}
         </div>
         {notice ? <p className={styles.note} role="status" aria-live="polite">{notice}</p> : null}
