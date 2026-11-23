@@ -148,3 +148,9 @@
 .planGroup { margin-top:14px; }
 .planGroup h4 { margin:0 0 6px; font-size:14px; }
 .planGroup h4 small { margin-inline-start:8px; color:#52647b; font-weight:400; }
+
+.supplementLabel { display:block; margin-bottom:8px; color:#52647b; font-size:13px; }
+.supplementInput { display:block; box-sizing:border-box; width:100%; min-height:150px; resize:vertical; padding:12px; border:1px solid #dce4ef; border-radius:8px; color:#17243b; background:#fff; font:inherit; font-size:14px; line-height:1.6; }
+.supplementInput:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+.supplementInput:disabled { background:#f7f9fc; }
+.supplementActions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:13px; }
