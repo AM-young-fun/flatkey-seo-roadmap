@@ -8,7 +8,7 @@ import { storedSerpPeriod, serpPeriodFromKey, type SerpPeriod } from "./serp-per
 export const SERP_SOURCE = "dataforseo_serp" as const;
 export const SERP_MARKET_LANGUAGE: Record<SearchRegionCode, string> = { US: "en", JP: "ja", ES: "es", BR: "pt" };
 export type SerpResultStatus = "PENDING" | "QUEUED" | "RANKED" | "OUTSIDE_TOP100" | "NOT_FOUND_CAPTURE" | "QUERY_CHANGED" | "FAILED" | "INCOMPLETE";
-export type SerpRunScope = "SCHEDULED" | "SAMPLE";
+export type SerpRunScope = "SCHEDULED" | "SAMPLE" | "APPROVED_KEYWORD_REVIEW";
 export type SerpMovement = "UP" | "DOWN" | "UNCHANGED" | "NEW_IN_TOP100" | "DROPPED_OUT" | "FIRST_CHECK" | "NOT_COMPARABLE";
 export type SerpRankedPage = { url: string; title: string | null; rankGroup: number; rankAbsolute: number | null };
 export type SerpTaskRead = {
@@ -66,6 +66,12 @@ const urlIdentity = (value: string) => {
 };
 export function serpTaskPeriod(task: SerpTaskRead): SerpPeriod | null {
   try {
+    if (task.runScope === "APPROVED_KEYWORD_REVIEW") {
+      const start = date(task.periodStart), end = date(task.periodEnd), dueAt = date(task.runCreatedAt);
+      if (!task.periodKey || !task.periodLabel || !start || !end || !dueAt || start > end) return null;
+      const day = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date(value));
+      return { key: task.periodKey, label: task.periodLabel, start: day(start), end: day(end), dueAt };
+    }
     const period = task.periodKey ? serpPeriodFromKey(task.periodKey) : storedSerpPeriod(task.runCreatedAt);
     // The initial October sample is issue 1. Keep its immutable ledger key,
     // boundaries and capture timestamps; the next scheduled issue is Oct 20.
@@ -130,7 +136,7 @@ function taskResult(target: SerpTarget, task?: SerpTaskRead): SerpKeywordResult 
     captureComplete, organicCount: nonnegativeInteger(normalized?.organicCount),
     coveredThroughRank: nonnegativeInteger(normalized?.coveredThroughRank), queryStatus,
     correctedKeyword: string(normalized?.correctedKeyword), spellType: string(normalized?.spellType), pagesCount: nonnegativeInteger(normalized?.pagesCount),
-    runScope: task.runScope === "SAMPLE" ? "SAMPLE" : "SCHEDULED", runTargetCount: positiveInteger(task.runTargetCount) ? task.runTargetCount : null,
+    runScope: task.runScope === "APPROVED_KEYWORD_REVIEW" ? "APPROVED_KEYWORD_REVIEW" : task.runScope === "SAMPLE" ? "SAMPLE" : "SCHEDULED", runTargetCount: positiveInteger(task.runTargetCount) ? task.runTargetCount : null,
     periodKey: period?.key ?? null, periodLabel: period?.label ?? null, periodStart: period?.start ?? null, periodEnd: period?.end ?? null };
 }
 

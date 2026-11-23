@@ -58,6 +58,10 @@ export async function loadSerpTrendCohorts(region: SearchRegionCode | "all", sta
 
 export async function loadSerpTasks(region: SearchRegionCode | "all", languageCode = region === "all" ? "en" : SERP_MARKET_LANGUAGE[region], device = "desktop", start?: string, end?: string, includeRunId?: string): Promise<SerpTaskRead[]> {
   const historical = Boolean(start || end);
+  // One-off approved diagnostics are visible in current keyword details, but
+  // never silently enter frozen reports or the scheduled monitoring trend.
+  const scope = historical ? Prisma.sql`r.scope IN ('SCHEDULED', 'SAMPLE')`
+    : Prisma.sql`r.scope IN ('SCHEDULED', 'SAMPLE', 'APPROVED_KEYWORD_REVIEW')`;
   const market = region === "all" ? Prisma.sql`t.region IN ('US','JP','ES','BR') AND
     COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') =
       CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END`
@@ -80,7 +84,7 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
         t."providerTaskId", t."errorCode", t."updatedAt", r."createdAt" AS "runCreatedAt",
         r."periodKey", r."periodLabel", r."periodStart", r."periodEnd", r.scope AS "runScope", r."targetCount" AS "runTargetCount"
       FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId"
-      WHERE ${market} AND r.scope IN ('SCHEDULED', 'SAMPLE')
+      WHERE ${market} AND ${scope}
         AND COALESCE(t."requestJson"->>'device', r."configJson"->>'device') = ${device}
         AND COALESCE(t."requestJson"->>'depth', r."configJson"->>'depth') = '100'
         AND (${!end} OR t."runId" = ${includeRunId ?? ""} OR (t."checkedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date <= ${end ?? "9999-12-31"}::date
@@ -140,9 +144,15 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
   // Never offer that broader display cohort to the paid-monitoring selector.
   const monitoring = existingMonitoring ?? await loadSerpMonitoringCohort(site, existingCohort ? undefined : cohort);
   const tasks = existingTasks ?? (cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : []);
-  const currentRunId = [...tasks].filter(task => task.runScope === "SCHEDULED")
-    .sort((a,b) => new Date(b.runCreatedAt).getTime()-new Date(a.runCreatedAt).getTime())[0]?.runId;
-  const currentTask = currentRunId ? tasks.find(task=>task.runId === currentRunId) : null;
+  const latest = (scope: SerpRunScope) => [...tasks].filter(task => task.runScope === scope)
+    .sort((a,b) => new Date(b.runCreatedAt).getTime()-new Date(a.runCreatedAt).getTime())[0];
+  const scheduled = latest("SCHEDULED"), diagnostic = latest("APPROVED_KEYWORD_REVIEW");
+  const useDiagnostic = diagnostic && (!scheduled || new Date(diagnostic.runCreatedAt).getTime() > new Date(scheduled.runCreatedAt).getTime());
+  // A diagnostic covers only its approved word/country list. Keep each
+  // excluded word's actual saved task/date rather than claiming it was part
+  // of this run, pending, or zero. The normal scheduled path stays pinned.
+  const currentRunId = useDiagnostic ? undefined : scheduled?.runId;
+  const currentTask = useDiagnostic ? diagnostic : scheduled;
   const items = withSerpMonitoringEligibility(buildSerpKeywordResults(cohort.targets, tasks, {currentRunId}), monitoring);
   const completeDates = items.filter(item => item.captureComplete).flatMap(item => item.checkedAt ? [item.checkedAt] : []);
   return { schemaVersion: 1, source: SERP_SOURCE, site, region, languageCode, device, depth: 100, cohortHash: cohort.hash,

@@ -48,7 +48,7 @@ export type RankingEvidence = {
   periodKey?: string | null;
   periodLabel?: string | null;
   depthIncomplete?: boolean;
-  runScope?: "SCHEDULED" | "SAMPLE" | null;
+  runScope?: "SCHEDULED" | "SAMPLE" | "APPROVED_KEYWORD_REVIEW" | null;
   runTargetCount?: number | null;
   captureComplete?: boolean;
   organicCount?: number | null;
@@ -123,7 +123,7 @@ export type RankSummary = {
   previousCheckedAt?: string | null;
   movement?: "UP" | "DOWN" | "UNCHANGED" | "NEW_IN_TOP100" | "DROPPED_OUT" | "FIRST_CHECK" | "NOT_COMPARABLE";
   depthIncomplete?: boolean;
-  runScope?: "SCHEDULED" | "SAMPLE" | null;
+  runScope?: "SCHEDULED" | "SAMPLE" | "APPROVED_KEYWORD_REVIEW" | null;
   runTargetCount?: number | null;
   captureComplete?: boolean;
   organicCount?: number | null;

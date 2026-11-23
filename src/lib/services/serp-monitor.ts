@@ -14,6 +14,7 @@ import type { SerpMonitorConfiguration, SerpMonitorPreview, SerpMonitorRunDto, S
 import { OPTIMIZED_PAGE_SCOPE, OPTIMIZED_PAGE_MAX_QUERIES, optimizedPageUrl, optimizedPageId, monitorDay, optimizedPagePeriod } from "@/lib/optimized-page-monitor";
 import { PAID_QUERY_POLICY_VERSION } from "@/lib/keyword-market-policy";
 import type { SerpTarget } from "@/lib/serp-targets";
+import { APPROVED_KEYWORD_REVIEW_SCOPE, APPROVED_KEYWORD_REVIEW_RUN_ID, assertApprovedKeywordReviewRun } from "@/lib/approved-keyword-review";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const OPEN_RUNS = ["PLANNED", "RUNNING", "UNKNOWN"];
@@ -154,7 +155,7 @@ async function readSubmissionBalance(connection: Awaited<ReturnType<typeof crede
   }
 }
 
-async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string, worker?: BatchContext): Promise<number> {
+async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, deadline?: number, manualPageId?: string, worker?: BatchContext, approvedReview = false): Promise<number> {
   // Leave room for balance lookup, reservation, one non-retryable POST, raw
   // persistence and its atomic receipt association before the worker exits.
   if (!hasTime(deadline, 75_000)) return 0;
@@ -229,6 +230,13 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
         const keys = (rows: unknown) => Array.isArray(rows) ? rows.map(raw => { const row = rawRecord(raw); return `${row.siteDomain}:${row.keywordId}`; }).sort().join("\n") : "";
         return !query || keys(query.targets) !== keys(task.targetsJson);
       })) throw new ImportRequestError("小批国家范围与已审核主国家/额外国家不一致，未提交任务", 409);
+    } else if (approvedReview) {
+      if (config?.paidEnabled) throw new ImportRequestError("本次一次性授权不改变常设付费计划，请先核对配置", 409);
+      const allTasks = await tx.serpMonitorTask.findMany({ where: { runId }, select: {
+        id: true, runId: true, queryKey: true, keyword: true, region: true, targetsJson: true,
+        requestJson: true, state: true, costMicros: true,
+      } });
+      assertApprovedKeywordReviewRun(run, allTasks);
     } else if (manualPageId) {
       const approved = rawRecord(run.configJson), pageUrl = typeof approved.optimizedPageUrl === "string" ? optimizedPageUrl(approved.optimizedPageUrl) : null;
       if (run.scope !== OPTIMIZED_PAGE_SCOPE || !pageUrl || optimizedPageId(pageUrl) !== manualPageId || approved.optimizedPageId !== manualPageId ||
@@ -243,12 +251,12 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
     if (active) return [];
     const selected = await tx.serpMonitorTask.findMany({ where: { runId, state: "PLANNED" }, orderBy: [{ keyword: "asc" }, { region: "asc" }], take: 100 });
     if (!selected.length) return [];
-    if (run.scope !== OPTIMIZED_PAGE_SCOPE && rawRecord(run.configJson).paidQueryPolicyVersion !== PAID_QUERY_POLICY_VERSION) throw new ImportRequestError("旧四国广播批次已停止新增付费提交；保留已提交结果，重新核对国家范围与费用", 409);
+    if (!approvedReview && run.scope !== OPTIMIZED_PAGE_SCOPE && rawRecord(run.configJson).paidQueryPolicyVersion !== PAID_QUERY_POLICY_VERSION) throw new ImportRequestError("旧四国广播批次已停止新增付费提交；保留已提交结果，重新核对国家范围与费用", 409);
     for (const task of selected) {
       const expected = buildSerpTask({ keyword: task.keyword, queryKey: task.queryKey, targets: [] }, task.id, configForSerpRegion(task.region as SerpMonitorConfiguration["region"]));
       const saved = rawRecord(task.requestJson);
       if (Object.keys(saved).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value]) => saved[key] !== value)) throw new ImportRequestError("国家、语言或查询参数与冻结账本不一致", 409);
-      if (run.scope !== OPTIMIZED_PAGE_SCOPE) {
+      if (!approvedReview && run.scope !== OPTIMIZED_PAGE_SCOPE) {
         const assigned = groupSerpMarketQueries((Array.isArray(task.targetsJson) ? task.targetsJson : []) as unknown as SerpTarget[]);
         if (!assigned.some(query => query.queryKey === task.queryKey && query.region === task.region)) throw new ImportRequestError("缺少此关键词国家的明确研究证据，未提交付费任务", 409);
       }
@@ -571,6 +579,20 @@ export async function resumeSerpMonitorRun(runId: string, options: { allowSubmit
     if (current.status !== "UNKNOWN") await submitOneBatch(runId, undefined, options.deadline);
   }
   return runDto(await finalizeRun(runId));
+}
+
+// This entry is never called by cron or ordinary resume. Its immutable,
+// single-use manifest authorizes one country per word and a fixed dollar cap.
+export async function resumeApprovedKeywordReviewRun(allowSubmit: boolean, deadline: number) {
+  const run = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: APPROVED_KEYWORD_REVIEW_RUN_ID } });
+  if (run.scope !== APPROVED_KEYWORD_REVIEW_SCOPE) throw new ImportRequestError("一次性采集账本范围不符", 409);
+  await resumeSerpMonitorRun(run.id, { deadline, pollLimit: 40 });
+  const current = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: run.id } });
+  if (allowSubmit && current.status !== "UNKNOWN" && !current.completedAt) {
+    assertApprovedKeywordReviewRun(current);
+    await submitOneBatch(run.id, undefined, deadline, undefined, undefined, true);
+  }
+  return runDto(await finalizeRun(run.id));
 }
 
 export async function mutateSerpMonitor(input: SerpMonitorMutation) {

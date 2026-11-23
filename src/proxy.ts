@@ -25,6 +25,7 @@ function isAuthorizedCron(request: NextRequest): boolean {
 export async function proxy(request: NextRequest) {
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
+  if (request.nextUrl.pathname === "/api/seo/approved-keyword-review" && request.method === "GET") return NextResponse.next();
   // These two GET handlers validate the database-backed research key.
   if (hasResearchReadHeader(request)) return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/review-assets" || /^\/api\/seo\/review-assets\/[a-f0-9]{64}$/.test(request.nextUrl.pathname)) return NextResponse.next();
