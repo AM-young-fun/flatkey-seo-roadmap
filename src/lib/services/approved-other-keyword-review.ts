@@ -181,6 +181,7 @@ export async function loadApprovedOtherKeywordReview() {
     return { keywordId: query.keywordId, keyword: query.keyword, country: query.region, language: query.language,
       state: task?.state ?? (saved ? "INVALID_SAVED_IDENTITY" : reused ? "REUSE_UNAVAILABLE" : run ? "MISSING_TASK" : "NOT_STARTED"),
       checkedAt: task?.checkedAt?.toISOString() ?? null, providerTaskId: task?.providerTaskId ?? null,
+      errorCode: task?.errorCode ?? null,
       queryStatus: normalized.queryStatus ?? null, captureComplete: normalized.captureComplete ?? null,
       rankingVerified: normalized.rankingVerified ?? null, completeDepth: normalized.completeDepth ?? null,
       organicCount: normalized.organicCount ?? null, coveredThroughRank: normalized.coveredThroughRank ?? null,
