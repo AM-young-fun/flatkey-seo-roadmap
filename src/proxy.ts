@@ -23,6 +23,10 @@ function isAuthorizedCron(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  // These exact growth handlers authenticate their own cookie/collector credentials
+  // and distinguish read, evidence write, and human-only decisions.
+  const growth = ["/api/seo/growth", "/api/seo/growth/strategy", "/api/seo/growth/collection", "/api/seo/growth/discovery"].includes(request.nextUrl.pathname);
+  if (growth && (request.method === "GET" || request.method === "POST" && request.nextUrl.pathname !== "/api/seo/growth")) return NextResponse.next();
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review" && request.method === "GET") return NextResponse.next();
