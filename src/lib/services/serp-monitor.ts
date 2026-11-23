@@ -596,7 +596,7 @@ export async function resumeSerpMonitorRun(runId: string, options: { allowSubmit
 export async function resumeApprovedKeywordReviewRun(allowSubmit: boolean, deadline: number) {
   const run = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: APPROVED_KEYWORD_REVIEW_RUN_ID } });
   if (run.scope !== APPROVED_KEYWORD_REVIEW_SCOPE) throw new ImportRequestError("一次性采集账本范围不符", 409);
-  await resumeSerpMonitorRun(run.id, { deadline, pollLimit: 40 });
+  await collectApprovedRunResults(run.id, allowSubmit ? 1 : 4, deadline);
   const current = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: run.id } });
   if (allowSubmit && current.status !== "UNKNOWN" && !current.completedAt) {
     assertApprovedKeywordReviewRun(current);
@@ -608,13 +608,22 @@ export async function resumeApprovedKeywordReviewRun(allowSubmit: boolean, deadl
 export async function resumeApprovedOtherKeywordReviewRun(allowSubmit: boolean, deadline: number) {
   const run = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: APPROVED_OTHER_KEYWORD_REVIEW_RUN_ID } });
   if (run.scope !== APPROVED_OTHER_KEYWORD_REVIEW_SCOPE) throw new ImportRequestError("其他国家补采账本范围不符", 409);
-  await resumeSerpMonitorRun(run.id, { deadline, pollLimit: 40 });
+  await collectApprovedRunResults(run.id, allowSubmit ? 1 : 4, deadline);
   const current = await prisma.serpMonitorRun.findUniqueOrThrow({ where: { id: run.id } });
   if (allowSubmit && current.status !== "UNKNOWN" && !current.completedAt) {
     assertApprovedOtherKeywordReviewRun(current);
     await submitOneBatch(run.id, undefined, deadline, undefined, undefined, "other");
   }
   return runDto(await finalizeRun(run.id));
+}
+
+async function collectApprovedRunResults(runId: string, passes: number, deadline: number) {
+  // Bounded free retrieval only. Each wave durably claims up to 40 known IDs;
+  // no call enables paid submission, even if the page or worker is interrupted.
+  for (let pass = 0; pass < passes && hasTime(deadline, 35_000); pass++) {
+    const view = await resumeSerpMonitorRun(runId, { deadline, pollLimit: 40 });
+    if (view.completedAt || !(view.taskCounts.QUEUED || view.taskCounts.RECEIVED)) break;
+  }
 }
 
 export async function mutateSerpMonitor(input: SerpMonitorMutation) {
