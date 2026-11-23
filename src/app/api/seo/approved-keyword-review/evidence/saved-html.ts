@@ -20,7 +20,7 @@ export async function readSavedHtml(providerTaskId: string) {
   });
   if (!response.ok) throw new ImportRequestError("原HTML读取暂不可用", 502);
   const raw = object(await response.json()), receipt = providerTaskEnvelope(raw, providerTaskId);
-  if (receipt.status_code !== 20000) return { providerTaskId, keyword: task.keyword, country: task.region, retrievalCost: raw.cost ?? null, status: receipt.status_code, pages: [], newQueries: 0 };
+  if (receipt.status_code !== 20000) return { providerTaskId, keyword: task.keyword, country: task.region, providerReportedCost: raw.cost ?? null, status: receipt.status_code, pages: [], newQueries: 0 };
   const result = object(Array.isArray(receipt.result) ? receipt.result[0] : null), request = object(task.requestJson);
   if (serpQueryKey(String(result.keyword)) !== serpQueryKey(task.keyword) || result.location_code !== request.location_code || result.language_code !== request.language_code) throw new ImportRequestError("原HTML范围不匹配", 502);
   const pages = Array.isArray(result.items) ? result.items.map(object).filter(item => typeof item.html === "string").map(item => {
@@ -30,5 +30,5 @@ export async function readSavedHtml(providerTaskId: string) {
       visibleEnd: text.slice(-6000), hasExplicitNextControl: /<a\b[^>]*(?:id=["']pnnext["']|rel=["']next["'])/i.test(html),
       flatkeyReferences: [...new Set(html.match(/https?:\/\/(?:[a-z0-9-]+\.)*flatkey\.ai[^\s"'<>\\]*/gi) ?? [])].slice(0, 100) };
   }) : [];
-  return { providerTaskId, keyword: task.keyword, country: task.region, checkedAt: task.checkedAt, retrievalCost: raw.cost ?? null, status: receipt.status_code, pages, newQueries: 0 };
+  return { providerTaskId, keyword: task.keyword, country: task.region, checkedAt: task.checkedAt, providerReportedCost: raw.cost ?? null, status: receipt.status_code, pages, newQueries: 0 };
 }
