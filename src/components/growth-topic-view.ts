@@ -1,0 +1,86 @@
+import type { GrowthTarget, GrowthTopic, GrowthWorkspace } from "@/lib/growth-types";
+
+export type GrowthScope = { site: string; country: string; language: string; membership: "formal" | "opportunity" | "review"; search: string };
+export const defaultGrowthScope: GrowthScope = { site: "all", country: "all", language: "all", membership: "formal", search: "" };
+
+export function readGrowthScope(params: URLSearchParams): GrowthScope {
+  const membership = params.get("pool");
+  return { site: params.get("site") || "all", country: (params.get("country") || "all").toUpperCase().replace(/^ALL$/, "all"),
+    language: params.get("language") || "all", membership: membership === "opportunity" || membership === "review" ? membership : "formal", search: params.get("q") || "" };
+}
+
+export function growthLink(scope: GrowthScope, topic?: GrowthTopic, targetId?: string): string {
+  const params = new URLSearchParams();
+  if (scope.site !== "all" || topic) params.set("site", topic?.site || scope.site);
+  if (scope.country !== "all") params.set("country", scope.country);
+  if (scope.language !== "all") params.set("language", scope.language);
+  if (scope.membership !== "formal") params.set("pool", scope.membership);
+  if (scope.search) params.set("q", scope.search);
+  if (targetId) params.set("target", targetId);
+  const path = topic ? `/topics/${encodeURIComponent(topic.topicId)}` : "/opportunities";
+  return path + (params.size ? `?${params}` : "");
+}
+
+export function selectGrowthTargets(data: GrowthWorkspace, scope: GrowthScope, topic?: GrowthTopic): GrowthTarget[] {
+  const query = scope.search.trim().toLocaleLowerCase();
+  const descendants = topic ? growthDescendantIds(data.topics, topic) : null;
+  const matchedTopics = query ? data.topics.filter(item => item.name.toLocaleLowerCase().includes(query)).map(item => ({ site: item.site, ids: growthDescendantIds(data.topics, item) })) : [];
+  return data.targets.filter(target => target.membership === scope.membership
+    && (scope.site === "all" || target.site === scope.site)
+    && (scope.country === "all" || target.country?.toUpperCase() === scope.country)
+    && (scope.language === "all" || target.language === scope.language)
+    && (!topic || target.site === topic.site && target.topicId != null && descendants!.has(target.topicId))
+    && (!query || `${target.keyword} ${target.topicName || ""}`.toLocaleLowerCase().includes(query)
+      || matchedTopics.some(item => item.site === target.site && (item.ids.has(target.topicId || "") || target.relatedTopicIds?.some(id => item.ids.has(id))))));
+}
+
+export function growthTopicContains(topic: GrowthTopic, target: GrowthTarget): boolean {
+  return topic.site === target.site && target.topicId === topic.topicId;
+}
+
+/** Follow original DAG edges without changing them; cycles cannot duplicate targets. */
+export function growthDescendantIds(topics: GrowthTopic[], topic: GrowthTopic): Set<string> {
+  const ids = new Set<string>(), pending = [topic.topicId];
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    for (const child of topics) if (child.site === topic.site && child.parentIds.includes(id) && !ids.has(child.topicId)) pending.push(child.topicId);
+  }
+  return ids;
+}
+
+export function growthTopicTargets(topics: GrowthTopic[], topic: GrowthTopic, targets: GrowthTarget[]): GrowthTarget[] {
+  const ids = growthDescendantIds(topics, topic);
+  return targets.filter(target => target.site === topic.site && target.topicId != null && ids.has(target.topicId));
+}
+
+export function growthRelatedTargets(topics: GrowthTopic[], topic: GrowthTopic, targets: GrowthTarget[]): GrowthTarget[] {
+  const ids = growthDescendantIds(topics, topic);
+  return targets.filter(target => target.site === topic.site && !ids.has(target.topicId || "") && target.relatedTopicIds?.some(id => ids.has(id)));
+}
+
+export function growthCounts(targets: GrowthTarget[]) {
+  const ranked = targets.filter(target => target.rankEligible && target.rank != null && target.rank >= 1 && target.rank <= 100);
+  return { total: targets.length, built: targets.filter(target => target.pageState === "published").length,
+    ranked: ranked.length, top50: ranked.filter(target => target.rank! <= 50).length,
+    unknown: targets.filter(target => !target.rankEligible && target.captureState !== "outside100").length };
+}
+
+export function growthRankKind(target: GrowthTarget): string {
+  if (target.rankEligible && target.rank != null && target.rank >= 1 && target.rank <= 100) return target.rank <= 10 ? "top10" : target.rank <= 30 ? "top30" : target.rank <= 50 ? "top50" : "top100";
+  if (target.languageStatus === "mismatch") return "mismatch";
+  return target.captureState === "outside100" ? "outside" : "unknown";
+}
+
+export function growthRankText(target: GrowthTarget): string {
+  if (target.rankEligible && target.rank != null) return `第 ${target.rank} 名`;
+  if (target.languageStatus === "mismatch") return "语言不匹配";
+  if (target.rank != null) return `${target.rankSource === "gsc" ? "GSC均位" : "已有观察"} ${target.rank} · 待核定`;
+  return ({ outside100: "已查未进前100", incomplete: "结果未齐", failed: "查询失败", unqueried: "尚未查询", ranked: "排名待核定" })[target.captureState];
+}
+
+export function growthMarketLabel(data: GrowthWorkspace, country: string | null, language: string | null): string {
+  const market = data.markets.find(item => item.country === country && item.language === language);
+  return market?.label || `${country || "国家待核"} · ${language || "语言待核"}`;
+}

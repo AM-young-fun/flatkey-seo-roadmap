@@ -1,174 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { CollectionControlMutation, CollectionSchedulePreview } from "@/lib/collection-control";
 import { RefreshCw } from "lucide-react";
 import type { OperationsStatus } from "@/lib/operations";
-import { collectionFitsExistingBudget, continueCollectionCycle, pauseCollectionRequests } from "@/lib/collection-cycle-client";
-import { automationDate, automationSchedulerLabels, readonlyAutomationPlans, type ReadonlyAutomationPlan } from "@/lib/seo-automation-schedule";
+import { readonlyAutomationPlans, type ReadonlyAutomationPlan } from "@/lib/seo-automation-schedule";
 import { useSeoRead } from "./useSeoAnalytics";
 import { FeedbackButton } from "./FeedbackButton";
-import { useBusyIndicator } from "./useBusyIndicator";
 import styles from "./SeoAutomationSchedule.module.css";
-import { ApprovedKeywordReview } from "./ApprovedKeywordReview";
-import { ApprovedOtherKeywordReview } from "./ApprovedOtherKeywordReview";
 
-const dollars = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(micros / 1e6);
+const states = { enabled: "已启用", paused: "已暂停", unknown: "待核实" };
 
-function PaidSchedule({ onEnabled, controls }: { onEnabled: () => void; controls: OperationsStatus["controls"] }) {
-  const [quote, setQuote] = useState<CollectionSchedulePreview | null>(null);
-  const [current, setCurrent] = useState(false);
-  const [coverage, setCoverage] = useState<{ allTargetCount: number; heldTargetCount: number; targetCount: number } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [pauseBusy, setPauseBusy] = useState(false);
-  const [pendingAction, setPendingAction] = useState("");
-  useBusyIndicator(busy || pauseBusy, pauseBusy ? "正在核对暂停回执…" : "正在处理采集计划请求…");
-  const [message, setMessage] = useState("");
-  const running = useRef(false), active = useRef(true);
-  const pausing = useRef(false), stopPaid = useRef(false);
-  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
-  async function post(action: CollectionControlMutation) {
-    const response = await fetch("/api/operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.message || "暂时无法读取付费计划");
-    return result;
-  }
-  async function submit(action: CollectionControlMutation) {
-    if (running.current || pausing.current) return;
-    if (action.action === "previewSchedule") stopPaid.current = false;
-    else if (stopPaid.current) return;
-    running.current = true;
-    setPendingAction(action.action === "previewSchedule" ? action.futureOnly ? "future-preview" : "current-preview" : "enable");
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await post(action);
-      if (stopPaid.current) return;
-      if (action.action === "previewSchedule") {
-        if (result.action !== "previewSchedule" || !result.previewToken) throw new Error("费用预览不完整");
-        setCurrent(!action.futureOnly); setCoverage(null);
-        if (!action.futureOnly) {
-          const response = await fetch("/api/serp-monitor", { cache: "no-store" });
-          if (response.ok) {
-            const { cohort } = await response.json();
-            if (cohort && [cohort.allTargetCount, cohort.heldTargetCount, cohort.targetCount].every((value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) setCoverage(cohort);
-          }
-        }
-        if (active.current && !stopPaid.current) setQuote(result);
-      } else {
-        setQuote(null);
-        setMessage(result.message);
-        onEnabled();
-      }
-    } catch (error) { if (!stopPaid.current) setMessage(error instanceof Error ? error.message : "付费计划暂不可用"); }
-    finally { running.current = false; setBusy(false); setPendingAction(""); }
-  }
-  async function runCurrent() {
-    if (!quote || !current || running.current || pausing.current) return;
-    stopPaid.current = false;
-    running.current = true; setBusy(true); setMessage("正在沿本期原账本开启并续跑，请保留此页面。");
-    try {
-      await continueCollectionCycle({ quote, budget: controls, post, stopped: () => !active.current || stopPaid.current,
-        progress: value => { if (active.current && !stopPaid.current) setMessage(`${value.message}${value.remainingQueries === undefined ? "" : ` 剩余 ${value.remainingQueries} 次查询。`}`); },
-        wait: () => new Promise(resolve => setTimeout(resolve, 3000)) });
-      if (active.current) setQuote(null);
-    } catch (error) { if (active.current && !stopPaid.current) setMessage(error instanceof Error ? error.message : "执行结果待核对，请查看原账本。"); }
-    finally { running.current = false; if (active.current) { setBusy(false); onEnabled(); } }
-  }
-  async function pause() {
-    if (pausing.current) return;
-    // Stop later client passes immediately; leave any already submitted POST untouched.
-    pausing.current = true; stopPaid.current = true; setPauseBusy(true); setMessage("正在暂停新的付费提交；已提交请求不会重发。");
-    try {
-      const result = await pauseCollectionRequests({ post, read: async () => {
-        const response = await fetch("/api/operations", { cache: "no-store" });
-        if (!response.ok) throw new Error("暂停请求已提交，状态读取失败；请刷新安排核对。");
-        return response.json();
-      } });
-      if (active.current) { setQuote(null); setMessage(result); }
-    } catch (error) { if (active.current) setMessage(error instanceof Error ? error.message : "暂停结果待核实，请刷新安排读取状态。"); }
-    finally { pausing.current = false; if (active.current) { setPauseBusy(false); onEnabled(); } }
-  }
-  return <div className={styles.paidControl}>
-    {controls.enabled || busy && current ? <div className={styles.paidActions}><FeedbackButton className={styles.refresh} pending={pauseBusy} pendingLabel="正在暂停…" onClick={() => void pause()}>暂停新的付费提交</FeedbackButton></div> : null}
-    {quote ? <>
-      <p>本轮上限 <strong>{dollars(quote.totalMaxCostMicros)}</strong> · {quote.keywordCount} 个关键词 · {quote.queryCount} 次排名查询 · {quote.discoveryJobs} 项新词发现</p>
-      {current ? <p><strong>{quote.periodLabel}</strong> · 周期标识 {quote.periodKey}。补采实际时间按回执保存，不改写为原计划时间。</p> : null}
-      {coverage ? <p>正式目标 {coverage.allTargetCount} 个；本轮有效监控 {coverage.targetCount} 个；其余 {coverage.heldTargetCount} 个暂缓或排除，不作为本轮已采集。查询仅覆盖当前已核实的目标国家。</p> : null}
-      <p className={styles.note}>计划时间 {automationDate(quote.dueAt)} · 排名月度上限 {dollars(quote.maxMonthSerpCostMicros)} · 新词每轮上限 {dollars(quote.discoveryMaxCostMicros)}</p>
-      {current && !collectionFitsExistingBudget(quote, controls) ? <p role="alert">本轮报价超过原计划上限，不能直接开启或执行。</p> : null}
-      <div className={styles.paidActions}>{current ? <FeedbackButton className={styles.refresh} pending={busy} pendingLabel="正在处理本期回执…" disabled={pauseBusy || !collectionFitsExistingBudget(quote, controls)} onClick={() => void runCurrent()}>开启并执行本期</FeedbackButton> : <FeedbackButton className={styles.refresh} pending={busy && pendingAction === "enable"} pendingLabel="正在提交…" disabled={busy || pauseBusy} onClick={() => void submit({ action: "enableSchedule", previewToken: quote.previewToken })}>仅开启自动付费</FeedbackButton>}<button type="button" className={styles.refresh} disabled={busy || pauseBusy} onClick={() => setQuote(null)}>取消</button></div>
-    </> : <div className={styles.paidActions}><FeedbackButton className={styles.refresh} pending={busy && pendingAction === "future-preview"} pendingLabel="正在核对费用…" disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule", futureOnly: true })}>查看费用与开启</FeedbackButton><FeedbackButton className={styles.refresh} pending={busy && pendingAction === "current-preview"} pendingLabel="正在核对费用…" disabled={busy || pauseBusy} onClick={() => void submit({ action: "previewSchedule" })}>查看本期补采费用</FeedbackButton></div>}
-    {message ? <p role="status">{message}</p> : null}
-  </div>;
+/** Display the saved arrangement only; this view has no collection or payment actions. */
+function SchedulePlans({ plans }: { plans: ReadonlyAutomationPlan[] }) {
+  if (!plans.length) return <p className={styles.note}>此来源暂未返回安排。</p>;
+  return <div className={styles.tableScroll}><table className={styles.table}>
+    <thead><tr><th>任务名称</th><th>频率</th><th>北京时间</th><th>启停</th></tr></thead>
+    <tbody>{plans.map(plan => {
+      const cadence = plan.cadence.replace(/^候选唤醒：/, "");
+      const timeIndex = cadence.search(/\d{1,2}:\d{2}/);
+      const frequency = timeIndex < 0 ? cadence : cadence.slice(0, timeIndex).trim();
+      const time = timeIndex < 0 ? "待核实" : cadence.slice(timeIndex).trim();
+      return <tr key={plan.id}><th scope="row">{plan.name}</th><td>{frequency || "按配置"}</td><td>{time}</td>
+        <td><span className={styles.state} data-state={plan.configurationState}>{states[plan.configurationState]}</span></td></tr>;
+    })}</tbody>
+  </table></div>;
 }
 
-function SchedulePlans({ plans, enableRankings, controls }: { plans: ReadonlyAutomationPlan[]; enableRankings?: () => void; controls?: OperationsStatus["controls"] }) {
-  if (!plans.length) return <p className={styles.note}>此来源暂未提供计划，不能判断为已停用或任务数为零。</p>;
-  return <div className={styles.plans}>{plans.map(plan => <details key={plan.id} className={styles.plan}>
-    <summary>
-      <span className={styles.planTitle}><strong>{plan.name}</strong><small>{plan.cadence} · {plan.location}</small></span>
-      <span className={styles.state} data-state={plan.configurationState}>{plan.state}</span>
-    </summary>
-    <div className={styles.detail}>
-      <p>{plan.note}</p>
-      {plan.dependencies?.length ? <p>前置条件：{plan.dependencies.join(" → ")}</p> : null}
-      {plan.executionLocation === "computer" ? <p className={styles.note}>在 Codex 自动化中按任务名称管理启停。任务 ID：<code>{plan.id}</code></p> : null}
-      {plan.configurationState === "paused"
-        ? <p className={styles.note}>当前配置暂停，不安排下一次自动执行；上方时间仅表示原定周期。</p>
-        : <p>按配置推算的下个时段：<strong>{automationDate(plan.nextConfiguredAt)}</strong>。实际是否开始，以执行回执为准。</p>}
-      {plan.currentExecution ? <p>已落库的本期进度：{plan.currentExecution}</p> : null}
-      {plan.id === "rankings" && enableRankings && controls ? <PaidSchedule onEnabled={enableRankings} controls={controls} /> : null}
-    </div>
-  </details>)}</div>;
-}
-
-/** Server and desktop schedules with a separate, previewed DataForSEO opt-in. */
 export function SeoAutomationSchedule() {
   const { data, error, retry, pending } = useSeoRead<OperationsStatus>("/api/operations");
-  const plans = data ? readonlyAutomationPlans(data) : [];
+  // The retired Friday sender remains in history, rather than the current arrangements.
+  const plans = data ? readonlyAutomationPlans(data).filter(plan => plan.id !== "seo-10-00-2") : [];
   const computerPlans = plans.filter(plan => plan.executionLocation === "computer");
   const serverPlans = plans.filter(plan => plan.executionLocation === "server");
   const unknownPlans = plans.filter(plan => plan.executionLocation === "unknown");
+  const coordinator: ReadonlyAutomationPlan[] = data ? [{
+    id: "server-schedule-coordinator", name: "服务器调度检查与续跑", location: "服务器", cadence: data.scheduler.cadence,
+    state: "", nextAt: null, note: "", executionLocation: "server", nextConfiguredAt: null,
+    configurationState: data.executionEvidence === "unavailable" ? "unknown" : data.scheduler.configured ? "enabled" : "paused",
+  }] : [];
   return <section className={styles.root} aria-labelledby="automation-schedule-title">
     <div className={styles.heading}>
-      <div><h2 id="automation-schedule-title">定时任务安排</h2><p>北京时间 · 计划配置与实际执行分开记录。</p></div>
+      <div><h2 id="automation-schedule-title">全部定时任务安排</h2><p>统一显示北京时间及配置启停状态。</p></div>
       <FeedbackButton onClick={retry} className={styles.refresh} pending={pending} pendingLabel="正在刷新安排…"><RefreshCw size={14} aria-hidden="true" />刷新安排</FeedbackButton>
     </div>
-    {error ? <div className={styles.error} role="alert"><strong>任务安排暂时无法读取</strong><p>{error}</p><p>启停状态和运行结果暂未知，不代表任务已停止或执行次数为零。</p></div>
-      : !data ? <p className={styles.note} role="status">正在读取已保存的配置和执行回执…</p>
+    {error ? <div className={styles.error} role="alert"><strong>任务安排暂时无法读取</strong><p>{error}</p></div>
+      : !data ? <p className={styles.note} role="status">正在读取任务安排…</p>
       : <>
-        {data.executionEvidence === "unavailable" ? <p className={styles.warning} role="status">{data.evidenceNote}</p> : null}
-        <div className={styles.counts}><span>配置已启用 <strong>{computerPlans.filter(plan => plan.configurationState === "enabled").length}</strong></span><span>配置已暂停 <strong>{computerPlans.filter(plan => plan.configurationState === "paused").length}</strong></span><span>最近执行 <strong>{data.executionEvidence === "unavailable" ? "待核实" : "见回执"}</strong></span></div>
-        <section className={styles.group} aria-labelledby="computer-automation-title">
-          <div className={styles.groupHeading}><h3 id="computer-automation-title">电脑上的 Codex 任务</h3><span>配置核对于 {automationDate(data.automationConfigurationVerifiedAt)}</span></div>
-          <p className={styles.note}>来源：Codex 自动化配置回读。任务依赖这台电脑上的 Codex 可运行；这里保留的是核对时的启停状态，实时变化以 Codex 为准。启用不等于已经执行成功。</p>
-          <SchedulePlans plans={computerPlans} />
+        <section className={styles.group} aria-labelledby="computer-automation-title"><h3 id="computer-automation-title">Codex 定时任务</h3><SchedulePlans plans={computerPlans} /></section>
+        <section className={styles.group} aria-labelledby="server-automation-title"><h3 id="server-automation-title">服务器定时任务</h3>
+          <SchedulePlans plans={[...serverPlans, ...coordinator]} />
+          {data.executionEvidence === "unavailable" ? <p className={styles.note}>服务器安排暂未核实，待恢复读取。</p> : null}
         </section>
-        {data.executionEvidence !== "unavailable" ? <section className={styles.group} aria-labelledby="server-automation-title">
-          <div className={styles.groupHeading}><h3 id="server-automation-title">服务器采集任务</h3><span>状态读取于 {automationDate(data.checkedAt)}</span></div>
-          <p className={styles.note}>GA4 / GSC 由 GitHub Actions 采集；DataForSEO 由项目服务器检查及续跑。它们独立于电脑上的 Codex。读取时间不是配置修改时间，也不是最近采集完成时间。</p>
-          {data.controls.emergencyStopped ? <p className={styles.warning}>外部付费采集处于紧急停止状态；本页不会恢复或提交查询。</p> : null}
-          <SchedulePlans plans={serverPlans} controls={data.controls} enableRankings={!data.controls.emergencyStopped ? retry : undefined} />
-          <ApprovedKeywordReview />
-          <ApprovedOtherKeywordReview />
-          <div className={styles.heartbeat}>
-            <h4>DataForSEO 服务器调度检查</h4>
-            <p>{data.scheduler.configured ? data.scheduler.cadence : "调度认证尚未配置"} · {automationSchedulerLabels[data.scheduler.state] ?? "检查状态未核实"}</p>
-            <dl><div><dt>最近开始</dt><dd>{automationDate(data.scheduler.lastStartedAt)}</dd></div><div><dt>最近完成</dt><dd>{automationDate(data.scheduler.lastCompletedAt)}</dd></div></dl>
-            <p className={styles.note}>检查成功仅说明调度检查完成；不代表付费已开启、全部关键词已采集，也不代表其他任务成功。</p>
-          </div>
-        </section> : null}
         {unknownPlans.length ? <section className={styles.group}><h3>执行位置待核实</h3><SchedulePlans plans={unknownPlans} /></section> : null}
-        <details className={styles.receipts}>
-          <summary>最近采集与调度回执</summary>
-          {data.executionEvidence === "unavailable" ? <p className={styles.warning}>执行记录未读取，不能把配置启用当成运行成功。</p> : null}
-          <p className={styles.note}>只列接口已保存的最近记录，不作为全部历史或某项计划的完整成功率。工作任务的阶段交付回执另行展示。</p>
-          {data.records.length ? <ol>{data.records.map(record => <li key={record.id}>
-            <div className={styles.recordHeading}><strong>{record.name}</strong><span>{record.state}</span></div>
-            <p>开始 {automationDate(record.startedAt)} · 完成 {automationDate(record.completedAt)}</p><p>{record.detail}</p>
-          </li>)}</ol> : <p className={styles.note}>尚无已保存的采集或调度回执，不能据此判断任务已运行或未运行。</p>}
-        </details>
       </>}
   </section>;
 }

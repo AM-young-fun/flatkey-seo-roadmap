@@ -8,7 +8,7 @@ const shareCounts = z.object({ all: count, modelDetail: count, prompts: count })
 export const reportDashboardEvidenceSchema = z.object({
   scope: z.literal("website-console"), timezone: z.literal("America/Los_Angeles"),
   observedAt: z.iso.datetime({ offset: true }), gscComparable: z.boolean(),
-  sites: z.array(traffic.extend({ name: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc", "mochichatbot.com", "jev-llm.com"]) })).length(5),
+  sites: z.array(traffic.extend({ name: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org", "mochichatbot.com", "jev-llm.com"]) })).min(5).max(6),
   countries: z.array(traffic.extend({ name: z.enum(["US", "JP", "BR", "ES"]) })).length(4),
   modules: z.array(traffic.extend({ id: z.enum(["home", "blog", "models", "gpu", "prompts"]) })).length(5).optional(),
   moduleShares: z.object({ current: shareCounts, previous: shareCounts, observedAt: z.iso.datetime({ offset: true }) }).strict().optional(),

@@ -36,6 +36,7 @@ Module._load = function (name, parent, ...rest) {
     if (name === "@/lib/dashboard-client") return { dashboardStore, DashboardReadError: ReadError };
     if (name === "@/lib/client-read-cache") return { clientReadCache, ClientReadError: ReadError };
     if (name === "@/lib/dashboard-session") return { dashboardSession: { load: async () => null, save: async () => {} } };
+    if (name === "./GrowthHistoricalReview") return { GrowthHistoricalReview() { return null; } };
     if (name === "./ReportLoading") return { ReportLoading() { return null; } };
   }
   return load.call(this, name, parent, ...rest);

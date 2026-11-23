@@ -53,7 +53,7 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
     controls: { enabled: rankingEnabled && discoveryEnabled, emergencyStopped: stopped, maxRunCostMicros: config?.maxRunCostMicros ?? 0, maxMonthCostMicros: config?.maxMonthCostMicros ?? 0, discoveryMaxCostMicros: cycle.maxDiscoveryCostMicros },
     scheduler: { configured: Boolean(process.env.CRON_SECRET), cadence: schedulerCadence, state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
     plans: [
-      { id: "rankings", name: "DataForSEO 新词与排名", location: "项目服务器 · Vercel", cadence: `隔周周四 ${SERP_SCHEDULE_LOCAL_TIME}`, state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "仅Flatkey：先发现业务新词，再查询已有合适页面的正式词；美国、日本、西班牙、巴西。" },
+      { id: "rankings", name: "DataForSEO 已审正式目标排名复核", location: "项目服务器 · Vercel", cadence: `隔周周四 ${SERP_SCHEDULE_LOCAL_TIME}`, state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "隔周仅消费本期确切清单、市场语言和费用获批的正式已建页目标；先复用既存结果。域名发现独立报价，不构成实测前置。" },
       ...configuredAutomationPlans(now).map(plan => plan.id === "seo-16-00-ga4-search-console" && latestLocalCollection ? {
         ...plan,
         currentExecution: `${state(latestLocalCollection.status.toUpperCase())} · ${latestLocalCollection.completedItems}/${latestLocalCollection.checkedItems} 条应有数据已核对`,

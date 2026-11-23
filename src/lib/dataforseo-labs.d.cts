@@ -14,3 +14,7 @@ export function quoteForLimit(limit: number): DataForSeoQuote;
 export function parseCliArgs(argv: string[]): { execute: boolean; runId: string; limit: number; help?: boolean };
 export function buildRankedKeywordsTask(limit: number, runId: string, scope?: { targetDomain: string; region: "US" | "JP" | "ES" | "BR" }): Record<string, unknown>;
 export function normalizeRankedKeywords(raw: unknown, options: { runId: string; collectedAt: string; limit?: number; scope?: { targetDomain: string; region: "US" | "JP" | "ES" | "BR" } }): DataForSeoNormalized;
+export type ApprovedDiscoveryPageScope = {site:string;country:string;language:string;offset:number};
+export type ApprovedDiscoveryPageNormalized = Omit<DataForSeoNormalized,"region"|"rows"> & {region:string;requestedOffset:number;rows:(Omit<DataForSeoObservation,"region"> & {region:string})[]};
+export function buildApprovedRankedKeywordsPage(limit:number,runId:string,scope:ApprovedDiscoveryPageScope):Record<string,unknown>;
+export function normalizeApprovedRankedKeywordsPage(raw:unknown,options:{runId:string;collectedAt:string;limit:number;scope:ApprovedDiscoveryPageScope}):ApprovedDiscoveryPageNormalized;

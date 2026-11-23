@@ -32,6 +32,9 @@ import { loadSerpTasks } from "./serp-results";
 import { loadApprovedWeeklyKeywordCapture } from "./approved-weekly-keyword-capture";
 import { currentCanonicalWeeklyDraft } from "../seo-weekly-review-window";
 import { buildReviewedSeoDigest, sameReviewedDigest } from "../seo-reviewed-digest";
+import { loadGrowthReportSnapshot } from "./growth-strategy";
+import { growthHash, unavailableGrowthReportSnapshot } from "../growth-strategy";
+import { weeklyReportRange } from "../seo-date-range";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -102,8 +105,9 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     hasClosedHistory ? loadDailySeoPageGroupsHistory({ ...historyQuery, ruleVersion: DAILY_SEO_PAGE_GROUP_RULE_VERSION }) : Promise.resolve(undefined),
     loadRegistrationPeriods(reportHistoryStart, window.trafficEnd),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(executionWeek, -7) }, false),
+    loadGrowthReportSnapshot(date, false, now),
   ]);
-  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档", "GA4 首次获客日报", "GA4 页面组和同日注册漏斗", "GA4 首次获客注册区间", "上周执行计划"][index]}读取失败，相关项保留缺失。`] : []);
+  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档", "GA4 首次获客日报", "GA4 页面组和同日注册漏斗", "GA4 首次获客注册区间", "上周执行计划", "季度目标与方向证据"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: executionWeek, allHistory: true }, "database");
   const nextWeek = reads[1].status === "fulfilled" ? reads[1].value : workflowSnapshot([], { week: shiftWorkflowDay(executionWeek, 7) }, "database");
   const previousWeek = reads[11].status === "fulfilled" ? reads[11].value : workflowSnapshot([], { week: shiftWorkflowDay(executionWeek, -7) }, "database");
@@ -165,6 +169,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   });
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
+    growthSnapshot: reads[12].status === "fulfilled" ? reads[12].value : unavailableGrowthReportSnapshot(weeklyReportRange(date), now),
     date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
     registrationPeriods: reads[10].status === "fulfilled" ? reads[10].value : [],
     dailyAcquisition: reads[8].status === "fulfilled" ? reads[8].value : undefined,
@@ -208,7 +213,7 @@ export async function saveSeoDigest(digest: SeoDigest) {
   await prisma.seoReportVersion.createMany({ data: { id: digest.id, siteDomain: "flatkey.ai", kind: "SEO_DIGEST", periodStart: new Date(digest.date), periodEnd: new Date(digest.date), createdAt: new Date(digest.generatedAt), payload: json(digest) }, skipDuplicates: true });
   const stored = await prisma.seoReportVersion.findUniqueOrThrow({ where: { id: digest.id } });
   const saved = stored.payload as unknown as SeoDigest;
-  if (saved.hash !== digest.hash || saved.text !== digest.text || saved.detailText !== digest.detailText) throw new DigestError("报告版本冲突");
+  if (saved.hash !== digest.hash || saved.text !== digest.text || saved.detailText !== digest.detailText || growthHash(saved.growthSnapshot) !== growthHash(digest.growthSnapshot)) throw new DigestError("报告版本冲突");
   return saved;
 }
 

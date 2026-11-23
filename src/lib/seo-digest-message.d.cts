@@ -6,5 +6,5 @@ export function messageHash(payload: ReturnType<typeof actionCardPayload>): stri
 export function digestSnapshotId(report: {
   date: string; text: string; detailText?: string; pagePerformance?: unknown; recentPages?: unknown;
   deliveryStates?: unknown; organicRegistrations?: unknown; workPlan?: unknown;
-  currentWorkPlan?: unknown; pageGroups?: unknown; rankingNotes?: unknown;
+  currentWorkPlan?: unknown; pageGroups?: unknown; rankingNotes?: unknown; growthSnapshot?: unknown;
 }): string;

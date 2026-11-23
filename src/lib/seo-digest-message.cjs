@@ -19,8 +19,9 @@ function actionCardPayload(report, revision = false) {
 }
 const messageHash = payload => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 function digestSnapshotId(report) {
- const { date, text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan, currentWorkPlan, pageGroups, rankingNotes } = report;
- const version = createHash('sha256').update(JSON.stringify({ text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan, currentWorkPlan, pageGroups, rankingNotes })).digest('hex').slice(0, 16);
+ const { date, text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan, currentWorkPlan, pageGroups, rankingNotes, growthSnapshot } = report;
+ const ordered = value => Array.isArray(value) ? value.map(ordered) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, ordered(child)])) : value;
+ const version = createHash('sha256').update(JSON.stringify({ text, detailText, pagePerformance, recentPages, deliveryStates, organicRegistrations, workPlan, currentWorkPlan, pageGroups, rankingNotes, ...(growthSnapshot ? { growthSnapshot: ordered(growthSnapshot) } : {}) })).digest('hex').slice(0, 16);
  return `seo-digest:${date}:${version}`;
 }
 module.exports = { actionCardPayload, digestSnapshotId, messageHash, reportDetailUrl, DETAIL_URL };

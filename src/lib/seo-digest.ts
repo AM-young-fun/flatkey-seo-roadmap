@@ -21,6 +21,8 @@ import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, i
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
 import { reportFocusLines } from "./seo-report-plan-display";
 import { digestExecutionPeriod, digestExecutionWeek } from "./seo-digest-work-plan";
+import { growthReportLines, growthDirectionFactLines, growthCohortFactLines, growthObservationFactLines, type GrowthReportSnapshot } from "./growth-strategy";
+import type { GrowthAnalysisCountry } from "./seo-growth-markets";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
 export const SEO_REPORT_GROUP = "cid7d5au0J8RAKDDxMR+VNh1w==";
@@ -28,7 +30,7 @@ export const SEO_REPORT_ROBOT = "dingoyxfe0koa0dme6fz";
 export const SEO_REPORT_WEBHOOK_ROBOT = "tFmSJLB0+A1WmEX9zMnH2w==";
 const SEO_PLATFORM = "https://flatkey-seo-roadmap.vercel.app";
 const approvalsUrl = SEO_PLATFORM + executionViewRoutes.approvals;
-export const SEO_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc", "mochichatbot.com", "jev-llm.com"] as const;
+export const SEO_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org", "mochichatbot.com", "jev-llm.com"] as const;
 export const digestDateSchema = z.iso.date();
 export const digestKindSchema = z.enum(["daily", "weekly"]);
 export type DigestKind = z.infer<typeof digestKindSchema>;
@@ -40,7 +42,7 @@ export type DigestObservation = {
   site: string; date: string; source: "GA4" | "GSC"; timezone: string; observedAt: string;
   complete: boolean; scope: "session-organic-search" | "google-web";
   registrationMetric?: "sign_up_success" | "sign_up_or_legacy_distinct_users";
-  country?: "US" | "JP" | "BR" | "ES";
+  country?: Exclude<GrowthAnalysisCountry, "all">;
   sessions?: number | null; registrations?: number | null; clicks?: number | null; impressions?: number | null; position?: number | null;
 };
 export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster" | "prompt"; verifiedAt: string; recordedAt: string; publishedAt: string };
@@ -54,6 +56,7 @@ export type DigestWorkPlan = {
 };
 
 export type DigestInput = {
+  growthSnapshot?: GrowthReportSnapshot;
   registrationPeriods?: RegistrationPeriod[];
   notificationCompact?: boolean;
   dailyAcquisition?: DailySeoTrafficHistory;
@@ -125,7 +128,7 @@ function losAngelesDayStart(day: string) {
   return reportDayStart(day);
 }
 
-function completeMetricDays(observations: DigestObservation[], site: string, metric: DigestMetric, country: "all" | "US" | "JP" | "BR" | "ES") {
+function completeMetricDays(observations: DigestObservation[], site: string, metric: DigestMetric, country: GrowthAnalysisCountry) {
   const source = metric === "clicks" || metric === "impressions" ? "GSC" : "GA4";
   const rows = observations.filter(row => row.site === site && (row.country ?? "all") === country && row.source === source && row.complete
     && row.scope === (source === "GA4" ? "session-organic-search" : "google-web") && row[metric] != null);
@@ -138,7 +141,7 @@ function completeMetricDays(observations: DigestObservation[], site: string, met
 }
 
 /** Weekly additive metrics compare only matching weekdays with verified values on both sides. */
-export function comparableMetric(observations: DigestObservation[], site: string, metric: DigestMetric, date: string, country: "all" | "US" | "JP" | "BR" | "ES" = "all", kind: DigestKind = "daily") {
+export function comparableMetric(observations: DigestObservation[], site: string, metric: DigestMetric, date: string, country: GrowthAnalysisCountry = "all", kind: DigestKind = "daily") {
   const window = digestWindow(date, kind);
   const losAngelesWeek = window.kind === "weekly" && window.workTimezone === "America/Los_Angeles";
   const latest = completeMetricDays(losAngelesWeek ? observations.filter(row => row.timezone === "America/Los_Angeles") : observations, site, metric, country);
@@ -451,6 +454,42 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const pageSummary = weekly ? pageChanges[0] : undefined;
   const pageCanCompare = !losAngelesWeek || bestPage?.comparisonDates?.length === 7;
   const pagePath = (url: string) => shortCardText(new URL(url).pathname, 58);
+  if (weekly && input.growthSnapshot) {
+    const growth = input.growthSnapshot;
+    const lines = [`**${title}**`, "", `本周自然搜索会话 ${sessions.label}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
+      `统计周期：洛杉矶时间 ${dateLabel}；对比周期 ${previousLabel}。取数 ${reportStamp(now)}（洛杉矶）。周报供审核，批准确切版本后发送。`,
+      "", "**一、业务与搜索表现**", ...growthReportLines(growth).slice(0, 2), ...growthCohortFactLines(growth),
+      `Google 点击 ${clicks.label}；曝光 ${impressions.label}；CTR ${previousCtr === null ? "待更新" : formatCtr(previousCtr)} → ${currentCtr === null ? "待更新" : formatCtr(currentCtr)}。`,
+      `SEO 注册 ${cardComparison(registrations.previous, registrations.current, registrationCanCompare)}（整段首次自然搜索获客去重）。`,
+      "", "**二、各站与主要市场及方向归因**", "| 站点 | 自然搜索会话 | Google点击 | Google曝光 |", "|---|---:|---:|---:|"];
+    for (const site of SEO_SITES) lines.push(`| ${site} | ${metricText(comparableMetric(input.observations, site, "sessions", input.date, "all", "weekly"))} | ${metricText(comparableMetric(input.observations, site, "clicks", input.date, "all", "weekly"))} | ${metricText(comparableMetric(input.observations, site, "impressions", input.date, "all", "weekly"))} |`);
+    for (const country of ["US", "JP", "BR", "SG", "ES"] as const) lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, "weekly"))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, "weekly"))}。`);
+    if (growth.directions.length) {
+      for (const direction of growth.directions.slice(0, 3)) {
+        lines.push(...growthDirectionFactLines(direction));
+      }
+    } else {
+      lines.push("本窗口方向原因尚缺可比证据；先核验页面、国家、搜索来源、发布时间及竞争变化，未核实前不归因为AI内容或扩大投入。");
+      for (const page of pageChanges) lines.push(`• ${link(pagePath(page.url), page.url)} · GSC点击 ${cardComparison(page.previous, page.value, pageCanCompare)}；这是页面贡献，尚未证明动作因果，沿原任务核实外部需求及本站改动。`);
+    }
+    lines.push("", "**三、本周交付与页面效果**", `新增博客页面 ${completed.blogs.total} 页（源文${completed.blogs.originals}篇、译文${completed.blogs.translations}页、旧文补译${completed.blogs.backfillTranslations}页）；页面${completed.newPages}个；优化${completed.optimized}个。`);
+    const plan = input.currentWorkPlan;
+    if (plan) {
+      const done = plan.tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
+      lines.push(`本周计划进度 ${done}/${plan.tasks.length} 项；原任务ID和交付日保留。`);
+      for (const task of plan.tasks.filter(task => !["verified", "observing"].includes(task.status)).slice(0, 3)) lines.push(`• ${link(task.title, SEO_PLATFORM + workTaskHref({ id: task.id, weekStart: task.weekStart ?? plan.weekStart }))}：${escaped(task.action)}；截止${beijingDay(new Date(task.dueAt))}。`);
+    }
+    lines.push(...growthObservationFactLines(growth));
+    if (!growth.observations.length) lines.push("本期尚无完成完整窗口的7/14/28天效果回执，继续沿原任务复查。");
+    lines.push("", "**四、独立渠道结果**", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, true, now), "GitHub仅作独立UTC参考展示，不计入SEO归因、实验、投入及季度目标。", "", "**五、关键词、收录与技术观察**");
+    if (input.rankingNotes?.length) lines.push(...input.rankingNotes.map(note => "• " + escaped(note)));
+    const technical = summarizeReportTechnical(dailyTechnicalLines(input.technicalQa));
+    lines.push(...(technical.issues.length ? technical.issues.map(issue => "• " + issue) : ["• " + technical.message]), "", "**六、下周安排与复盘**", ...focus.slice(0, 3).map((row, index) => `${index + 1}. ${row}`));
+    if (!focus.length) lines.push("下周计划尚未排期；先完成研究和原任务去重，不重复建单。");
+    if (input.nextPlanUrl) lines.push(link("查看下周完整工作计划", input.nextPlanUrl));
+    lines.push("新热点、全新方向及重大加码先提交完整机会卡供用户判断；常规执行和观察沿原任务推进。", `[数据基础](${SEO_DATA_HUB})`);
+    return lines.join("\n\n");
+  }
   const lines = [`**${title}**`, "",
     `**${weekly ? "本周" : "今日"}结论** ${heading} · GA4 自然搜索去重注册 ${headlineRegistration}`,
     ...(pageSummary ? [`重点页面 ${pagePath(pageSummary.url)} · Google 点击 ${cardComparison(pageSummary.previous, pageSummary.value, pageCanCompare)}`] : []),
@@ -460,6 +499,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     ...(weekly && window.workTimezone === "America/Los_Angeles" ? ["**审核** 周报草稿，待用户审核；各来源实际覆盖日期见下方"] : []),
     "", `**1. ${weekly ? "业务结果与搜索表现" : "全站自然搜索"}**`];
   if (!weekly) {
+    if (input.growthSnapshot) lines.push("", "**季度目标与方向**", ...growthReportLines(input.growthSnapshot));
     lines.push(`• GA4 新用户（${scope}） ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}${acquisitionDates}`,
       `• GA4 去重注册（${scope}） ${cardComparison(previousAcquisition?.newRegistrations ?? null, currentAcquisition?.newRegistrations ?? null)}${acquisitionDates}`);
   }
@@ -888,6 +928,7 @@ export function buildSeoDigest(input: DigestInput) {
   else lines.push(window.kind === "weekly" ? "• 下周任务尚未排期，等待关键词研究和页面任务入库。" : "• 复核最新完整日的点击与曝光；有明显异常时再建立优化任务。");
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
+  if (input.growthSnapshot) lines.push("", "季度目标与方向", ...growthReportLines(input.growthSnapshot));
   const detailText = lines.join("\n");
   const text = input.notificationCompact ? detailedNotification(title, input, window, now, {
     pagePerformance, completed: {
@@ -898,7 +939,7 @@ export function buildSeoDigest(input: DigestInput) {
     }, optimizations, registrations: organicRegistrations, focus: nextFocus,
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
-  return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes }), date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
     ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd },
@@ -907,6 +948,7 @@ export function buildSeoDigest(input: DigestInput) {
     counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
     pagePerformance,
     recentPages: input.recentPages,
+    growthSnapshot: input.growthSnapshot,
     deliveryStates: input.deliveryStates,
     weeklyHighlights, weeklyTraffic, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,

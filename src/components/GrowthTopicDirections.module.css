@@ -1,0 +1,9 @@
+.root { min-width:0; border:1px solid #e2e9f2; border-radius:8px; background:#fff; padding:18px 20px; color:#64758d; font-size:12px; line-height:1.8; }
+.root h2 { margin:0 0 10px; font-size:16px; font-weight:650; color:#304c70; }
+.root article { border-top:1px solid #e8edf4; margin-top:13px; padding-top:14px; }
+.root article header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 13px; }
+.root h3 { margin:0; font-weight:600; font-size:13px; color:#3d5e86; }.root header span { font-size:11px; color:#8291a5; }.root p { margin:8px 0; }.root strong { font-weight:550; color:#56708d; }
+.driver { border-left:2px solid #dbe7f7; padding-left:12px; margin:12px 0; }.driver > a { color:#3d70b1; text-decoration:none; font-weight:550; }.driver small { display:block; color:#8d99ab; font-size:10px; }.driver p { font-size:11px; margin:5px 0; }.driver p span { display:block; color:#8e99a9; }
+.tasks { display:flex; flex-wrap:wrap; gap:4px 10px; font-size:10px; color:#8b97a8; }.tasks a { color:#7990ad; text-decoration:none; overflow-wrap:anywhere; }
+.review { display:inline-block; color:#4977b0; text-decoration:none; font-size:11px; margin-top:5px; }.root a:hover { text-decoration:underline; }.root a:focus-visible,.root button:focus-visible { outline:2px solid #5688c8; outline-offset:3px; }.root button { margin-left:8px; font:inherit; border:1px solid #dce4ee; border-radius:4px; background:#fff; color:#567397; padding:3px 7px; cursor:pointer; }
+@media(max-width:600px) { .root { padding:15px; } }

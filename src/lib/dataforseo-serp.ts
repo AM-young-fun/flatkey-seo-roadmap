@@ -101,6 +101,11 @@ function dateFromProvider(value: unknown): string {
   return date.toISOString();
 }
 type SerpResultScope = { device: "desktop"; locationCode: number; languageCode: string; depth: 100 };
+/** A frozen, separately approved exact-market ledger may use a new locale.
+ * This parser verifies the actual provider response; it grants no spending. */
+export function normalizeSerpAtExplicitMarket(raw: unknown, expected: { providerTaskId: string; keyword: string; config: SerpResultScope; searchDomain: string }): SerpNormalizedResult {
+  return normalizeSerpWithMarket(raw, expected, expected.searchDomain);
+}
 function normalizeSerpWithMarket(raw: unknown, expected: { providerTaskId: string; keyword: string; config: SerpResultScope }, searchDomain: string): SerpNormalizedResult {
   const task = providerTaskEnvelope(raw, expected.providerTaskId), data = record(task.data), results = Array.isArray(task.result) ? task.result.map(record) : [];
   if (task.status_code !== 20000 || results.length !== 1) throw new Error("SERP_NOT_READY");

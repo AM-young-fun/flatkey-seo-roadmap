@@ -1,15 +1,16 @@
 import { z } from "zod";
+import { GROWTH_COUNTRIES, GROWTH_LANGUAGES, GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 
 /** Explicit research decisions, never a country inferred from a query's script. */
 export const MARKET_ASSIGNMENT_SOURCE_ID = "SEO_MARKET_ASSIGNMENT";
 export const PAID_QUERY_POLICY_VERSION = "primary-country-nonbrand-v1";
-export const KEYWORD_MARKET_LANGUAGES = { US: "en", JP: "ja", ES: "es-ES", BR: "pt-BR" } as const;
+export const KEYWORD_MARKET_LANGUAGES = GROWTH_MARKET_LANGUAGES;
 export type KeywordMarket = keyof typeof KEYWORD_MARKET_LANGUAGES;
-const country = z.enum(["US", "JP", "ES", "BR"]);
+const country = z.enum(GROWTH_COUNTRIES);
 export const keywordMarketAssignmentSchema = z.object({
   primaryCountry: country,
-  language: z.enum(["en", "ja", "es-ES", "pt-BR"]),
-  secondaryMarkets: z.array(z.object({ country, reason: z.string().trim().min(12).max(2000) }).strict()).max(3).default([]),
+  language: z.enum(GROWTH_LANGUAGES),
+  secondaryMarkets: z.array(z.object({ country, reason: z.string().trim().min(12).max(2000) }).strict()).max(9).default([]),
   evidence: z.string().trim().min(12).max(4000),
   reviewedAt: z.iso.datetime({ offset: true }),
 }).strict().superRefine((value, context) => {
@@ -41,6 +42,7 @@ export function explicitKeywordMarkets(assignment: unknown): KeywordMarket[] {
 }
 
 export function keywordLanguageIssue(keyword: string, assignment: KeywordMarketAssignment): string | null {
+  if (assignment.language === "zh-CN") return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(keyword.normalize("NFKC")) ? "简体中文目标词混入其他语种文字，需重新核对" : null;
   if (assignment.language !== "ja" && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(keyword.normalize("NFKC"))) return "关键词文字与页面目标语言不一致，需使用该市场真实查询词重新核对";
   return null;
 }

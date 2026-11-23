@@ -1,3 +1,5 @@
+import { GROWTH_EXECUTION_SITES, GROWTH_BLOG_SITES } from "./seo-growth-markets";
+import { assertGrowthPlan } from "./seo-growth-plan";
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
 import { isSeoWorkday, seoCatchUpDate } from "./seo-workday";
 import { seoToday, workWeekDateRange } from "./seo-date-range";
@@ -14,6 +16,14 @@ export type WorkflowActor = "human" | "collector";
 const stable = (value: unknown): unknown => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, stable(entry)])) : value;
 export const workflowHash = (value: unknown) => createHash("sha256").update(JSON.stringify(stable(value)) ?? "undefined").digest("hex");
 export const workflowKey = (kind: WorkflowKind, id: string) => `${kind}:${id}`;
+/** Completed deliveries may append effect evidence after a direction expires.
+ * This never authorizes a new page/version, schedule or production transition. */
+export function isCompletedGrowthEvidenceAppend(task: WorkflowTask, previous: WorkflowTask | undefined) {
+  const completed = new Set(["published", "verified", "observing"]);
+  if (!previous || !completed.has(previous.status) || !completed.has(task.status)) return false;
+  return ["kind", "siteDomain", "topicId", "keywordId", "keyword", "country", "language", "pageUrl", "contentVersion", "artifactUrl", "dueAt", "weekStart", "directionId", "experimentId", "codeSource"].every(key => workflowHash(task[key as keyof WorkflowTask]) === workflowHash(previous[key as keyof WorkflowTask]));
+}
+
 function reject(code: string, message: string): never { throw new WorkflowError(code, message); }
 const same = (a: unknown, b: unknown) => workflowHash(a) === workflowHash(b);
 const contentKinds = new Set(["blog", "landing", "optimization", "cluster"]);
@@ -31,6 +41,17 @@ function tasksUsingBranch(all: WorkflowStoredRow[], task: WorkflowTask) {
 }
 
 function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
+  const changingExecution = !previous || task.status !== previous.status;
+  if (changingExecution && (task.channel === "product" || task.channel !== "github" && !GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain))) reject("task_scope_excluded", "该站点或产品渠道仅保留历史，不进入SEO执行队列");
+  if (changingExecution && task.kind === "blog" && !GROWTH_BLOG_SITES.some(site => site === task.siteDomain)) reject("blog_scope_excluded", "博客制作仅限 Flatkey 和 ModelFit");
+  if (task.capacityClass === "authorized_hotspot_extra" && previous?.capacityClass !== task.capacityClass && actor !== "human") reject("human_extra_work_required", "额外热点须由真实用户登记授权，不能由采集器扩大常规容量");
+  if (previous && previous.kind !== task.kind) reject("task_kind_immutable", "原任务类型保持不变，研究与制作按依赖关联相应原任务，不转换类型绕过资格");
+  if (previous?.workflowContract === "growth-v1.5") for (const key of ["siteDomain", "keywordId", "keyword", "country", "language", "topicId"] as const) {
+    if (previous[key] != null && previous[key] !== task[key]) reject("growth_target_identity_immutable", "原词、国家语言、站点和话题身份保持不变，不能通过改任务迁移目标");
+  }
+  if (previous?.workflowContract && previous.workflowContract !== task.workflowContract) reject("growth_contract_immutable", "请保留任务执行契约和研究门槛");
+  if (previous?.directionId && previous.directionId !== task.directionId || previous?.experimentId && previous.experimentId !== task.experimentId) reject("direction_identity_immutable", "保留原方向与实验身份，不能省略字段绕过批准范围");
+  if (previous?.problemKey && previous.problemKey !== task.problemKey) reject("problem_identity_immutable", "同一问题须保留稳定身份");
   if (previous?.deletedAt) reject("task_deleted", "该任务已删除。");
   if (task.deletedAt) {
     if (actor !== "human" || !previous) reject("human_task_delete_required", "请登录后删除现有任务。");
@@ -51,6 +72,13 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   if (task.keyword && contentKinds.has(task.kind)) {
     const word = (value: string | null) => value?.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
     if (tasks.some(other => other.id !== task.id && !["published", "verified", "observing"].includes(other.status) && other.weekStart === task.weekStart && other.kind === task.kind && other.siteDomain === task.siteDomain && other.country === task.country && other.language === task.language && other.pageUrl === task.pageUrl && word(other.keyword) === word(task.keyword))) reject("duplicate_content_task", "同周、同页面及国家的相同关键词已有任务；请续跑已有任务");
+  }
+  if (task.problemKey && tasks.some(other => other.id !== task.id && other.problemKey === task.problemKey && other.siteDomain === task.siteDomain && other.country === task.country && other.language === task.language && !["published", "verified", "observing"].includes(other.status))) reject("duplicate_problem_task", "已有跨周原任务处理此问题，请沿原ID续跑");
+  if (task.workflowContract === "growth-v1.5" && contentKinds.has(task.kind) && productionStates.has(task.status)) {
+    const review = task.researchReview;
+    if (!task.keywordId || !task.topicId) reject("growth_target_identity_required", "正式内容任务须关联本站原关键词及真实话题");
+    if (!review || review.country !== task.country || review.language !== task.language || review.keyword !== task.keyword || new Set(review.serpResults).size !== 10 || new Set(review.openedResults).size < 5 || review.openedResults.some(url => !review.serpResults.includes(url)) || review.serpResults.slice(0, 5).some(url => !review.openedResults.includes(url))) reject("growth_research_incomplete", "需保存原词原市场Top10、实际打开前5页及六项质量与E-E-A-T补证");
+    if (Date.parse(review.reviewedAt) > Date.now() + 300_000 || Date.parse(review.duplicateCheckedAt) > Date.now() + 300_000) reject("growth_research_future", "研究与去重证据不能来自未来");
   }
   for (const dependency of task.dependencies) if (!lookup.has(dependency)) reject("dependency_missing", `依赖任务不存在：${dependency}`);
   const visit = (id: string, path: Set<string>) => { if (path.has(id)) reject("dependency_cycle", "任务依赖构成循环"); const next = new Set(path).add(id); for (const dep of lookup.get(id)?.dependencies ?? []) visit(dep, next); };
@@ -93,10 +121,13 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   }
 }
 
-function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[]) {
+function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[], now: Date) {
+  if (!previous && now >= new Date("2026-11-23T00:00:00Z") && (!("cadence" in plan.targets) || plan.targets.cadence !== "growth")) reject("growth_plan_contract_required", "新计划须按完整业务周growth契约核算，历史原计划保持原身份");
   if (previous && previous.weekStart !== plan.weekStart) reject("identity_changed", "计划不能改变所属工作周");
   const tasks = plan.taskIds.map(id => all.find(row => row.kind === "task" && row.record.id === id)?.record as WorkflowTask | undefined);
-  if (tasks.some(task => !task || task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
+  const growth = "cadence" in plan.targets && plan.targets.cadence === "growth";
+  if (tasks.some(task => !task || !growth && task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
+  if (growth) { assertGrowthPlan(plan, previous, all); return; }
   if ("cadence" in plan.targets && plan.targets.cadence === "workdays") {
     const targets = plan.targets;
     const workdayCount = Array.from({ length: 7 }, (_, index) => shiftWorkflowDay(plan.weekStart, index))
@@ -442,6 +473,9 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   if (kind === "task") {
     const task = record as WorkflowTask;
     const oldTask = previous as WorkflowTask | undefined;
+    // The server selects the new contract for new content; clients cannot opt out
+    // by dropping the field. Original persisted records retain their old contract.
+    if (contentKinds.has(task.kind) && (!oldTask && now >= new Date("2026-11-23T00:00:00Z") || oldTask?.workflowContract === "growth-v1.5")) task.workflowContract = "growth-v1.5";
     // Older executors may omit the display-only Chinese brief on progress updates.
     if (!task.brief && oldTask?.brief) task.brief = oldTask.brief;
     if (task.progress?.length || oldTask?.progress?.length) {
@@ -456,7 +490,7 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
     }
     assertTask(task, oldTask, all, actor);
   }
-  if (kind === "plan") assertPlan(record as WorkflowPlan, previous as WorkflowPlan | undefined, all);
+  if (kind === "plan") assertPlan(record as WorkflowPlan, previous as WorkflowPlan | undefined, all, now);
   if (kind === "publication") assertPublication(record as WorkflowPublication, previous as WorkflowPublication | undefined, all);
   if (kind === "optimization") assertOptimization(record as WorkflowOptimization, previous as WorkflowOptimization | undefined, all);
   if (kind === "run" && (previous as WorkflowRun | undefined)?.status === "completed") reject("run_completed", "已完成回执不可回退；修正请增加单独复核记录");

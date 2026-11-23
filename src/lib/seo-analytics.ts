@@ -1,7 +1,7 @@
 import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED, isFlatkeyEntryHost } from "./ga4-host-scope";
 import { z } from "zod";
 import { shiftDay, validRange, type DateRange } from "./seo-date-range";
-import { REGION_CODES, type SeoCountry } from "./seo";
+import { GROWTH_COUNTRIES, type GrowthAnalysisCountry } from "./seo-growth-markets";
 import { CLUSTER_SITES, clusterDomainForProperty, type ClusterDomain } from "./seo-cluster-sites";
 
 const count = z.number().int().nonnegative().safe();
@@ -10,7 +10,7 @@ const base = {
   observedAt: z.iso.datetime(),
   source: z.enum(["google-api", "browser-export"]),
   complete: z.boolean(),
-  country: z.enum(REGION_CODES).optional(),
+  country: z.enum(GROWTH_COUNTRIES).optional(),
 };
 const ga4 = { hostScope: z.literal("production-hosts-v1").optional(), ...base, property: z.literal("541304395"), scope: z.literal("session-organic-search") };
 const sessions = { sessions: count.nullable(), registrations: count.nullable() };
@@ -68,7 +68,7 @@ export const analyticsObservationSchema = z.discriminatedUnion("kind", [
 export type AnalyticsObservation = z.infer<typeof analyticsObservationSchema>;
 export type AnalyticsKind = AnalyticsObservation["kind"];
 export const analyticsKinds: AnalyticsKind[] = ["ga4-site", "gsc-site", "ga4-pages", "gsc-pages", "gsc-page-queries"];
-export const analyticsStorageKind = (kind: AnalyticsKind, country: SeoCountry = "all", site?: ClusterDomain) =>
+export const analyticsStorageKind = (kind: AnalyticsKind, country: GrowthAnalysisCountry = "all", site?: ClusterDomain) =>
   [kind, country === "all" ? null : country, site].filter(Boolean).join(":");
 
 export function rangeDays(range: DateRange) {

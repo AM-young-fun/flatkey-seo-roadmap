@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GROWTH_COUNTRIES, GROWTH_LANGUAGES, GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 
 export const WORKFLOW_SITES = ["flatkey.ai", "jev-llm.com", "mochichatbot.com", "modelfit.cc", "rackrate.org"] as const;
 export const WORKFLOW_CLUSTER_REPOSITORIES = {
@@ -7,9 +8,9 @@ export const WORKFLOW_CLUSTER_REPOSITORIES = {
   "mochichatbot.com": "AM-young-fun/Mochi-ai-chatbot",
   "jev-llm.com": "AM-young-fun/jev-llm",
 } as const;
-export const WORKFLOW_MARKETS = { US: "en", JP: "ja", BR: "pt-BR", ES: "es-ES" } as const;
+export const WORKFLOW_MARKETS = GROWTH_MARKET_LANGUAGES;
 export const WORKFLOW_SITE_LANGUAGES = {
-  "flatkey.ai": ["en", "ja", "pt-BR", "es-ES"],
+  "flatkey.ai": GROWTH_LANGUAGES,
   "jev-llm.com": ["en"],
   "mochichatbot.com": ["en", "ja", "pt-BR", "zh-CN"],
   "modelfit.cc": ["en"],
@@ -18,6 +19,7 @@ export const WORKFLOW_SITE_LANGUAGES = {
 export type WorkflowLanguage = typeof WORKFLOW_SITE_LANGUAGES[keyof typeof WORKFLOW_SITE_LANGUAGES][number];
 export const WORKFLOW_LANGUAGE_LABELS: Record<WorkflowLanguage, string> = {
   en: "英文", ja: "日文", "pt-BR": "巴西葡语", "es-ES": "西班牙文", "zh-CN": "简体中文",
+  fr: "法文", de: "德文", ru: "俄文", vi: "越南文", id: "印尼文",
 };
 export function workflowContentLanguages(domain: string, market: keyof typeof WORKFLOW_MARKETS): readonly WorkflowLanguage[] {
   if (domain === "flatkey.ai") return [WORKFLOW_MARKETS[market]];
@@ -33,8 +35,8 @@ const id = workflowRecordIdSchema;
 const stamp = z.iso.datetime({ offset: true });
 export const workflowWeekSchema = z.iso.date().refine(value => new Date(value + "T00:00:00Z").getUTCDay() === 1, "工作周从周一开始");
 const site = z.enum(WORKFLOW_SITES);
-const country = z.enum(["US", "JP", "BR", "ES"]);
-const language = z.enum(["en", "ja", "pt-BR", "es-ES", "zh-CN"]);
+const country = z.enum(GROWTH_COUNTRIES);
+const language = z.enum(GROWTH_LANGUAGES);
 const httpsUrl = z.url().max(3000).refine(value => { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; }, "需要 HTTPS 地址");
 export const workflowEvidenceSchema = z.object({ label: z.string().trim().min(1).max(300), url: httpsUrl.optional(), artifact: z.string().trim().min(1).max(2000).optional(), observedAt: stamp }).strict()
   .refine(value => Boolean(value.url || value.artifact), "证据需要来源链接或产物路径");
@@ -62,6 +64,19 @@ export const workflowTaskSchema = z.object({
   country: country.nullable(), language: language.nullable(), business: z.enum(["API", "GPU", "CLUSTER"]),
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
   keyword: z.string().trim().min(1).max(300).nullable(), keywordId: z.string().trim().min(1).max(160).nullable().default(null), pageUrl: httpsUrl.nullable(),
+  workflowContract: z.literal("growth-v1.5").optional(),
+  capacityClass: z.enum(["routine", "authorized_hotspot_extra"]).optional(),
+  topicId: id.optional(), directionId: id.optional(), experimentId: id.optional(),
+  problemKey: z.string().trim().min(12).max(500).optional(),
+  researchReview: z.object({
+    country, language, keyword: z.string().trim().min(1).max(300), reviewedAt: stamp,
+    serpResults: z.array(httpsUrl).length(10), openedResults: z.array(httpsUrl).min(5).max(10),
+    duplicateTaskIds: z.array(id).max(500), duplicateCheckedAt: stamp,
+    quality: z.object({ intent: z.string().min(12), keywordsAndAlt: z.string().min(12),
+      experience: z.string().min(12), links: z.string().min(12), behavior: z.string().min(12),
+      algorithmAndManual: z.string().min(12), eeat: z.string().min(12) }).strict(),
+    evidence: evidence.min(1),
+  }).strict().optional(),
   changeScope: z.literal("search_intent").optional(), codeSource: workflowCodeSourceSchema.optional(),
   branchObservation: z.object({ headSha: z.string().regex(/^[a-f0-9]{40}$/), observedAt: stamp }).strict().optional(),
   owner: z.string().trim().min(1).max(200), dueAt: stamp, status: z.enum(WORKFLOW_STATUSES),
@@ -100,6 +115,13 @@ export const workflowPlanSchema = z.object({
   id, weekStart: workflowWeekSchema, status: z.enum(["draft", "scheduled", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
   targets: z.union([
+    z.object({ cadence: z.literal("growth"),
+      executionRange: z.object({ start: z.iso.date(), end: z.iso.date() }).strict(),
+      landing: z.literal(0), clusterLanding: z.number().int().min(0).max(9),
+      apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35),
+      optimizedPages: z.number().int().min(0).max(14),
+      blogLanguages: z.object(Object.fromEntries(GROWTH_LANGUAGES.map(language => [language, z.number().int().min(0).max(35)])) as Record<typeof GROWTH_LANGUAGES[number], z.ZodNumber>).strict(),
+    }).strict(),
     z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
       blogLanguages: z.object({ en: z.literal(14), ja: z.literal(7), "pt-BR": z.literal(7), "es-ES": z.literal(7) }).strict().optional(),
     }).strict().refine(value => value.apiBlogs + value.gpuBlogs === 35, "旧计划源文额度合计35篇"),
@@ -120,7 +142,7 @@ export const workflowPlanSchema = z.object({
         "pt-BR": z.number().int().min(0).max(7), "es-ES": z.number().int().min(0).max(7) }).strict(),
     }).strict(),
   ]),
-  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "clusterLanding", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict()).max(100),
+  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "blogZh", "blogOther", "modelFitBlogs", "clusterLanding", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000), date: z.iso.date().optional(), siteDomain: site.optional() }).strict()).max(100),
   evidence, notes: z.string().max(5000),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) ctx.addIssue({ code: "custom", path: ["taskIds"], message: "计划任务不能重复" });
@@ -309,7 +331,7 @@ export const workflowOptimizationSchema = z.object({
   keyword: z.string().trim().min(1).max(300), status: z.enum(["drafting", "review_pending", "approved", "published", "verified", "observing", "blocked"]),
   objective: z.string().trim().min(1).max(3000), baseline: workflowBaselineSchema,
   changes: z.array(z.object({ id, contentVersion: z.string().min(1).max(200), description: z.string().min(1).max(5000), publicationId: id.nullable(), changedAt: stamp, evidence }).strict()).max(100),
-  observations: z.array(z.object({ windowDays: z.enum(["7", "28", "56"]), checkedAt: stamp, status: z.enum(["observing", "improved", "needs_investigation", "insufficient_data"]), comparableDays: z.number().int().nonnegative(), note: z.string().min(1).max(5000), comparison: workflowOptimizationComparisonSchema.optional(), evidence }).strict()).max(100),
+  observations: z.array(z.object({ windowDays: z.enum(["7", "14", "28", "56"]), checkedAt: stamp, status: z.enum(["observing", "improved", "needs_investigation", "insufficient_data"]), comparableDays: z.number().int().nonnegative(), note: z.string().min(1).max(5000), comparison: workflowOptimizationComparisonSchema.optional(), evidence }).strict()).max(100),
   evidence,
 }).strict().superRefine((value, ctx) => { if (!pageBelongsToSite(value.pageUrl, value.siteDomain)) ctx.addIssue({ code: "custom", message: "页面不属于选定站点" }); if (!workflowContentLanguages(value.siteDomain, value.country).includes(value.language) || value.baseline.country !== value.country) ctx.addIssue({ code: "custom", message: "优化国家、语言和基线不一致" }); });
 export const workflowIssueSchema = z.object({

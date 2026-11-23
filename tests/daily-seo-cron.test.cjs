@@ -29,6 +29,8 @@ mockFile("src/lib/prisma.ts", { prisma: new Proxy({
 mockFile("src/lib/services/source-sync-health.ts", { loadSourceSyncHealth: async () => { checks++; return { dailyCheck: { confirmed: false, lastCompletedAt: null }, sources: [{ sourceId: "api_main" }, { sourceId: "cloud_main" }, { sourceId: "optimization" }] }; } });
 mockFile("src/lib/services/display-snapshots.ts", {syncDisplaySourceVersion:async()=>{}});
 mockFile("src/lib/services/display-views.ts", {refreshDisplayViews:async()=>({rebuilt:0})});
+mockFile("src/lib/services/growth-collection.ts", {runGrowthCollectionCron:async()=>({status:"AWAITING_REVIEWED_MANIFEST",paidRequests:0})});
+mockFile("src/lib/services/growth-discovery.ts", {runGrowthDiscoveryCron:async()=>({status:"AWAITING_REVIEWED_DISCOVERY_MANIFEST",paidRequests:0})});
 const { POST: legacy, GET: legacyGet } = require("../src/app/api/sync/run/route.ts");
 const { GET, POST } = require("../src/app/api/cron/daily-rankings/route.ts");
 const request = token => new Request("https://flatkey.test/api/cron/daily-rankings", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -54,13 +56,13 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
   assert.equal(checks, 0); assert.equal(ledgerReads.length, 0); assert.equal(schedulerReceipts.length, 0);
   t.mock.timers.tick(1000);
   const response = await GET(request("fictional-daily-secret")), body = await response.json();
-  assert.equal(response.status, 200); assert.equal(body.status, "DISABLED"); assert.equal(body.serp.paidRequests, 0);
+  assert.equal(response.status, 200); assert.equal(body.status, "AWAITING_REVIEWED_MANIFEST"); assert.equal(body.serp.paidRequests, 0);
   assert.equal(body.sourceSync.executed, false); assert.equal(body.sourceSync.dailyCheck.confirmed, false);
   assert.equal(body.sourceSync.sources.length, 3); assert.equal(checks, 1); assert.equal(globalThis.fetch.mock.callCount(), 0);
   assert.equal(schedulerReceipts.length, 1); assert.equal(schedulerReceipts[0].status, "COMPLETED");
-  assert.equal(schedulerReceipts[0].paidRequests, 0); assert.equal(schedulerReceipts[0].serpStatus, "DISABLED");
-  assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "config", "run", "run"]);
-  assert.equal(ledgerReads[2][1].where.scope, "SCHEDULED", "the coordinator must not continue the separately authorized sample");
+  assert.equal(schedulerReceipts[0].paidRequests, 0); assert.equal(schedulerReceipts[0].serpStatus, "AWAITING_REVIEWED_MANIFEST");
+  assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "run", "run"]);
+  assert.equal(ledgerReads[1][1].where.scope, "SCHEDULED", "the coordinator must not continue the separately authorized sample");
 });
 test("Vercel only invokes the coordinator from 10:10 Beijing time", () => {
   const config = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));

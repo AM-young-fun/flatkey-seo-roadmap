@@ -68,7 +68,7 @@ test("insufficient balance, emergency stop, and paused schedule all block collec
   liveBalance = 0;
   await assert.rejects(previewCollectionSchedule(), /余额不足/);
   liveBalance = 200; const preview = await previewCollectionSchedule();
-  await assert.rejects(mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken }), /关闭/);
+  await assert.rejects(mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken }), /旧整批执行入口已停用/);
   process.env.DISABLE_EXTERNAL_FETCH = "true";
   await assert.rejects(mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken }), /紧急暂停/);
   assert.equal(paidCalls, 0);
@@ -82,44 +82,26 @@ test("schedule-only quote targets a future slot and cannot authorize a manual pa
   assert.equal(paidCalls, 0);
 });
 
-test("new discoveries exceeding approved cap pause SERP instead of silently raising it", async () => {
-  const preview = await previewCollectionSchedule();
-  await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
-  cohort.targets.push({ keyword: "new model pricing", keywordId: "id-new", siteDomain: "flatkey.ai", marketAssignment: { primaryCountry: "US", language: "en", secondaryMarkets: ["JP", "ES", "BR"].map(country => ({ country, reason: "Independently reviewed market evidence for this exact technical query" })), evidence: "Reviewed four-country technical query research", reviewedAt: "2026-01-01T00:00:00Z" }, targetUrls: ["https://flatkey.ai/models/new"] });
-  await assert.rejects(mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken }), /超过已确认上限/);
-  assert.equal(discoveries, 1); assert.equal(paidCalls, 1, "only discovery, never SERP after price increases"); assert.equal(config.paidEnabled, false);
+test("legacy discovery-and-run token cannot authorize fresh queries after the growth manifest contract", async () => {
+ const preview=await previewCollectionSchedule();await mutateCollectionControl({action:"enableSchedule",previewToken:preview.previewToken});
+ cohort.targets.push({keyword:"new model pricing"});
+ await assert.rejects(mutateCollectionControl({action:"runCycle",previewToken:preview.previewToken}),/旧整批执行入口已停用/);
+ assert.equal(discoveries,0);assert.equal(paidCalls,0);
 });
 test("existing completed period cannot be recollected and callers cannot pick arbitrary budgets or dates", async () => {
   const preview = await previewCollectionSchedule(); await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
   run = { id: "prior", status: "COMPLETED" };
-  assert.equal((await mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken })).finished, true);
+  await assert.rejects(mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken }), /旧整批执行入口已停用/);
   assert.equal(paidCalls, 0);
   for (const input of [{ action: "runCycle", previewToken: preview.previewToken, periodKey: "2026-11-03" }, { action: "enableSchedule", previewToken: preview.previewToken, maxBudget: 900 }, { action: "configure", paidEnabled: true }]) assert.equal(collectionControlSchema.safeParse(input).success, false);
 });
 
-test("a failed balance read can resume only the original verified ledger within its approved budget", async () => {
-  const preview = await previewCollectionSchedule();
-  const approved = verifyDataForSeoPreview(preview.previewToken);
-  await mutateCollectionControl({ action: "enableSchedule", previewToken: preview.previewToken });
-  run = {
-    id: "original-ledger", scope: "SCHEDULED", periodKey: approved.periodKey,
-    status: "UNKNOWN", errorCode: "ACCOUNT_BALANCE_UNVERIFIED",
-    connectionVersion: approved.connectionVersion, configJson: { connectionHash: approved.connectionHash },
-    reservedCostMicros: 24000, actualCostMicros: 12000,
-  };
-  const retry = () => mutateCollectionControl({ action: "runCycle", previewToken: preview.previewToken });
-  ambiguous = 1;
-  await assert.rejects(retry(), /提交结果未核实/);
-  ambiguous = 0; liveBalance = 0;
-  await assert.rejects(retry(), /余额或原预算不足/);
-  liveBalance = 200; planned = 3;
-  await assert.rejects(retry(), /余额或原预算不足/);
-  planned = 2; run.errorCode = "SUBMISSION_OUTCOME_UNKNOWN";
-  await assert.rejects(retry(), /响应不明/);
-  run.errorCode = "ACCOUNT_BALANCE_UNVERIFIED";
-  const resumed = await retry();
-  assert.equal(resumed.runId, "original-ledger");
-  assert.equal(run.status, "RUNNING");
-  assert.equal(run.errorCode, null);
-  assert.equal(paidCalls, 0, "recovery must not create a second ledger or repeat discovery");
+test("legacy unknown-ledger states cannot restart a paid batch without the exact reviewed growth manifest", async()=>{
+ const preview=await previewCollectionSchedule();await mutateCollectionControl({action:"enableSchedule",previewToken:preview.previewToken});
+ for(const errorCode of ["ACCOUNT_BALANCE_UNVERIFIED","SUBMISSION_OUTCOME_UNKNOWN"]){
+  run={id:"original-ledger",status:"UNKNOWN",errorCode};
+  await assert.rejects(mutateCollectionControl({action:"runCycle",previewToken:preview.previewToken}),/旧整批执行入口已停用/);
+  assert.equal(run.status,"UNKNOWN");
+ }
+ assert.equal(paidCalls,0);assert.equal(discoveries,0);
 });

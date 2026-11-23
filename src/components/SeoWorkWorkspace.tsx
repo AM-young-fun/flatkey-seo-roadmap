@@ -1,4 +1,5 @@
 "use client";
+import { GROWTH_COUNTRY_LABELS } from "@/lib/seo-growth-markets";
 
 import { FeedbackButton } from "./FeedbackButton";
 import { ReportLoading } from "./ReportLoading";
@@ -31,7 +32,7 @@ import styles from "./SeoWorkWorkspace.module.css";
 
 const sites = [{ value: "flatkey.ai", label: "Flatkey" }, { value: "jev-llm.com", label: "JEV LLM" }, { value: "mochichatbot.com", label: "MochiChatbot" }, { value: "modelfit.cc", label: "ModelFit" }, { value: "rackrate.org", label: "RackRate" }];
 const languages = [{ value: "en", label: "英语" }, { value: "ja", label: "日语" }, { value: "pt-BR", label: "巴西葡语" }, { value: "es-ES", label: "西班牙语" }];
-const markets = { US: "美国", JP: "日本", BR: "巴西", ES: "西班牙" };
+const markets = GROWTH_COUNTRY_LABELS;
 const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审批", missing_materials: "待补测试材料", approved: "已批准，待发布", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "候选整理中", scheduled: "已自动排期", reviewed: "已排期", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
 const taskKinds: Record<string, string> = { blog: "博客", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", technical: "技术修复", research: "关键词研究", promotion: "推广与内链", review: "复盘" };
 const publicationKinds: Record<string, string> = { source_blog: "源文", translation: "翻译", backfill_translation: "历史补译", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", prompt: "提示词" };
@@ -264,7 +265,7 @@ export function OptimizationHistory({ optimization }: { optimization: WorkflowOp
       <p className={styles.muted}>数据状态：{{ complete: "完整", partial: "部分", missing: "缺失", unverified: "未核实", not_connected: "未接入" }[baseline.dataStatus]}。首次基线保留，后续修改追加版本。</p>
       <dl className={styles.metadata}><div><dt>点击 / 曝光</dt><dd>{numberText(baseline.clicks)} / {numberText(baseline.impressions)}</dd></div><div><dt>CTR / 平均排名</dt><dd>{baseline.ctr == null ? "—" : (baseline.ctr * 100).toFixed(2) + "%"} / {baseline.averagePosition?.toFixed(1) ?? "—"}</dd></div><div><dt>自然访问 / 注册</dt><dd>{numberText(baseline.organicVisits)} / {numberText(baseline.registrations)}</dd></div><div><dt>激活 / 付费</dt><dd>{numberText(baseline.activation)} / {numberText(baseline.payment)}</dd></div></dl><WorkflowEvidence evidence={baseline.evidence} />
       <h4>修改时间线</h4>{optimization.changes.length ? <ol className={styles.timeline}>{optimization.changes.map(change => <li key={change.id}><strong>{displayTime(change.changedAt)} · {change.contentVersion}</strong><p>{change.description}</p><p className={styles.muted}>{change.publicationId ? `关联发布回执：${change.publicationId}` : "尚未关联发布回执，不能计为上线优化"}</p><WorkflowEvidence evidence={change.evidence} /></li>)}</ol> : <p className={styles.muted}>尚无已登记的修改版本。</p>}
-      <h4>7 / 28 / 56 日复盘</h4>{(["7", "28", "56"] as const).map(days => { const observation = optimization.observations.filter(row => row.windowDays === days).sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))[0]; return <div key={days} className={styles.observation}><strong>{days} 日</strong>{observation ? <><WorkflowStatus status={observation.status} /><p>{observation.note}</p><p className={styles.muted}>可比 {observation.comparableDays} 天 · 检查于 {displayTime(observation.checkedAt)}</p>{observation.comparison ? <OptimizationComparison comparison={observation.comparison} /> : <p className={styles.muted}>此历史记录仅有复盘说明，未保存数值对比窗口。</p>}<WorkflowEvidence evidence={observation.evidence} /></> : <p className={styles.muted}>尚无该窗口复盘证据。数据齐全后再判断效果。</p>}</div>; })}
+      <h4>7 / 14 / 28 日复盘（保留历史56日）</h4>{(["7", "14", "28", "56"] as const).map(days => { const observation = optimization.observations.filter(row => row.windowDays === days).sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))[0]; return <div key={days} className={styles.observation}><strong>{days} 日</strong>{observation ? <><WorkflowStatus status={observation.status} /><p>{observation.note}</p><p className={styles.muted}>可比 {observation.comparableDays} 天 · 检查于 {displayTime(observation.checkedAt)}</p>{observation.comparison ? <OptimizationComparison comparison={observation.comparison} /> : <p className={styles.muted}>此历史记录仅有复盘说明，未保存数值对比窗口。</p>}<WorkflowEvidence evidence={observation.evidence} /></> : <p className={styles.muted}>尚无该窗口复盘证据。数据齐全后再判断效果。</p>}</div>; })}
     </div>
   </details>;
 }
