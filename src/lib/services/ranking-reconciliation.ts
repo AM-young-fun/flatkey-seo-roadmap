@@ -13,7 +13,7 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 /** Saved evidence only. This module has no provider client or mutation. */
 export async function loadRankingReconciliation() {
   const now = new Date();
-  const [first, other, metadata, discovery, memberships, inventory, records, scheduled] = await Promise.all([
+  const [first, other, metadata, discovery, memberships, inventory, records] = await Promise.all([
     loadApprovedKeywordReview(), loadApprovedOtherKeywordReview(),
     prisma.serpMonitorRun.findMany({ where: { id: { in: approvedWeeklyCaptureRunIds() } }, select: {
       id: true, scope: true, periodKey: true, cohortHash: true, targetCount: true, queryCount: true,
@@ -28,8 +28,6 @@ export async function loadRankingReconciliation() {
     prisma.siteKeyword.findMany({ where: { siteDomain: "flatkey.ai" }, select: { keywordId: true, active: true, pool: true, targetUrls: true, keyword: { select: { text: true, active: true } } } }),
     prisma.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
     prisma.seoWorkflowRecord.findMany({ where: { kind: { in: ["task", "publication"] } }, select: { kind: true, payload: true } }),
-    prisma.serpMonitorTask.findMany({ where: { run: { scope: "SCHEDULED" }, state: "COMPLETE", checkedAt: { not: null } },
-      select: { keyword: true, region: true, providerTaskId: true, checkedAt: true, normalizedJson: true, requestJson: true } }),
   ]);
   const packet = buildApprovedWeeklyKeywordCapture({ start: "2026-11-19", end: "2026-11-25", asOf: now }, { first, other }, metadata);
   const plan = [...getApprovedKeywordReviewPlan().queries, ...getApprovedOtherKeywordReviewPlan().queries, ...getApprovedOtherKeywordReviewPlan().reused];
@@ -42,6 +40,12 @@ export async function loadRankingReconciliation() {
       captured: Boolean(row?.captureComplete === true && row?.queryStatus === "EXACT" && row?.rankingVerified === true && ["COMPLETE", "INCOMPLETE"].includes(String(row?.state))),
       pages: pages.map(page => ({ keyword: page.keyword, country: page.country, rank: page.rank, url: page.url, checkedAt: page.checkedAt, collectedAt: page.checkedAt, source: "serp" as const })) };
   });
+  // Every approved word already has a newer receipt. Older scheduled payloads
+  // cannot win precedence, so do not download their full organic result arrays.
+  const earliestCurrentCheck = packet?.complete ? checks.map(row => row.checkedAt).filter((value): value is string => Boolean(value)).sort()[0] : undefined;
+  const scheduled = await prisma.serpMonitorTask.findMany({ where: { run: { scope: "SCHEDULED" }, state: "COMPLETE",
+    checkedAt: { not: null, ...(earliestCurrentCheck ? { gt: new Date(earliestCurrentCheck) } : {}) }, keyword: { in: plan.map(row => row.keyword) } },
+    select: { keyword: true, region: true, providerTaskId: true, checkedAt: true, normalizedJson: true, requestJson: true } });
   // Future normal captures supersede a previous approved result by exact word
   // and country, including checked misses. They never revive older positives.
   for (const task of scheduled) {

@@ -28,7 +28,7 @@ export function ReconciledRankings({ site, region }: { site: string; region: str
   const bands=data?.bands.map(band=>({...band,count:ranked.filter(row=>row.rank>=band.min&&row.rank<=band.max).length}))??[], bandShares=shares(bands.map(row=>row.count));
   const unranked=data?.unrankedBuilt.filter(row=>region==="all"||row.country===region)??[];
   return <section className="discoveryPanel visualSerpOverview reconciledRankings" aria-label="已有排名关键词与页面汇总">
-    <div className="panelHeader"><div><h2>已有关键词排名</h2><p className="serpScope">Flatkey · 非品牌词 · 实测与数据库发现去重{region!=="all"?` · ${names[region]}`:""}</p></div><Button onClick={refresh}>刷新已存结果</Button></div>
+    <div className="panelHeader"><div><h2>全站已有关键词排名</h2><p className="serpScope">Flatkey · 非品牌词 · 实测与数据库发现去重{region!=="all"?` · ${names[region]}`:""}</p></div><Button onClick={refresh}>刷新已存结果</Button></div>
     {error?<p className="loadError" role="alert">{error}</p>:!data?<p className="muted">正在对应已有排名和已建页面…</p>:<>
       <div className="overviewVisualGrid">
         <article className="overviewVisualCard"><h3>已发现排名词总数</h3><strong style={{fontSize:48,lineHeight:1.5}}>{total.toLocaleString()}</strong><p className="chartNote">每个关键词只计一次</p><p className="chartNote">已建页：已查未检出 {unranked.filter(row=>row.captured).length.toLocaleString()} 词 · 待补查 {unranked.filter(row=>!row.captured).length.toLocaleString()} 词</p><Button onClick={()=>setDetails(value=>!value)}>{details?"收起关键词与页面":"查看关键词与页面"}</Button></article>

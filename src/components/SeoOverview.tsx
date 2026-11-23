@@ -11,6 +11,7 @@ import { REGIONS } from "@/lib/seo";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
 import { UiSelect } from "./UiSelect";
 import { ModuleSeoReport } from "./ModuleSeoReport";
+import { ReconciledRankings } from "./ReconciledRankings";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
@@ -36,6 +37,7 @@ export function SeoOverview() {
       <div className={styles.scopeHeading}><h1 className={styles.title}>自然搜索总览</h1>
         <UiSelect aria-label="总览页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} />
       </div>
+      <ReconciledRankings site="flatkey.ai" region={country} />
       <div className={styles.trends}>
         <section className={styles.traffic} aria-labelledby="overview-traffic-title">
           <div className={styles.trafficHeading}>
