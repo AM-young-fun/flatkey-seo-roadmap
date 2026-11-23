@@ -11,7 +11,7 @@ Module._load = function(name, ...rest) {
   if (name === "./approved-weekly-keyword-capture") return require.cache[path.join(root, "src/lib/services/approved-weekly-keyword-capture.ts")].exports;
   return originalLoad.call(this, name, ...rest);
 };
-let packet, reads, legacyReads, failure, capturedInput;
+let packet, reads, legacyReads, failure, capturedInput, workspaceReads, providedWorkspace, dailyWorkspace;
 const noWrite = async () => assert.fail("weekly source adaptation must not write, prepare, send, or submit paid queries");
 mock("src/lib/prisma.ts", { prisma: {
   seoAnalyticsDay: { findMany: async () => [], create: noWrite, update: noWrite },
@@ -21,6 +21,11 @@ mock("src/lib/services/approved-weekly-keyword-capture.ts", { loadApprovedWeekly
   reads.push(input); if (failure) throw failure; return packet;
 } });
 mock("src/lib/services/serp-results.ts", { loadSerpTasks: async () => { legacyReads++; return []; } });
+mock("src/lib/services/growth-workspace.ts", { loadGrowthWorkspace: async (_local, asOf) => { workspaceReads.push(asOf.toISOString()); return dailyWorkspace; } });
+mock("src/lib/services/growth-strategy.ts", { loadGrowthReportSnapshot: async (date, _local, asOf, provided) => {
+  providedWorkspace = provided?.workspace;
+  return require("../src/lib/growth-strategy.ts").unavailableGrowthReportSnapshot(require("../src/lib/seo-date-range.ts").weeklyReportRange(date), asOf);
+} });
 for (const [file, name, value] of [
   ["seo-registration-period", "loadRegistrationPeriods", []], ["daily-seo-traffic", "loadDailySeoTrafficHistory", undefined],
   ["daily-seo-page-groups", "loadDailySeoPageGroupsHistory", undefined], ["monthly-page-archive", "loadMonthlyPageArchive", []],
@@ -36,7 +41,8 @@ digest.buildSeoDigest = input => { capturedInput = input; return originalBuild(i
 const { generateSeoDigest } = require("../src/lib/services/seo-digest.ts");
 const now = new Date("2026-11-26T09:00:00Z");
 beforeEach(t => {
-  reads = []; legacyReads = 0; failure = null; capturedInput = null;
+  reads = []; legacyReads = 0; failure = null; capturedInput = null; workspaceReads = []; providedWorkspace = null;
+  dailyWorkspace = { generatedAt: "2026-11-23T07:59:59.999Z", targets: [{ id: "daily-diagnostic", site: "flatkey.ai", keyword: "gpu cloud pricing", country: "US", language: "en", membership: "opportunity", rank: 8, rankUrl: "https://flatkey.ai/blog/gpu-cloud-pricing", rankSource: "serp", checkedAt: "2026-11-23T07:00:00Z", languageStatus: "match", captureState: "ranked", rankEligible: true, observationEligible: true, captureScope: "DIAGNOSTIC" }] };
   packet = { runIds: ["approved-keyword-review-20261123-v1", "approved-other-keyword-review-20261123-v1"],
     sourceHash: "b".repeat(64), complete: true, comparable: false, newQueryCount: 1498, reusedQueryCount: 1, targetCount: 1499,
     capturedKeywords: 1499, rankedKeywords: 200, unresolvedKeywords: 7, verifiedOutsideTop100: 1292,
@@ -72,7 +78,14 @@ test("an unavailable approved source stays missing instead of silently using sta
   assert.doesNotMatch(report.detailText, /1498条新查询|CN16词/);
 });
 
-test("daily collection remains on its existing ranking source and never reads the weekly supplement", async () => {
+test("daily collection shares one complete saved workspace and never reads weekly supplement or the scope-filtered legacy source", async () => {
   const report = await generateSeoDigest("2026-11-23", now, "daily");
-  assert.equal(reads.length, 0); assert.equal(legacyReads, 1); assert.deepEqual(report.rankingNotes, []);
+  assert.equal(reads.length, 0); assert.equal(legacyReads, 0);
+  assert.deepEqual(workspaceReads, ["2026-11-23T07:59:59.999Z"]);
+  assert.equal(providedWorkspace, dailyWorkspace, "ranking notes and growth snapshot must consume the identical daily source projection");
+  assert.deepEqual(capturedInput.rankingNotes, report.rankingNotes);
+  assert.match(report.rankingNotes.join("\n"), /前100有排名 1 个组合/);
+  assert.match(report.rankingNotes.join("\n"), /正式规划有排名 0 个组合，机会及待归类 1 个组合/);
+  assert.match(report.rankingNotes.join("\n"), /https:\/\/flatkey\.ai\/blog\/gpu-cloud-pricing/);
+  assert.doesNotMatch(report.detailText, /1498条新查询|CN16词|flatkey\.ai\/blog\/example/);
 });

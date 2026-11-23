@@ -2,6 +2,7 @@ import { buildSerpKeywordResults, type SerpKeywordResult, type SerpTaskRead } fr
 import { isOwnedBrandKeyword } from "./keyword-market-policy";
 import type { SerpTarget } from "./serp-targets";
 import { serpCaptureBelongsToWeek } from "./serp-periods";
+import type { GrowthTarget, GrowthWorkspace } from "./growth-types";
 
 /** Uses saved, language/device/depth-filtered provider receipts; never starts a paid query. */
 export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: string, asOf?: Date): string[] {
@@ -60,6 +61,47 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
 }
 
 const marketNames = { US: "美国", JP: "日本", ES: "西班牙", BR: "巴西" } as const;
+
+/** Daily capture facts use the same all-membership saved-evidence projection as
+ * growth reports. This includes diagnostic receipts and never queries a provider. */
+export function digestDailyNativeRankingNotes(workspace: GrowthWorkspace, day: string): string[] {
+  const asOf = Date.parse(workspace.generatedAt), format = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(asOf)) return [];
+  const urlFor = (target: GrowthTarget) => {
+    if (!target.rankUrl) return null;
+    try { const url = new URL(target.rankUrl); return url.protocol === "https:" && !url.username && !url.password && !url.port && [target.site, "www." + target.site].includes(url.hostname) ? url.href : null; } catch { return null; }
+  };
+  const keyWord = (word: string) => word.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+  const rows = new Map<string, GrowthTarget>();
+  for (const target of workspace.targets) {
+    const checkedAt = target.checkedAt ? Date.parse(target.checkedAt) : NaN;
+    if (!["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(target.site) || target.rankSource !== "serp" || target.languageStatus !== "match" || !target.country || !target.language || isOwnedBrandKeyword(target.keyword)
+      || !Number.isFinite(checkedAt) || checkedAt > asOf || asOf - checkedAt > 14 * 86400000 || format.format(new Date(checkedAt)) !== day) continue;
+    const ranked = target.rankEligible && target.observationEligible && target.captureState === "ranked" && target.rank !== null && target.rank >= 1 && target.rank <= 100 && urlFor(target);
+    const outside = target.observationEligible && target.captureState === "outside100" && target.rank === null;
+    if (!ranked && !outside) continue;
+    const key = JSON.stringify([target.site, keyWord(target.keyword), target.country, target.language.toLowerCase()]);
+    const previous = rows.get(key);
+    if (!previous || checkedAt > Date.parse(previous.checkedAt!) || checkedAt === Date.parse(previous.checkedAt!) && (target.rank ?? 101) < (previous.rank ?? 101)) rows.set(key, target);
+  }
+  if (!rows.size) return [];
+  const checked = [...rows.values()], ranked = checked.filter(row => row.rank !== null), top50 = ranked.filter(row => row.rank! <= 50);
+  const words = new Set(ranked.map(row => keyWord(row.keyword)));
+  const formal = ranked.filter(row => row.membership === "formal").length;
+  const notes = [`洛杉矶 ${day} 新采集回执：前100有排名 ${ranked.length} 个组合（关键词×站点×国家×语言），去重原词 ${words.size} 个；前50 ${top50.length} 个组合。完整核验 ${checked.length} 个组合，确认前100外 ${checked.length - ranked.length} 个。`];
+  notes.push(`覆盖全部已存合格SERP：正式规划有排名 ${formal} 个组合，机会及待归类 ${ranked.length - formal} 个组合；仅统计本日原词原国家、语种合格的 Google 桌面实测，不混入旧日、数据库或GSC平均位置。`);
+  const names: Record<string, string> = { ...marketNames, SG: "新加坡", CN: "中国", FR: "法国", DE: "德国", RU: "俄罗斯", VN: "越南", ID: "印度尼西亚" };
+  for (const country of [...new Set(checked.map(row => row.country!))].sort()) {
+    const group = ranked.filter(row => row.country === country), all = checked.filter(row => row.country === country);
+    notes.push(`${names[country] ?? country} ${country} · ${[...new Set(all.map(row => row.language))].sort().join("/")}：前100 ${group.length}，前50 ${group.filter(row => row.rank! <= 50).length}，前10 ${group.filter(row => row.rank! <= 10).length}，确认前100外 ${all.length - group.length} 个组合。`);
+  }
+  const examples = [...ranked].sort((a, b) => a.rank! - b.rank! || a.keyword.localeCompare(b.keyword) || a.site.localeCompare(b.site));
+  const selected: GrowthTarget[] = [], countries = new Set<string>();
+  for (const row of examples) if (!countries.has(row.country!)) { selected.push(row); countries.add(row.country!); if (selected.length === 5) break; }
+  for (const row of examples) { if (selected.length >= Math.min(5, examples.length)) break; if (!selected.includes(row)) selected.push(row); }
+  for (const row of selected) notes.push(`[${row.keyword.replace(/[\r\n[\]`*_<>]/g, " ")}](${urlFor(row)!.replace(/\(/g, "%28").replace(/\)/g, "%29")}) · ${row.country}/${row.language} · 第 ${row.rank} 名 · LA ${day}`);
+  return notes;
+}
 
 export function digestDailyRankingNotes(tasks: SerpTaskRead[], now: Date, day?: string): string[] {
   const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: day ? "America/Los_Angeles" : "Asia/Shanghai" });
