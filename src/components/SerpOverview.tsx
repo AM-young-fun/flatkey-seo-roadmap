@@ -2,7 +2,6 @@
 import { Tooltip } from "antd";
 import { REGIONS, type SearchRegionCode } from "@/lib/seo";
 import { useSerpOverviewResults } from "@/components/useSerpOverviewResults";
-import { ReconciledRankings } from "./ReconciledRankings";
 
 const percentage = (value: number | null) => value == null ? "—" : `${value.toFixed(1)}%`;
 
@@ -25,9 +24,6 @@ const MARKET_COLORS: Record<string, string> = { US: "#588bf5", JP: "#8b7bdd", ES
 const MARKET_FLAGS: Record<string, string> = { US: "🇺🇸", JP: "🇯🇵", ES: "🇪🇸", BR: "🇧🇷" };
 
 export function SerpOverview({ site, region = "all" }: { site: string; region?: "all" | SearchRegionCode }) {
-  return <ReconciledRankings site={site} region={region} />;
-}
-export function LegacyTargetSerpOverview({ site, region = "all" }: { site: string; region?: "all" | SearchRegionCode }) {
   const { data: allData, error, loading, refresh } = useSerpOverviewResults(site);
   const country = region === "all" ? null : allData?.regions.find(value=>value.region === region);
   const data = allData && country ? {...allData, latestCompletedAt:country.latestCompletedAt, summary:{...allData.summary,...country.summary,
