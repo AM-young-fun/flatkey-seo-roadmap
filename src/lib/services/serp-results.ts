@@ -61,7 +61,7 @@ export async function loadSerpTasks(region: SearchRegionCode | "all", languageCo
   // One-off approved diagnostics are visible in current keyword details, but
   // never silently enter frozen reports or the scheduled monitoring trend.
   const scope = historical ? Prisma.sql`r.scope IN ('SCHEDULED', 'SAMPLE')`
-    : Prisma.sql`r.scope IN ('SCHEDULED', 'SAMPLE', 'APPROVED_KEYWORD_REVIEW')`;
+    : Prisma.sql`r.scope IN ('SCHEDULED', 'SAMPLE', 'APPROVED_KEYWORD_REVIEW', 'APPROVED_OTHER_KEYWORD_REVIEW')`;
   const market = region === "all" ? Prisma.sql`t.region IN ('US','JP','ES','BR') AND
     COALESCE(t."requestJson"->>'language_code', r."configJson"->>'languageCode') =
       CASE t.region WHEN 'US' THEN 'en' WHEN 'JP' THEN 'ja' WHEN 'ES' THEN 'es' WHEN 'BR' THEN 'pt' END`
@@ -146,7 +146,8 @@ export async function loadSerpResults(site = "all", region: SearchRegionCode = "
   const tasks = existingTasks ?? (cohort.targets.length ? await loadSerpTasks(region, languageCode, device) : []);
   const latest = (scope: SerpRunScope) => [...tasks].filter(task => task.runScope === scope)
     .sort((a,b) => new Date(b.runCreatedAt).getTime()-new Date(a.runCreatedAt).getTime())[0];
-  const scheduled = latest("SCHEDULED"), diagnostic = latest("APPROVED_KEYWORD_REVIEW");
+  const scheduled = latest("SCHEDULED"), diagnostic = [latest("APPROVED_KEYWORD_REVIEW"), latest("APPROVED_OTHER_KEYWORD_REVIEW")]
+    .filter((task): task is SerpTaskRead => Boolean(task)).sort((a, b) => new Date(b.runCreatedAt).getTime() - new Date(a.runCreatedAt).getTime())[0];
   const useDiagnostic = diagnostic && (!scheduled || new Date(diagnostic.runCreatedAt).getTime() > new Date(scheduled.runCreatedAt).getTime());
   // A diagnostic covers only its approved word/country list. Keep each
   // excluded word's actual saved task/date rather than claiming it was part

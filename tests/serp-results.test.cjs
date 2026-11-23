@@ -325,6 +325,7 @@ const db = {
     if (query.sql.includes("serp-monitor:trend-cohorts")) return trendCohortRows ?? [{ runId: "run-one", periodKey: "2026-10-2", cohortJson: cohortRows.map(row => ({ keywordId: row.keywordId, keyword: row.text, siteDomain: row.siteDomain, targetUrls: row.targetUrls })) }];
     if (query.sql.includes("serp-monitor:results")) return taskRows.filter(row =>
       (row.runScope !== "APPROVED_KEYWORD_REVIEW" || query.sql.includes("'APPROVED_KEYWORD_REVIEW'")) &&
+      (row.runScope !== "APPROVED_OTHER_KEYWORD_REVIEW" || query.sql.includes("'APPROVED_OTHER_KEYWORD_REVIEW'")) &&
       (query.sql.includes("t.region IN ('US','JP','ES','BR')") || query.values.includes(row.region ?? "US"))).map(row => ({ region: "US", ...row }));
     if (query.sql.includes("dashboard:keywords")) return cohortRows.filter(row => !query.sql.includes("AND k.id =") || query.values.includes(row.keywordId)).map(row => ({ ...row, id: row.keywordId, type: "MAIN", parentId: null, parentIds: [], topicText: "API", topicTexts: [], origin: "PLANNED", defaultVolume: 0, lastSyncedAt: null }));
     if (query.sql.includes("dashboard:ranks")) return [{ keywordId: "claude", siteDomain: "flatkey.ai", region: "US", source: "dataforseo_labs", rank: 1, rankStatus: "ranked", rankReported: true, captureStatus: "COMPLETE", periodStart: null, periodEnd: null, collectedAt: new Date("2026-10-16T01:00:00Z"), dataUpdatedAt: new Date("2026-10-01T01:00:00Z") }];
@@ -362,6 +363,20 @@ test("approved one-off ranking evidence keeps its diagnostic scope instead of be
   assert.equal(result.periodLabel, "2026-11-23 · 已批准目标词一次性复核");
   assert.equal(result.periodStart, "2026-11-22", "a one-off capture keeps its actual Los Angeles date instead of acquiring a scheduled slot");
   assert.equal(summarizeSerpSampleResults([result]).sampledTargetCount, 0);
+});
+
+test("other-country diagnostics keep their own latest evidence and stay outside historical report reads", async () => {
+  const model = target("other-diagnostic");
+  const saved = task([model], { id: "other-diagnostic", runId: "approved-other-review", runScope: "APPROVED_OTHER_KEYWORD_REVIEW",
+    periodKey: "2026-11-23-approved-other-keyword-review-v1", periodLabel: "其他国家单次补采",
+    periodStart: "2026-11-23T03:00:00Z", periodEnd: "2026-11-23T03:00:00Z", runCreatedAt: "2026-11-23T03:00:00Z",
+    normalizedJson: { completeDepth: true, organicResults: [page(model.targetUrls[0], 3)] } });
+  const [result] = buildSerpKeywordResults([model], [saved]);
+  assert.equal(result.rank, 3); assert.equal(result.runScope, "APPROVED_OTHER_KEYWORD_REVIEW");
+  assert.equal(result.periodStart, "2026-11-22");
+  taskRows = [saved];
+  assert.equal((await loadSerpTasks("US")).length, 1);
+  assert.equal((await loadSerpTasks("US", undefined, "desktop", "2026-11-01", "2026-11-30")).length, 0);
 });
 
 test("a newer approved diagnostic appears in keyword details while excluded words retain their real older result", async () => {
