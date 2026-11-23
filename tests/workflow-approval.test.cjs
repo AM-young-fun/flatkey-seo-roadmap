@@ -185,7 +185,7 @@ test('cluster review follows a verified production receipt and rejection queues 
  assert.deepEqual(workflowSnapshot([...clusterWork(declined),rollbackReceipt],{operational:true},"database",nextWeek).tasks,[]);
 });
 
-test("Monday work queue carries the original scheduled task and approval across the Beijing week boundary", () => {
+test("business work window carries original tasks and approvals across the Monday storage boundary", () => {
   const prior = "2026-11-09", first = "2026-11-16", next = "2026-11-23";
   const before = new Date("2026-11-22T15:59:59Z"), after = new Date("2026-11-22T16:00:00Z");
   const version = "a".repeat(40);
@@ -212,10 +212,10 @@ test("Monday work queue carries the original scheduled task and approval across 
   const rows = [old, done, carry, fresh, candidate, { kind: "approval", record: cite },
     plan(prior, [old.record.id]), plan(first, [done.record.id, carry.record.id]), plan(next, [fresh.record.id])];
   const sunday = workflowSnapshot(rows, { operational: true }, "database", before);
-  assert.deepEqual(sunday.tasks.map(t => t.id), ["carry"]);
+  assert.deepEqual(sunday.tasks.map(t => t.id), ["carry", "fresh"]);
   assert.deepEqual(workflowSnapshot(rows, { operational: true, workList: true }, "database", before).tasks.map(t => t.id), ["carry", "done", "fresh"]);
   assert.deepEqual(workflowSnapshot(rows, { operational: true, workList: true }, "database", after).tasks.map(t => t.id), ["carry", "done", "fresh"]);
-  assert.deepEqual(sunday.workWeek.overdueTaskIds, []);
+  assert.deepEqual(sunday.workWeek.overdueTaskIds, ["carry"]);
   const monday = workflowSnapshot(rows, { operational: true }, "database", after);
   assert.equal(monday.weekStart, next);
   assert.deepEqual(monday.tasks.map(t => t.id), ["carry", "fresh"]);
@@ -241,4 +241,23 @@ test("Monday work queue carries the original scheduled task and approval across 
   }) };
   assert.deepEqual(workflowSnapshot([...rows, shipped], { operational: true }, "database", after).tasks.map(t => t.id), ["fresh"]);
   assert.ok(workflowSnapshot(rows, { allHistory: true }, "database", after).tasks.some(t => t.id === old.record.id));
+});
+
+test("a future approved task visible in the business window cannot release before its exact due time", () => {
+  const version = "c".repeat(40), dueAt = "2026-11-23T10:15:00+08:00";
+  const codeSource = { repository: "solvea-plg/flatkey", branch: "codex/future-page", commitSha: version };
+  const page = { ...task, weekStart: "2026-11-23", dueAt, codeSource, status: "approved",
+    artifactUrl: item().previewUrl, contentVersion: version };
+  const approved = approval({ weekStart: page.weekStart, status: "approved", items: [item({ codeSource, contentVersion: version })],
+    decisions: [decision()] });
+  const rows = [{ kind: "task", record: page }, { kind: "approval", record: approved },
+    { kind: "plan", record: { id: "future-plan", weekStart: page.weekStart, status: "scheduled",
+      version: 1, updatedAt: "2026-11-19T07:00:00Z", taskIds: [page.id] } }];
+  for (const at of ["2026-11-20T02:15:00Z", "2026-11-23T02:14:59Z"]) {
+    const snapshot = workflowSnapshot(rows, { operational: true }, "database", new Date(at));
+    assert.deepEqual(snapshot.tasks.map(row => row.id), [page.id], "future work remains visible for planning");
+    assert.deepEqual(workflowReleaseCandidates(snapshot), [], "visibility never authorizes early release");
+  }
+  const due = workflowSnapshot(rows, { operational: true }, "database", new Date(dueAt));
+  assert.deepEqual(workflowReleaseCandidates(due).map(row => row.taskId), [page.id]);
 });

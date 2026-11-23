@@ -1,5 +1,6 @@
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
-import { isSeoWorkday } from "./seo-workday";
+import { isSeoWorkday, seoCatchUpDate } from "./seo-workday";
+import { seoToday, workWeekDateRange } from "./seo-date-range";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, pageBelongsToSite, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
@@ -473,14 +474,17 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,
   } };
   if (!options.operational) return snapshot;
-  return operationalWorkflowSnapshot(snapshot, all, options.workList === true);
+  return operationalWorkflowSnapshot(snapshot, all, options.workList === true, now);
 }
 
-function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean): WorkflowSnapshot {
-  const { weekStart } = snapshot;
+function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean, now: Date): WorkflowSnapshot {
+  const today = seoToday(now);
+  const range = workWeekDateRange(today);
+  const finalPlanWeek = workflowWeek(new Date(range.end + "T00:00:00+08:00"));
+  const dueDay = (task: WorkflowTask) => seoToday(new Date(task.dueAt));
   const plansByWeek = new Map<string, WorkflowPlan>();
   for (const { kind, record } of all) {
-    if (kind !== "plan" || record.weekStart < FIRST_OPERATIONAL_WEEK || !workList && record.weekStart > weekStart) continue;
+    if (kind !== "plan" || record.weekStart < FIRST_OPERATIONAL_WEEK || !workList && record.weekStart > finalPlanWeek) continue;
     const plan = record as WorkflowPlan;
     const previous = plansByWeek.get(plan.weekStart);
     if (!previous || plan.updatedAt > previous.updatedAt || plan.updatedAt === previous.updatedAt && plan.version > previous.version) {
@@ -517,7 +521,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
         && publication.pageUrl === item.pageUrl && publication.language === item.language))
     .map(item => JSON.stringify([item.taskId, item.contentVersion, approval.siteDomain, item.pageUrl, item.language]))));
   const scheduledTasks = tasks.filter(task => {
-    if (!workList && task.weekStart > weekStart) return false;
+    if (!workList && dueDay(task) > range.end) return false;
     if (task.weekStart < FIRST_OPERATIONAL_WEEK) return ["rackrate.org", "modelfit.cc"].includes(task.siteDomain)
       && !!task.pageUrl && pageBelongsToSite(task.pageUrl, task.siteDomain)
       && legacyPostReviewVersions.has(JSON.stringify([task.id, task.contentVersion, task.siteDomain, task.pageUrl, task.language]));
@@ -527,7 +531,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
   })
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
   const activeTasks = scheduledTasks.filter(task => {
-    if (task.weekStart > weekStart || isCodexTrackedTask(task)) return false;
+    if (dueDay(task) > range.end || isCodexTrackedTask(task)) return false;
     const version = JSON.stringify([task.id, task.contentVersion]);
     return pendingRollbacks.has(task.id) || tasksWithPendingPostReview.has(version) ||
       !["verified", "observing"].includes(task.status) && !verifiedTasks.has(version);
@@ -562,7 +566,11 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     approvals: relevantApprovals,
     publications: originalPublications.filter(row => visibleTaskIds.has(row.taskId)),
     workWeek: {
-      overdueTaskIds: activeTasks.filter(task => task.weekStart < weekStart).map(task => task.id),
+      range,
+      timeZone: "Asia/Shanghai",
+      asOf: now.toISOString(),
+      catchUpDate: seoCatchUpDate(now),
+      overdueTaskIds: activeTasks.filter(task => dueDay(task) < today).map(task => task.id),
       pendingRollbackTaskIds: activeTasks.filter(task => pendingRollbacks.has(task.id)).map(task => task.id),
       reviewOrReleaseTaskIds: [...reviewOrReleaseTaskIds],
       dependencyStatuses: Object.fromEntries(tasks.filter(task => dependencies.has(task.id)).map(task => [task.id, task.status])),

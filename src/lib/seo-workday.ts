@@ -1,33 +1,20 @@
+import { isSeoWorkday } from "../../scripts/lib/seo-workday.cjs";
+export { isSeoWorkday };
+
 const dateFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
+const workdayTimeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
-// State Council General Office notices: 国办发明电〔2025〕7号 and 〔2026〕10号.
-const holidays = [
-  ["2026-01-01", "2026-01-03"],
-  ["2026-02-15", "2026-02-23"],
-  ["2026-04-04", "2026-04-06"],
-  ["2026-05-01", "2026-05-05"],
-  ["2026-06-19", "2026-06-21"],
-  ["2026-09-25", "2026-09-27"],
-  ["2026-10-01", "2026-10-07"],
-  ["2027-01-01", "2027-01-03"],
-  ["2027-02-05", "2027-02-13"],
-  ["2027-04-03", "2027-04-05"],
-  ["2027-05-01", "2027-05-05"],
-  ["2027-06-09", "2027-06-09"],
-  ["2027-09-15", "2027-09-15"],
-  ["2027-10-01", "2027-10-07"],
-];
+/** Return a Beijing calendar date, honoring the same holidays and makeup days as scheduling. */
+export function nextSeoWorkdayDate(now: Date, includeToday = false): string {
+  let day = dateFormat.format(now);
+  const advance = () => { day = new Date(Date.parse(day + "T00:00:00Z") + 86_400_000).toISOString().slice(0, 10); };
+  if (!includeToday) advance();
+  while (!isSeoWorkday(new Date(day + "T00:00:00+08:00"))) advance();
+  return day;
+}
 
-const makeupDays = new Set([
-  "2026-01-04", "2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10",
-  "2027-01-31", "2027-02-14", "2027-05-08", "2027-09-26", "2027-10-09",
-]);
-
-export function isSeoWorkday(now: Date): boolean {
-  const date = dateFormat.format(now);
-  if (makeupDays.has(date)) return true;
-  if (holidays.some(([start, end]) => date >= start && date <= end)) return false;
-
-  const weekday = new Date(date + "T00:00:00Z").getUTCDay();
-  return weekday >= 1 && weekday <= 5;
+/** Work due for follow-up joins today's working window only before its 18:30 close. */
+export function seoCatchUpDate(now: Date): string {
+  if (isSeoWorkday(now) && workdayTimeFormat.format(now) < "18:30") return dateFormat.format(now);
+  return nextSeoWorkdayDate(now);
 }

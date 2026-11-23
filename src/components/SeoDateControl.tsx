@@ -91,12 +91,12 @@ export function SeoDateControl({ value, showComparison = true }: { value: Return
 
 const listPresets = { all: "全部", week: "本周", month: "本月" } as const;
 export const listDateParamKeys = ["range", "rangeStart", "rangeEnd"] as const;
-export function useSeoListDateRange() {
+export function useSeoListDateRange(week: "calendar" | "work" = "calendar") {
   const params = useSearchParams();
   const today = seoToday();
   const choice = params.get("range");
   const preset = choice === "week" || choice === "month" || choice === "custom" ? choice : "all";
-  const range = listDateRange(preset, today, { start: params.get("rangeStart") ?? "", end: params.get("rangeEnd") ?? "" });
+  const range = listDateRange(preset, today, { start: params.get("rangeStart") ?? "", end: params.get("rangeEnd") ?? "" }, week);
   function apply(next: ListDatePreset, custom?: DateRange) {
     const query = new URLSearchParams(location.search);
     listDateParamKeys.forEach(key => query.delete(key));

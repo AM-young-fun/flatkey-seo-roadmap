@@ -329,7 +329,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const title = workViews[view], detailedFilters = !["issues", "runs"].includes(view);
   const [query, setQuery] = useState(params.get("q") ?? ""), [monday] = useState(currentMonday);
   const filter = (key: string, value: string) => { const params = new URLSearchParams(location.search); const defaultValue = isTaskList && key === "status" ? "active" : "all"; if (value === defaultValue) params.delete(key); else params.set(key, value); history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash); dispatchEvent(new PopStateEvent("popstate")); };
-  const time = useSeoListDateRange();
+  const time = useSeoListDateRange(isTaskList ? "work" : "calendar");
   const result = useSeoRead<WorkflowSnapshot>(isTaskList ? "/api/seo/workflow?operational=1&workList=1" : `/api/seo/workflow?week=${encodeURIComponent(week)}`);
   const relatedTaskHistory = useSeoRead<WorkflowSnapshot>(view === "issues" ? "/api/seo/workflow?allHistory=true" : null);
   const data = result.data;
@@ -414,7 +414,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       </section> : null}
       {tab === "tasks" ? <section className={styles.listPanel} aria-labelledby="work-list-title">
         <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2><span className={styles.count}>{taskRows.length} 项</span></div>
-        <p className={styles.muted}>任务排期、日期筛选与执行时间均按北京时间（UTC+8）。</p>
+        <p className={styles.muted}>任务排期、日期筛选与执行时间均按北京时间（UTC+8），工作周为周五至周四。{time.preset === "week" && time.range ? `本周 ${time.range.start} — ${time.range.end}，另含此前未完成的延期任务。` : ""}</p>
         <div className={styles.taskFilters}><UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={workTaskTypes} /><input aria-label="搜索工作任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索关键词、页面、任务或负责人" /><SeoListDateControl value={time} /><UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={taskStatusOptions} /></div>
         {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
           const review = reviews.get(task.id);
@@ -430,7 +430,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           return <Link
           className={styles.taskLink} href={workTaskHref(task, taskFilters)} id={`task-${task.id}`} key={task.id} prefetch={false}>
           <span><strong>{task.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><EditorialTaskTag task={task} /><span>{task.keyword ?? "不适用关键词"} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</span></small>{rollbackPending ? <small>下一步：撤销未通过审核的发布</small> : rowStatus === "failed" || delayed && task.nextAction ? <small className={styles.taskDiagnostic}>{task.failureReason} {task.nextAction ? `下一步：${task.nextAction}` : ""}</small> : null}</span>
-          <span className={styles.taskMeta}>{delayBadge}<TaskStatus status={rowStatus} /><small>{delayed ? "原计划 " : ""}{displayTime(task.dueAt)} · {task.owner}</small></span>
+          <span className={styles.taskMeta}>{delayBadge}<TaskStatus status={rowStatus} /><small>{delayed ? "原计划 " : ""}{displayTime(task.dueAt)} · {task.owner}</small>{delayed && data.workWeek?.catchUpDate ? <small>补齐跟进 {data.workWeek.catchUpDate} 北京时间</small> : null}</span>
           <TaskLinkIndicator />
           </Link>;
         })}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}

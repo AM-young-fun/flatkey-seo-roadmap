@@ -5,17 +5,16 @@ function enabled(job, { event = "workflow_dispatch", result = "success", unified
  const defaults = Object.fromEntries(Object.entries(workflow.on.workflow_dispatch.inputs).map(([name, config]) => [name, config.default]));
  return Boolean(vm.runInNewContext(workflow.jobs[job].if, { always: () => true, github: {ref:"refs/heads/main",event_name:event}, vars:{SEO_SERVER_COLLECTION_ENABLED:"true",SEO_UNIFIED_REPORTING_ENABLED:unified}, needs:{collect:{result}}, inputs:event === "workflow_dispatch" ? {...defaults,...inputs} : {} }));
 }
-test("local collection at 16:00 Beijing starts after the prior Los Angeles day closes", () => {
+test("local collection covers both DST slots with one Los Angeles midnight each day", () => {
  const config = require("../src/lib/data/seo-automation-config.json");
  const local = config.tasks.find(task => task.id === "seo-16-00-ga4-search-console");
  assert.equal(workflow.on.schedule, undefined);
- assert.equal(local.rrule, "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0");
+ assert.equal(local.rrule, "FREQ=DAILY;BYHOUR=15,16;BYMINUTE=0;BYSECOND=0");
  assert.equal(local.status, "ACTIVE");
- for (const [date, hour] of [["2026-11-17", 0], ["2026-07-17", 1]]) {
-  const local = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23", day: "2-digit" });
-  const parts = Object.fromEntries(local.formatToParts(new Date(date + "T08:00:00Z")).map(part => [part.type, part.value]));
-  assert.equal(parts.day, date.slice(-2));
-  assert.equal(Number(parts.hour), hour);
+ for (const date of ["2026-11-17", "2026-07-17"]) {
+  const format = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23", day: "2-digit" });
+  const slots = [7, 8].map(hour => Object.fromEntries(format.formatToParts(new Date(`${date}T0${hour}:00:00Z`)).map(part => [part.type, part.value])));
+  assert.equal(slots.filter(parts => parts.day === date.slice(-2) && Number(parts.hour) === 0).length, 1);
  }
 });
 test("manual notification opt-out uses a boolean defaulting to legacy delivery", () => {
