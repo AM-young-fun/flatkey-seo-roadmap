@@ -11,6 +11,10 @@ export async function GET(request: Request) {
   try {
     await authorizeWorkflow(request);
     const params = new URL(request.url).searchParams;
+    if (params.has("htmlTaskId")) {
+      const { readSavedHtml } = await import("./saved-html");
+      return Response.json(await readSavedHtml(params.get("htmlTaskId")!), { headers: workflowHeaders });
+    }
     const offset = Number(params.get("evidenceOffset") ?? params.get("offset") ?? 0);
     if (!Number.isInteger(offset) || offset < 0 || offset > 1500) return Response.json({ message: "无效分页" }, { status: 400, headers: workflowHeaders });
     const tasks = await prisma.serpMonitorTask.findMany({ where: { runId: { in: approvedWeeklyCaptureRunIds() } },
