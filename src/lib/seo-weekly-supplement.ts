@@ -9,6 +9,7 @@ export const weeklySupplementInput = z.object({
 export type WeeklySupplement = {
   id: string; periodStart: string; periodEnd: string; revision: number; text: string; updatedAt: string | null;
 };
+export type WeeklySupplementRead = { supplement: WeeklySupplement; editable: boolean };
 export function emptyWeeklySupplement(date: string): WeeklySupplement {
   const period = weeklyReportRange(date);
   return { id: `weekly-supplement:${period.start}:${period.end}`, periodStart: period.start, periodEnd: period.end, revision: 0, text: "", updatedAt: null };

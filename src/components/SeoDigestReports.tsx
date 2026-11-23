@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useReportReadyTiming } from "./useReportReadyTiming";
+import type { WeeklySupplementRead } from "@/lib/seo-weekly-supplement";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, RefreshCw } from "lucide-react";
 import { executionViewRoutes, workTaskHref } from "@/lib/seo-workspace-routes";
@@ -383,7 +384,8 @@ export function SeoDigestReports() {
   const selectedDate = date ?? exact?.split(":")[1] ?? (kind === "daily" ? reportDay() : null);
   const query = new URLSearchParams({ kind, saved: "1", archive: "1", ...(selectedDate ? { date: selectedDate } : {}), ...(exact ? { reportId: exact } : {}) });
   if (kind === "daily" && selectedDate === reportDay() && !exact) query.set("currentPreview", "1");
-  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[]; view?: Pick<SeoDigest, "workPlan" | "currentWorkPlan" | "recentPages"> }>("/api/seo/digest?" + query);
+  if (kind === "weekly") query.set("supplement", "1");
+  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[]; weeklySupplement?: WeeklySupplementRead; view?: Pick<SeoDigest, "workPlan" | "currentWorkPlan" | "recentPages"> }>("/api/seo/digest?" + query);
   const report = result.data?.report;
   const [supplementReadyFor, setSupplementReadyFor] = useState<string | null>(null);
   const needsSupplement = kind === "weekly";
@@ -444,7 +446,7 @@ export function SeoDigestReports() {
         </dl>
         <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={view?.recentPages ?? report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} workPlan={view?.workPlan ?? report.workPlan} githubSection={report.githubSection} businessSection={report.businessSection}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} currentWorkPlan={view?.currentWorkPlan ?? report.currentWorkPlan} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} /></>}
-        {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} onReady={setSupplementReadyFor} /> : null}
+        {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}
       </article>}
   </div>;
 }

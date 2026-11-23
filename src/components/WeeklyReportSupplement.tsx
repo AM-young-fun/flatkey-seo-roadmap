@@ -1,21 +1,22 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import type { WeeklySupplement } from "@/lib/seo-weekly-supplement";
+import type { WeeklySupplement, WeeklySupplementRead } from "@/lib/seo-weekly-supplement";
 import styles from "./SeoDigestReports.module.css";
 import controls from "./SeoWorkWorkspace.module.css";
 
-export function WeeklyReportSupplement({ reportId, onReady }: { reportId: string; onReady?: (reportId: string) => void }) {
+export function WeeklyReportSupplement({ reportId, initial, onReady }: { reportId: string; initial?: WeeklySupplementRead; onReady?: (reportId: string) => void }) {
   const fieldId = useId();
-  const [saved, setSaved] = useState<WeeklySupplement | null>(null);
-  const [text, setText] = useState("");
-  const [editable, setEditable] = useState(false);
+  const [saved, setSaved] = useState<WeeklySupplement | null>(initial?.supplement ?? null);
+  const [text, setText] = useState(initial?.supplement.text ?? "");
+  const [editable, setEditable] = useState(initial?.editable ?? false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initial);
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [reload, setReload] = useState(0);
   useEffect(() => {
+    if (initial && reload === 0) { onReady?.(reportId); return; }
     const controller = new AbortController();
     async function load() {
       try {
@@ -30,7 +31,7 @@ export function WeeklyReportSupplement({ reportId, onReady }: { reportId: string
     }
     void load();
     return () => controller.abort();
-  }, [reportId, reload, onReady]);
+  }, [reportId, reload, onReady, initial]);
   async function save() {
     if (!saved || saving || loading) return;
     setSaving(true); setError("");

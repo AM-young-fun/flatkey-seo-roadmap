@@ -16,7 +16,7 @@ const supplement = (revision, text) => ({
 
 // Execute the real TSX handlers with isolated hooks and deferred HTTP responses.
 // The harness inspects rendered controls and requests, not private state slots.
-function editor() {
+function editor(props = {}) {
   const states = [], effects = [], requests = [];
   let hook = 0, tree;
   const pendingEffects = [];
@@ -59,7 +59,7 @@ function editor() {
 
   function render() {
     hook = 0;
-    tree = exports.WeeklyReportSupplement({ reportId });
+    tree = exports.WeeklyReportSupplement({ reportId, ...props });
     while (pendingEffects.length) pendingEffects.shift()();
   }
   function nodes(predicate, node = tree) {
@@ -159,5 +159,32 @@ test('a failed first read can be retried and then edited without leaving loading
     });
     await view.reply(2, { supplement: supplement(1, 'first note after retry') });
     assert.equal(view.status(), '已保存');
+  } finally { view.cleanup(); }
+});
+
+test('bundled initial note is immediately usable without a second GET and preserves save revision and retry behavior', async () => {
+  const view = editor({ initial: { supplement: supplement(3, 'bundled note'), editable: true } });
+  try {
+    assert.equal(view.requests.length, 0);
+    assert.equal(view.input().props.disabled, false);
+    assert.equal(view.input().props.value, 'bundled note');
+    assert.equal(view.status(), '已保存');
+    view.change('updated note'); view.click('保存补充');
+    assert.deepEqual(JSON.parse(view.requests[0].options.body), { reportId, expectedRevision: 3, text: 'updated note' });
+    await view.reply(0, { message: 'conflict' }, 409);
+    view.click('重新读取');
+    assert.equal(view.requests[1].options.method, undefined);
+    await view.reply(1, { supplement: supplement(4, 'newer note'), editable: true });
+    assert.equal(view.input().props.value, 'newer note');
+  } finally { view.cleanup(); }
+});
+
+test('bundled read-only note retains disabled editing', () => {
+  const view = editor({ initial: { supplement: supplement(1, 'read only'), editable: false } });
+  try {
+    assert.equal(view.requests.length, 0);
+    assert.equal(view.input().props.value, 'read only');
+    assert.equal(view.input().props.disabled, true);
+    assert.equal(view.button('保存补充').props.disabled, true);
   } finally { view.cleanup(); }
 });
