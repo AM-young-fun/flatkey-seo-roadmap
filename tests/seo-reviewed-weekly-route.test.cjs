@@ -18,6 +18,11 @@ const text = '**Flatkey SEO 周报｜2026/11/12—11/18**\n\n' + '这是用户�
 const command = { action: 'save_reviewed', kind: 'weekly', date: base.date, baseReportId: base.id, baseReportHash: base.hash,
   reportPeriod: { ...base.reportPeriod }, text, textSha256: hash(text), sourceEvidenceSha256: hash('frozen-manifest'), approvedAt: '2026-11-19T10:25:00.000Z' };
 let saved = new Map(), writes = 0, generated = 0, claims = 0, dynamicReads = 0;
+const refreshedView = {
+  workPlan: { weekStart: '2026-11-23', status: 'reviewed', tasks: [] },
+  currentWorkPlan: { weekStart: '2026-11-16', status: 'scheduled', tasks: [] },
+  recentPages: [{ url: 'https://flatkey.ai/blog/refreshed', title: 'Refreshed month ranking', change: 'optimization' }],
+};
 class DigestError extends Error { constructor(message, status = 409) { super(message); this.status = status; } }
 Module._load = function (name, ...rest) {
   if (name === '@/lib/services/seo-reviewed-digest') return { async saveReviewedSeoDigest(input) {
@@ -28,8 +33,8 @@ Module._load = function (name, ...rest) {
   if (name === '@/lib/services/seo-digest') return { DigestError,
     async generateSeoDigest() { generated++; throw Error('reviewed body must not be regenerated'); },
     async claimDigest() { claims++; throw Error('recording must not claim delivery'); },
-    async loadRecentDigestPages() { dynamicReads++; throw Error('reviewed archive must not enrich'); },
-    async loadDigestWorkPlan() { dynamicReads++; throw Error('reviewed archive must not enrich'); },
+    async loadRecentDigestPages() { dynamicReads++; return refreshedView.recentPages; },
+    async loadDigestWorkPlan(date, kind) { dynamicReads++; return kind === 'weekly' ? refreshedView.workPlan : refreshedView.currentWorkPlan; },
   };
   if (name === '@/lib/prisma') return { prisma: {
     seoReportVersion: {
@@ -61,18 +66,32 @@ test('save_reviewed uses the unchanged server-token authorization and rejects br
   assert.equal(writes, 0);
 });
 
-test('save/read/archive return the exact reviewed snapshot without preparing, claiming, sending or refreshing sources', async () => {
+test('latest archive refreshes a read-only view while explicit IDs retain the exact reviewed snapshot', async () => {
   saved = new Map(); writes = 0; generated = 0; claims = 0; dynamicReads = 0;
   const response = await route.POST(request(command));
   assert.equal(response.status, 200);
   const { report } = await response.json();
   assert.equal(report.text, text); assert.equal(report.hash, command.textSha256);
+  const frozen = JSON.stringify(report);
   const reread = await route.POST(request({ action: 'read_saved', reportId: report.id }));
   assert.equal(reread.status, 200); assert.deepEqual((await reread.json()).report, report);
-  for (const query of ['?kind=weekly&saved=1&archive=1', '?kind=weekly&date=2026-11-19&saved=1&reportId=' + encodeURIComponent(report.id)]) {
+  const latest = await route.GET(new Request(origin + '?kind=weekly&saved=1&archive=1', { headers: { authorization: 'Bearer fixture' } }));
+  assert.equal(latest.status, 200);
+  const latestPayload = await latest.json();
+  assert.deepEqual(latestPayload.report, report);
+  assert.deepEqual(latestPayload.view, refreshedView);
+  assert.equal(dynamicReads, 3);
+  for (const query of [
+    '?kind=weekly&date=2026-11-19&saved=1&reportId=' + encodeURIComponent(report.id),
+    '?kind=weekly&date=2026-11-19&saved=1&archive=1&reportId=' + encodeURIComponent(report.id),
+  ]) {
     const archive = await route.GET(new Request(origin + query, { headers: { authorization: 'Bearer fixture' } }));
     assert.equal(archive.status, 200);
-    assert.deepEqual((await archive.json()).report, report);
+    const payload = await archive.json();
+    assert.deepEqual(payload.report, report);
+    assert.equal(payload.view, undefined);
+    assert.equal(dynamicReads, 3);
   }
-  assert.equal(writes, 1); assert.equal(generated, 0); assert.equal(claims, 0); assert.equal(dynamicReads, 0);
+  assert.equal(JSON.stringify(saved.get(report.id).payload), frozen);
+  assert.equal(writes, 1); assert.equal(generated, 0); assert.equal(claims, 0);
 });

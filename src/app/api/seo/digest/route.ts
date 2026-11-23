@@ -28,6 +28,18 @@ import { saveDailyDashboardSeoDigest } from "@/lib/services/seo-daily-dashboard"
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
+async function reportView(date: string, kind: "daily" | "weekly") {
+  const [workPlan, currentWorkPlan, recentPages] = await Promise.allSettled([
+    loadDigestWorkPlan(date, kind),
+    kind === "weekly" ? loadDigestWorkPlan(date, "daily") : Promise.resolve(undefined),
+    loadRecentDigestPages(date, kind),
+  ]);
+  return {
+    ...(workPlan.status === "fulfilled" && workPlan.value ? { workPlan: workPlan.value } : {}),
+    ...(currentWorkPlan.status === "fulfilled" && currentWorkPlan.value ? { currentWorkPlan: currentWorkPlan.value } : {}),
+    ...(recentPages.status === "fulfilled" ? { recentPages: recentPages.value } : {}),
+  };
+}
 const mutation = z.discriminatedUnion("action", [
   reviewedDigestCommandSchema,
   draftDigestCommandSchema,
@@ -69,8 +81,9 @@ export async function GET(request: Request) {
           if (error.code === "ENOENT") return null;
           throw error;
         }) : null;
-        const report = saved ? JSON.parse(saved).report : null;
-        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates }, { headers });
+        const local = saved ? JSON.parse(saved) : null;
+        const report = local?.report;
+        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates, ...(!explicitId && local?.view ? { view: local.view } : {}) }, { headers });
       }
       const scope = { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", payload: { path: ["kind"], equals: kind } };
       const dates = archive ? (await prisma.seoReportVersion.groupBy({
@@ -92,6 +105,9 @@ export async function GET(request: Request) {
         select: { payload: true },
       });
       const report = saved?.payload as unknown as SeoDigest | undefined;
+      // Latest details may show current task status and the month ranking. The saved
+      // report body, ID and hash stay intact; explicit reportId never gets live data.
+      const view = archive && report && !explicitId ? await reportView(selected, kind) : undefined;
       const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
       if (currentDaily && !report?.dashboard) {
         const fresh = await generateSeoDigest(selected).catch(() => null);
@@ -116,9 +132,9 @@ export async function GET(request: Request) {
         const githubSection = github.length ? githubDigestLines(github, trafficStart, trafficEnd, kind === "weekly", new Date()) : undefined;
         const businessSection = kind === "weekly" && observations.some(row => row.start === trafficStart && row.country === "all" && row.hostScope === GA4_HOST_SCOPE && row.rows.length)
           ? weeklyBusinessDigestLines(observations, trafficStart, trafficEnd) : undefined;
-        return Response.json({ report: registrationCorrection({ ...report, flatkeyRegistrations, accountRegistrations, recentPages, workPlan, githubSection, businessSection }, registrationPeriods), dates }, { headers });
+        return Response.json({ report: registrationCorrection({ ...report, flatkeyRegistrations, accountRegistrations, recentPages, workPlan, githubSection, businessSection }, registrationPeriods), dates, view }, { headers });
       }
-      return Response.json({ report: report ?? null, dates }, { headers });
+      return Response.json({ report: report ?? null, dates, view }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }
