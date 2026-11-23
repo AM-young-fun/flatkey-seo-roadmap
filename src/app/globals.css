@@ -2082,6 +2082,11 @@ a:focus-visible {
 .countryBarLabel > div { display:grid; gap:4px; }
 .countryBarLabel strong { font-size:11px; color:#526b8a; font-weight:500; }
 .countryBarLabel small { font-size:10px; color:#99a6b8; }
+.reconciledRankings .overviewVisualGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.reconciledRankings .countryBarRow { grid-template-columns:90px minmax(100px,1fr); }
+.reconciledRankings .countryBarLabel strong,.reconciledRankings .countryBarValue strong { font-size:14px; }
+.reconciledRankings .countryBarLabel small { font-size:12px; }
+@media(max-width:900px) { .reconciledRankings .overviewVisualGrid { grid-template-columns:1fr; } }
 .countryBarValue { display:flex; align-items:center; gap:9px; }
 .countryBarTrack { flex:1; height:8px; background:#edf1f7; border-radius:4px; overflow:hidden; }
 .countryBarTrack i { display:block; height:100%; border-radius:4px; }
