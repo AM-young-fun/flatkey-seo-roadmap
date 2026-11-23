@@ -247,6 +247,13 @@ DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'WeeklyTr
 
 INSERT INTO "SeoSite" ("domain", "name", "ga4PropertyId") VALUES
  ('flatkey.ai', 'Flatkey', NULL), ('rackrate.org', 'RackRate', '558899190'), ('modelfit.cc', 'ModelFit', '558978062') ON CONFLICT ("domain") DO NOTHING;
+
+-- Verified read-only RougeCue source configuration; no Google configuration,
+-- content/keyword goals, existing nonempty property, or traffic rows are changed.
+INSERT INTO "SeoSite" ("domain", "name", "ga4PropertyId")
+VALUES ('rougecue.org', 'RougeCue', '565596386')
+ON CONFLICT ("domain") DO UPDATE SET "ga4PropertyId" = EXCLUDED."ga4PropertyId"
+WHERE "SeoSite"."ga4PropertyId" IS NULL;
 INSERT INTO "SiteTopic" ("siteDomain", "topicId") SELECT 'flatkey.ai', "id" FROM "Topic" WHERE (SELECT "initializedAt" IS NULL FROM "SeoSite" WHERE "domain" = 'flatkey.ai') ON CONFLICT DO NOTHING;
 INSERT INTO "SiteKeyword" ("siteDomain", "keywordId", "topicId") SELECT 'flatkey.ai', "id", "topicId" FROM "Keyword" WHERE (SELECT "initializedAt" IS NULL FROM "SeoSite" WHERE "domain" = 'flatkey.ai') ON CONFLICT DO NOTHING;
 UPDATE "KeywordObservation" SET "siteDomain" = 'flatkey.ai', "rankStatus" = CASE WHEN "rank" <= 100 THEN 'ranked' WHEN "rank" > 100 THEN 'outside_top100' ELSE 'no_data' END WHERE "siteDomain" IS NULL;

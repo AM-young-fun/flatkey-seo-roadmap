@@ -943,6 +943,7 @@ const headersPath = require.resolve("next/headers");
 require.cache[headersPath] = { id: headersPath, filename: headersPath, loaded: true, exports: { cookies: async () => ({ get: () => sessionToken ? { value: sessionToken } : undefined }) } };
 const { GET: statusRoute, POST: mutateRoute } = require("../src/app/api/serp-monitor/route.ts");
 
+mockFile("src/lib/services/growth-discovery.ts", { runGrowthDiscoveryCron: async () => ({ status: "AWAITING_REVIEWED_DISCOVERY_MANIFEST", paidRequests: 0 }) });
 const { GET: cronRoute } = require("../src/app/api/cron/daily-rankings/route.ts");
 const { getAuthToken } = require("../src/lib/auth.ts");
 test("management routes require a logged-in session and only accept disabled setup; cron always requires a secret", async t => {

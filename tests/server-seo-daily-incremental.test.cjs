@@ -6,9 +6,10 @@ const dates=range=>Array.from({length:(Date.parse(range.end)-Date.parse(range.st
 const cluster={domain:"rackrate.org",ga4:"558899190",gsc:"https://rackrate.org/",ga4TimeZone:"Asia/Shanghai"};
 const stamp="2026-11-11T02:30:00.000Z";
 async function exercise(options={}){
+ const fixtureSite=options.site??cluster;
  const requests=[],google=[],logs=[],snapshots=[],store=new Map(),readbacks=[],posted=[],receipts=[];
  let active=0,maximum=0,failedPost=false,failedRead=false,failedQuery=false;
- const kindFor=r=>[r.kind,r.country,r.property===cluster.ga4||r.property===cluster.gsc?cluster.domain:null].filter(Boolean).join(":");
+ const kindFor=r=>[r.kind,r.country,r.property===fixtureSite.ga4||r.property===fixtureSite.gsc?fixtureSite.domain:null].filter(Boolean).join(":");
  const key=r=>kindFor(r)+":"+r.date;
  const old={kind:"ga4-site",property:"541304395",source:"google-api",scope:"session-organic-search",date:"2025-01-01",observedAt:stamp,complete:true,sessions:99,registrations:3};
  store.set(key(old),old);
@@ -19,17 +20,20 @@ async function exercise(options={}){
  }
  const context=vm.createContext({
   process:{env:{SEO_IMPORT_TOKEN:"test",SEO_GOOGLE_SERVICE_ACCOUNT_JSON:"test",SEO_COLLECTION_RESULT:"ignored",...(options.window!==undefined?{SEO_COLLECTION_LOOKBACK_DAYS:options.window}:{})}},
-  fs:{writeFileSync:(_file,value)=>snapshots.push(JSON.parse(value))},CLUSTER_SITES:[cluster],
+  fs:{writeFileSync:(_file,value)=>snapshots.push(JSON.parse(value))},CLUSTER_SITES:[fixtureSite],
   collectionStartedAt:stamp,receiptAttempted:false,
   saveCollectionReceipt:async input=>receipts.push(collectionReceipt({...input,runId:"123",attempt:"1",sha:"a".repeat(40)})),
   seoToday:()=>"2026-11-11",collectionDateRange:(days,_now,timezone)=>{const end=timezone==="Asia/Shanghai"?"2026-11-10":"2026-11-09";return {start:shift(end,1-days),end}},shiftDay:shift,
   analyticsObservationSchema:{parse:x=>x},analyticsStorageKind:(kind,country,site)=>[kind,country,site].filter(Boolean).join(":"),
-  clusterDomainForProperty:p=>p===cluster.ga4||p===cluster.gsc?cluster.domain:undefined,
+  clusterDomainForProperty:p=>p===fixtureSite.ga4||p===fixtureSite.gsc?fixtureSite.domain:undefined,
   fetchGa4Organic:async(range,country)=>main(range,country),
-  fetchGa4SiteSessions:async(range,_property,_timezone,country)=>{google.push({source:"GA4",site:cluster.domain,country:country??"all",range:{...range}});return{fetchedAt:stamp,quality:{complete:true,reasons:[]},daily:options.clusterEmpty?[]:dates(range).map(date=>({date,sessions:options.clusterZeros?0:1}))}},
-  fetchGa4SitePages:async range=>({fetchedAt:stamp,quality:{complete:true,reasons:[]},pages:options.clusterZeros?[]:dates(range).map(date=>({date,hostname:cluster.domain,path:"/gpu",sessions:1,registrations:null}))}),
+  weeklyReportRange:()=>({start:"2026-10-29",end:"2026-11-04"}),
+  fetchGa4ExactOrganicWeek:async()=>{throw Error("unexpected live exact-week read")},
+  collectGrowthWeeklyTraffic:async()=>({complete:true,results:[],paidRequests:0}),
+  fetchGa4SiteSessions:async(range,_property,_timezone,country)=>{google.push({source:"GA4",site:fixtureSite.domain,country:country??"all",range:{...range}});return{fetchedAt:stamp,quality:{complete:true,reasons:[]},daily:options.clusterEmpty?[]:dates(range).map(date=>({date,sessions:options.clusterZeros?0:1}))}},
+  fetchGa4SitePages:async range=>({fetchedAt:stamp,quality:{complete:true,reasons:[]},pages:options.clusterZeros?[]:dates(range).map(date=>({date,hostname:fixtureSite.domain,path:"/gpu",sessions:1,registrations:null}))}),
   fetchGscDateCoverage:async(start,end,o)=>{google.push({source:"GSC",site:o.property,country:o.country??"all",range:{start,end}});return options.gscDays?Object.fromEntries(dates({start,end}).slice(-options.gscDays).map(date=>[date,{clicks:1,impressions:2,position:3}])):{}},
-  fetchGscDailyPages:async(date,o)=>{if(!options.gscDays)throw Error("unexpected GSC page query");return{state:"final",fetchedAt:stamp,pages:[{url:(o.property===cluster.gsc?"https://rackrate.org":"https://flatkey.ai")+"/page",clicks:1,impressions:2,position:3}]}},
+  fetchGscDailyPages:async(date,o)=>{if(!options.gscDays)throw Error("unexpected GSC page query");return{state:"final",fetchedAt:stamp,pages:[{url:(o.property===fixtureSite.gsc?"https://rackrate.org":"https://flatkey.ai")+"/page",clicks:1,impressions:2,position:3}]}},
   fetchGscDailyPageQueries:async(_date,o)=>{if(!options.gscDays)throw Error("unexpected GSC keyword query");if(options.failQuery&&!failedQuery){failedQuery=true;throw Object.assign(new Error("query transport failure"),{code:"unavailable"})}return{property:o.property,observedAt:stamp,complete:true,rows:[]}},
   fetch:async(address,init)=>{
    const url=new URL(address),kind=url.searchParams.get("kind"),start=url.searchParams.get("start"),end=url.searchParams.get("end");
@@ -121,3 +125,16 @@ test("a GSC query failure drains all started site/page/query readbacks and conti
  assert.ok(r.posted.some(x=>x.kind==="gsc-page-queries"&&x.property==="sc-domain:flatkey.ai"&&!x.country));
 });
 
+
+test("RougeCue collection uses its verified LA property and skips unverified GSC without filling empty traffic or events",async()=>{
+ const rouge={domain:"rougecue.org",ga4:"565596386",gsc:null,ga4TimeZone:"America/Los_Angeles"};
+ const empty=await exercise({site:rouge,clusterEmpty:true});
+ assert.equal(empty.error,undefined);assert.equal(empty.posted.filter(row=>row.property===rouge.ga4).length,0);
+ assert.ok(empty.google.some(row=>row.source==="GA4"&&row.site===rouge.domain&&row.range.end==="2026-11-09"));
+ assert.ok(!empty.google.some(row=>row.source==="GSC"&&(!row.site||String(row.site).includes("rougecue"))));
+ assert.equal(empty.logs.filter(row=>row.site===rouge.domain&&row.source==="GSC"&&row.reason==="source_property_unverified").length,5);
+ const ready=await exercise({site:rouge});
+ const sessions=ready.posted.filter(row=>row.property===rouge.ga4&&row.kind==="ga4-site");
+ assert.equal(sessions.length,70);assert.ok(sessions.every(row=>row.registrations===null&&row.complete===false));
+ assert.ok(ready.readbacks.some(key=>key.startsWith("ga4-site:rougecue.org:")));assert.equal(ready.active,0);
+});

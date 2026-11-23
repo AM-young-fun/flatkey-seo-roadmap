@@ -848,14 +848,14 @@ export function buildSeoDigest(input: DigestInput) {
       if (qa.nextAction) lines.push("• 下一步 · " + escaped(qa.nextAction));
     }
   }
-  lines.push("", "五站自然搜索");
+  lines.push("", "各站自然搜索");
   for (const site of SEO_SITES) {
     lines.push(`• ${site}：自然会话 ${metricText(comparableMetric(input.observations, site, "sessions", input.date, "all", window.kind))}`);
     lines.push(`  Google 点击 ${metricText(comparableMetric(input.observations, site, "clicks", input.date, "all", window.kind))}；曝光 ${metricText(comparableMetric(input.observations, site, "impressions", input.date, "all", window.kind))}`);
   }
   for (const ranking of window.kind === "daily" ? pagePerformance : []) {
     const metric = ranking.source === "GSC" ? "Google 点击" : "自然搜索访问（会话）";
-    lines.push("", `${metric} · 分模块 Top 3（${ranking.date ?? "日期待更新"}；覆盖 ${ranking.coveredSites.length}/5 站）`);
+    lines.push("", `${metric} · 分模块 Top 3（${ranking.date ?? "日期待更新"}；覆盖 ${ranking.coveredSites.length}/${SEO_SITES.length} 站）`);
     lines.push(escaped(ranking.selectionReason) + "。");
     if (!ranking.date) lines.push("• 暂无完整的已结束日数据，未把缺失当作0。");
     else if (!ranking.pages.length) lines.push("• 该数据日已采集范围内没有大于0的页面记录。");

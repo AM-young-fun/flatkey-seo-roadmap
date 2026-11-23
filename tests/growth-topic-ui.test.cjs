@@ -89,3 +89,8 @@ test("planned URL is not presented as published and task link uses its original 
   assert.doesNotMatch(html, /href="https:\/\/flatkey.ai\/planned"|页面分析与效果/);
   assert.match(html, /href="\/work\/original-task"/);
 });
+test("unassigned formal identity shows the existing original-country observation without claiming unqueried or a formal rank", () => {
+  const targets=[target("unassigned",{country:null,language:null,wordLanguage:"en",rankEligible:false,rank:null,rankUrl:null,rankSource:null,checkedAt:null,languageStatus:"unknown",languageReason:"目标国家待核，诊断不授长期主国",captureState:"unqueried",relatedObservations:[{country:"US",language:"en",rank:6,url:"https://flatkey.ai/blog/32b-70b-model-vram-guide",source:"serp",checkedAt:"2026-11-23T03:24:56Z",languageStatus:"match"}]})];
+  const html=renderToStaticMarkup(React.createElement(GrowthTargetTable,{data:data(targets),scope:defaultGrowthScope,targets}));
+  assert.match(html,/目标身份待核/);assert.match(html,/当次查询环境/);assert.match(html,/US.*第.*6.*名/);assert.match(html,/未授长期主国，不计正式抢占/);assert.doesNotMatch(html,/尚未查询|暂无排名证据/);assert.equal(growthCounts(targets).ranked,0);
+});

@@ -74,6 +74,7 @@ export function growthRankKind(target: GrowthTarget): string {
 }
 
 export function growthRankText(target: GrowthTarget): string {
+  if (!target.country || !target.language) return "目标身份待核";
   if (target.rankEligible && target.rank != null) return `第 ${target.rank} 名`;
   if (target.languageStatus === "mismatch") return "语言不匹配";
   if (target.rank != null) return `${target.rankSource === "gsc" ? "GSC均位" : "已有观察"} ${target.rank} · 待核定`;

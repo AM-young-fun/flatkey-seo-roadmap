@@ -23,14 +23,16 @@ const ga4Property = z.union([ga4.property, clusterGa4Property]);
 const hostname = z.string().trim().toLowerCase().regex(/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i);
 const ownedDomains = ["flatkey.ai", ...CLUSTER_SITES.map(site => site.domain)];
 export function analyticsSiteForProperty(property: string) { return clusterDomainForProperty(property) ?? (property === "541304395" || gscProperty.safeParse(property).success ? "flatkey.ai" : null); }
-const belongsToSite = (hostname: string, site: string) => hostname === site || hostname.endsWith(`.${site}`);
+const belongsToSite = (hostname: string, site: string) => site === "rougecue.org"
+  ? hostname === site || hostname === `www.${site}`
+  : hostname === site || hostname.endsWith(`.${site}`);
 const gscPage = z.string().url().max(2048).refine(value => {
   try {
     const url = new URL(value);
     return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.port
       && ownedDomains.some(site => belongsToSite(url.hostname, site));
   } catch { return false; }
-}, "页面必须属于五站已登记属性");
+}, "页面必须属于已登记站点属性");
 export const analyticsObservationSchema = z.discriminatedUnion("kind", [
   z.object({ ...ga4, ...sessions, registrationMetric: z.enum(["sign_up_success", "sign_up_or_legacy_distinct_users"]).optional(), registrationEvidence: z.enum(["reported_daily_row", "missing_daily_row"]).optional(), property: z.union([ga4.property, clusterGa4Property]), kind: z.literal("ga4-site") }).strict(),
   z.object({ ...base, ...gscMetrics, kind: z.literal("gsc-site"), property: anyGscProperty }).strict(),

@@ -36,9 +36,10 @@ const placeholder = isGrowthTopicPlaceholder;
 
 export type GrowthLanguageReview = { keyword: string; country: string; classification: string; evidence?: unknown[] };
 /** Locale is a request setting, not word-language evidence. Neutral model names remain unknown. */
-export function reviewGrowthLanguage(keyword: string, country: string | null, language: string | null, reviews: GrowthLanguageReview[] = languageReview.rows): { status: GrowthLanguageStatus; reason: string } {
-  if (!country || !language || !expectedLanguage(country)) return { status: "unknown", reason: "原市场或原词语种尚未核实" };
+export function reviewGrowthLanguage(keyword: string, country: string | null, language: string | null, reviews: GrowthLanguageReview[] = languageReview.rows, wordProof?: GrowthWordLanguageEvidence): { status: GrowthLanguageStatus; reason: string } {
+  if (!country || !language || !expectedLanguage(country)) return { status: "unknown", reason: wordProof ? `原词语种已有 ${wordProof.language} 证据；长期目标国家/语言尚待核定，诊断查询不授主国` : "原市场或原词语种尚未核实" };
   if (expectedLanguage(country) !== language) return { status: "mismatch", reason: "原市场与登记语言不匹配；未更换国家" };
+  if (wordProof && growthWordKey(wordProof.keyword) === growthWordKey(keyword)) return wordProof.language === language ? { status: "match", reason: `原诊断提案的明确原词语种证据；未据查询国家分配主国（${wordProof.source}）` } : { status: "mismatch", reason: `原词语种证据为 ${wordProof.language}，与当前市场语言不同；未迁移市场` };
   const existing = reviews.find(row => row.country === country && growthWordKey(row.keyword) === growthWordKey(keyword));
   if (existing?.classification === "CLEAR_MATCH") return { status: "match", reason: "已有原词语言逐词复核证据" };
   if (existing && /MISMATCH|WRONG|OTHER_LANGUAGE/.test(existing.classification)) return { status: "mismatch", reason: "已有原词语言复核判为不匹配" };
@@ -64,10 +65,23 @@ export function reviewGrowthLanguage(keyword: string, country: string | null, la
 export type GrowthTopicInput = { id: string; text: string; active: boolean; parentId?: string | null; parentIds?: string[]; sites: string[] };
 export type GrowthMembershipInput = { site: string; keywordId: string; keyword: string; active: boolean; keywordActive: boolean; topicId: string | null; topicIds?: string[]; pool: string; origin: string; targetUrls: string[]; mappingStatus?: string; sourceUrl?: string | null; marketAssignment?: unknown };
 export type GrowthTaskInput = { id: string; siteDomain: string; keyword?: string | null; keywordId?: string | null; country?: string | null; language?: string | null; pageUrl?: string | null; status: string; deletedAt?: string; channel?: string; kind?: string };
-export type GrowthPublicationInput = { taskId: string; siteDomain?: string; pageUrl: string; status: string; publishedAt?: string | null; language?: string };
+export type GrowthPublicationInput = { id?: string; taskId: string; siteDomain?: string; pageUrl: string; status: string; publishedAt?: string | null; country?: string | null; language?: string; keyword?: string | null; kind?: string };
+export type GrowthPlanInput = { id: string; status: string; taskIds: string[] };
+export type GrowthWordLanguageEvidence = { site: string; keywordId: string; keyword: string; language: string; source: string; evidence: {text:string;start:number;end:number}[] };
 export type GrowthRankEvidence = { site: string; keywordId?: string | null; keyword: string; country: string; language: string | null; rank: number | null; url: string | null; source: "serp" | "database" | "gsc"; checkedAt: string | null; exact: boolean; complete: boolean; captureState?: "ranked" | "outside100" | "incomplete" | "failed"; evidenceId?: string;
   period?: { id: string; periodKey?: string; label: string; scope: string; cohortHash: string | null; originalTargetCount: number | null; originalQueryCount: number | null } };
-export type GrowthWorkspaceInput = { generatedAt: string; topics: GrowthTopicInput[]; memberships: GrowthMembershipInput[]; tasks: GrowthTaskInput[]; publications: GrowthPublicationInput[]; inventory: { url: string; lastSeen: string }[]; ranks: GrowthRankEvidence[]; sources?: GrowthWorkspace["reconciliation"]["sources"]; languageReviews?: GrowthLanguageReview[] };
+export type GrowthWorkspaceInput = { generatedAt: string; topics: GrowthTopicInput[]; memberships: GrowthMembershipInput[]; tasks: GrowthTaskInput[]; publications: GrowthPublicationInput[]; plans?: GrowthPlanInput[]; wordLanguageEvidence?: GrowthWordLanguageEvidence[]; inventory: { url: string; lastSeen: string }[]; ranks: GrowthRankEvidence[]; sources?: GrowthWorkspace["reconciliation"]["sources"]; languageReviews?: GrowthLanguageReview[] };
+
+/** Input order must not let an inactive merged alias replace an active goal.
+ * Aliases remain provenance, not authority to move a different keyword's rank. */
+function mergeGrowthTargets(a: GrowthTarget | undefined, b: GrowthTarget): GrowthTarget {
+  if (!a) return b;
+  const score=(target:GrowthTarget)=>(target.membership==="formal"?target.membershipSource==="stored_formal"?100:90:target.membership==="opportunity"?50:target.sourceActive?30:10);
+  const winner=score(a)>score(b)?a:score(a)<score(b)?b:String(a.keywordId).localeCompare(String(b.keywordId))<=0?a:b;
+  const provenance=[...(a.memberProvenance??[]),...(b.memberProvenance??[])];
+  const members=[...new Map(provenance.map(row=>[row.keywordId,row])).values()].sort((x,y)=>x.keywordId.localeCompare(y.keywordId));
+  return {...winner,memberProvenance:members,aliasKeywordIds:members.map(row=>row.keywordId).filter(id=>id!==winner.keywordId)};
+}
 
 function assignedMarkets(value: unknown): { country: string; language: string }[] {
   const row = obj(value), primary = typeof row.primaryCountry === "string" ? row.primaryCountry : null;
@@ -81,13 +95,14 @@ function assignedMarkets(value: unknown): { country: string; language: string }[
 
 /** Historical rows are reclassified in a versioned view, retaining each original
  * cohort denominator and run identity. Missing queries never become losses. */
-export function reviewGrowthHistoricalPeriods(ranks: GrowthRankEvidence[], reviews?: GrowthLanguageReview[]): GrowthHistoricalPeriod[] {
+export function reviewGrowthHistoricalPeriods(ranks: GrowthRankEvidence[], reviews?: GrowthLanguageReview[], wordLanguages: GrowthWordLanguageEvidence[] = []): GrowthHistoricalPeriod[] {
+  const wordProofs=new Map(wordLanguages.map(proof=>[`${proof.site}\u0000${proof.keywordId}\u0000${growthWordKey(proof.keyword)}`,proof]));
   const groups = new Map<string, GrowthRankEvidence[]>();
   for (const rank of ranks) if (rank.source === "serp" && rank.period) groups.set(rank.period.id, [...(groups.get(rank.period.id) ?? []), rank]);
   return [...groups].map(([id, rows]) => {
     const period = rows[0].period!, byTarget = new Map<string, GrowthRankEvidence[]>();
     for (const row of rows) { const key = growthTargetId(row.site, row.keyword, row.country, row.language); byTarget.set(key, [...(byTarget.get(key) ?? []), row]); }
-    const statuses = [...byTarget.values()].map(items => ({ language: reviewGrowthLanguage(items[0].keyword, items[0].country, items[0].language, reviews), ranked: items.some(row => row.exact && row.complete && row.rank !== null && row.rank >= 1 && row.rank <= 100) }));
+    const statuses = [...byTarget.values()].map(items => ({ language: reviewGrowthLanguage(items[0].keyword, items[0].country, items[0].language, reviews,items[0].keywordId?wordProofs.get(`${items[0].site}\u0000${items[0].keywordId}\u0000${growthWordKey(items[0].keyword)}`):undefined), ranked: items.some(row => row.exact && row.complete && row.rank !== null && row.rank >= 1 && row.rank <= 100) }));
     return { id, label: period.label, scope: period.scope, cohortHash: period.cohortHash, originalTargetCount: period.originalTargetCount, originalQueryCount: period.originalQueryCount,
       checkedQueries: new Set(rows.filter(row => row.exact && row.complete).map(row => `${row.country}\u0000${row.language}\u0000${growthWordKey(row.keyword)}`)).size,
       matchedRankedTargets: statuses.filter(row => row.language.status === "match" && row.ranked).length, unknownLanguageTargets: statuses.filter(row => row.language.status === "unknown").length, mismatchedLanguageTargets: statuses.filter(row => row.language.status === "mismatch").length,
@@ -103,32 +118,52 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
   const inventory = new Map(input.inventory.map(item => [item.url, item.lastSeen]));
   const targets = new Map<string, GrowthTarget>();
   const taskIndex = new Map<string, GrowthTaskInput[]>(), memberIndex = new Map<string, GrowthMembershipInput>(), rankIndex = new Map<string, GrowthRankEvidence[]>(), publicationIndex = new Map<string, GrowthPublicationInput[]>();
+  const ranksByMember=new Map<string,GrowthRankEvidence[]>();
   const wordIdentity = (site: string, keyword: string) => `${site}\u0000${growthWordKey(keyword)}`;
+  const memberById=new Map(input.memberships.map(member=>[`${member.site}\u0000${member.keywordId}`,member]));
+  const wordProofs=new Map((input.wordLanguageEvidence??[]).map(proof=>[`${proof.site}\u0000${proof.keywordId}\u0000${growthWordKey(proof.keyword)}`,proof]));
+  const wordProof=(site:string,keywordId:string|null|undefined,keyword:string)=>keywordId?wordProofs.get(`${site}\u0000${keywordId}\u0000${growthWordKey(keyword)}`):undefined;
+  const realTopics = (row: GrowthMembershipInput) => [...new Set([...(row.topicId ? [row.topicId] : []), ...unique(row.topicIds ?? [])])].map(id => topicIndex.get(id)).filter((topic): topic is GrowthTopicInput => Boolean(topic?.active && !placeholder(topic.text) && topic.sites.includes(row.site)));
+  const memberScore=(member:GrowthMembershipInput)=>member.active&&member.keywordActive?(member.pool==="FORMAL"&&realTopics(member).length?100:member.pool==="RESEARCH"?50:30):10;
+  const plansByTask=new Map<string,string[]>();
+  for(const plan of input.plans??[])if(["scheduled","reviewed"].includes(plan.status))for(const taskId of plan.taskIds)plansByTask.set(taskId,unique([...(plansByTask.get(taskId)??[]),plan.id]));
   for (const task of liveTasks) if (task.keyword) { const key = wordIdentity(task.siteDomain, task.keyword); taskIndex.set(key, [...(taskIndex.get(key) ?? []), task]); }
-  for (const member of input.memberships) memberIndex.set(wordIdentity(member.site, member.keyword), member);
-  for (const row of input.ranks) { const key = growthTargetId(row.site, row.keyword, row.country, row.language); rankIndex.set(key, [...(rankIndex.get(key) ?? []), row]); }
+  for (const member of input.memberships) {const key=wordIdentity(member.site,member.keyword),current=memberIndex.get(key);if(!current||memberScore(member)>memberScore(current)||memberScore(member)===memberScore(current)&&member.keywordId.localeCompare(current.keywordId)<0)memberIndex.set(key,member);}
+  for (const row of input.ranks) { const key = growthTargetId(row.site, row.keyword, row.country, row.language); rankIndex.set(key, [...(rankIndex.get(key) ?? []), row]);if(row.keywordId){const memberKey=`${row.site}\u0000${row.keywordId}\u0000${growthWordKey(row.keyword)}`;ranksByMember.set(memberKey,[...(ranksByMember.get(memberKey)??[]),row]);} }
   for (const row of input.publications) publicationIndex.set(row.taskId, [...(publicationIndex.get(row.taskId) ?? []), row]);
   const matchingTasks = (site: string, keyword: string) => taskIndex.get(wordIdentity(site, keyword)) ?? [];
-  const realTopics = (row: GrowthMembershipInput) => [...new Set([...(row.topicId ? [row.topicId] : []), ...unique(row.topicIds ?? [])])].map(id => topicIndex.get(id)).filter((topic): topic is GrowthTopicInput => Boolean(topic?.active && !placeholder(topic.text) && topic.sites.includes(row.site)));
   for (const row of input.memberships) {
     if (!goalSites.has(row.site) || isOwnedBrandKeyword(row.keyword)) continue;
-    const topics = realTopics(row), topic = topics[0] ?? null, tasks = matchingTasks(row.site, row.keyword);
-    const membership = !row.active || !row.keywordActive ? "review" : row.pool === "FORMAL" && topic ? "formal" : row.pool === "RESEARCH" ? "opportunity" : "review";
+    const topics = realTopics(row), topic = topics[0] ?? null, tasks = matchingTasks(row.site, row.keyword).filter(task=>!task.keywordId||task.keywordId===row.keywordId);
+    const proofs:NonNullable<GrowthTarget["planningProofs"]>=[];
+    const exactContentTasks=tasks.filter(task=>task.keywordId===row.keywordId&&["blog","landing","cluster","optimization"].includes(task.kind??"")&&task.country&&task.language&&expectedLanguage(task.country)===task.language);
+    for(const task of exactContentTasks){
+      for(const planId of plansByTask.get(task.id)??[])proofs.push({kind:"formal_plan",id:planId,taskId:task.id,country:task.country!,language:task.language!});
+      for(const publication of publicationIndex.get(task.id)??[])if(publication.id&&publication.siteDomain===row.site&&publication.country===task.country&&publication.language===task.language&&publication.keyword&&growthWordKey(publication.keyword)===growthWordKey(row.keyword)&&["source_blog","landing","cluster","optimization"].includes(publication.kind??"")&&["published","verified"].includes(publication.status)&&stamp(publication.publishedAt)>0&&stamp(publication.publishedAt)<=now&&growthPublicUrl(publication.pageUrl,row.site))proofs.push({kind:"publication",id:publication.id,taskId:task.id,country:task.country!,language:task.language!});
+    }
+    const derived=Boolean(row.pool==="RESEARCH"&&topic&&proofs.length);
+    const membership = !row.active || !row.keywordActive ? "review" : row.pool === "FORMAL" && topic || derived ? "formal" : row.pool === "RESEARCH" ? exactContentTasks.length&&topic?"review":"opportunity" : "review";
+    const membershipSource:GrowthTarget["membershipSource"]=membership==="formal"?derived?"committed_task":"stored_formal":membership==="opportunity"?"research":"review";
     const markets = assignedMarkets(row.marketAssignment);
-    for (const task of tasks) if (task.country && task.language && !markets.some(market => market.country === task.country && market.language === task.language)) markets.push({ country: task.country, language: task.language });
+    // Explicit normal assignments win. Diagnostic query locales are never a
+    // fallback; only the original task/real formal commitment can fill a gap.
+    if(!markets.length)for (const task of derived?tasks.filter(task=>proofs.some(proof=>proof.taskId===task.id)):tasks) if (task.country && task.language && !markets.some(market => market.country === task.country && market.language === task.language)) markets.push({ country: task.country, language: task.language });
     const scopes: { country: string | null; language: string | null }[] = markets.length ? markets : [{ country: null, language: null }];
     for (const scope of scopes) {
       const scopedTasks = tasks.filter(task => task.country === scope.country && task.language === scope.language);
       const plannedUrls = unique([...row.targetUrls, ...scopedTasks.flatMap(task => task.pageUrl ? [task.pageUrl] : [])].flatMap(url => growthPublicUrl(url, row.site) ?? []));
       const publishedUrls = unique([...plannedUrls.filter(url => inventory.has(url)), ...scopedTasks.flatMap(task => publicationIndex.get(task.id) ?? []).filter(publication => ["published", "verified"].includes(publication.status) && stamp(publication.publishedAt) > 0 && stamp(publication.publishedAt) <= now && (!publication.language || publication.language === scope.language)).flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? [])]);
-      const language = reviewGrowthLanguage(row.keyword, scope.country, scope.language, input.languageReviews);
+      const originalLanguage=wordProof(row.site,row.keywordId,row.keyword);
+      const language = reviewGrowthLanguage(row.keyword, scope.country, scope.language, input.languageReviews,originalLanguage);
       const id = growthTargetId(row.site, row.keyword, scope.country, scope.language);
-      const reason = membership === "formal" ? "站点正式词库且归属已核实的本站 TopicMap 话题" : membership === "opportunity" ? "研究／发现词尚未进入正式 TopicMap；保留已有结果供归属审核" : !row.active || !row.keywordActive ? "原词库条目已停用，保留历史待核" : "话题归属未核实或为发现占位话题，不计正式目标";
-      targets.set(id, { id, keywordId: row.keywordId, site: row.site, topicId: topic?.id ?? null, topicName: topic?.text ?? null, relatedTopicIds: topics.map(topic => topic.id), keyword: row.keyword, ...scope, membership,
+      const reason = membership === "formal" ? derived?"原内容任务已进入真实正式计划或有原市场语种源交付；只读归入已承诺目标，保留DB研究池历史":"站点正式词库且归属已核实的本站 TopicMap 话题" : membership === "opportunity" ? "研究／发现词尚未进入正式 TopicMap；保留已有结果供归属审核" : !row.active || !row.keywordActive ? "原词库条目已停用，保留历史待核" : exactContentTasks.length&&topic?"已有原内容任务关联，历史正式计划或原市场语种源交付仍待核；不据缺少计划断言未规划":"话题归属未核实或为发现占位话题，不计正式目标";
+      const candidate:GrowthTarget={ id, keywordId: row.keywordId, site: row.site, topicId: topic?.id ?? null, topicName: topic?.text ?? null, relatedTopicIds: topics.map(topic => topic.id), keyword: row.keyword, ...scope, membership,
+        sourcePool:row.pool,sourceActive:row.active&&row.keywordActive,membershipSource,wordLanguage:originalLanguage?.language??null,planningProofs:proofs.filter(proof=>proof.country===scope.country&&proof.language===scope.language),memberProvenance:[{keywordId:row.keywordId,keyword:row.keyword,pool:row.pool,active:row.active&&row.keywordActive}],aliasKeywordIds:[],
         pageState: publishedUrls.length ? "published" : plannedUrls.length ? "planned" : "unmapped", publishedUrls, plannedUrls,
         workState: publishedUrls.length ? "completed" : scopedTasks.some(task => !["planned", "failed", "blocked"].includes(task.status)) ? "in_progress" : membership === "formal" || scopedTasks.length ? "planned" : "unknown",
         rank: null, rankUrl: null, rankSource: null, checkedAt: null, languageStatus: language.status, languageReason: language.reason,
-        captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: unique(scopedTasks.map(task => task.id)), reason });
+        captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: unique(scopedTasks.map(task => task.id)), reason };
+      targets.set(id,mergeGrowthTargets(targets.get(id),candidate));
     }
   }
   // Observed words absent from the formal plan remain visible as opportunities.
@@ -137,16 +172,18 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
     if (!goalSites.has(row.site) || isOwnedBrandKeyword(row.keyword)) continue;
     const id = growthTargetId(row.site, row.keyword, row.country, row.language);
     if (targets.has(id)) continue;
-    const membership = memberIndex.get(wordIdentity(row.site, row.keyword));
+    const byId=row.keywordId?memberById.get(`${row.site}\u0000${row.keywordId}`):undefined;
+    const membership = row.keywordId?byId&&growthWordKey(byId.keyword)===growthWordKey(row.keyword)?byId:undefined:memberIndex.get(wordIdentity(row.site, row.keyword));
     const topics = membership ? realTopics(membership) : [], topic = topics[0] ?? null;
-    const language = reviewGrowthLanguage(row.keyword, row.country, row.language, input.languageReviews);
+    const originalLanguage=wordProof(row.site,row.keywordId??membership?.keywordId,row.keyword);
+    const language = reviewGrowthLanguage(row.keyword, row.country, row.language, input.languageReviews,originalLanguage);
     targets.set(id, { id, keywordId: row.keywordId ?? membership?.keywordId ?? null, site: row.site, keyword: row.keyword, country: row.country, language: row.language, topicId: topic?.id ?? null, topicName: topic?.text ?? null, relatedTopicIds: topics.map(topic => topic.id),
-      membership: language.status === "match" ? "opportunity" : "review", pageState: row.url && inventory.has(row.url) && growthPublicUrl(row.url, row.site) ? "published" : "unmapped",
+      membership: language.status === "match" ? "opportunity" : "review", sourcePool:membership?.pool,membershipSource:language.status==="match"?"research":"review",wordLanguage:originalLanguage?.language??null,pageState: row.url && inventory.has(row.url) && growthPublicUrl(row.url, row.site) ? "published" : "unmapped",
       publishedUrls: row.url && inventory.has(row.url) && growthPublicUrl(row.url, row.site) ? [row.url] : [], plannedUrls: [], workState: "unknown", rank: null, rankUrl: null, rankSource: null, checkedAt: null,
       languageStatus: language.status, languageReason: language.reason, captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: [], reason: "已存排名或诊断词；尚无该站点／原词／市场／语言的正式目标分配" });
   }
   for (const target of targets.values()) {
-    const evidence = (rankIndex.get(target.id) ?? []).filter(row => (!row.url || growthPublicUrl(row.url, target.site)) && (!row.checkedAt || stamp(row.checkedAt) <= now));
+    const evidence = (rankIndex.get(target.id) ?? []).filter(row => (!row.keywordId||!target.keywordId||row.keywordId===target.keywordId) && (!row.url || growthPublicUrl(row.url, target.site)) && (!row.checkedAt || stamp(row.checkedAt) <= now));
     const exact = evidence.filter(row => row.source === "serp" && row.exact && row.checkedAt).sort((a, b) => stamp(b.checkedAt) - stamp(a.checkedAt));
     // A newer incomplete receipt is visible and cannot turn an old positive into a fresh result.
     const latestTime = exact[0]?.checkedAt, latest = exact.filter(row => row.checkedAt === latestTime);
@@ -162,6 +199,11 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
       target.observationEligible = Boolean(precise.length && target.languageStatus === "match" && stamp(chosen.checkedAt) <= now && now - stamp(chosen.checkedAt) <= 14 * 86400000);
     }
     target.monitoringEligible = target.membership === "formal" && target.pageState === "published" && target.languageStatus === "match" && Boolean(target.country && target.language) && target.country !== "CN" && target.country !== "RU";
+    if(target.membership==="formal"&&(!target.country||!target.language)){
+      const related=(ranksByMember.get(`${target.site}\u0000${target.keywordId}\u0000${growthWordKey(target.keyword)}`)??[]).filter(row=>row.rank!==null&&row.rank>=1&&row.rank<=100&&row.url&&growthPublicUrl(row.url,target.site)&&stamp(row.checkedAt)>0&&stamp(row.checkedAt)<=now&&(row.source!=="serp"||row.exact&&row.complete)).sort((a,b)=>stamp(b.checkedAt)-stamp(a.checkedAt)||a.rank!-b.rank!);
+      const observations=[...new Map(related.map(row=>[`${row.country}:${row.language}:${row.source}:${row.url}:${row.checkedAt}`,{country:row.country,language:row.language,rank:row.rank!,url:row.url!,source:row.source,checkedAt:row.checkedAt,languageStatus:reviewGrowthLanguage(row.keyword,row.country,row.language,input.languageReviews,wordProof(row.site,row.keywordId,row.keyword)).status}])).values()];
+      target.relatedObservationCount=observations.length;target.relatedObservations=observations.slice(0,10);
+    }
   }
   const all = [...targets.values()].filter(target => !selectedSite || target.site === selectedSite).sort((a, b) => a.site.localeCompare(b.site) || (a.topicName ?? "~").localeCompare(b.topicName ?? "~") || a.keyword.localeCompare(b.keyword) || (a.country ?? "").localeCompare(b.country ?? ""));
   const topics: GrowthTopic[] = input.topics.filter(topic => topic.active && !placeholder(topic.text)).flatMap(topic => topic.sites.filter(site => goalSites.has(site) && (!selectedSite || site === selectedSite)).map(site => {
@@ -182,12 +224,12 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
     else queryGroups.set(key, { id: `query:${key}`, site: target.site, sites: [target.site], keyword: target.keyword, country: target.country!, language: target.language!, targetIds: [target.id], urls: target.publishedUrls, reason: "已建页正式目标缺少近14天同词同市场完整SERP；同查询跨站复用，仅列待审清单", approved: false, maxCostMicros: /(?:^|\s)\w+:/u.test(target.keyword) ? null : 6000 });
   }
   const queries = [...queryGroups.values()];
-  const reviewRows = input.ranks.map(row => reviewGrowthLanguage(row.keyword, row.country, row.language, input.languageReviews));
+  const reviewRows = input.ranks.map(row => reviewGrowthLanguage(row.keyword, row.country, row.language, input.languageReviews,wordProof(row.site,row.keywordId,row.keyword)));
   return { version: "growth-v1.5", generatedAt: input.generatedAt, sites, markets: GROWTH_MARKETS.map(market => ({ ...market })), topics, targets: all, opportunities: all.filter(target => target.membership !== "formal"),
     reconciliation: { formalCount: formal.length, opportunityCount: all.filter(target => target.membership === "opportunity").length, reviewCount: all.filter(target => target.membership === "review").length, totalCount: all.length, uniqueKeywordCount: new Set(all.map(target => growthWordKey(target.keyword))).size, siteKeywordCount: new Set(all.map(target => `${target.site}\u0000${growthWordKey(target.keyword)}`)).size,
       rankedCount: ranked.length, top50Count: ranked.filter(target => target.rank! <= 50).length, publishedCount: formal.filter(target => target.pageState === "published").length,
       countryCounts: unique(ranked.flatMap(target => target.country ?? [])).map(country => ({ country, count: ranked.filter(target => target.country === country).length, share: ranked.length ? ranked.filter(target => target.country === country).length / ranked.length : null })),
-      historicalLanguageReview: { version: "word-language-view-v1", rawSnapshotsPreserved: true, rows: reviewRows.length, matched: reviewRows.filter(row => row.status === "match").length, mismatched: reviewRows.filter(row => row.status === "mismatch").length, unknown: reviewRows.filter(row => row.status === "unknown").length, comparableTrend: false, reason: "只读复核全部已存证据；原历史期次及采集分母不同，不连成可比涨跌趋势，不将CN转记SG", periods: reviewGrowthHistoricalPeriods(input.ranks, input.languageReviews) },
+      historicalLanguageReview: { version: "word-language-view-v2", rawSnapshotsPreserved: true, rows: reviewRows.length, matched: reviewRows.filter(row => row.status === "match").length, mismatched: reviewRows.filter(row => row.status === "mismatch").length, unknown: reviewRows.filter(row => row.status === "unknown").length, comparableTrend: false, reason: "只读复核全部已存证据；原历史期次及采集分母不同，不连成可比涨跌趋势，不将CN转记SG；原诊断span仅证明语种，不授长期主国", periods: reviewGrowthHistoricalPeriods(input.ranks, input.languageReviews,input.wordLanguageEvidence) },
       sources: input.sources ?? [], notes: ["目标身份按站点、原词、市场、语言保留；最佳国家不替代各国计数。", "未建页、未核语言、未采集及来源未知不填0；未冻结季度分母。", "数据库/GSC为来源证据，只有近14天完整同口径SERP进入当前抢占统计。", "次要市场合计规划占比5%；不自动分配给每个次要市场。"] },
     monitoringQuote: { approved: false, paidRequests: 0, queryCount: queries.length, reusedCount: reused.length, heldCount: formal.filter(target => target.pageState === "published" && !target.monitoringEligible).length, maxCostMicros: queries.some(query => query.maxCostMicros === null) ? null : queries.reduce((sum, query) => sum + (query.maxCostMicros ?? 0), 0), queries, reason: "只复用已存结果；价格按原100深度常规单次上限估算，未提交。清单及总额仍需当次批准，新增市场不自动启用采集。" } };
 }
