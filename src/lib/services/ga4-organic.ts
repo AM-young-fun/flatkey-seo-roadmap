@@ -468,3 +468,44 @@ export async function fetchGa4ExactOrganicWeek(
       : { hours: instants.map((instant, index) => ({ utcStart: new Date(instant).toISOString(), sourceDateHour: buckets[index], sessions: values.get(buckets[index])!, complete: true })) }),
   });
 }
+
+/** One measured whole-interval scalar for Flatkey's rolling seven closed LA
+ * days. It is independent of fixed weekly buckets and never invents day rows. */
+export async function fetchGa4RollingOrganicWeek(
+  site: GrowthExactTrafficEvidence["site"], property: string, sourceTimezone: string,
+  range: DateRange, now = new Date(),
+): Promise<GrowthExactTrafficEvidence> {
+  if (site !== "flatkey.ai" || property !== GA4_PROPERTY_ID || sourceTimezone !== GA4_TIMEZONE
+    || !validRange(range) || Date.parse(range.end) - Date.parse(range.start) !== 6 * 86400000 || !Number.isFinite(now.getTime())) {
+    throw new GoogleReadError("invalid_response", "滚动7日仅接受Flatkey原LA属性和连续完整7个自然日");
+  }
+  const from = Date.parse(reportDayStart(range.start)), to = Date.parse(reportDayStart(shiftDay(range.end, 1)));
+  if (to > now.getTime()) throw new GoogleReadError("source_window_open", "滚动洛杉矶7日尚未结束");
+  const query: ReportQuery = {
+    dateRanges: [{ startDate: range.start, endDate: range.end }], metrics: [{ name: "sessions" }],
+    dimensionFilter: { andGroup: { expressions: [exact(GA4_CHANNEL_DIMENSION, GA4_ORGANIC_CHANNEL), ga4HostFilter(FLATKEY_ENTRY_HOSTS)] } },
+    keepEmptyRows: true, limit: "1",
+  };
+  const report = await requestReport(property, await accessToken(), "runReport", query);
+  if (report.metadata?.timeZone !== GA4_TIMEZONE || qualityReasons(report).length) {
+    throw new GoogleReadError("source_quality_incomplete", "滚动整段汇总的原属性时区或完整性未通过核验");
+  }
+  const rows = report.rows ?? [], row = rows[0];
+  if (report.rowCount !== 1 || rows.length !== 1 || !row || typeof row !== "object" || Array.isArray(row)
+    || row.dimensionValues !== undefined && (!Array.isArray(row.dimensionValues) || row.dimensionValues.length !== 0)
+    || !Array.isArray(row.metricValues) || row.metricValues.length !== 1) {
+    throw new GoogleReadError("invalid_response", "滚动整段汇总须有唯一实测会话行，缺失不能补零");
+  }
+  const sessions = metric(row, 0), observedAt = new Date().toISOString();
+  const queryHash = createHash("sha256").update(JSON.stringify(query)).digest("hex");
+  const reference = `https://analyticsdata.googleapis.com/v1beta/properties/${property}:runReport#sha256=${queryHash}`;
+  return growthExactTrafficSchema.parse({
+    id: `ga4-rolling-week:${site}:${range.start}:${range.end}:${observedAt}`, site, propertyId: property,
+    ...range, timezone: GA4_TIMEZONE, sourceTimezone: report.metadata.timeZone,
+    metadata: { propertyId: property, timeZone: report.metadata.timeZone, observedAt, reference },
+    source: "google-api", observedAt, reference, scope: "session-organic-search", channelDimension: GA4_CHANNEL_DIMENSION, channelValue: GA4_ORGANIC_CHANNEL,
+    hostScope: GA4_HOST_SCOPE, hostnames: [...FLATKEY_ENTRY_HOSTS], complete: true, sessions,
+    intervalStart: new Date(from).toISOString(), intervalEnd: new Date(to).toISOString(), method: "whole_interval_scalar",
+    wholeIntervalScalar: { version: "ga4-whole-interval-v1", queryHash, observedAt, reference },
+  });
+}

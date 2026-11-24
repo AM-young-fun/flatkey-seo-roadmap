@@ -12,7 +12,11 @@ export const growthExactTrafficSchema = z.object({
   scope: z.literal("session-organic-search"), channelDimension: z.literal("sessionDefaultChannelGroup"), channelValue: z.literal("Organic Search"),
   hostScope: z.literal("production-hosts-v1"), hostnames: z.array(z.string().min(1)).min(1).max(20), complete: z.literal(true), sessions: count,
   intervalStart: stamp, intervalEnd: stamp,
-  method: z.enum(["native_days", "utc_hours"]),
+  method: z.enum(["native_days", "utc_hours", "whole_interval_scalar"]),
+  wholeIntervalScalar: z.object({
+    version: z.literal("ga4-whole-interval-v1"), queryHash: z.string().regex(/^[a-f0-9]{64}$/),
+    observedAt: stamp, reference: z.string().min(1).max(3000),
+  }).strict().optional(),
   days: z.array(z.object({ date: z.iso.date(), sessions: count, complete: z.literal(true) }).strict()).max(7).optional(),
   hours: z.array(z.object({ utcStart: stamp, sourceDateHour: z.string().regex(/^\d{10}$/), sessions: count, complete: z.literal(true) }).strict()).max(170).optional(),
 }).strict().superRefine((value, ctx) => {
@@ -22,7 +26,12 @@ export const growthExactTrafficSchema = z.object({
   if (Date.parse(value.end) - Date.parse(value.start) !== 6 * 86400000 || Date.parse(value.intervalStart) !== from || Date.parse(value.intervalEnd) !== to) fail("须覆盖同一完整洛杉矶7日的准确UTC起止，不接受仅更改时区标签");
   if (value.metadata.timeZone !== value.sourceTimezone || value.metadata.propertyId !== value.propertyId || Date.parse(value.metadata.observedAt) > Date.parse(value.observedAt) || Date.parse(value.observedAt) < to) fail("须保留对应真实属性metadata时区和已结束区间");
   if (value.hostnames.some(host => value.site === "flatkey.ai" ? !["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai"].includes(host) : ![value.site, "www." + value.site].includes(host))) fail("只接受对应站点真实生产主机，不包含测试域名或IP");
-  if (value.method === "native_days") {
+  if (value.method === "whole_interval_scalar") {
+    const scalar = value.wholeIntervalScalar;
+    if (value.site !== "flatkey.ai" || value.propertyId !== "541304395" || value.sourceTimezone !== "America/Los_Angeles"
+      || value.hostnames.length !== 3 || JSON.stringify([...new Set(value.hostnames)].sort()) !== JSON.stringify(["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai"].sort())) fail("整段汇总仅用于Flatkey原LA属性及完整生产主机范围");
+    if (!scalar || value.days || value.hours || scalar && (Date.parse(scalar.observedAt) < to || Date.parse(scalar.observedAt) > Date.parse(value.observedAt))) fail("整段会话须保留已结束区间的真实汇总回执，不得伪造逐日或小时分桶");
+  } else if (value.method === "native_days") {
     if (value.sourceTimezone !== "America/Los_Angeles" || !value.days || value.days.length !== 7 || value.hours || value.days.some((day, index) => day.date !== new Date(Date.parse(value.start + "T00:00:00Z") + index * 86400000).toISOString().slice(0, 10)) || value.days.reduce((sum, day) => sum + day.sessions, 0) !== value.sessions) fail("原生LA日桶必须为连续完整7天且会话相符");
   } else {
     const hours = value.hours ?? [];
