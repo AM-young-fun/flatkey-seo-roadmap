@@ -29,13 +29,14 @@ function ContentProgress({ workspace }: { workspace: GrowthWorkspace | null }) {
     <SeoAnchor className={styles.link} href="/opportunities">查看话题与关键词进度 →</SeoAnchor>
   </ChartPanel>;
 }
-function TopicComparison({ snapshot, workspace }: { snapshot: GrowthReportSnapshot | null; workspace: GrowthWorkspace | null }) {
+export function TopicComparison({ snapshot, workspace }: { snapshot: GrowthReportSnapshot | null; workspace: GrowthWorkspace | null }) {
   const [groupBy, setGroupBy] = useState<"topic" | "module">("topic");
   const [metric, setMetric] = useState<"sessions" | "clicks" | "impressions">("sessions");
   const labels = { sessions: "自然搜索会话", clicks: "Google点击", impressions: "Google曝光" };
   const drivers = growthContributionDrivers(snapshot, metric);
   const groups = new Map<string, { label: string; current: number; previous: number; href: string }>();
   for (const row of drivers) {
+    if (groupBy === "topic" && !row.topicId) continue;
     const site = new URL(row.url).hostname.replace(/^www\./, "");
     const key = `${site}:${groupBy === "topic" ? row.topicId ?? row.url : row.module}:${row.country}:${row.language}`;
     const topicName = workspace?.topics.find(topic => topic.site === site && topic.topicId === row.topicId)?.name;

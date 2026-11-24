@@ -19,7 +19,7 @@ export const GROWTH_MARKETS: GrowthMarket[] = [
   { country: "JP", language: "ja", label: "日本 · 日语", priority: "primary", plannedShare: .25 },
   { country: "BR", language: "pt-BR", label: "巴西 · 葡语", priority: "primary", plannedShare: .20 },
   { country: "SG", language: "zh-CN", label: "新加坡 · 简体中文", priority: "primary", plannedShare: .15 },
-  ...[["ES", "西班牙 · 西语"], ["FR", "法国 · 法语"], ["DE", "德国 · 德语"], ["RU", "俄罗斯 · 俄语（仅规划）"], ["VN", "越南 · 越语"], ["ID", "印度尼西亚 · 印尼语"]].map(([country, label]) => ({ country, language: GROWTH_MARKET_LANGUAGES[country as keyof typeof GROWTH_MARKET_LANGUAGES], label, priority: "secondary" as const, plannedShare: null })),
+  ...[["ES", "西班牙 · 西语"], ["FR", "法国 · 法语"], ["DE", "德国 · 德语"], ["RU", "俄罗斯 · 俄语译文观察"], ["VN", "越南 · 越语"], ["ID", "印度尼西亚 · 印尼语"]].map(([country, label]) => ({ country, language: GROWTH_MARKET_LANGUAGES[country as keyof typeof GROWTH_MARKET_LANGUAGES], label, priority: "secondary" as const, plannedShare: null })),
   { country: "CN", language: "zh-CN", label: "中国 · 历史中文证据", priority: "legacy", plannedShare: null },
 ];
 export const growthWordKey = (text: string) => text.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();

@@ -13,13 +13,18 @@ export function growthContributionDrivers(snapshot: GrowthReportSnapshot | null,
     if (!Number.isFinite(row.current) || !Number.isFinite(row.previous) || row.current < 0 || row.previous < 0 || (row.metric === "sessions" ? row.source !== "GA4" : row.source !== "GSC")) return false;
     try { const url = new URL(row.url); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; }
   });
-  const observations = new Map<string, GrowthDriver>(), conflicts = new Set<string>();
+  const observations = new Map<string, { row: GrowthDriver; topics: Set<string>; modules: Set<string> }>(), conflicts = new Set<string>();
   for (const row of rows) {
-    const key = JSON.stringify([row.url, row.topicId, row.country, row.language, row.metric, row.window, row.source]), prior = observations.get(key);
-    if (prior && (prior.current !== row.current || prior.previous !== row.previous)) conflicts.add(key);
-    else observations.set(key, row);
+    // Topic/direction is an attribution, not an extra observation. Repeating
+    // the same page in two directions must not double its module traffic.
+    const key = JSON.stringify([row.url, row.country, row.language, row.metric, row.window, row.source]), prior = observations.get(key);
+    if (prior) {
+      if (prior.row.current !== row.current || prior.row.previous !== row.previous) conflicts.add(key);
+      if (row.topicId) prior.topics.add(row.topicId);
+      prior.modules.add(row.module);
+    } else observations.set(key, { row, topics: new Set(row.topicId ? [row.topicId] : []), modules: new Set([row.module]) });
   }
-  return [...observations.entries()].filter(([key]) => !conflicts.has(key)).map(([, row]) => row);
+  return [...observations.entries()].filter(([key]) => !conflicts.has(key)).map(([, { row, topics, modules }]) => ({ ...row, topicId: topics.size === 1 ? [...topics][0] : null, module: modules.size === 1 ? [...modules][0] : "模块待核" }));
 }
 
 export type GrowthTopicContribution = { metric: GrowthDriver["metric"]; source: GrowthDriver["source"]; country: string; language: string; previous: number; current: number; window: GrowthDriver["window"]; urls: string[] };

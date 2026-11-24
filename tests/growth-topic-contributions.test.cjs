@@ -19,3 +19,14 @@ test('wrong site/topic, stale window, native timezone, incompatible source and o
 test('conflicting duplicate observations are withheld rather than taking whichever direction was returned last',()=>{
  assert.deepEqual(growthContributionDrivers(snapshot([driver(),driver({current:21})])),[]);
 });
+test('one page attributed to two topics counts once by module and is withheld from both topic totals',()=>{
+ const source=snapshot([driver({module:'blog'}),driver({module:'blog',topicId:'api'})]);
+ const before=JSON.stringify(source), rows=growthContributionDrivers(source,'sessions');assert.equal(rows.length,1);assert.equal(rows[0].current,20);assert.equal(rows[0].topicId,null);assert.equal(rows[0].module,'blog');
+ for(const topicId of ['gpu','api'])assert.deepEqual(growthTopicContributions(source,{site:'flatkey.ai',topicId},{country:'all',language:'all'}),[]);
+ assert.equal(JSON.stringify(source),before);
+ assert.deepEqual(growthContributionDrivers(snapshot([driver({topicId:'gpu'}),driver({topicId:'api',current:99})])),[],'different topic must not mask conflicting metric values');
+});
+test('a unique explicit topic remains usable while conflicting modules stay unassigned, with one observation only',()=>{
+ const rows=growthContributionDrivers(snapshot([driver({topicId:null,module:'blog'}),driver({module:'models'})]));
+ assert.equal(rows.length,1);assert.equal(rows[0].topicId,'gpu');assert.equal(rows[0].module,'模块待核');assert.equal(rows[0].current,20);
+});
