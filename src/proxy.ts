@@ -29,6 +29,7 @@ export async function proxy(request: NextRequest) {
   if (growth && (request.method === "GET" || request.method === "POST" && request.nextUrl.pathname !== "/api/seo/growth")) return NextResponse.next();
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
+  if (request.nextUrl.pathname === "/api/seo/trends/history-export" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review" && request.method === "GET") return NextResponse.next();
   // The saved-evidence handler retains its own cookie/collector authorization.
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review/evidence" && request.method === "GET") return NextResponse.next();
