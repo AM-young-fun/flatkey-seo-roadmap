@@ -38,3 +38,14 @@ test('real preview freeze persists the exact list, replays one request, rejects 
   const result=await GET(new Request(url));assert.equal(result.status,200);const view=await result.json();assert.equal(view.state.baseline.targets.length,1);assert.equal(view.snapshot.goals.baselineCount,1);assert.equal(view.snapshot.goals.weeklySessions,null);assert.equal(view.snapshot.goals.knownSessions,null);
   const disk=JSON.parse(await fs.promises.readFile(path.join(directory,'growth-strategy.json'),'utf8'));assert.equal(disk.events.length,1);assert.equal(disk.state.version,1);
 });
+test('human-only stable identity supplements persist append-only against an unresolved frozen member with CAS and exact source validation',async()=>{
+ const previous={...target};Object.assign(target,{country:null,language:null,languageStatus:'unknown',wordLanguage:'en'});
+ try{
+  const first=await post(freeze());assert.equal(first.status,200);const original=(await first.json()).state.baseline;
+  const command={requestId:'human-identity-supplement',expectedVersion:1,action:'resolve_baseline_identities',sourceVersion:growthWorkspaceIdentity(workspace),mappings:[{targetId:'a',country:'US',language:'en'}],reason:'User reviewed exact stable ID, explicit word language and new primary country'};
+  const before=sourceReads;assert.equal((await post(command,{authorization:'Bearer test-workflow-secret'},'https://production.test/api/seo/growth/strategy')).status,403);assert.equal(sourceReads,before);
+  const result=await post(command);assert.equal(result.status,200);const data=await result.json();assert.deepEqual(data.state.baseline,original);assert.equal(data.state.identityRevisions.length,1);assert.equal(data.state.identityRevisions[0].mappings[0].targetId,'a');
+  assert.equal((await(await post(command)).json()).replay,true);assert.equal((await post({...command,requestId:'stale-identity-supplement'})).status,409);
+  const view=await(await GET(new Request(url))).json();assert.equal(view.snapshot.goals.baselineCount,1);assert.equal(view.identityReview[0].country,'US');assert.equal(view.identityReview[0].confirmed,true);assert.equal(view.snapshot.goals.rankedCount,0);
+ }finally{for(const k of Object.keys(target))if(!(k in previous))delete target[k];Object.assign(target,previous);}
+});

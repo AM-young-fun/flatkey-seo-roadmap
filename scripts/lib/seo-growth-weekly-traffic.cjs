@@ -1,18 +1,21 @@
 const { createHash } = require("node:crypto");
 
 const endpoint = "https://flatkey-seo-roadmap.vercel.app/api/seo/growth/strategy";
-const goalSites = new Set(["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org"]);
+const goalSites = new Set(["flatkey.ai"]);
+// Existing observer evidence remains separate; it cannot add to or block the
+// Flatkey 3000 target. JEV/Mochi retain their independent daily source paths.
+const observationSites = new Set(["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org"]);
 const normalize = value => Array.isArray(value) ? value.map(normalize) : value && typeof value === "object"
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalize(value[key])])) : value;
 const canonical = value => JSON.stringify(normalize(value));
 const same = (a, b) => canonical(a) === canonical(b);
 
 /** Uses only the original authorized Google reader and original import token.
- * Four independent reads run together. CAS writes are serial; ambiguous writes
+ * Independent source reads run together. CAS writes are serial; ambiguous writes
  * get one readback and are never blindly repeated. No provider or paid path. */
 async function collectGrowthWeeklyTraffic({ sites, period, fetchWeek, credential, now, fetcher = fetch }) {
   if (!credential) throw new Error("missing_growth_import_credential");
-  const selected = sites.filter(site => goalSites.has(site.domain));
+  const selected = sites.filter(site => observationSites.has(site.domain));
   if (new Set(selected.map(site => site.domain)).size !== selected.length) throw new Error("growth_duplicate_source_site");
   const api = async command => {
     const response = await fetcher(endpoint, { method: command ? "POST" : "GET", redirect: "error", signal: AbortSignal.timeout(180000),
@@ -49,7 +52,8 @@ async function collectGrowthWeeklyTraffic({ sites, period, fetchWeek, credential
       results.push({ site: outcome.site, status: "save_unavailable", reason: /^growth_|^invalid_growth_/.test(error?.message) ? error.message : "growth_traffic_save_failed" });
     }
   }
-  return { period, results, complete: [...goalSites].every(site => results.filter(row => row.site === site && row.status === "read_back").length === 1), paidRequests: 0 };
+  return { period, results, goalSites: [...goalSites], complete: [...goalSites].every(site => results.filter(row => row.site === site && row.status === "read_back").length === 1),
+    allSourcesComplete: selected.length > 0 && selected.every(site => results.some(row => row.site === site.domain && row.status === "read_back")), paidRequests: 0 };
 }
 
 module.exports = { collectGrowthWeeklyTraffic };

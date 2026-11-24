@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GROWTH_COUNTRIES, GROWTH_LANGUAGES, GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
+import { maintenanceWorkClassSchema, maintenancePlanSchema, maintenanceQaSchema } from "./seo-maintenance";
 
 export const WORKFLOW_SITES = ["flatkey.ai", "jev-llm.com", "mochichatbot.com", "modelfit.cc", "rackrate.org"] as const;
 export const WORKFLOW_CLUSTER_REPOSITORIES = {
@@ -61,6 +62,7 @@ export const workflowTaskSchema = z.object({
   id, weekStart: workflowWeekSchema, title: z.string().trim().min(1).max(500), siteDomain: site, deletedAt: stamp.optional(),
   channel: z.enum(["website", "github", "product"]).optional(),
   kind: z.enum(["blog", "landing", "optimization", "cluster", "technical", "research", "promotion", "review"]),
+  workClass: maintenanceWorkClassSchema.optional(), maintenance: maintenancePlanSchema.optional(),
   country: country.nullable(), language: language.nullable(), business: z.enum(["API", "GPU", "CLUSTER"]),
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
   keyword: z.string().trim().min(1).max(300).nullable(), keywordId: z.string().trim().min(1).max(160).nullable().default(null), pageUrl: httpsUrl.nullable(),
@@ -120,6 +122,7 @@ export const workflowPlanSchema = z.object({
       landing: z.literal(0), clusterLanding: z.number().int().min(0).max(9),
       apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35),
       optimizedPages: z.number().int().min(0).max(14),
+      maintenanceVersion: z.literal("seo-maintenance-v1").optional(), contentRefreshPages: z.number().int().min(0).max(14).optional(),
       blogLanguages: z.object(Object.fromEntries(GROWTH_LANGUAGES.map(language => [language, z.number().int().min(0).max(35)])) as Record<typeof GROWTH_LANGUAGES[number], z.ZodNumber>).strict(),
     }).strict(),
     z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
@@ -142,7 +145,7 @@ export const workflowPlanSchema = z.object({
         "pt-BR": z.number().int().min(0).max(7), "es-ES": z.number().int().min(0).max(7) }).strict(),
     }).strict(),
   ]),
-  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "blogEn", "blogJa", "blogPt", "blogEs", "blogZh", "blogOther", "modelFitBlogs", "clusterLanding", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000), date: z.iso.date().optional(), siteDomain: site.optional() }).strict()).max(100),
+  gaps: z.array(z.object({ category: z.enum(["landing", "apiBlogs", "gpuBlogs", "optimizedPages", "contentRefreshPages", "blogEn", "blogJa", "blogPt", "blogEs", "blogZh", "blogOther", "modelFitBlogs", "clusterLanding", "evidence", "other"]), count: z.number().int().positive(), reason: z.string().trim().min(1).max(2000), date: z.iso.date().optional(), siteDomain: site.optional() }).strict()).max(100),
   evidence, notes: z.string().max(5000),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) ctx.addIssue({ code: "custom", path: ["taskIds"], message: "计划任务不能重复" });
@@ -260,6 +263,7 @@ export const workflowPublicationSchema = z.object({
   contentVersion: z.string().trim().min(1).max(200), title: z.string().trim().min(1).max(500),
   kind: z.enum(["source_blog", "translation", "backfill_translation", "landing", "optimization", "cluster", "prompt"]),
   sourcePublicationId: id.nullable(), publishedAt: stamp, verifiedAt: stamp.nullable(),
+  maintenanceQa: maintenanceQaSchema.optional(),
   status: z.enum(["published", "verified", "failed", "unknown"]), liveCheck: liveCheck.nullable(), evidence,
   failureReason: z.string().max(3000).nullable(),
 }).strict().superRefine((value, ctx) => {
@@ -427,7 +431,7 @@ export type WorkflowWorkWeek = {
   dependencyStatuses: Record<string, WorkflowTask["status"]>;
   activeApprovalItems: Record<string, string[]>;
 };
-export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; workWeek?: WorkflowWorkWeek; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; openIssues: number; lastRunAt: string | null }; };
+export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; workWeek?: WorkflowWorkWeek; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; refreshedPages?: number; openIssues: number; lastRunAt: string | null }; };
 export type WorkflowTaskDetail = Pick<WorkflowSnapshot, "approvals" | "publications" | "optimizations" | "storage"> & {
   task: WorkflowTask;
   dependencies: WorkflowTask[];

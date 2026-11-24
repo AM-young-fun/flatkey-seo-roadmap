@@ -38,7 +38,7 @@ test('collector cannot approve, and changing any exact hash/cap/version rejects 
 test('manifest tampering and stale approvals cannot reach the executor; changing a market cannot use a different locale',()=>{
  const approved=approveGrowthCollection(state(),command(state()),'human',now);assert.throws(()=>assertGrowthCollectionApproval(approved,new Date(now.getTime()+25*3600000)),/过期/);
  const altered=structuredClone(approved);altered.manifest.queries[0].country='JP';assert.throws(()=>assertGrowthCollectionManifest(altered.manifest),/清单或费用/);
- const {hash,...content}=altered.manifest;altered.manifest.hash=collectionHash(content);assert.throws(()=>assertGrowthCollectionApproval(altered,now),/国家|原词|语言|批准/);
+ const {hash:_hash,...content}=altered.manifest;altered.manifest.hash=collectionHash(content);assert.throws(()=>assertGrowthCollectionApproval(altered,now),/国家|原词|语言|批准/);
 });
 test('Singapore Chinese gets its explicit provider country/language/domain and never US/four-country fallback',()=>{
  const ws=workspace({memberships:[member({keyword:'模型价格',marketAssignment:{primaryCountry:'SG',language:'zh-CN',evidence:'Overseas simplified Chinese Singapore'}})]});

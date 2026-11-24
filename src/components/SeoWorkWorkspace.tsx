@@ -36,7 +36,7 @@ const markets = GROWTH_COUNTRY_LABELS;
 const statuses: Record<string, string> = { planned: "已排期", researching: "研究中", ready: "可制作", drafting: "制作中", review_pending: "待审批", missing_materials: "待补测试材料", approved: "已批准，待发布", published: "已发布待验收", verified: "已验收", observing: "观察中", blocked: "受阻", failed: "失败", unknown: "结果待核实", running: "执行中", completed: "已完成", partial: "部分完成", open: "待处理", investigating: "排查中", resolved: "已恢复", draft: "候选整理中", scheduled: "已自动排期", reviewed: "已排期", bootstrap: "本周补排", improved: "有改善", needs_investigation: "需排查", insufficient_data: "数据不足" };
 const taskKinds: Record<string, string> = { blog: "博客", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", technical: "技术修复", research: "关键词研究", promotion: "推广与内链", review: "复盘" };
 const publicationKinds: Record<string, string> = { source_blog: "源文", translation: "翻译", backfill_translation: "历史补译", landing: "落地页", optimization: "旧页优化", cluster: "集群交付", prompt: "提示词" };
-const stageNames: Record<string, string> = { SHEETS: "三表校验与同步", KEYWORD_RESEARCH: "关键词研究", TECHNICAL_QA: "五站技术巡检", BLOG: "博客发布与验收", OLD_PAGE: "旧页优化", LANDING: "落地页制作", CLUSTER: "集群交付", DELIVERY: "交付验收与续跑", WEEKLY_CANDIDATES: "下周候选证据", WEEKLY_PLAN: "下周计划定稿", REPORT_PREVIEW: "报告准备", REPORT_SEND: "群通知", MONTHLY_REVIEW: "月度投入复盘" };
+const stageNames: Record<string, string> = { SHEETS: "三表校验与同步", KEYWORD_RESEARCH: "关键词研究", TECHNICAL_QA: "三站公开官网技术巡检", BLOG: "博客发布与验收", OLD_PAGE: "旧页优化", LANDING: "落地页制作", CLUSTER: "集群交付", DELIVERY: "交付验收与续跑", WEEKLY_CANDIDATES: "下周候选证据", WEEKLY_PLAN: "下周计划定稿", REPORT_PREVIEW: "报告准备", REPORT_SEND: "群通知", MONTHLY_REVIEW: "月度投入复盘" };
 const legacyMeasurementIssueId = "amplitude-organic-cohorts-pending";
 const issueCategories: Record<WorkflowIssue["category"], string> = { technical: "技术", indexing: "索引", language: "语言", content: "内容", data: "数据", business: "业务", sync: "同步" };
 const stateLabel = (value: string) => statuses[value] ?? value;
@@ -62,6 +62,8 @@ const workTaskTypes = [
   { value: "all", label: "全部任务" },
   { value: "blog-create", label: "制作博客" },
   { value: "blog-update", label: "优化博客" },
+  { value: "content-refresh", label: "旧文翻新" },
+  { value: "internal-linking", label: "主题内链" },
   { value: "landing-create", label: "制作落地页" },
   { value: "landing-update", label: "优化页面" },
   { value: "research", label: "关键词研究" },
@@ -70,7 +72,9 @@ const workTaskTypes = [
   { value: "promotion", label: "推广与内链" },
   { value: "review", label: "复盘" },
 ];
-function editorialTaskType(task: Pick<WorkflowTask, "kind" | "pageType" | "pageUrl">) {
+function editorialTaskType(task: Pick<WorkflowTask, "kind" | "workClass" | "pageType" | "pageUrl">) {
+  if (task.workClass === "content_refresh") return "content-refresh";
+  if (task.workClass === "internal_linking") return "internal-linking";
   const blog = task.pageType === "blog" || /\/blog(?:\/|$)/.test(task.pageUrl ?? "");
   if (task.kind === "blog") return "blog-create";
   if (task.kind === "landing") return "landing-create";
@@ -78,7 +82,7 @@ function editorialTaskType(task: Pick<WorkflowTask, "kind" | "pageType" | "pageU
   if (task.kind === "cluster" && task.pageUrl) return blog ? "blog-update" : "landing-update";
   return task.kind;
 }
-function EditorialTaskTag({ task }: { task: Pick<WorkflowTask, "kind" | "pageType" | "pageUrl"> }) {
+function EditorialTaskTag({ task }: { task: Pick<WorkflowTask, "kind" | "workClass" | "pageType" | "pageUrl"> }) {
   const type = editorialTaskType(task);
   const label = workTaskTypes.find(option => option.value === type)?.label;
   return label ? <span className={styles.taskTypeTag} data-task-type={type}>{label}</span> : null;
@@ -146,6 +150,9 @@ function TaskDetail({ task, tasks, approvals, publications, optimizations, onSav
       {evidence.filter(item => !item.url).map((item, index) => <p className={styles.muted} key={index}>{item.label} · {displayTime(item.observedAt)}</p>)}
       </details>
       <h4>怎么做</h4><p className={styles.taskDescription}>{task.brief?.plan ?? "中文处理方案待补充：请逐项说明针对上述问题要改哪里、如何修改以及如何验证。"}</p>
+      {task.maintenance?.refresh ? <div><p><strong>旧文翻新：</strong>保留首发日 {displayTime(task.maintenance.refresh.originalPublishedAt)}，在原URL更新版本 {task.maintenance.refresh.baseContentVersion}。</p><ul>{task.maintenance.refresh.changes.map(change => <li key={change}>{change}</li>)}</ul><p className={styles.muted}>独立翻新额度，沿原任务进行7 / 14 / 28日效果复查。</p></div> : null}
+      {task.maintenance?.links?.length ? <div><h4>模型与文章双向关联</h4><ul>{task.maintenance.links.map(link => <li key={`${link.modelUrl}:${link.articleUrl}`}><a href={link.modelUrl} target="_blank" rel="noreferrer">{link.entityId}</a> ↔ <a href={link.articleUrl} target="_blank" rel="noreferrer">{link.articleToModelAnchor}</a> · {link.language}<p>{link.relevance}</p></li>)}</ul></div> : null}
+      {task.maintenance?.technical?.length ? <div><h4>技术检查与修复</h4><ul>{task.maintenance.technical.map((check, index) => <li key={`${check.area}:${index}`}><strong>{check.area} · {check.method}</strong><p>{check.before}</p><p>{check.change}</p><p>验证：{check.verify}</p></li>)}</ul></div> : null}
       {task.acceptanceCriteria.length ? <><p><strong>完成标准</strong></p><ul>{task.acceptanceCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul></> : null}
       {progress ? <p className={styles.taskDescription}><strong>当前进展：</strong>{progress.summary}{progress.nextAction && progress.nextAction !== action ? `\n接下来：${progress.nextAction}` : ""}</p> : null}
       {task.failureReason ? <p className={styles.warning}><CircleAlert size={15} />{task.failureReason}</p> : null}

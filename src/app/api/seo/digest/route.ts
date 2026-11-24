@@ -1,22 +1,13 @@
-import { loadRegistrationPeriods } from "@/lib/services/seo-registration-period";
 import { withRequestReads } from "@/lib/request-read-scope";
 import { profileRead, timedRead } from "@/lib/read-profile";
-import { registrationCorrection } from "@/lib/seo-registration-correction";
 import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import { GA4_HOST_SCOPE } from "@/lib/ga4-host-scope";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
-import { reportDay, digestDateSchema, digestKindSchema, digestWindow, type SeoDigest } from "@/lib/seo-digest";
-import { shiftDay, weeklyReportDate } from "@/lib/seo-date-range";
-import { flatkeyRegistrationCount, weeklyBusinessDigestLines } from "@/lib/seo-business-analytics";
-import { githubDigestLines } from "@/lib/seo-github-channel";
-import { loadGithubChannels } from "@/lib/services/seo-github-channel";
-import { loadBusinessAnalytics } from "@/lib/services/seo-business-analytics";
-import { accountRegistrationSummary } from "@/lib/seo-account-registrations";
-import { loadAccountRegistrationSummary } from "@/lib/services/seo-account-registrations";
-import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, loadDigestWorkPlan, loadRecentDigestPages, saveSeoDigest } from "@/lib/services/seo-digest";
+import { reportDay, beijingDay, DAILY_BUSINESS_DATE_SWITCH, digestDateSchema, digestKindSchema, type SeoDigest } from "@/lib/seo-digest";
+import { weeklyReportDate } from "@/lib/seo-date-range";
+import { beginDigestAttempt, claimDigest, DigestError, finishDigestAttempt, generateSeoDigest, saveSeoDigest } from "@/lib/services/seo-digest";
 import { confirmKnownDigestRejection, DigestRecoveryError } from "@/lib/services/seo-digest-recovery";
 import { webhookReceiptSchema } from "@/lib/seo-webhook-receipt";
 import { prisma } from "@/lib/prisma";
@@ -32,18 +23,6 @@ import { saveDailyDashboardSeoDigest } from "@/lib/services/seo-daily-dashboard"
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
-async function reportView(date: string, kind: "daily" | "weekly") {
-  const [workPlan, currentWorkPlan, recentPages] = await Promise.allSettled([
-    loadDigestWorkPlan(date, kind),
-    kind === "weekly" ? loadDigestWorkPlan(date, "daily") : Promise.resolve(undefined),
-    loadRecentDigestPages(date, kind),
-  ]);
-  return {
-    ...(workPlan.status === "fulfilled" && workPlan.value ? { workPlan: workPlan.value } : {}),
-    ...(currentWorkPlan.status === "fulfilled" && currentWorkPlan.value ? { currentWorkPlan: currentWorkPlan.value } : {}),
-    ...(recentPages.status === "fulfilled" ? { recentPages: recentPages.value } : {}),
-  };
-}
 const mutation = z.discriminatedUnion("action", [
   reviewedDigestCommandSchema,
   draftDigestCommandSchema,
@@ -70,8 +49,9 @@ async function readDigest(request: Request) {
     const params = new URL(request.url).searchParams;
     const archive = params.get("saved") === "1" && params.get("archive") === "1";
     const rawDate = params.get("date");
-    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? reportDay());
     const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
+    const defaultDate = kind === "daily" && beijingDay() >= DAILY_BUSINESS_DATE_SWITCH ? beijingDay() : reportDay();
+    const date = rawDate === null && archive ? null : digestDateSchema.parse(rawDate ?? defaultDate);
     if (date && kind === "weekly" && weeklyReportDate(date) !== date) return Response.json({ message: "周报日期须为北京时间周四整理日或周五修订日；旧期仅支持周五" }, { status: 400, headers });
     if (params.get("saved") === "1") {
       const explicitId = params.get("reportId");
@@ -92,7 +72,7 @@ async function readDigest(request: Request) {
         }) : null;
         const local = saved ? JSON.parse(saved) : null;
         const report = local?.report;
-        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates, ...(!explicitId && local?.view ? { view: local.view } : {}) }, { headers });
+        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates }, { headers });
       }
       const scope = { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", payload: { path: ["kind"], equals: kind } };
       const dates = archive ? (await timedRead("archive-dates", () => prisma.seoReportVersion.groupBy({
@@ -107,51 +87,25 @@ async function readDigest(request: Request) {
       });
       // The date view shows the latest archived refresh. An explicit reportId still opens the exact sent snapshot.
       const exact = explicitId ?? (!archive && delivery?.status === "DELIVERED" ? delivery.reportId : null);
-      const saved = await timedRead("report-snapshot", () => prisma.seoReportVersion.findFirst({
-        where: { ...scope, periodStart: new Date(selected), ...(exact ? { id: exact } : {}),
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        select: { payload: true },
-      }));
+      const saved = await timedRead("report-snapshot", async () => {
+        const query = { where: { ...scope, periodStart: new Date(selected), ...(exact ? { id: exact } : {}) },
+          orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }], select: { payload: true as const } };
+        // A racing or legacy generic preparation cannot obscure a previously
+        // saved source dashboard. Explicit IDs still select their exact version.
+        const dashboard = !exact && kind === "daily" ? await prisma.seoReportVersion.findFirst({ ...query,
+          where: { ...query.where, AND: [{ payload: { path: ["dailyDashboardBody", "recordOnly"], equals: true } }] },
+        }) : null;
+        return dashboard ?? prisma.seoReportVersion.findFirst(query);
+      });
       const report = saved?.payload as unknown as SeoDigest | undefined;
-      // Latest details may show current task status and the month ranking. The saved
-      // report body, ID and hash stay intact; explicit reportId never gets live data.
-      const [view, weeklySupplement] = await Promise.all([
-        archive && report && !explicitId ? timedRead("report-view", () => reportView(selected, kind)) : undefined,
-        // The standalone note route requires a browser session at middleware.
-        // Bundling must retain that boundary even when digest accepts a token.
-        report && kind === "weekly" && params.get("supplement") === "1" && await authorizeAnalyticsRead(request) ? timedRead("weekly-supplement", async () => {
+      // Saved date views and explicit IDs consume the same frozen payload.
+      // Current execution status belongs to the original work pages.
+      const weeklySupplement = report && kind === "weekly" && params.get("supplement") === "1" && await authorizeAnalyticsRead(request)
+        ? await timedRead("weekly-supplement", async () => {
           const access = await authorizeWorkflow(request);
           return { supplement: await loadWeeklySupplementForDate(report.date, access.localPreview), editable: access.actor === "human" };
-        }).catch(() => undefined) : undefined,
-      ]);
-      const currentDaily = !explicitId && kind === "daily" && selected === reportDay() && params.get("currentPreview") === "1";
-      if (currentDaily && !report?.dashboard) {
-        const fresh = await generateSeoDigest(selected).catch(() => null);
-        if (fresh) return Response.json({ report: fresh, dates }, { headers });
-      }
-      if (archive && report && !explicitId && !report.reviewedBody && !report.draftBody && !report.dashboard) {
-        const { trafficStart, trafficEnd } = digestWindow(selected, kind);
-        const offset = kind === "weekly" ? -7 : -1;
-        const previousStart = shiftDay(trafficStart, offset);
-        const accountRange = { start: trafficStart, end: trafficEnd };
-        const [observations, recentPages, workPlan, github, accountRegistrations] = await Promise.all([
-          loadBusinessAnalytics(previousStart, trafficEnd).catch(() => []),
-          loadRecentDigestPages(selected, kind).catch(() => report.recentPages),
-          (kind === "weekly" && selected === reportDay()) || !report.workPlan
-            ? loadDigestWorkPlan(selected, kind).catch(() => report.workPlan) : Promise.resolve(report.workPlan),
-          loadGithubChannels(shiftDay(trafficStart, -7), trafficEnd).catch(() => []),
-          loadAccountRegistrationSummary(accountRange).catch(() => report.accountRegistrations ?? accountRegistrationSummary(accountRange)),
-        ]);
-        const collected = flatkeyRegistrationCount(observations, trafficStart, trafficEnd);
-        const flatkeyRegistrations = collected.users !== null ? collected : report.flatkeyRegistrations ?? collected;
-        const registrationPeriods = await loadRegistrationPeriods(previousStart, trafficEnd);
-        const githubSection = github.length ? githubDigestLines(github, trafficStart, trafficEnd, kind === "weekly", new Date()) : undefined;
-        const businessSection = kind === "weekly" && observations.some(row => row.start === trafficStart && row.country === "all" && row.hostScope === GA4_HOST_SCOPE && row.rows.length)
-          ? weeklyBusinessDigestLines(observations, trafficStart, trafficEnd) : undefined;
-        return Response.json({ report: registrationCorrection({ ...report, flatkeyRegistrations, accountRegistrations, recentPages, workPlan, githubSection, businessSection }, registrationPeriods), dates, view, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
-      }
-      return Response.json({ report: report ?? null, dates, view, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
+        }).catch(() => undefined) : undefined;
+      return Response.json({ report: report ?? null, dates, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }

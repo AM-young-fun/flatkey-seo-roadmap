@@ -12,12 +12,12 @@ const run = (state, command, actor='human', ws=workspace(), publications=[]) => 
 const freeze = (state=emptyGrowthStrategy(), ws=workspace()) => run(state, {action:'freeze_baseline',targetIds:ws.targets.map(t=>t.id),sourceVersion:growthWorkspaceIdentity(ws),reason:'reviewed all targets'}, 'human', ws);
 const card = () => ({ id:'direction-a',title:'GPU pricing',hypothesis:'Our calculator answers a gap',rationale:'Demand evidence',counterEvidence:'Small sample',competitiveGap:'Missing calculator',ownAdvantage:'Real pricing method',proposedAction:'Refresh the original page',investment:'One original task',expiresAt:'2026-12-20T00:00:00Z',scope:[{site:'flatkey.ai',topicId:'topic-a',country:'US',language:'en',kinds:['optimization','cluster_landing'],maxTasks:1,validUntil:'2026-12-20T00:00:00Z'}],evidence:[{source:'GSC',reference:'saved:gsc-1',observedAt:'2026-11-22T12:00:00Z',supports:'Clicks grew'}],drivers:[],taskIds:['task-a'],experimentId:'experiment-a',experiment:{baseline:'Original page 14d',comparison:'Same country and page age',primaryMetric:'Organic sessions',businessGuardrail:'Registration rate',successCondition:'Improves over comparable baseline',adjustmentCondition:'No verified demand',reviewAt:'2026-12-20T00:00:00Z'} });
 
-test('quarter baseline is a human-confirmed complete real identity list and cannot shrink around unranked targets', () => {
+test('quarter baseline is a human-confirmed stable full list; pending identities stay N and cannot shrink around unranked targets', () => {
   const ws=workspace();
   assert.throws(()=>run(emptyGrowthStrategy(),{action:'freeze_baseline',targetIds:['a'],sourceVersion:growthWorkspaceIdentity(ws),reason:'drop missing words'}), /全部正式目标/);
   assert.throws(()=>run(emptyGrowthStrategy(),{action:'freeze_baseline',targetIds:['a','b'],sourceVersion:growthWorkspaceIdentity(ws),reason:'collector approval'},'collector'), /已登录用户/);
   const unknown=workspace([target('a',{languageStatus:'unknown'})]);
-  assert.throws(()=>freeze(emptyGrowthStrategy(),unknown), /尚未核定/);
+  const pending=freeze(emptyGrowthStrategy(),unknown); assert.equal(pending.baseline.targets.length,1); assert.equal(evaluateGrowthGoals(pending,unknown,[],period,now).identityPendingCount,1); assert.equal(evaluateGrowthGoals(pending,unknown,[],period,now).rankedCount,0);
   const frozen=freeze(); assert.equal(frozen.baseline.targets.length,2); assert.equal(frozen.baseline.actor,'human');
   assert.throws(()=>freeze(frozen), /已冻结/);
 });
@@ -46,12 +46,13 @@ test('rank targets use current exact native-language SERPs and unknown/failure c
   const empty=evaluateGrowthGoals(emptyGrowthStrategy(),ws,[],period,now); assert.equal(empty.baselineCount,null); assert.equal(empty.coverage,null); assert.equal(empty.quality,null);
   assert.match(growthReportLines({goals:empty,directions:[]}).join(' '), /基线待核定/);
 });
-test('four-site traffic is complete only for the same exact full LA week, never three sites plus fake RougeCue zero', () => {
+test('only Flatkey exact full LA week determines 3000; other five sites neither add sessions nor block readiness', () => {
   const traffic=['flatkey.ai','rackrate.org','modelfit.cc'].map(site=>({site,...period,timezone:'America/Los_Angeles',sessions:1000,complete:true,observedAt:now.toISOString(),reason:'source'}));
-  const partial=evaluateGrowthGoals(freeze(),workspace(),traffic,period,now); assert.equal(partial.knownSessions,3000); assert.equal(partial.weeklySessions,null); assert.equal(partial.trafficComplete,false);
-  traffic.push({site:'rougecue.org',...period,timezone:'Asia/Shanghai',sessions:200,complete:true,observedAt:now.toISOString(),reason:'different day buckets'});
-  assert.equal(evaluateGrowthGoals(freeze(),workspace(),traffic,period,now).weeklySessions,null);
-  traffic[3].timezone='America/Los_Angeles'; assert.equal(evaluateGrowthGoals(freeze(),workspace(),traffic,period,now).weeklySessions,3200);
+  const result=evaluateGrowthGoals(freeze(),workspace(),traffic,period,now); assert.equal(result.knownSessions,1000); assert.equal(result.weeklySessions,1000); assert.equal(result.trafficComplete,true); assert.equal(result.trafficGap,2000);assert.deepEqual(result.trafficScope.sites,['flatkey.ai']);
+  traffic.push({site:'rougecue.org',...period,timezone:'Asia/Shanghai',sessions:null,complete:false,observedAt:now.toISOString(),reason:'deferred'});
+  assert.equal(evaluateGrowthGoals(freeze(),workspace(),traffic,period,now).weeklySessions,1000);
+  traffic[0].timezone='Asia/Shanghai'; assert.equal(evaluateGrowthGoals(freeze(),workspace(),traffic,period,now).weeklySessions,null);
+  traffic[0].timezone='America/Los_Angeles';traffic[0].start='2026-11-11';assert.equal(evaluateGrowthGoals(freeze(),workspace(),traffic,period,now).weeklySessions,null);
 });
 test('six current top100 and four complete outside100 receipts are a complete 60% baseline, not a collection failure', () => {
   const ws=workspace(Array.from({length:10},(_,i)=>target('t'+i,i<6?{}:{rank:null,rankEligible:false,observationEligible:true,captureState:'outside100'})));

@@ -2,7 +2,7 @@ import { groupApprovalPages, pendingTaskApproval } from "./seo-approval-display"
 import { approvalItemNeedsHuman, approvalReviewReadiness, workflowApprovalEffectiveItemStatus, workflowTaskHasProgress, type WorkflowSnapshot, type WorkflowTask } from "./seo-workflow";
 
 export type WorkflowListReview = { id: string; title: string; key: string; languages: string[] };
-export type WorkflowListTask = Pick<WorkflowTask, "id" | "weekStart" | "title" | "siteDomain" | "business" | "country" | "language" | "kind" | "pageType" | "pageUrl" | "keyword" | "owner" | "dueAt" | "nextAction" | "failureReason"> & {
+export type WorkflowListTask = Pick<WorkflowTask, "id" | "weekStart" | "title" | "siteDomain" | "business" | "country" | "language" | "kind" | "workClass" | "pageType" | "pageUrl" | "keyword" | "owner" | "dueAt" | "nextAction" | "failureReason"> & {
   displayStatus: ReturnType<typeof workTaskStatus>;
   review: WorkflowListReview | null;
 };
@@ -65,7 +65,7 @@ export function workflowWorkList(snapshot: WorkflowSnapshot): WorkflowWorkList {
     summary: snapshot.summary, workWeek: snapshot.workWeek,
     tasks: snapshot.tasks.map(task => {
       const { id, weekStart, title, siteDomain, business, country, language, kind, pageType, pageUrl, keyword, owner, dueAt, nextAction, failureReason } = task;
-      return { id, weekStart, title, siteDomain, business, country, language, kind, pageType, pageUrl, keyword, owner, dueAt, nextAction, failureReason,
+      return { id, weekStart, title, siteDomain, business, country, language, kind, ...(task.workClass ? { workClass: task.workClass } : {}), pageType, pageUrl, keyword, owner, dueAt, nextAction, failureReason,
         displayStatus: workTaskStatus(task, snapshot), review: reviews.get(task.id) ?? null };
     }),
   };

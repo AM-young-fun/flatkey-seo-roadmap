@@ -17,6 +17,7 @@ const scopeFixtures = [
   ["blog", {}],
   ["modelfit_blog", { siteDomain: "modelfit.cc" }],
   ["optimization", { kind: "optimization", pageType: "comparison" }],
+  ["refresh", { kind: "optimization", pageType: "blog", workClass: "content_refresh" }],
   ["cluster", { kind: "landing", siteDomain: "rackrate.org", pageType: "landing" }],
   ["cluster", { kind: "research", siteDomain: "modelfit.cc", pageType: "tool" }],
 ];
@@ -33,6 +34,21 @@ test("Friday carryover is selected first on Monday without changing the original
   assert.equal(result.candidates[0].reason, "overdue");
   assert.equal(result.candidates[0].task, friday);
   assert.deepEqual(input, original);
+});
+
+test("refresh has one queue and never reclassifies original optimization or satellite work", () => {
+  const tasks = [
+    task("flatkey-refresh", "2026-11-23", { kind: "optimization", workClass: "content_refresh" }),
+    task("modelfit-refresh", "2026-11-23", { kind: "optimization", siteDomain: "modelfit.cc", workClass: "content_refresh" }),
+    task("original-flatkey", "2026-11-20", { kind: "optimization" }),
+    task("original-modelfit", "2026-11-20", { kind: "optimization", siteDomain: "modelfit.cc" }),
+    task("rackrate-not-blog", "2026-11-23", { kind: "optimization", siteDomain: "rackrate.org", workClass: "content_refresh" }),
+  ];
+  const input = snapshot(tasks), before = structuredClone(input);
+  assert.deepEqual(dueTasks(input, "refresh", instant("2026-11-23")).candidates.map(row => row.task.id), ["flatkey-refresh", "modelfit-refresh"]);
+  assert.deepEqual(dueTasks(input, "optimization", instant("2026-11-23")).candidates.map(row => row.task.id), ["original-flatkey"]);
+  assert.deepEqual(dueTasks(input, "cluster", instant("2026-11-23")).candidates.map(row => row.task.id), ["original-modelfit"]);
+  assert.deepEqual(input, before);
 });
 
 test("all production scopes pause on ordinary weekends and official weekday holidays", () => {

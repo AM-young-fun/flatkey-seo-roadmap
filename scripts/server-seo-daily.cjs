@@ -243,7 +243,7 @@ async function run() {
   try {
     growthTraffic = await collectGrowthWeeklyTraffic({ sites, period: weeklyReportRange(reportingDate), fetchWeek: fetchGa4ExactOrganicWeek, credential, now: collectionNow });
     for (const row of growthTraffic.results) console.log(JSON.stringify({ kind: "growth-weekly-traffic", ...row }));
-    if (!growthTraffic.complete) qualityIssues.push({ metric: "four_site_exact_week", reasons: ["same_la_window_incomplete"] });
+    if (!growthTraffic.complete) qualityIssues.push({ metric: "flatkey_exact_week", reasons: ["flatkey_same_la_window_incomplete"] });
   } catch {
     growthTraffic = { complete: false, reason: "exact_week_collection_unavailable", paidRequests: 0 };
     qualityIssues.push({ metric: "four_site_exact_week", reasons: ["exact_week_collection_unavailable"] });

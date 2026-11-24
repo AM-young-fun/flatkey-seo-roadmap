@@ -78,7 +78,7 @@ test("parallel source reads retain missing Rouge data; an ambiguous successful w
   if (init.method === "POST") { posts++; const command = JSON.parse(init.body); assert.equal(command.expectedVersion, state.version); state.version++; state.trafficEvidence.push(command.evidence); throw Error("timeout after saved"); }
   return Response.json({ state });
  } });
- assert.equal(maximum, 4); assert.equal(posts, 3); assert.equal(result.complete, false); assert.equal(result.paidRequests, 0);
+ assert.equal(maximum, 4); assert.equal(posts, 3); assert.equal(result.complete, true);assert.equal(result.allSourcesComplete,false);assert.deepEqual(result.goalSites,["flatkey.ai"]); assert.equal(result.paidRequests, 0);
  assert.equal(result.results.filter(row => row.status === "read_back").length, 3); assert.equal(result.results.find(row => row.site === "rougecue.org").reason, "forbidden");
 });
 test("failed writes without matching readback are not retried or reported complete", async () => {
@@ -95,7 +95,7 @@ test("four duplicate site entries cannot stand in for four distinct verified sit
  assert.equal(reads, 0);
 });
 
-test("registered RougeCue deferral performs no Google read and retains the original four-site completeness requirement", async () => {
+test("RougeCue deferral performs no Google read and cannot block Flatkey exact-week goal; observer evidence remains separate", async () => {
  const { CLUSTER_SITES } = require("../src/lib/seo-cluster-sites.ts");
  const registered = [sites[0], ...CLUSTER_SITES.filter(site => ["rackrate.org", "modelfit.cc", "rougecue.org"].includes(site.domain))];
  const rouge = registered.find(site => site.domain === "rougecue.org");
@@ -110,7 +110,7 @@ test("registered RougeCue deferral performs no Google read and retains the origi
   return Response.json({ state });
  } });
  assert.deepEqual(reads.sort(), ["flatkey.ai", "modelfit.cc", "rackrate.org"]);
- assert.equal(posts, 3); assert.equal(result.complete, false); assert.equal(result.paidRequests, 0);
+ assert.equal(posts, 3); assert.equal(result.complete, true);assert.equal(result.allSourcesComplete,false); assert.equal(result.paidRequests, 0);
  assert.deepEqual(result.results.find(row => row.site === "rougecue.org"), { site: "rougecue.org", status: "source_deferred", reason: "user_deferred_google_sources" });
  assert.deepEqual(state.trafficEvidence.find(row => row.id === "old-rouge"), { id: "old-rouge", site: "rougecue.org", sessions: 17 });
  assert.equal(state.trafficEvidence.filter(row => row.site === "rougecue.org").length, 1);

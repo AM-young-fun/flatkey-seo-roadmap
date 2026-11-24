@@ -1,4 +1,5 @@
 const { isSeoWorkday } = require("./seo-workday.cjs");
+const { compareHotspotPriority } = require("./seo-hotspot-priority.cjs");
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
 const open = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
@@ -23,11 +24,14 @@ const scopes = {
   blog: task => task.siteDomain === "flatkey.ai" && task.kind === "blog",
   modelfit_blog: task => task.siteDomain === "modelfit.cc" && task.kind === "blog"
     && task.country === "US" && task.language === "en",
-  optimization: task => task.siteDomain === "flatkey.ai" && (
+  optimization: task => task.siteDomain === "flatkey.ai" && task.workClass !== "content_refresh" && (
     task.kind === "optimization" || task.kind === "technical" && (!task.channel || task.channel === "website")
   ),
+  refresh: task => ["flatkey.ai", "modelfit.cc"].includes(task.siteDomain)
+    && task.kind === "optimization" && task.workClass === "content_refresh",
   landing: task => task.siteDomain === "flatkey.ai" && task.kind === "landing",
-  cluster: task => ["rackrate.org", "modelfit.cc"].includes(task.siteDomain) && ["landing", "optimization", "cluster", "technical", "research"].includes(task.kind),
+  cluster: task => ["rackrate.org", "modelfit.cc"].includes(task.siteDomain) && task.workClass !== "content_refresh"
+    && ["landing", "optimization", "cluster", "technical", "research"].includes(task.kind),
 };
 
 function dueTasks(snapshot, scope, now = new Date()) {
@@ -51,7 +55,8 @@ function dueTasks(snapshot, scope, now = new Date()) {
     }
     return [{ task, disposition: failed ? "diagnose" : "continue", overdue: overdue.has(task.id),
       reason: failed ? "failed" : dueDay < asOf ? "overdue" : "today" }];
-  }).sort((a, b) => Date.parse(a.task.dueAt) - Date.parse(b.task.dueAt) || a.task.id.localeCompare(b.task.id));
+  }).sort((a, b) => compareHotspotPriority(a.task, b.task, now)
+    || Date.parse(a.task.dueAt) - Date.parse(b.task.dueAt) || a.task.id.localeCompare(b.task.id));
   return { asOf, candidates };
 }
 

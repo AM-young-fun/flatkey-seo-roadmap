@@ -140,7 +140,11 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const publications: DigestInput["publications"] = verified.filter(row => row.kind !== "optimization").map(row => ({ id: row.id, url: row.pageUrl, title: row.title, kind: row.kind === "source_blog" ? "source" : row.kind as "translation" | "backfill_translation" | "landing" | "cluster" | "prompt", verifiedAt: row.verifiedAt!, recordedAt: row.verificationRecordedAt!, publishedAt: row.publishedAt }));
   const optimizations: DigestInput["optimizations"] = workflow.optimizations.flatMap(row => row.changes.flatMap(change => {
     const publication = verified.find(p => p.id === change.publicationId);
-    return publication ? [{ id: change.id, url: row.pageUrl, keyword: row.keyword, changes: change.description, verifiedAt: publication.verifiedAt!, recordedAt: publication.verificationRecordedAt!, baselineId: row.id + ":baseline" }] : [];
+    const producer = publication && workflow.tasks.find(task => task.id === publication.taskId);
+    return publication && publication.kind === "optimization" && publication.pageUrl === row.pageUrl ? [{ id: change.id, url: row.pageUrl, keyword: row.keyword, changes: change.description, verifiedAt: publication.verifiedAt!, recordedAt: publication.verificationRecordedAt!, baselineId: row.id + ":baseline",
+      taskId: producer?.id, publicationId: publication.id, workClass: producer?.workClass,
+      primaryDelivery: Boolean(producer && producer.pageUrl === publication.pageUrl && producer.country === publication.country && producer.language === publication.language),
+    }] : [];
   }));
   const priorities = (relevantPlan?.tasks ?? []).filter(task => task.scheduled !== false &&
     (window.kind !== "weekly" || isExecutableWorkflowPlan(relevantPlan?.status)) && !["verified", "observing"].includes(task.status))
@@ -216,6 +220,14 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
 }
 
 export async function saveSeoDigest(digest: SeoDigest) {
+  if (digest.kind === "daily" && !digest.dashboard) {
+    const sourceSnapshot = await prisma.seoReportVersion.findFirst({
+      where: { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", periodStart: new Date(digest.date),
+        payload: { path: ["dailyDashboardBody", "recordOnly"], equals: true } },
+      select: { id: true },
+    });
+    if (sourceSnapshot) throw new DigestError("已有同日报来源看板；请绑定原快照通过 save_daily_dashboard 差分补数，不能用裸 prepare 覆盖", 409);
+  }
   await prisma.seoReportVersion.createMany({ data: { id: digest.id, siteDomain: "flatkey.ai", kind: "SEO_DIGEST", periodStart: new Date(digest.date), periodEnd: new Date(digest.date), createdAt: new Date(digest.generatedAt), payload: json(digest) }, skipDuplicates: true });
   const stored = await prisma.seoReportVersion.findUniqueOrThrow({ where: { id: digest.id } });
   const saved = stored.payload as unknown as SeoDigest;

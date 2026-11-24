@@ -6,9 +6,9 @@ import type { GrowthHistoricalPeriod, GrowthLanguageStatus, GrowthMarket, Growth
 
 export const GROWTH_SITES: GrowthSite[] = [
   { domain: "flatkey.ai", name: "Flatkey", execution: true, keywordGoals: true, trafficGoal: true, dataOnly: false },
-  { domain: "rackrate.org", name: "RackRate", execution: true, keywordGoals: true, trafficGoal: true, dataOnly: false },
-  { domain: "modelfit.cc", name: "ModelFit", execution: true, keywordGoals: true, trafficGoal: true, dataOnly: false },
-  { domain: "rougecue.org", name: "RougeCue", execution: false, keywordGoals: false, trafficGoal: true, dataOnly: true },
+  { domain: "rackrate.org", name: "RackRate", execution: true, keywordGoals: true, trafficGoal: false, dataOnly: false },
+  { domain: "modelfit.cc", name: "ModelFit", execution: true, keywordGoals: true, trafficGoal: false, dataOnly: false },
+  { domain: "rougecue.org", name: "RougeCue", execution: false, keywordGoals: false, trafficGoal: false, dataOnly: true },
   { domain: "jev-llm.com", name: "JEV", execution: false, keywordGoals: false, trafficGoal: false, dataOnly: true },
   { domain: "mochichatbot.com", name: "Mochi", execution: false, keywordGoals: false, trafficGoal: false, dataOnly: true },
 ];

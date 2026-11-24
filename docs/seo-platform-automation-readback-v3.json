@@ -1,0 +1,113 @@
+{
+  "version": 3,
+  "allPaused": true,
+  "allOtherFieldsUnchanged": true,
+  "allPromptsExact": true,
+  "automations": [
+    {
+      "id": "seo-2",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "b8fb6373b505662ad113a38b52b3d5f9d9487fcce71661b5d0de7003f14fbb28"
+    },
+    {
+      "id": "seo-09-00-github-traffic",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "713a563816e202ac1ac0e56240860e52338bb90b3c4523e3caae9fbf4163b9e3"
+    },
+    {
+      "id": "seo-10-00",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "cb723fe5864bcfacbbb149cc9f46ffc0ca613f1468db839439f14b3259c35710"
+    },
+    {
+      "id": "seo-14-00",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "3e11eac68037f4dd960736cf25266d88c56c332a5594169c812458c2c0e4f287"
+    },
+    {
+      "id": "seo-10-00-2",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "4a652ade78ef4815614d1265fe1fd8b5383d8d1dd058263fc00ee15b5c65e17c"
+    },
+    {
+      "id": "seo-09-30-2",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "1a8e950b78800f2fe14c9bfa1757e7d4755b460074e89b7cabd8638425c7c396"
+    },
+    {
+      "id": "seo-17-30",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "6b4016708f583fa137cab6bf19cbbda63bd5ef14e08462dbbb2844fb741a156a"
+    },
+    {
+      "id": "flatkey-5",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "27a176bf9be9343041c3f8e47822484446ddefe81208c8893d98fb0b1dcc8fda"
+    },
+    {
+      "id": "seo-16-00-ga4-search-console",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "ddd9206a297549b83f4fe0d2a926bb742710ede6663a11acc7872ec7756c2087"
+    },
+    {
+      "id": "seo-09-10-flatkey",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "52c42dddf78c0834301842e701e37435218d10e2d1eef41b6114db2ac8955d57"
+    },
+    {
+      "id": "automation",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "67dd2e42b1720e7a9004643dfec3a75c0e312f78349c4f3465bcbc73efab9104"
+    },
+    {
+      "id": "seo-18-00",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "b397c27c575e2a55fc320e6008673a092031cb440534aa2aeaaaef71a7eb70d8"
+    },
+    {
+      "id": "seo",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "6d7721725b0a1b851156a0b060c1492578bbc85170fc472dc8adde18b2eed4b9"
+    },
+    {
+      "id": "automation-2",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "bc03019ec1ec08e7201d2873a928cece22c38d7bc951e6884f64f9777f510208"
+    },
+    {
+      "id": "seo-16-25",
+      "status": "PAUSED",
+      "allOtherFieldsUnchanged": true,
+      "promptMatchesIntended": true,
+      "promptSha256": "e55039e331de1f8b9ccc8ec8c0df3155a891f2f9c469ee915b1fc66fe53127e3"
+    }
+  ]
+}

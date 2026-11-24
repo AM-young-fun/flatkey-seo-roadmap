@@ -12,9 +12,10 @@ export function digestExecutionWeek(date: string, kind: DigestKind = "daily") {
   return kind === "daily" && [5, 6, 0].includes(weekday(day)) ? shiftDay(monday, 7) : monday;
 }
 
-/** Daily archive dates follow the source day; choose its execution cycle, not the collection day's. */
+/** New daily snapshots use their Beijing business date. Legacy archive dates
+ * continue to use the source-day cycle recorded by their original contract. */
 export function digestReportExecutionWeek(date: string, kind: DigestKind) {
-  return digestExecutionWeek(kind === "daily" ? shiftDay(date, -1) : date, kind);
+  return digestExecutionWeek(kind === "daily" && date < "2026-11-24" ? shiftDay(date, -1) : date, kind);
 }
 
 export function digestExecutionPeriod(weekStart: string) {
@@ -56,12 +57,13 @@ export function summarizeDigestWorkPlan(snapshots: WorkflowSnapshot[], weekStart
     const status = !pending ? task.status : automatic ? "ready" : canReview ? "review_pending" : "missing_materials";
     return [{ id: task.id, weekStart: task.weekStart, siteDomain: task.siteDomain, scheduled, kind, title: task.title,
       pageUrl: task.pageUrl, keyword: task.keyword, country: task.country, language: task.language,
-      owner: task.owner, dueAt: task.dueAt, status, action: task.nextAction }];
+      ...(task.workClass ? { workClass: task.workClass } : {}), owner: task.owner, dueAt: task.dueAt, status, action: task.nextAction }];
   }).sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.id.localeCompare(b.id));
   if (!plan && !tasks.length) return undefined;
   const targets = plan && "clusterLanding" in plan.targets ? {
     blogs: plan.targets.apiBlogs + plan.targets.gpuBlogs, landing: plan.targets.landing,
     optimizedPages: plan.targets.optimizedPages, clusterLanding: plan.targets.clusterLanding,
+    ...("contentRefreshPages" in plan.targets && plan.targets.contentRefreshPages !== undefined ? { contentRefreshPages: plan.targets.contentRefreshPages } : {}),
   } : undefined;
   return { weekStart, periodStart: period.start, periodEnd: period.end, workdays: period.workdays,
     status: plan?.status ?? "draft", targets, tasks };

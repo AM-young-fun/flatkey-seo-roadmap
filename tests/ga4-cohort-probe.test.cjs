@@ -128,10 +128,10 @@ test("workflow probe receives only existing Google read credentials; main produc
   assert.doesNotMatch(script, /loadEnvConfig|prisma|saveBusinessAnalytics|parseApiCohortResponse/);
 });
 
-test("Vercel restores authorized main deployment while keeping the exact diagnostic branch disabled", () => {
+test("Vercel keeps main deployment available, diagnostic branch disabled and all cron paused", () => {
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../vercel.json"), "utf8"));
   assert.deepEqual(config.git.deploymentEnabled, { main: true, "codex/ga4-registration-cohorts-20261111": false });
   assert.deepEqual(config.regions, ["sin1"]);
   const cronRoutes = [...new Set(config.crons.map(job => new URL(job.path, "https://example.test").pathname))];
-  assert.deepEqual(cronRoutes, ["/api/cron/daily-rankings"]);
+  assert.deepEqual(cronRoutes, []);
 });
