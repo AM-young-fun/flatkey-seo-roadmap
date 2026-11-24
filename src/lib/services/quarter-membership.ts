@@ -61,10 +61,16 @@ export async function saveQuarterMembership(raw: unknown) {
     if (command.action === "preview") return { status: "PREVIEW", stored: false, selectionHash: plan.selectionHash, stateHash: plan.stateHash, uniqueWords: plan.uniqueWords, membershipCount: plan.membershipCount, changed: plan.changes.length, changes: plan.changes, manifest: plan.selection };
     const sites = await tx.seoSite.findMany({ where: { domain: { in: [...new Set(selection.members.map(row => row.siteDomain))] } }, select: { domain: true, active: true } });
     if (selection.members.some(member => !sites.some(site => site.domain === member.siteDomain && site.active))) throw new QuarterMembershipError("inactive_site", "所选站点尚未启用");
-    for (const change of plan.changes) {
-      const before = rows.find(row => row.siteDomain === change.siteDomain && row.keywordId === change.keywordId)!;
-      const changed = await tx.siteKeyword.updateMany({ where: { siteDomain: change.siteDomain, keywordId: change.keywordId, active: true, pool: "RESEARCH", topicId: before.topicId, protected: before.protected as boolean, reviewStatus: before.reviewStatus as string, curationId: before.curationId as string | null, targetUrls: { equals: before.targetUrls as string[] }, candidateUrls: { equals: before.candidateUrls as string[] }, keyword: { active: true } }, data: { pool: "FORMAL" } });
-      if (changed.count !== 1) throw new QuarterMembershipError("state_changed", "纳入期间成员状态发生变化，事务已取消");
+    if (plan.changes.length) {
+      const originals = new Map(rows.map(row => [`${row.siteDomain}\u0000${row.keywordId}`, row]));
+      const predicates = plan.changes.map(change => {
+        const before = originals.get(`${change.siteDomain}\u0000${change.keywordId}`)!;
+        return { siteDomain: change.siteDomain, keywordId: change.keywordId, active: true, pool: "RESEARCH", topicId: before.topicId, protected: before.protected as boolean, reviewStatus: before.reviewStatus as string, curationId: before.curationId as string | null, targetUrls: { equals: before.targetUrls as string[] }, candidateUrls: { equals: before.candidateUrls as string[] }, keyword: { active: true } };
+      });
+      // One guarded statement in the original all-or-nothing transaction; each
+      // selected RESEARCH row retains its own complete former update predicate.
+      const changed = await tx.siteKeyword.updateMany({ where: { OR: predicates }, data: { pool: "FORMAL" } });
+      if (changed.count !== plan.changes.length) throw new QuarterMembershipError("state_changed", "纳入期间成员状态发生变化，事务已取消");
     }
     const after = await readMembers(tx, selection);
     const expected = rows.map(row => ({ ...row, pool: "FORMAL" }));

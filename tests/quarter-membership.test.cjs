@@ -1,13 +1,21 @@
 const assert = require('node:assert/strict'), { test, beforeEach } = require('node:test'), fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), ts = require('typescript');
 const root = path.resolve(__dirname, '..'), load = Module._load;
-let state, writes, session, routeReads;
+let state, writes, session, routeReads, updateCalls, beforeUpdate, forcedCount;
 const copy = value => JSON.parse(JSON.stringify(value));
 const topic = { id: 'real-topic', text: '模型API真实成本', active: true, sites: [{ siteDomain: 'flatkey.ai' }, { siteDomain: 'modelfit.cc' }] };
 const selection = () => ({ version: 'quarter-membership-v1', quarterId: '2026-close', sourceReference: '/saved/exact-1600-source.json', sourceHash: 'a'.repeat(64), members: Array.from({ length: 1600 }, (_, i) => ({ siteDomain: 'flatkey.ai', keywordId: 'word-' + i, keyword: 'model api original word ' + i, topicId: topic.id })) });
 const rows = sel => sel.members.map(row => ({ siteDomain: row.siteDomain, keywordId: row.keywordId, topicId: row.topicId, active: true, pool: 'RESEARCH', reviewStatus: 'UNREVIEWED', protected: true, curationId: 'old-audit', targetUrls: ['https://flatkey.ai/blog/original'], candidateUrls: [], keyword: { id: row.keywordId, text: row.keyword, active: true, updatedAt: '2026-11-24T01:00:00Z' }, topicAssignments: [], origin: 'PLANNED' }));
 const tx = {
   $executeRaw: async () => 1,
-  siteKeyword: { findMany: async () => copy(state.rows).sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId)), updateMany: async ({ where, data }) => { const row = state.rows.find(row => row.siteDomain === where.siteDomain && row.keywordId === where.keywordId && row.pool === where.pool); if (!row) return { count: 0 }; writes.push({ id: row.keywordId, data }); Object.assign(row, data); return { count: 1 }; } },
+  siteKeyword: { findMany: async () => copy(state.rows).sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId)), updateMany: async ({ where, data }) => {
+    updateCalls.push(copy({ where, data })); if (beforeUpdate) beforeUpdate();
+    const predicates = where.OR ?? [where];
+    const matches = (row, p) => ['siteDomain', 'keywordId', 'active', 'pool', 'topicId', 'protected', 'reviewStatus', 'curationId'].every(key => row[key] === p[key])
+      && JSON.stringify(row.targetUrls) === JSON.stringify(p.targetUrls.equals) && JSON.stringify(row.candidateUrls) === JSON.stringify(p.candidateUrls.equals) && row.keyword.active === p.keyword.active;
+    const selected = state.rows.filter(row => predicates.some(p => matches(row, p)));
+    for (const row of selected) { writes.push({ id: row.keywordId, data }); Object.assign(row, data); }
+    return { count: forcedCount ?? selected.length };
+  } },
   topic: { findMany: async () => copy(state.topics) }, seoSite: { findMany: async () => [{ domain: 'flatkey.ai', active: true }, { domain: 'modelfit.cc', active: true }] },
   keywordCurationAudit: { findUnique: async ({ where }) => state.audits.get(where.id) ?? null, create: async ({ data }) => { state.audits.set(data.id, { ...copy(data), appliedAt: new Date() }); return data; } },
 };
@@ -27,7 +35,7 @@ require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule
 const { quarterMembershipSelectionSchema, canonicalQuarterSelection, planQuarterMembership } = require('../src/lib/quarter-membership.ts');
 const { saveQuarterMembership, loadQuarterMembershipReceipt } = require('../src/lib/services/quarter-membership.ts');
 const { POST, GET } = require('../src/app/api/keywords/quarter-membership/route.ts');
-beforeEach(() => { state = { rows: rows(selection()), topics: [copy(topic)], audits: new Map() }; writes = []; session = false; routeReads = 0; });
+beforeEach(() => { state = { rows: rows(selection()), topics: [copy(topic)], audits: new Map() }; writes = []; updateCalls = []; beforeUpdate = undefined; forcedCount = undefined; session = false; routeReads = 0; });
 test('exactly1600 original words include cross-site memberships once and reject duplicate IDs or changed source selection', () => {
   const sel = selection(); sel.members.push({ ...sel.members[0], siteDomain: 'modelfit.cc' });
   assert.equal(quarterMembershipSelectionSchema.safeParse(sel).success, true);
@@ -41,11 +49,43 @@ test('preview has no writes; apply changes only selected pools, retains complete
   const command = { action: 'apply', requestId: 'human-exact-1600', selection: sel, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash };
   const result = await saveQuarterMembership(command);
   assert.equal(result.readbackVerified, true); assert.equal(result.replay, false); assert.equal(writes.length, 1600); assert.equal(state.audits.size, 1);
+  assert.equal(updateCalls.length, 1); assert.equal(updateCalls[0].where.OR.length, 1600);
   assert.ok(writes.every(write => JSON.stringify(write.data) === JSON.stringify({ pool: 'FORMAL' })));
   assert.deepEqual(state.rows, original.map(row => ({ ...row, pool: 'FORMAL' })));
   assert.equal((await saveQuarterMembership(command)).replay, true); assert.equal(writes.length, 1600);
   await assert.rejects(saveQuarterMembership({ ...command, expectedStateHash: 'b'.repeat(64) }), { code: 'idempotency_conflict' });
   assert.deepEqual(result.manifest, canonicalQuarterSelection(sel));
+});
+test('1060 guarded research rows use one update and retain the original540 formal rows and every old predicate', async () => {
+  state.rows.slice(0, 540).forEach(row => row.pool = 'FORMAL');
+  const original = copy(state.rows), sel = selection(), preview = await saveQuarterMembership({ action: 'preview', requestId: 'real-sized-1060', selection: sel });
+  assert.equal(preview.changed, 1060);
+  const result = await saveQuarterMembership({ action: 'apply', requestId: 'real-sized-1060', selection: sel, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash });
+  assert.equal(result.changed, 1060); assert.equal(updateCalls.length, 1); assert.equal(updateCalls[0].where.OR.length, 1060); assert.equal(writes.length, 1060);
+  const expected = original.filter(row => row.pool === 'RESEARCH').sort((a, b) => a.keywordId.localeCompare(b.keywordId)).map(row => ({ siteDomain: row.siteDomain, keywordId: row.keywordId, active: true, pool: 'RESEARCH', topicId: row.topicId, protected: row.protected, reviewStatus: row.reviewStatus, curationId: row.curationId, targetUrls: { equals: row.targetUrls }, candidateUrls: { equals: row.candidateUrls }, keyword: { active: true } }));
+  assert.deepEqual(updateCalls[0].where.OR, expected);
+  assert.deepEqual(state.rows.slice(0, 540), original.slice(0, 540));
+  assert.deepEqual(state.rows, original.map(row => ({ ...row, pool: 'FORMAL' })));
+});
+test('a1059 bulk count rolls back the complete1060 approval and writes no audit', async () => {
+  state.rows.slice(0, 540).forEach(row => row.pool = 'FORMAL');
+  const original = copy(state.rows), sel = selection(), preview = await saveQuarterMembership({ action: 'preview', requestId: 'bulk-conflict-count', selection: sel }); forcedCount = 1059;
+  await assert.rejects(saveQuarterMembership({ action: 'apply', requestId: 'bulk-conflict-count', selection: sel, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash }), { code: 'state_changed' });
+  assert.equal(updateCalls.length, 1); assert.deepEqual(state.rows, original); assert.equal(state.audits.size, 0);
+});
+test('every per-row protection remains effective when one selected row changes after preview state was read', async () => {
+  const edits = [row => row.active = false, row => row.pool = 'ARCHIVED', row => row.topicId = 'another-topic', row => row.protected = false, row => row.reviewStatus = 'changed', row => row.curationId = 'another-audit', row => row.targetUrls.push('https://flatkey.ai/blog/later'), row => row.candidateUrls.push('https://flatkey.ai/blog/later'), row => row.keyword.active = false];
+  for (const [i, edit] of edits.entries()) {
+    state = { rows: rows(selection()), topics: [copy(topic)], audits: new Map() }; state.rows.slice(0, 540).forEach(row => row.pool = 'FORMAL'); updateCalls = []; writes = [];
+    const original = copy(state.rows), sel = selection(), preview = await saveQuarterMembership({ action: 'preview', requestId: 'bulk-guard-' + i, selection: sel }); beforeUpdate = () => edit(state.rows[600]);
+    await assert.rejects(saveQuarterMembership({ action: 'apply', requestId: 'bulk-guard-' + i, selection: sel, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash }), { code: 'state_changed' });
+    assert.equal(updateCalls.length, 1); assert.deepEqual(state.rows, original); assert.equal(state.audits.size, 0); beforeUpdate = undefined;
+  }
+});
+test('an already formal exact selection uses no update statement but still verifies its complete audit', async () => {
+  state.rows.forEach(row => row.pool = 'FORMAL'); const sel = selection(), preview = await saveQuarterMembership({ action: 'preview', requestId: 'no-missing-pool', selection: sel });
+  const result = await saveQuarterMembership({ action: 'apply', requestId: 'no-missing-pool', selection: sel, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash });
+  assert.equal(result.changed, 0); assert.equal(updateCalls.length, 0); assert.equal(result.readbackVerified, true);
 });
 test('changed membership and false or cross-site TopicMap evidence fail before pool writes', async () => {
   const sel = selection(), preview = await saveQuarterMembership({ action: 'preview', requestId: 'before-change', selection: sel });

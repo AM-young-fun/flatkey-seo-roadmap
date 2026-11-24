@@ -127,11 +127,24 @@ export function quarterAllocationProblems(plan: WorkflowPlan, strategy: GrowthSt
   if (allocation.version && allocation.version !== quarter.plan.version) errors.push("工作包投入版本须与确切已审季度方案一致");
   if (allocation.futureBudget.total + (allocation.futureBudget.offset ?? 0) > quarter.plan.deliveryBudget.total
     || allocation.marketResearchBudget.total + (allocation.marketResearchBudget.offset ?? 0) > quarter.plan.researchBudget.total) errors.push("业务周预算超出已审季度总名额，不自动扩量");
-  const start = "executionRange" in plan.targets ? plan.targets.executionRange.start : "";
-  const end = "executionRange" in plan.targets ? plan.targets.executionRange.end : "";
+  const allocationRange = (row: WorkflowPlan) => "executionRange" in row.targets ? row.targets.executionRange : "maintenanceRange" in row.targets ? row.targets.maintenanceRange : undefined;
+  const start = allocationRange(plan)?.start ?? "";
+  const end = allocationRange(plan)?.end ?? "";
+  if (allocation.version === "quarter-planning-v2" && (!prior?.strategyAllocation || addedWork)) {
+    const from = allocation.capacityStart ?? start, through = allocation.capacityEnd ?? end;
+    if (existingPlans.some(saved => {
+      const savedRange = allocationRange(saved), savedAllocation = saved.strategyAllocation;
+      return saved.id !== plan.id && (["scheduled", "reviewed"].includes(saved.status) || saved.committedTaskIds !== undefined)
+        && savedAllocation?.version === "quarter-planning-v2" && savedRange
+        && (savedAllocation.capacityStart ?? savedRange.start) <= through && (savedAllocation.capacityEnd ?? savedRange.end) >= from;
+    })) errors.push("同维护或业务窗口已有原投入计划，不能另建growth或跨Monday桶重复分配预算");
+  }
   if ((allocation.capacityStart ?? start) < quarter.plan.executionStart || (allocation.capacityEnd ?? end) > quarter.plan.executionEnd) errors.push("剩余投入容量须落在确切已审季度执行窗口内，恢复延迟不能补跑过去时段");
   const receipts = new Map<string, WorkflowPlan>();
-  for (const saved of existingPlans) if (saved.id !== plan.id && (["scheduled", "reviewed"].includes(saved.status) || saved.committedTaskIds !== undefined) && saved.strategyAllocation && (allocation.version !== "quarter-planning-v2" || saved.strategyAllocation.version === "quarter-planning-v2") && "executionRange" in saved.targets && saved.targets.executionRange.start < start) receipts.set(saved.targets.executionRange.start, saved);
+  for (const saved of existingPlans) {
+    const savedRange = allocationRange(saved);
+    if (saved.id !== plan.id && (["scheduled", "reviewed"].includes(saved.status) || saved.committedTaskIds !== undefined) && saved.strategyAllocation && (allocation.version !== "quarter-planning-v2" || saved.strategyAllocation.version === "quarter-planning-v2") && savedRange && savedRange.start < start) receipts.set(savedRange.start, saved);
+  }
   const priorDelivery = [...receipts.values()].reduce((n, row) => n + row.strategyAllocation!.futureBudget.total, 0);
   const priorResearch = [...receipts.values()].reduce((n, row) => n + row.strategyAllocation!.marketResearchBudget.total, 0);
   if ((allocation.futureBudget.offset ?? 0) !== priorDelivery || (allocation.marketResearchBudget.offset ?? 0) !== priorResearch) errors.push("累计预算须承接原已审业务周实际回执，不可信任调用方重置offset");
