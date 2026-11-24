@@ -10,6 +10,7 @@ import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 import { quarterAllocationProblems } from "@/lib/growth-quarter-planning";
+import { quarterContentMutationTasks, quarterContentProblems } from "@/lib/seo-quarter-content";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { timedRead } from "@/lib/read-profile";
 
@@ -90,6 +91,12 @@ async function saveLocalWorkflow(input: unknown, actor: WorkflowActor, directory
     const prior = state.events.find(event => event.requestId === request.requestId);
     if (prior) { if (prior.requestHash !== hash) throw new WorkflowError("idempotency_conflict", "同一请求编号已用于不同内容"); return { stored: true, replay: true, kind: prior.kind, record: prior.record, storage: "local_preview" as const }; }
     const prepared = prepareWorkflowMutation(request, state.records, actor);
+    const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, state.records);
+    if (contentTasks.length) {
+      const { loadGrowthStrategy } = await import("./growth-strategy");
+      const problems = quarterContentProblems(contentTasks, await loadGrowthStrategy(true), state.records);
+      if (problems.length) throw new WorkflowError("quarter_content_membership_required", problems.join("；"));
+    }
     if (prepared.kind === "plan" && (prepared.record as WorkflowPlan).strategyAllocation && isExecutableWorkflowPlan((prepared.record as WorkflowPlan).status)) {
       const { loadGrowthStrategy } = await import("./growth-strategy");
       const problems = quarterAllocationProblems(prepared.record as WorkflowPlan, await loadGrowthStrategy(true), state.records.filter(row => row.kind === "task").map(row => row.record as WorkflowTask), state.records.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));
@@ -132,6 +139,12 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     const rows = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } } });
     const all = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
     const prepared = prepareWorkflowMutation(request, all, actor);
+    const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, all);
+    if (contentTasks.length) {
+      const { readGrowthStrategy } = await import("./growth-strategy");
+      const problems = quarterContentProblems(contentTasks, await readGrowthStrategy(tx), all);
+      if (problems.length) throw new WorkflowError("quarter_content_membership_required", problems.join("；"));
+    }
     if (prepared.kind === "plan" && (prepared.record as WorkflowPlan).strategyAllocation && isExecutableWorkflowPlan((prepared.record as WorkflowPlan).status)) {
       const { readGrowthStrategy } = await import("./growth-strategy");
       const problems = quarterAllocationProblems(prepared.record as WorkflowPlan, await readGrowthStrategy(tx), all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask), all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));

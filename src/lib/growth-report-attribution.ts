@@ -23,10 +23,10 @@ export function growthPageContributionDirections(workspace: GrowthWorkspace, pub
   const start = shift(period.start, -7), dates = Array.from({ length: 14 }, (_, index) => shift(start, index));
   const groups = new Map<string, Map<string, AnalyticsObservation>>();
   for (const row of observations) {
-    if (!["ga4-pages", "gsc-pages"].includes(row.kind) || !row.complete || row.date < start || row.date > period.end || Date.parse(row.observedAt) > now.getTime()) continue;
+    if (!["ga4-pages", "gsc-pages"].includes(row.kind) || row.date < start || row.date > period.end || Date.parse(row.observedAt) > now.getTime()) continue;
     const site = analyticsSiteForProperty(row.property);
     if (!site || !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(site)) continue;
-    if (row.kind === "ga4-pages" && (!row.sessionsComplete || site !== "flatkey.ai" && CLUSTER_SITES.find(s => s.domain === site)?.ga4TimeZone !== "America/Los_Angeles")) continue;
+    if (row.kind === "ga4-pages" && site !== "flatkey.ai" && CLUSTER_SITES.find(s => s.domain === site)?.ga4TimeZone !== "America/Los_Angeles") continue;
     const key = JSON.stringify([site, row.country ?? "ALL", row.kind]);
     const group = groups.get(key) ?? new Map<string, AnalyticsObservation>();
     const old = group.get(row.date);
@@ -36,6 +36,9 @@ export function growthPageContributionDirections(workspace: GrowthWorkspace, pub
   const drivers: GrowthDriver[] = [];
   for (const [key, group] of groups) {
     if (dates.some(date => !group.has(date))) continue;
+    // Select the latest saved revision first. A newer incomplete source must
+    // not silently fall back to an older complete value of that same day.
+    if (dates.some(date => { const row = group.get(date)!; return !row.complete || row.kind === "ga4-pages" && !row.sessionsComplete; })) continue;
     const [site, country, kind] = JSON.parse(key) as string[];
     const dayPages = dates.map(day => {
       const row = group.get(day)!;

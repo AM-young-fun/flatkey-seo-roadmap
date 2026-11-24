@@ -125,6 +125,16 @@ test("new source and linked translation can publish without a human approval, fr
  assert.equal(save(translation,[t,plan,source],"record_publication").record.kind,"translation");
  assert.throws(()=>save({...translation,sourcePublicationId:"missing"},[t,plan],"record_publication"),/源文/);
 });
+
+test("a cross-bucket growth plan grants the same exact original task eligibility at publication as at dispatch",()=>{
+ const t=save(task({weekStart:"2026-11-02",dueAt:"2026-11-06T04:00:00Z"}));
+ const growthPlan={kind:"plan",record:{id:"growth-cross-bucket",weekStart:"2026-11-09",status:"scheduled",taskIds:[t.record.id],updatedAt:before,targets:{cadence:"growth",executionRange:{start:"2026-11-06",end:"2026-11-12"}}}};
+ const receipt=pub({weekStart:t.record.weekStart});
+ assert.equal(save(receipt,[t,growthPlan],"record_publication").record.taskId,t.record.id);
+ for(const patch of [{status:"draft"},{taskIds:[]},{targets:{cadence:"focused"}},{targets:{cadence:"growth",executionRange:{start:"2026-11-13",end:"2026-11-19"}}}]){
+  assert.throws(()=>save(receipt,[t,{...growthPlan,record:{...growthPlan.record,...patch}}],"record_publication"),{code:"automatic_blog_plan_required"});
+ }
+});
 test("existing blog optimization requires base version and pre-publish baseline, never counts as new",()=>{
  const t=save(task({kind:"optimization"}));
  const old={kind:"publication",record:{...pub(),id:"old",contentVersion:"v1",publishedAt:before,status:"verified"}};

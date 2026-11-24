@@ -34,8 +34,10 @@ export function siteSourceReadiness(domain: string, persistedPropertyId: string 
     sourceVerifiedAt: visibleVerification ? ROUGECUE_SOURCE_VERIFICATION.verifiedAt : null,
     configurationSource: collector ? "collector-registry" : persistedPropertyId ? "persisted-site" : "missing",
     metadataVerification: visibleVerification ? "visible-ga4-property" : "collector-config-only",
-    apiPermissionVerified: false, persistedPropertyMatches: matches,
-    reason: `${visibleVerification ? "Google属性、网站数据流及洛杉矶时区已只读核实" : collector ? "已有采集器属性及来源时区配置，未在本接口实时重查Google metadata" : "采集器未登记属性"}；${matches === true ? "平台持久配置已匹配" : matches === false ? "平台持久配置与采集器不符，须核对" : persistedPropertyId ? "已有平台持久属性配置" : "平台属性配置尚未持久登记"}。服务账号读取权限、注册事件及实际数据覆盖仍待核实，不将无数据补0。` };
+    // This compatibility flag describes this configuration route's own scope;
+    // false is not a failed permission check or the latest source availability.
+    apiPermissionVerified: false, apiVerificationScope: "not-checked-by-this-route" as const, persistedPropertyMatches: matches,
+    reason: `${visibleVerification ? "Google属性、网站数据流及洛杉矶时区已只读核实" : collector ? "已有采集器属性及来源时区配置，未在本接口实时重查Google metadata" : "采集器未登记属性"}；${matches === true ? "平台持久配置已匹配" : matches === false ? "平台持久配置与采集器不符，须核对" : persistedPropertyId ? "已有平台持久属性配置" : "平台属性配置尚未持久登记"}。采集可用性以来源台账实际回执/日期为准，本配置接口未实时复查服务账号权限、注册事件及数据覆盖；不将无数据补0。` };
 }
 
 export type ClusterDomain = typeof CLUSTER_SITES[number]["domain"];

@@ -8,10 +8,10 @@ export type GrowthRankingView = "all" | "formal";
 /** The execution workspace contains the one quarterly TopicMap list. Discovery
  * observations remain available to the overview without becoming target queues. */
 export function quarterTargetWorkspace(data: GrowthWorkspace): GrowthWorkspace {
-  const ids = data.quarter ? new Set(data.quarter.targetIds) : null;
+  const ids = new Set(data.quarter?.targetIds ?? []);
   const rows = data.targets.filter(target => target.membership === "formal" && target.topicId
     && data.topics.some(topic => topic.topicId === target.topicId && topic.site === target.site)
-    && (!ids || ids.has(target.id)));
+    && ids.has(target.id));
   const words = new Map<string, GrowthTarget>();
   for (const target of rows) {
     const key = target.keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();

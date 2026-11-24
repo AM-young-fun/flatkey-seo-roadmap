@@ -5,7 +5,7 @@ export type GrowthLanguageStatus = "match" | "mismatch" | "unknown";
 export type GrowthRankSource = "serp" | "database" | "gsc";
 export type GrowthCaptureState = "ranked" | "outside100" | "incomplete" | "failed" | "unqueried";
 /** Current trafficGoal means the Flatkey-only 3000 target, separate from data observation. */
-export type GrowthSite = { domain: string; name: string; execution: boolean; keywordGoals: boolean; trafficGoal: boolean; dataOnly: boolean; dataReadiness?: { ga4Configured: boolean; sourceTimezone: string | null; reason: string; persistentGa4Configured?: boolean; collectorGa4Configured?: boolean; sourcePropertyId?: string | null; sourceVerifiedAt?: string | null; configurationSource?: string; metadataVerification?: string; apiPermissionVerified?: boolean; persistedPropertyMatches?: boolean | null } };
+export type GrowthSite = { domain: string; name: string; execution: boolean; keywordGoals: boolean; trafficGoal: boolean; dataOnly: boolean; dataReadiness?: { ga4Configured: boolean; sourceTimezone: string | null; reason: string; persistentGa4Configured?: boolean; collectorGa4Configured?: boolean; sourcePropertyId?: string | null; sourceVerifiedAt?: string | null; configurationSource?: string; metadataVerification?: string; apiPermissionVerified?: boolean; apiVerificationScope?: "not-checked-by-this-route"; persistedPropertyMatches?: boolean | null } };
 export type GrowthMarket = { country: string; language: string; label: string; priority: "primary" | "secondary" | "legacy"; plannedShare: number | null };
 /** Same-page links preserve the original task's main keyword and scope. A
  * candidate is navigation evidence only, never a market assignment/approval. */

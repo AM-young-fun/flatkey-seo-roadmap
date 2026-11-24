@@ -57,7 +57,11 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
   // Evidence references are read from the real sources; caller-supplied target
   // identities, page versions or task IDs cannot become the source of truth.
   const [workspace, workflow, sites] = await Promise.all([loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_EXECUTION_SITES] } }, select: { domain: true, ga4PropertyId: true } })]);
-  const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[]) => ({ routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now), siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state) });
+  const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[]) => ({ routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now),
+    // Trusted task identities are loaded from the original workflow records,
+    // never accepted from a caller's observation payload.
+    taskReferences: tasks.map(({ id, siteDomain, pageUrl, keyword, keywordId, country, language, deletedAt }) => ({ id, siteDomain, pageUrl, keyword, keywordId, country, language, deletedAt })),
+    siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state) });
   const prepare = (state: GrowthStrategy) => { assertApprovalContract(state); return growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks))); };
   const directory = previewDirectory(localPreview);
   if (directory) {

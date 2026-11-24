@@ -33,6 +33,23 @@ test("Friday business window reads both Monday plans and excludes the following 
   assert.deepEqual(rows, before, "reading the delivery window never reschedules or copies original tasks");
 });
 
+test("one growth plan exposes its exact Friday task from the other Monday bucket without widening plan eligibility", () => {
+  const friday = task("cross-bucket-friday", "2026-11-23", "2026-11-27");
+  const monday = task("same-plan-monday", "2026-11-30", "2026-11-30");
+  const unplanned = task("unplanned-same-window", "2026-11-23", "2026-11-27");
+  const plan = { kind: "plan", record: { id: "business-week-plan", weekStart: "2026-11-30", status: "scheduled", version: 1, updatedAt: "2026-11-26T07:00:00Z",
+    taskIds: [friday.record.id, monday.record.id], targets: { cadence: "growth", executionRange: { start: "2026-11-27", end: "2026-12-03" } } } };
+  const rows = [friday, monday, unplanned, plan], before = structuredClone(rows), at = "2026-11-27T07:00:00Z";
+  assert.deepEqual(read(rows, at).tasks.map(row => row.id), [friday.record.id, monday.record.id]);
+  assert.deepEqual(rows, before, "qualification does not move the original keys, dates or task IDs");
+  for (const patch of [{ status: "draft" }, { taskIds: [] }, { targets: { cadence: "growth", executionRange: { start: "2026-11-20", end: "2026-11-26" } } }, { targets: { cadence: "focused" } }]) {
+    const actual = read([friday, { ...plan, record: { ...plan.record, ...patch } }], at);
+    assert.deepEqual(actual.tasks, [], JSON.stringify(patch));
+  }
+  const newerDraft = { ...plan, record: { ...plan.record, id: "latest-draft", status: "draft", version: 2, updatedAt: "2026-11-26T08:00:00Z" } };
+  assert.deepEqual(read([...rows, newerDraft], at).tasks, [], "the latest original plan status remains authoritative");
+});
+
 test("unfinished work becomes overdue on the next Beijing day within the same stored week", () => {
   const rows = scheduled(task("monday", "2026-11-23", "2026-11-23"),
     task("tuesday", "2026-11-23", "2026-11-24"),
