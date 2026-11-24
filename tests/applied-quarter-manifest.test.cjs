@@ -1,6 +1,6 @@
 const { test } = require('node:test'), assert = require('node:assert/strict');
 require('./register-ui-modules.cjs');
-const Module = require('node:module'), path = require('node:path');
+const Module = require('node:module');
 const { canonicalQuarterSelection, quarterMembershipHash: hash, planQuarterMembership, QUARTER_MEMBERSHIP_STATUS } = require('../src/lib/quarter-membership.ts');
 const { readAppliedQuarterManifestAudit, projectAppliedQuarterManifestTopics } = require('../src/lib/applied-quarter-manifest.ts');
 const { buildGrowthWorkspace } = require('../src/lib/growth-workspace.ts');
