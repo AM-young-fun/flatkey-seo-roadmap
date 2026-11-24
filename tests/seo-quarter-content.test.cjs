@@ -30,3 +30,12 @@ test('only new routine content is gated; original maintenance and separately aut
  assert.equal(quarterContentMutationTasks('plan',{id:'p',status:'scheduled',taskIds:[task.id]},[row('task',task)]).length,1);
  assert.deepEqual(quarterContentMutationTasks('plan',{id:'p',status:'draft',taskIds:[task.id]},[row('task',task)]),[]);
 });
+
+test('an exact human-approved quarter may explicitly reserve an old authorized task without admitting a replacement',()=>{
+ const approved=state();approved.quarterPlanning.plan.reservedOriginalTaskIds=[task.id];
+ const original={...task,keyword:'original retained keyword',keywordId:'retained'};
+ assert.deepEqual(quarterContentProblems([original],approved,[row('task',original)]),[]);
+ assert.equal(quarterContentProblems([{...original,id:'replacement'}],approved,[row('task',original)]).length,1);
+ const unapproved=state();unapproved.quarterPlanning.plan.reservedOriginalTaskIds=[task.id];unapproved.quarterPlanning.approval=null;
+ assert.equal(quarterContentProblems([original],unapproved,[row('task',original)]).length,1);
+});

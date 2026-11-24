@@ -15,6 +15,9 @@ export function quarterContentMutationTasks(kind: string, record: { id: string }
 /** Quarterly membership gates new routine production, never historical original
  * commitments, maintenance, research or separately authorized hotspot work. */
 export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthStrategy, all: WorkflowStoredRow[]): string[] {
+  const quarter = [...(strategy.quarterPlanningHistory ?? []), ...(strategy.quarterPlanning ? [strategy.quarterPlanning] : [])]
+    .filter(row => row.approval?.hash === row.hash).sort((a, b) => b.revision - a.revision)[0];
+  const reserved = new Set(quarter?.plan.reservedOriginalTaskIds ?? []);
   const committed = new Set(all.filter(row => row.kind === "plan").flatMap(row => {
     const plan = row.record as WorkflowPlan;
     return isExecutableWorkflowPlan(plan.status) ? plan.taskIds : plan.committedTaskIds ?? [];
@@ -28,12 +31,11 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
       return publication.taskId === task.id && publication.status === "verified" && publication.siteDomain === task.siteDomain
         && publication.pageUrl === task.pageUrl && publication.language === task.language && publication.contentVersion === task.contentVersion;
     });
-    return !(sameOriginal && (committed.has(task.id) || published));
+    return !(sameOriginal && (committed.has(task.id) || reserved.has(task.id) || published));
   });
   if (!fresh.length) return [];
   const targets = strategy.baseline?.targets ?? [];
-  const quarter = [...(strategy.quarterPlanningHistory ?? []), ...(strategy.quarterPlanning ? [strategy.quarterPlanning] : [])]
-    .filter(row => row.approval?.hash === row.hash).sort((a, b) => b.revision - a.revision)[0];
+
   const frozen = new Set(targets.map(target => target.id));
   if (!strategy.baseline || targets.length !== 1600 || new Set(targets.map(target => word(target.keyword))).size !== 1600
     || quarter?.plan.version !== "quarter-planning-v2" || quarter.plan.targetIds.length !== 1600 || quarter.plan.targetIds.some(id => !frozen.has(id))) {
