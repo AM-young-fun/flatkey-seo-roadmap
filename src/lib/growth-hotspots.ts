@@ -26,13 +26,33 @@ function savedHotspot(task: WorkflowTask, now: Date): HotspotPriority | null {
   return null;
 }
 function directionApproved(direction: GrowthDirection | undefined, task: WorkflowTask, now: Date) {
-  return Boolean(direction?.decision?.actor === "human" && direction.decision.decision === "approve" && direction.decision.revision === direction.revision
+  return Boolean(direction?.id === task.directionId && direction?.experimentId === task.experimentId && direction?.decision?.actor === "human" && direction.decision.decision === "approve" && direction.decision.revision === direction.revision
     && Date.parse(direction.expiresAt) > now.getTime() && direction.decision.scope.some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId
       && scope.country === task.country && scope.language === task.language && scope.kinds.includes(task.kind === "research" ? "blog" : task.kind === "cluster" || task.kind === "landing" ? "cluster_landing" : task.kind as "blog" | "optimization" | "research" | "review") && Date.parse(scope.validUntil) > now.getTime()));
 }
 function fullResearch(task: WorkflowTask) {
   const review = task.researchReview;
-  return Boolean(review && review.keyword === task.keyword && review.country === task.country && review.language === task.language && review.serpResults.length === 10 && review.openedResults.length >= 5 && review.evidence.length && Object.values(review.quality).every(value => value.trim().length >= 12));
+  return Boolean(review && review.keyword === task.keyword && review.country === task.country && review.language === task.language && new Set(review.serpResults).size === 10 && new Set(review.openedResults).size >= 5 && review.openedResults.every(url => review.serpResults.includes(url)) && review.serpResults.slice(0,5).every(url => review.openedResults.includes(url)) && review.evidence.length && ["intent", "keywordsAndAlt", "experience", "links", "behavior", "algorithmAndManual", "eeat"].every(key => typeof review.quality[key as keyof typeof review.quality] === "string" && review.quality[key as keyof typeof review.quality].trim().length >= 12));
+}
+/** Event expiry ends new execution, while an actually published, authorized
+ * page can still enter later reviewed monitoring. Reconstruct its original
+ * approval/research/event window; this never renews the direction or spends. */
+export function publishedGrowthHotspotTaskIds(strategy: GrowthStrategy, workflow: Pick<WorkflowSnapshot, "tasks" | "publications">, plans: HotspotPlan[], now = new Date()): string[] {
+  const scheduled = new Set(plans.filter(plan => ["scheduled", "reviewed"].includes(plan.status)).flatMap(plan => plan.taskIds));
+  const ids = new Set<string>();
+  for (const publication of workflow.publications.filter(row => row.status === "verified" && row.kind === "source_blog")) {
+    const at = Date.parse(publication.publishedAt), task = workflow.tasks.find(task => task.id === publication.taskId);
+    if (!Number.isFinite(at) || at > now.getTime() || !task || task.deletedAt || task.capacityClass !== "authorized_hotspot_extra" || task.kind !== "blog" || !["flatkey.ai", "modelfit.cc"].includes(task.siteDomain) || task.language === "ru" || !scheduled.has(task.id) || publication.siteDomain !== task.siteDomain || publication.pageUrl !== task.pageUrl || publication.contentVersion !== task.contentVersion || !task.directionId || !task.experimentId) continue;
+    const direction = strategy.directions.find(row => row.id === task.directionId && row.experimentId === task.experimentId);
+    if (!direction) continue;
+    const approved = [...(direction.decisions ?? []), ...(direction.decision ? [direction.decision] : [])].some(decision => decision.actor === "human" && decision.decision === "approve" && Date.parse(decision.decidedAt) <= at && decision.scope.some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && scope.kinds.includes("blog") && Date.parse(scope.validUntil) >= at));
+    if (!approved) continue;
+    const originals = workflow.tasks.filter(row => !row.deletedAt && row.siteDomain === task.siteDomain && row.topicId === task.topicId && row.country === task.country && row.language === task.language && word(row.keyword) === word(task.keyword) && (row.id === task.id || task.dependencies.includes(row.id)));
+    const priority = activeHotspotPriority({ evidence: originals.flatMap(taskEvidence) }, new Date(at));
+    if (!priority || !originals.some(row => fullResearch(row) && Date.parse(row.researchReview!.reviewedAt) >= Date.parse(priority.at) && Date.parse(row.researchReview!.reviewedAt) <= at)) continue;
+    ids.add(task.id);
+  }
+  return [...ids].sort();
 }
 /** Read-only facts from saved research/directions and original task/plan IDs.
  * No candidate pool, task creation, target admission, or provider calls. */

@@ -10,7 +10,7 @@ import { approvedDiagnosticWordLanguages } from "@/lib/growth-word-language-evid
 import { siteSourceReadiness } from "@/lib/seo-cluster-sites";
 import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "@/lib/growth-collection";
 import { serpPeriod } from "@/lib/serp-periods";
-import { buildGrowthHotspotView } from "@/lib/growth-hotspots";
+import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -127,14 +127,10 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
   const approvedHistory = Array.isArray(quarterState.quarterPlanningHistory) ? quarterState.quarterPlanningHistory.map(object).filter(row => object(row.approval).hash === row.hash).at(-1) : undefined;
   const approvedHash = typeof quarterPlan.hash === "string" && approved.hash === quarterPlan.hash ? quarterPlan.hash : approvedHistory?.hash ?? baseline.sourceVersion;
   if (quarterTargets.length && typeof approvedHash === "string") workspace.quarter = { targetIds: quarterTargets, keywordCount: quarterTargets.length, hash: approvedHash };
-  const approvedDirections = array(quarterState.directions).filter(direction => {
-    const decision = object(direction.decision);
-    return decision.actor === "human" && decision.decision === "approve" && decision.revision === direction.revision && typeof direction.expiresAt === "string" && Date.parse(direction.expiresAt) > now.getTime();
-  });
-  const extraTasks = workflow.tasks.filter(task => task.capacityClass === "authorized_hotspot_extra" && !task.deletedAt && approvedDirections.some(direction => direction.id === task.directionId && direction.experimentId === task.experimentId && array(object(direction.decision).scope).some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && typeof scope.validUntil === "string" && Date.parse(scope.validUntil) > now.getTime())));
   const parsedStrategy = growthStrategyStoredSchema.safeParse(quarterRow?.payload);
-  const authorizedHotTaskIds = new Set(parsedStrategy.success ? buildGrowthHotspotView(parsedStrategy.data, workflow, plans, now).items.filter(item => item.researchComplete && item.admission.status === "scheduled").flatMap(item => item.taskIds) : []);
-  workspace.hotspotTargetIds = workspace.targets.filter(target => extraTasks.some(task => authorizedHotTaskIds.has(task.id) && target.site === task.siteDomain && target.keywordId === task.keywordId && target.country === task.country && target.language === task.language && growthWordKey(target.keyword) === growthWordKey(task.keyword ?? ""))).map(target => target.id);
+  const authorizedHotTaskIds = new Set(parsedStrategy.success ? [...buildGrowthHotspotView(parsedStrategy.data, workflow, plans, now).items.filter(item => item.researchComplete && item.admission.status === "scheduled").flatMap(item => item.taskIds), ...publishedGrowthHotspotTaskIds(parsedStrategy.data, workflow, plans, now)] : []);
+  const extraTasks = workflow.tasks.filter(task => task.capacityClass === "authorized_hotspot_extra" && !task.deletedAt && authorizedHotTaskIds.has(task.id));
+  workspace.hotspotTargetIds = workspace.targets.filter(target => extraTasks.some(task => target.site === task.siteDomain && target.keywordId === task.keywordId && target.country === task.country && target.language === task.language && growthWordKey(target.keyword) === growthWordKey(task.keyword ?? ""))).map(target => target.id);
   workspace.monitoringQuote = growthCollectionMonitoringQuote(buildGrowthCollectionManifest(workspace, serpPeriod(now).key, { revision: 0, connectionVersion: 0 }, now));
   workspace.sites = workspace.sites.map(site => {
     const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;

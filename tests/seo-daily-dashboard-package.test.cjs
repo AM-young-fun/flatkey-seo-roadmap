@@ -31,7 +31,7 @@ test('offline assembler recomputes independent scalars from source bytes and kee
  for(const field of ['title','workPlan','pageGroups','rankingNotes','growthSnapshot','conversionSnapshot','reportTemplateVersion','executionWindow'])assert.deepEqual(r[field],pkg.baseReport[field]);
  for(const field of ['attributionText','technicalText'])assert.equal(r.dashboard[field],pkg.baseReport.dashboard[field]);
  assert.match(r.text,/模块占比/);assert.doesNotMatch(r.text,/整段去重访客来源未齐/);assert.equal(r.hash,sha(r.text));assert.equal(r.moduleShareSnapshot.values.current.all,160);
- assert.equal(pkg.provenance.bodyRevision.allowed,'whole-period-module-share-lines-only');assert.equal(pkg.preservedFields.some(row=>row.field==='text'),false);
+ assert.equal(pkg.provenance.bodyRevision.allowed,'same-day-traffic-and-whole-period-module-share-lines-only');assert.equal(pkg.preservedFields.some(row=>row.field==='text'),false);
  assert.equal(pkg.provenance.googleRequests,0);assert.equal(pkg.provenance.paidRequests,0);assert.equal(pkg.provenance.notifications,0);
 }));
 test('altered bytes, wrong dimensions/metadata and thresholded sources cannot become complete zero scalars',async()=>withFixture(async({filename,records,jobs})=>{

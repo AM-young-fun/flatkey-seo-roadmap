@@ -1,3 +1,4 @@
+import { replaceDailyTrafficSection } from "./seo-daily-report-sections";
 import { z } from "zod";
 import { digestWindow, type SeoDigest } from "./seo-digest";
 import { ReviewedDigestError, reviewedTextHash } from "./seo-reviewed-digest";
@@ -57,8 +58,14 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
     if (!before.test(text)) throw new ReviewedDigestError("日报模块正文与原来源快照不一致，须先核对原版本");
     return text.replace(before, after);
   };
-  const text = currentTemplate ? replaceShares(base.text) : base.text, detailText = currentTemplate ? replaceShares(base.detailText) : base.detailText;
-  if (currentTemplate) dashboard.detailText = replaceShares(dashboard.detailText);
+  const reviseBody = (text: string) => {
+    const shares = replaceShares(text);
+    if (!input.dashboardEvidence) return shares;
+    try { return replaceDailyTrafficSection(shares, input.dashboardEvidence, period.end); }
+    catch (error) { throw new ReviewedDigestError(error instanceof Error ? error.message : "日报流量正文来源不一致"); }
+  };
+  const text = currentTemplate ? reviseBody(base.text) : base.text, detailText = currentTemplate ? reviseBody(base.detailText) : base.detailText;
+  if (currentTemplate) dashboard.detailText = reviseBody(dashboard.detailText);
   return { ...base, id: `seo-digest:${input.date}:${key.slice(0, 16)}`, generatedAt: now.toISOString(), dashboard,
     ...(currentTemplate ? { moduleShareSnapshot, text, detailText, hash: reviewedTextHash(text) } : {}),
     dailyDashboardBody: { version: 1, recordOnly: true, baseReportId: base.id, baseReportHash: base.hash,

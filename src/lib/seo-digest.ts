@@ -1,3 +1,5 @@
+import { isFlatkeyEntryHost } from "./ga4-host-scope";
+import { dailyTrafficSection } from "./seo-daily-report-sections";
 import { registrationPeriodComparison, registrationPeriodSelection, type RegistrationPeriod } from "./seo-registration-period";
 import type { DailySeoTrafficHistory } from "./daily-seo-traffic";
 import { DAILY_SEO_PAGE_GROUPS, type DailySeoPageGroupsHistory } from "./daily-seo-page-groups";
@@ -51,7 +53,7 @@ export type DigestObservation = {
 };
 export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster" | "prompt"; verifiedAt: string; recordedAt: string; publishedAt: string };
 export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string;
-  taskId?: string; publicationId?: string; workClass?: "content_refresh" | "internal_linking" | "technical_seo"; primaryDelivery?: boolean };
+  publishedAt?: string; taskId?: string; publicationId?: string; workClass?: "content_refresh" | "internal_linking" | "technical_seo"; primaryDelivery?: boolean };
 export type DigestWorkPlan = {
   weekStart: string;
   periodStart?: string; periodEnd?: string; workdays?: string[];
@@ -433,7 +435,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const scope = "首次来源为自然搜索";
   const acquisitionEnd = dailyEvidenceEnd(now, window.trafficEnd);
   const currentAcquisition = latestVerifiedDailyPoint(input.dailyAcquisition?.points, acquisitionEnd,
-    point => point.date === window.trafficEnd && point.newUsers !== null && point.newRegistrations !== null);
+    point => point.date === window.trafficEnd && (point.newUsers !== null || point.newRegistrations !== null));
   const previousAcquisition = input.dailyAcquisition?.points.find(point => point.date === shift(window.trafficEnd, -1));
   const acquisitionDates = currentAcquisition ? ` · ${previousAcquisition?.date ?? "上期缺失"} → ${currentAcquisition.date}（洛杉矶）${currentAcquisition.date !== window.trafficEnd ? `；${window.trafficEnd} 待核验，展示最近已核实日` : ""}` : "";
   const acquisition = weekly ? null : currentAcquisition?.newUsers ?? null;
@@ -454,7 +456,8 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   const registrationCanCompare = !losAngelesWeek || registrationCoverage.current?.end === window.trafficEnd
     && registrationCoverage.previous?.start === shift(window.trafficStart, -7) && registrationCoverage.previous?.end === shift(window.trafficEnd, -7);
   const registrationDateNote = losAngelesWeek ? ` · ${registrationCoverage.previous ? `${registrationCoverage.previous.start}—${registrationCoverage.previous.end}` : "上期待更新"} → ${registrationCoverage.current ? `${registrationCoverage.current.start}—${registrationCoverage.current.end}` : "本期待更新"}${registrationCanCompare ? "" : "（覆盖待齐，不计算周环比）"}` : "";
-  const headlineRegistration = weekly || currentAcquisition?.newRegistrations == null
+  const dailyV9 = !weekly && input.date >= DAILY_BUSINESS_DATE_SWITCH;
+  const headlineRegistration = dailyV9 ? cardComparison(registrations.previous ?? previousAcquisition?.newRegistrations ?? null, registrations.current ?? currentAcquisition?.newRegistrations ?? null) : weekly || currentAcquisition?.newRegistrations == null
     ? cardComparison(registrations.previous, registrations.current, registrationCanCompare)
     : cardComparison(previousAcquisition?.newRegistrations ?? null, currentAcquisition.newRegistrations);
   const bestPage = pagePerformance.find(ranking => ranking.source === "GSC")?.flatkey;
@@ -501,6 +504,63 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     lines.push("热点沿原每日轻扫与每周集中研究形成证据，先由用户判断方向；常规执行和观察沿原任务去重推进。", `[数据基础](${SEO_DATA_HUB})`);
     // Blank paragraphs separate prose, while adjacent Markdown table rows must
     // remain contiguous for GFM in both the review screen and the sent body.
+    return lines.join("\n\n").replace(/(\|[^\n]*\|)\n\n(?=\|)/g, "$1\n");
+  }
+  if (dailyV9) {
+    const pairFor = (site: string, metric: DigestMetric, country: GrowthAnalysisCountry = "all") => {
+      const result = comparableMetric(input.observations, site, metric, input.date, country, "daily");
+      return { previous: result.previous, current: result.current };
+    };
+    const evidence = { sites: SEO_SITES.map(name => ({ name, sessions: pairFor(name, "sessions"), clicks: pairFor(name, "clicks"), impressions: pairFor(name, "impressions") })),
+      countries: (["US", "JP", "BR", "ES"] as const).map(name => ({ name, sessions: pairFor("flatkey.ai", "sessions", name), clicks: pairFor("flatkey.ai", "clicks", name), impressions: pairFor("flatkey.ai", "impressions", name) })),
+      modules: (["home", "blog", "models", "gpu", "prompts"] as const).map(id => ({ id, sessions: { previous: null, current: null }, clicks: { previous: null, current: null }, impressions: { previous: null, current: null } })) };
+    const g = input.growthSnapshot?.goals;
+    const lines = [`**${title}**`, "", `今日结论：自然搜索会话 ${sessions.label}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
+      `统计日：${dateLabel}（America/Los_Angeles）；对比${previousLabel}。工作交付：${input.date}（北京时间）。整理取数 ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间）。`,
+      "", "**1. 全站自然搜索**",
+      `GA4自然搜索会话 ${sessions.label}；首次自然搜索新用户 ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
+      `Google点击 ${clicks.label}；曝光 ${impressions.label}；CTR ${previousCtr === null ? "—" : formatCtr(previousCtr)} → ${currentCtr === null ? "—" : formatCtr(currentCtr)}。`,
+      ...(clicks.current === null ? [`GSC ${dateLabel}尚无有效结果；${previousLabel}仅作已标日期的上期数据，不替代本日。`] : []),
+      ...(g ? [`季度流量目标：Flatkey单站每完整周3000；${g.trafficPeriod.start}—${g.trafficPeriod.end}已核实${g.weeklySessions ?? "来源未齐"}${g.trafficGap === null ? "" : `，距目标差${g.trafficGap}`}。`,
+        g.baselineFrozen && g.baselineCount === 1600 ? `季度关键词前100 ${g.rankedCount}/1600；已有排名中前50 ${g.top50Count}/${g.rankedCount}，目标分别60%和80%。` : "季度关键词：1600词清单尚未核定，暂不计算本季覆盖率；目标为前100覆盖60%、其中前50占80%。"] : ["季度关键词：1600词清单尚未核定，暂不计算本季覆盖率。"]),
+      ...conversionReportLines(input.conversionSnapshot), "", ...dailyTrafficSection(evidence, dateLabel), "", "**流量涨跌原因**"];
+    // Read the complete same-day landing source before display Top10 truncation;
+    // otherwise small-current/zero pages can never appear among decline drivers.
+    const sourceFor = (day: string) => input.pageObservations?.filter(row => row.kind === "ga4-pages" && row.property === "541304395" && !row.country && row.date === day
+      && Date.parse(row.observedAt) <= now.getTime() && reportDay(new Date(row.observedAt)) > day)
+      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+    const currentPages = sourceFor(dateLabel), previousPages = sourceFor(previousLabel);
+    const ready = (row: typeof currentPages) => row?.kind === "ga4-pages" && (row.complete || row.sessionsComplete) && row.sessionsComplete === true && row.hostnameDimension === "hostName";
+    const values = (row: typeof currentPages) => new Map(row?.kind === "ga4-pages" ? row.rows.flatMap(page => page.hostname && isFlatkeyEntryHost(page.hostname) && page.sessions !== null
+      ? [[new URL(`https://${page.hostname}${page.path}`).href, page.sessions] as const] : []) : []);
+    const currentValues = values(currentPages), previousValues = values(previousPages);
+    const comparablePages = ready(currentPages) && ready(previousPages) && currentPages?.source === previousPages?.source
+      ? [...currentValues].flatMap(([url, value]) => { const previous = previousValues.get(url); return previous !== undefined && previous !== value ? [{ url, value, previous, difference: value - previous }] : []; }) : [];
+    const top = (sign: 1 | -1) => comparablePages.filter(page => Math.sign(page.difference) === sign)
+      .sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference) || a.url.localeCompare(b.url)).slice(0, 3);
+    const contributions = [...top(1), ...top(-1)];
+    for (const page of contributions) {
+      const publication = input.publications.find(row => row.url === page.url && reportDay(new Date(row.publishedAt)) === dateLabel);
+      const optimization = input.optimizations.find(row => row.url === page.url && row.publishedAt && reportDay(new Date(row.publishedAt)) === dateLabel);
+      const displayTitle = input.publications.find(row => row.url === page.url && row.title.trim())?.title ?? `页面 ${new URL(page.url).hostname === "flatkey.ai" ? pagePath(page.url) : new URL(page.url).hostname + new URL(page.url).pathname}`;
+      const action = optimization ? `${escaped(optimization.changes)}；上线${optimization.publishedAt}${optimization.taskId ? `；原任务${escaped(optimization.taskId)}` : ""}` : publication ? `内容发布；上线${publication.publishedAt}；回执${escaped(publication.id)}` : "自然变化";
+      lines.push(`• ${page.difference > 0 ? "上涨" : "下跌"} ${link(displayTitle, page.url)}：GA4自然会话 ${cardComparison(page.previous, page.value)}。${action}。`);
+    }
+    if (!contributions.length) lines.push("自然变化；本日可比页面贡献尚未形成，不沿用上期周报原因。");
+    const countries = evidence.countries.filter(row => row.sessions.current !== null && row.sessions.previous !== null && row.sessions.current !== row.sessions.previous)
+      .sort((a, b) => Math.abs(b.sessions.current! - b.sessions.previous!) - Math.abs(a.sessions.current! - a.sessions.previous!)).slice(0, 3);
+    if (countries.length) lines.push(`主要市场变化：${countries.map(row => `${row.name}自然会话 ${cardComparison(row.sessions.previous, row.sessions.current)}`).join("；")}。`);
+    lines.push("搜索来源：以上为GA4 Organic Search；搜索引擎拆分尚无本日有效来源，不把GSC点击混作会话。", ...reportModuleShareLines(input.moduleShareSnapshot?.values),
+      "", "**2. 当日优化效果**", ...dailyWorkEffectLines(input.recentPages, input.date),
+      "", "**3. 关键词实测排名**", ...(input.rankingNotes?.length ? input.rankingNotes.map(note => "• " + escaped(note)) : ["本日暂无新增实测回执；已有排名保留原采样日期。"]));
+    const technical = summarizeReportTechnical(dailyTechnicalLines(input.technicalQa));
+    lines.push("", "**技术异常**", ...(technical.issues.length ? technical.issues.map(issue => "• " + issue) : [technical.message ?? "检查未完成"]),
+      "", "**4. 今日完成**", `已核实新增博客页面${completed.blogs.total}页（源文${completed.blogs.originals}篇、译文${completed.blogs.translations}页、旧文补译${completed.blogs.backfillTranslations}页）；优化${completed.optimized}页；旧文翻新${completed.refreshed ?? 0}页；新页面${completed.newPages}个；修复${completed.fixed === null ? "尚无完整回执" : completed.fixed + "项"}。`);
+    for (const row of optimizations.filter(row => row.workClass !== "content_refresh" || row.primaryDelivery && row.taskId && row.publicationId).slice(0, 10)) lines.push(`• ${link(new URL(row.url).pathname, row.url)}：${row.workClass === "content_refresh" ? "旧文翻新" : "页面优化"}；${escaped(row.changes)}。`);
+    const plan = input.currentWorkPlan;
+    lines.push("", "**本周完成进度**", plan ? `${plan.periodStart ?? plan.weekStart}—${plan.periodEnd ?? "本期结束"}：${plan.tasks.filter(task => ["verified", "observing"].includes(task.status)).length}/${plan.tasks.length}项；保留原ID及交付日。` : "本周计划来源尚未接齐，未将缺失记0。",
+      "", "**明日与下周安排**", ...(focus.length ? focus.slice(0, 3).map((row, index) => `${index + 1}. ${row}`) : ["暂无新的已排事项；原任务、审批与暂停安排按现有授权保留。"]));
+    if (input.nextPlanUrl) lines.push(link("查看完整工作计划", input.nextPlanUrl));
     return lines.join("\n\n").replace(/(\|[^\n]*\|)\n\n(?=\|)/g, "$1\n");
   }
   const lines = [`**${title}**`, "",
@@ -752,6 +812,9 @@ const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/opt
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();
   const currentTemplate = input.date >= "2026-11-24" || !!input.growthSnapshot || !!input.conversionSnapshot;
+  if (currentTemplate && input.growthSnapshot) input = { ...input, growthSnapshot: { ...input.growthSnapshot, goals: { ...input.growthSnapshot.goals,
+    cohorts: (input.growthSnapshot.goals.cohorts ?? []).filter(cohort => cohort.kind !== "platform"),
+  } } };
   const scope = { site: "flatkey.ai", start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const, country: "all" };
   const suppliedConversion = input.conversionSnapshot;
   const conversionSnapshot = suppliedConversion && Object.entries(scope).every(([key, value]) => suppliedConversion.scope[key as keyof typeof scope] === value)
@@ -966,8 +1029,8 @@ export function buildSeoDigest(input: DigestInput) {
   if (input.issues.length || input.runNotes.length) lines.push("", "数据与执行情况", ...[...input.issues, ...input.runNotes].slice(0, 12).map(note => "• " + escaped(note)));
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
   if (input.growthSnapshot) lines.push("", "季度目标与方向", ...growthReportLines(input.growthSnapshot));
-  const detailText = lines.join("\n");
-  const text = input.notificationCompact || currentTemplate && window.kind === "weekly" ? detailedNotification(title, input, window, now, {
+  let detailText = lines.join("\n");
+  const text = input.notificationCompact || currentTemplate ? detailedNotification(title, input, window, now, {
     pagePerformance, completed: {
       blogs,
       optimized: window.workTimezone === "America/Los_Angeles" ? optimizations.length : optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
@@ -976,6 +1039,7 @@ export function buildSeoDigest(input: DigestInput) {
       fixed: input.resolvedIssues ?? null,
     }, optimizations: optimizedDeliveries, registrations: organicRegistrations, focus: nextFocus,
   }) : detailText;
+  if (currentTemplate && window.kind === "daily") detailText = text;
   const hash = createHash("sha256").update(text).digest("hex");
   const executionWindow = { start: window.executionStart ?? window.workStart, end: window.executionEnd ?? window.workEnd, timezone: window.executionTimezone ?? window.workTimezone };
   return { ...templateSnapshot, registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...templateSnapshot, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}), ...(businessDate ? { businessDate, sourceDay, executionWindow } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
