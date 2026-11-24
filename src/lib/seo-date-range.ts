@@ -24,6 +24,15 @@ export function weeklyReportRange(date: string): DateRange {
   return { start: shiftDay(anchor, -7), end: shiftDay(anchor, -1) };
 }
 
+/** Daily observation only. Reports/season acceptance retain their own fixed weeks.
+ * LA midnight follows real IANA DST; a Beijing date is never a source-day cutoff. */
+export function latestClosedLa7DayRange(now = new Date(), endLimit?: string): DateRange {
+  if (!Number.isFinite(now.getTime()) || endLimit && (!/^\d{4}-\d{2}-\d{2}$/.test(endLimit) || new Date(endLimit + "T00:00:00Z").toISOString().slice(0, 10) !== endLimit)) throw Error("invalid_rolling7_day");
+  const lastClosed = shiftDay(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(now), -1);
+  const end = endLimit && endLimit < lastClosed ? endLimit : lastClosed;
+  return { start: shiftDay(end, -6), end };
+}
+
 export function collectionDateRange(days: number, now: Date, sourceTimeZone = "America/Los_Angeles"): DateRange {
     const requestedEnd = shiftDay(seoToday(now), -1);
     const sourceToday = new Intl.DateTimeFormat("en-CA", { timeZone: sourceTimeZone }).format(now);

@@ -311,6 +311,9 @@ export type GrowthGoalEvaluation = {
   cohorts: GrowthCohortEvaluation[];
   evaluationMode: "live" | "final"; rankingAsOf: string; deadlineCutoff: string; trafficPeriod: { start: string; end: string; timezone: "America/Los_Angeles" };
   rolling: { period: { start: string; end: string }; weeklySessions: number | null; knownSessions: number | null; trafficComplete: boolean };
+  /** New read projection only; absent on immutable legacy fixed-week snapshots. */
+  trafficWindowKind?: "rolling7day-v1" | "fixed-week" | "quarter-acceptance";
+  dailyTrafficObservation?: { version: "rolling7day-v1"; asOf: string; period: { start: string; end: string }; previousPeriod: { start: string; end: string }; sessions: number | null; previousSessions: number | null; difference: number | null; complete: boolean; previousComplete: boolean };
   finalAcceptance: { cutoff: string; status: "not_due" | "incomplete" | "achieved" | "not_achieved"; achieved: boolean | null; reason: string; trafficPeriod: { start: string; end: string } };
   /** Absent on historical four-site snapshots; never relabel those as Flatkey-only. */
   trafficScope?: { version: "flatkey-only-v3"; sites: string[]; label: string; goal: 3000 };

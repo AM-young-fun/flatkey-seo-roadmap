@@ -20,10 +20,10 @@ require.extensions[".ts"] = (module, file) => {
 
 
 const { analyticsObservationSchema, analyticsStorageKind } = require("../src/lib/seo-analytics.ts");
-const { collectionDateRange, seoToday, shiftDay, weeklyReportRange } = require("../src/lib/seo-date-range.ts");
+const { collectionDateRange, seoToday, shiftDay, weeklyReportRange, latestClosedLa7DayRange } = require("../src/lib/seo-date-range.ts");
 const { CLUSTER_SITES, clusterDomainForProperty } = require("../src/lib/seo-cluster-sites.ts");
-const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages, fetchGa4ExactOrganicWeek } = require("../src/lib/services/ga4-organic.ts");
-const { collectGrowthWeeklyTraffic } = require("./lib/seo-growth-weekly-traffic.cjs");
+const { fetchGa4Organic, fetchGa4SiteSessions, fetchGa4SitePages, fetchGa4ExactOrganicWeek, fetchGa4RollingOrganicWeek } = require("../src/lib/services/ga4-organic.ts");
+const { collectGrowthWeeklyTraffic, collectGrowthRollingTraffic } = require("./lib/seo-growth-weekly-traffic.cjs");
 const { fetchGscDateCoverage, fetchGscDailyPages, fetchGscDailyPageQueries } = require("../src/lib/gsc-source.ts");
 const { saveCollectionReceipt } = require("./server-seo-receipt.cjs");
 const collectionStartedAt = new Date().toISOString();
@@ -248,12 +248,21 @@ async function run() {
     growthTraffic = { complete: false, reason: "exact_week_collection_unavailable", paidRequests: 0 };
     qualityIssues.push({ metric: "four_site_exact_week", reasons: ["exact_week_collection_unavailable"] });
   }
+  let growthRollingTraffic;
+  try {
+    growthRollingTraffic = await collectGrowthRollingTraffic({ sites, period: latestClosedLa7DayRange(collectionNow), fetchWeek: fetchGa4RollingOrganicWeek, credential, now: collectionNow });
+    for (const row of growthRollingTraffic.results) console.log(JSON.stringify({ kind: "growth-rolling7day-traffic", ...row }));
+    if (!growthRollingTraffic.complete) qualityIssues.push({ metric: "flatkey_rolling7day_scalar", reasons: ["rolling7day_whole_interval_scalar_incomplete"] });
+  } catch {
+    growthRollingTraffic = { complete: false, reason: "rolling7day_scalar_collection_unavailable", paidRequests: 0 };
+    qualityIssues.push({ metric: "flatkey_rolling7day_scalar", reasons: ["rolling7day_scalar_collection_unavailable"] });
+  }
   const finalRows = (await api("?" + new URLSearchParams({ start, end }))).rows;
   if (!Array.isArray(finalRows)) throw new Error("invalid_final_coverage");
   const actual = new Set(finalRows.map(row => row.kind + ":" + row.date));
   const missing = [...expected].filter(key => !actual.has(key));
   if (missing.length) failures++;
-  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues, growthTraffic, reportScalars };
+  const result = { imported, failures, unavailable, expected: expected.size, missing: missing.length, reportingDate, lookbackDays, windows, concurrency: SAVE_CONCURRENCY, scopes, qualityIssues, growthTraffic, growthRollingTraffic, reportScalars };
   receiptAttempted = true;
   await saveCollectionReceipt({ startedAt: collectionStartedAt, completedAt: new Date().toISOString(), result });
   if (process.env.SEO_COLLECTION_RESULT) fs.writeFileSync(process.env.SEO_COLLECTION_RESULT, JSON.stringify(result));

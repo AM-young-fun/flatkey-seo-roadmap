@@ -56,4 +56,10 @@ async function collectGrowthWeeklyTraffic({ sites, period, fetchWeek, credential
     allSourcesComplete: selected.length > 0 && selected.every(site => results.some(row => row.site === site.domain && row.status === "read_back")), paidRequests: 0 };
 }
 
-module.exports = { collectGrowthWeeklyTraffic };
+/** One additional Flatkey whole-interval scalar in the original daily entry.
+ * Fixed-week evidence is retained separately; no observer-site expansion. */
+async function collectGrowthRollingTraffic(options) {
+  return collectGrowthWeeklyTraffic({ ...options, sites: options.sites.filter(site => site.domain === "flatkey.ai") });
+}
+
+module.exports = { collectGrowthWeeklyTraffic, collectGrowthRollingTraffic };

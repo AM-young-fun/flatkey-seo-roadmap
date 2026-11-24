@@ -11,6 +11,7 @@ import { OverviewGrowthCharts } from "./OverviewGrowthCharts";
 import { SeoAnchor } from "@/components/SeoAnchor";
 import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
 import { QuarterMembershipReview } from "./QuarterMembershipReview";
+import { dailyTrafficComparisonText } from "@/lib/growth-goal-display";
 
 
 export function GrowthReportSummary({ snapshot }: { snapshot: GrowthReportSnapshot }) {
@@ -18,12 +19,13 @@ export function GrowthReportSummary({ snapshot }: { snapshot: GrowthReportSnapsh
   return <section className={styles.panel} aria-label="季度目标与方向复盘">
     <header><h3>2026 收官季</h3><span>截至 {g.deadline} · 距截止 {g.daysRemaining} 天</span></header>
     <div className={styles.metrics}>
-      <div><span>{g.trafficScope?.label ?? "四站完整周自然会话（历史口径）"} / 3000</span><strong>{g.weeklySessions === null ? "数据待齐" : g.weeklySessions.toLocaleString()}</strong><small>{g.trafficComplete ? `还差 ${g.trafficGap} 次` : g.knownSessions === null ? "尚无核实的同窗口来源" : `同窗口已核实部分 ${g.knownSessions.toLocaleString()} 次`}</small></div>
+      <div><span>{g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 最新完整滚动7日自然会话" : g.trafficScope?.label ?? "四站完整周自然会话（历史口径）"} / 3000</span><strong>{g.weeklySessions === null ? "数据待齐" : g.weeklySessions.toLocaleString()}</strong><small>{g.trafficComplete ? `还差 ${g.trafficGap} 次` : g.knownSessions === null ? "尚无核实的同窗口来源" : `同窗口已核实部分 ${g.knownSessions.toLocaleString()} 次`}</small></div>
       <div><span>季度前 100 覆盖 / 60%</span><strong>{g.baselineCount === null ? "基线待核定" : `${((g.coverage ?? 0) * 100).toFixed(1)}%`}</strong><small>{g.baselineCount === null ? "不使用词库总数代替冻结目标" : `${g.rankedCount} / ${g.baselineCount} 目标，还差 ${g.coverageGap} 词`}</small></div>
       <div><span>已有排名中前 50 / 80%</span><strong>{g.quality === null ? "待有效排名" : `${(g.quality * 100).toFixed(1)}%`}</strong><small>{g.quality === null ? "暂无可计算的本轮实测" : `${g.top50Count} / ${g.rankedCount} 词，还差 ${g.qualityGap} 词`}</small></div>
     </div>
     <GrowthProgressViews cohorts={g.cohorts} />
     <p className={styles.note}>{g.evaluationMode === "final" ? "季末固定流量窗口" : "流量窗口"} {g.trafficPeriod?.start ?? snapshot.period.start} — {g.trafficPeriod?.end ?? snapshot.period.end}（洛杉矶）。{g.latestRankAt ? `最新有效排名采样 ${g.latestRankAt}。` : "尚无本轮有效排名采样。"}{g.rankingComplete ? "" : g.trafficScope ? "排名证据覆盖未齐；待核项留N、不计R，按已证实比例核算。" : "排名尚未完成全量可比核验，暂不判定达标。"}</p>
+    {g.dailyTrafficObservation ? <p className={styles.note}>{dailyTrafficComparisonText(g)}</p> : null}
     {g.evaluationMode === "final" ? <p className={styles.note}>季末验收：{g.finalAcceptance.status === "achieved" ? "已达标" : g.finalAcceptance.status === "not_achieved" ? "未达标" : "截止前证据待补"}。{g.finalAcceptance.reason}最近滚动周 {g.rolling.period.start} — {g.rolling.period.end} 会话 {g.rolling.weeklySessions === null ? "数据未齐" : g.rolling.weeklySessions.toLocaleString()}，另作日常观察。</p> : null}
     {!g.trafficComplete ? <details><summary>{g.trafficScope ? "查看 Flatkey 来源" : "查看四站来源（历史口径）"}</summary><ul>{g.traffic.map(row => <li key={row.site}>{row.site}：{row.complete && row.sessions !== null ? `${row.sessions.toLocaleString()} 次` : row.reason}（{row.timezone}）</li>)}</ul></details> : null}
     {typeof g.identityPendingCount === "number" ? <p className={styles.note}>稳定季度清单 N={g.baselineCount}；身份已核 {g.identityCompleteCount}，待核 {g.identityPendingCount}。身份待核项保留 N，不计有效排名 R；身份补充不改变原成员或分母；复用原采样日期，补计不代表新获排名。</p> : null}
