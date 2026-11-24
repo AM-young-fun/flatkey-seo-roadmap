@@ -1,6 +1,6 @@
 "use client";
 
-import Link, { useLinkStatus } from "next/link";
+import Link, { useLinkStatus } from "@/components/SeoLink";
 import { useEffect, type ComponentProps } from "react";
 import { interactionFeedback } from "@/lib/interaction-feedback";
 

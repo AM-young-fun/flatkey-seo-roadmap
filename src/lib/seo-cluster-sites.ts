@@ -5,17 +5,17 @@ export const CLUSTER_SITES = [
   { domain: "jev-llm.com", name: "JEV LLM", ga4: "555043733", gsc: "sc-domain:jev-llm.com", ga4TimeZone: "America/Los_Angeles" },
   { domain: "rackrate.org", name: "RackRate", ga4: "558899190", gsc: "https://rackrate.org/", ga4TimeZone: "Asia/Shanghai" },
   { domain: "modelfit.cc", name: "ModelFit", ga4: "558978062", gsc: "https://modelfit.cc/", ga4TimeZone: "Asia/Shanghai" },
-  // Read-only onboarding verified in the managed GA4 account on 2026-11-23.
-  // Google sources were explicitly deferred by the user on 2026-11-23. Keep
-  // the property and existing evidence; collectors must not retry either source.
-  { domain: "rougecue.org", name: "RougeCue", ga4: "565596386", gsc: null, ga4TimeZone: "America/Los_Angeles",
-    googleCollectionDeferred: true, googleCollectionDeferReason: "user_deferred_google_sources" },
+  // User authorized existing GA4/GSC read-only onboarding on 2026-11-24.
+  // Registration does not establish API permission or make pending data zero.
+  { domain: "rougecue.org", name: "RougeCue", ga4: "565596386", gsc: "sc-domain:rougecue.org", ga4TimeZone: "America/Los_Angeles",
+    googleCollectionDeferred: false },
 ] as const;
 
 export const ROUGECUE_SOURCE_VERIFICATION = {
   propertyId: "565596386", timezone: "America/Los_Angeles", streamId: "16396864047",
-  website: "https://rougecue.org", verifiedAt: "2026-11-23",
-  basis: "managed-account-ga4-visible-property-and-stream", apiPermissionVerified: false,
+  website: "https://rougecue.org", verifiedAt: "2026-11-24",
+  gscProperty: "sc-domain:rougecue.org", account: "jilin.zhang@mkt.voc.ai",
+  basis: "managed-account-visible-ga4-property-stream-timezone-and-gsc-domain", apiPermissionVerified: false,
 } as const;
 
 export function rougeCueSourceReadiness(persistedPropertyId: string | null | undefined) {
@@ -29,6 +29,7 @@ export function siteSourceReadiness(domain: string, persistedPropertyId: string 
   const matches = persistedPropertyId && collector ? persistedPropertyId === collector.ga4 : null;
   const visibleVerification = domain === "rougecue.org";
   return { ga4Configured: Boolean(persistedPropertyId || collector?.ga4), persistentGa4Configured: Boolean(persistedPropertyId), collectorGa4Configured: Boolean(collector?.ga4),
+    gscProperty: domain === "flatkey.ai" ? "sc-domain:flatkey.ai" : collector && "gsc" in collector ? collector.gsc : null,
     sourceTimezone: collector?.ga4TimeZone ?? null, sourcePropertyId: collector?.ga4 ?? persistedPropertyId ?? null,
     sourceVerifiedAt: visibleVerification ? ROUGECUE_SOURCE_VERIFICATION.verifiedAt : null,
     configurationSource: collector ? "collector-registry" : persistedPropertyId ? "persisted-site" : "missing",

@@ -18,6 +18,8 @@ import { propertyToday, validRange } from "@/lib/seo-date-range";
 import { REGIONS, REGION_CODES } from "@/lib/seo";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./KeywordOpportunities.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type Worklist = { sites: { domain: string; keywords: KeywordMapping[]; candidates?: KeywordMapping[] }[] };
 const marketOptions = REGION_CODES.map(value => ({ value, label: REGIONS[value].label }));
@@ -172,7 +174,7 @@ export function KeywordOpportunities() {
       <div className={styles.toolbar}>
         {targetUrl ? <div className={styles.context}>
           <span>目标页面</span>
-          <a href={targetUrl} target="_blank" rel="noreferrer">{targetUrl}</a>
+          <SeoAnchor href={targetUrl} target="_blank" rel="noreferrer">{targetUrl}</SeoAnchor>
           <Link href={country === "all" ? "/opportunities" : "/opportunities?country=" + country}>查看全部关键词</Link>
         </div> : null}
         <div className={styles.filters}>

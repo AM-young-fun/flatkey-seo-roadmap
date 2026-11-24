@@ -42,10 +42,21 @@ test("verified changes use the actual LA report day across both winter boundarie
   ];
   const row = driver(url, publications);
   assert.deepEqual(row.publicationIds, ["exact-la-start", "utc-next-day-still-la-end", "same-end-in-bjt"]);
-  assert.match(row.explanation, /本期存在优化回执/);
+  assert.match(row.explanation, /2026-11-12 页面优化/);
+  assert.match(row.explanation, /原任务original-task-exact-la-start/);
+  assert.match(row.explanation, /版本original-version-exact-la-start/);
   assert.deepEqual(new Set(row.taskIds), new Set(publications.map(pub => pub.taskId)), "older task references remain available without falsely counting an in-week change");
   const earlier = driver(url, [publications[0]]);
   assert.deepEqual(earlier.publicationIds, []); assert.match(earlier.explanation, /本期未找到/);
+  assert.match(earlier.explanation, /^自然变化/); assert.match(earlier.nextAction, /不据此自动创建整改任务/);
+});
+
+test("actual completed actions bind the publication content version; a brief or another version cannot become shipped evidence",()=>{
+ const url="https://flatkey.ai/blog/original-page",pub=publication("refresh","2026-11-15T08:00:00Z",url);
+ const task={id:pub.taskId,contentVersion:pub.contentVersion,workClass:"content_refresh",brief:{plan:"还计划加入并未实际完成的内容"},progress:[{observedAt:"2026-11-15T09:00:00Z",summary:"已核对新版费用资料并补上对照表与原始来源"}]};
+ const result=growthPageContributionDirections(workspace,[pub],observations(url),period,now,[task])[0].drivers[0];
+ assert.match(result.explanation,/旧文翻新/);assert.match(result.explanation,/已核对新版费用资料/);assert.doesNotMatch(result.explanation,/还计划加入/);assert.match(result.limitation,/不能证明因果/);
+ const wrong=growthPageContributionDirections(workspace,[pub],observations(url),period,now,[{...task,contentVersion:"another-version"}])[0].drivers[0];assert.doesNotMatch(wrong.explanation,/已核对新版费用资料/);
 });
 
 test("summer LA daylight time uses its seven-hour offset rather than the winter boundary", () => {

@@ -43,18 +43,29 @@ export const growthCollectionCommandSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("resume"), requestId: id, expectedVersion: version, periodKey: z.string().min(10).max(10), manifestHash: hash, allowSubmit: z.boolean().default(false) }).strict(),
 ]);
 export type GrowthCollectionCommand = z.infer<typeof growthCollectionCommandSchema>;
+export function growthCollectionTargets(workspace: GrowthWorkspace) {
+  const ids = new Set([...(workspace.quarter?.targetIds ?? []), ...(workspace.hotspotTargetIds ?? [])]);
+  return workspace.targets.filter(target => target.membership === "formal" && ids.has(target.id));
+}
 export function growthCollectionSourceHash(workspace: GrowthWorkspace) {
-  return collectionHash(workspace.targets.filter(target => target.membership === "formal").map(target => [target.id, target.keywordId, target.site, target.topicId, target.keyword, target.country, target.language, target.languageStatus, target.pageState, [...target.publishedUrls].sort()]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
+  return collectionHash({ quarter: workspace.quarter ?? null, hotspotTargetIds: strings(workspace.hotspotTargetIds ?? []), targets: growthCollectionTargets(workspace).map(target => [target.id, target.keywordId, target.site, target.topicId, target.keyword, target.country, target.language, target.languageStatus, target.pageState, [...target.publishedUrls].sort()]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))) });
 }
 export function buildGrowthCollectionManifest(workspace: GrowthWorkspace, periodKey: string, configuration: { revision: number; connectionVersion: number }, now = new Date()): GrowthCollectionManifest {
   const period = serpPeriodFromKey(periodKey);
   const nextPeriod = serpPeriodFromKey(nextSerpPeriodKey(periodKey));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(period.key)) throw new GrowthCollectionError("legacy_period", "本轮使用保留的14天期次身份，不创建旧半月期替代批次");
   const targets: GrowthCollectionTarget[] = [], reused: GrowthCollectionManifest["reused"] = [], held: GrowthCollectionManifest["held"] = [], groups = new Map<string, GrowthCollectionQuery>();
-  for (const target of workspace.targets.filter(target => target.membership === "formal").sort((a,b) => a.id.localeCompare(b.id))) {
+  const candidates = growthCollectionTargets(workspace), marketsByWord = new Map<string, Set<string>>();
+  for (const target of candidates) {
+    const market = GROWTH_COLLECTION_MARKETS[target.country as GrowthCollectionCountry];
+    if (!market || market.language !== target.language || target.languageStatus !== "match") continue;
+    const key = growthWordKey(target.keyword), markets = marketsByWord.get(key) ?? new Set<string>();
+    markets.add(`${target.country}:${target.language}`); marketsByWord.set(key, markets);
+  }
+  for (const target of candidates.sort((a,b) => a.id.localeCompare(b.id))) {
     const market = target.country ? GROWTH_COLLECTION_MARKETS[target.country as GrowthCollectionCountry] : null;
     const urls = target.publishedUrls.filter(url => growthPublicUrl(url, target.site));
-    const reason = !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(target.site) ? "本站不在付费排名或内容执行范围" : !target.topicId ? "正式话题归属未核实" : !market || market.language !== target.language ? "原市场/语言尚不支持，禁止回落其他国家" : target.languageStatus !== "match" ? target.languageReason : target.pageState !== "published" || !urls.length ? "没有真实已建页面证据，保留目标但不进入付费队列" : isOwnedBrandKeyword(target.keyword) ? "自有品牌词排除付费" : /(?:^|\s)(?:\w+):/u.test(target.keyword) ? "带搜索运算符，须单独核费" : !target.keywordId ? "缺少真实原关键词ID" : null;
+    const reason = (marketsByWord.get(growthWordKey(target.keyword))?.size ?? 0) > 1 ? "同一原词存在多个主国家身份，须先核定一个已审主市场，不跨国重复收费" : !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(target.site) ? "本站不在付费排名或内容执行范围" : !target.topicId ? "正式话题归属未核实" : !market || market.language !== target.language ? "原市场/语言尚不支持，禁止回落其他国家" : target.languageStatus !== "match" ? target.languageReason : target.pageState !== "published" || !urls.length ? "没有真实已建页面证据，保留目标但不进入付费队列" : isOwnedBrandKeyword(target.keyword) ? "自有品牌词排除付费" : /(?:^|\s)(?:\w+):/u.test(target.keyword) ? "带搜索运算符，须单独核费" : !target.keywordId ? "缺少真实原关键词ID" : null;
     if (reason) { held.push({ targetId: target.id, reason }); continue; }
     targets.push({ id: target.id, keywordId: target.keywordId, site: target.site, topicId: target.topicId, keyword: target.keyword, country: target.country, language: target.language, publishedUrls: strings(urls) });
     const checkedAt = target.checkedAt ? Date.parse(target.checkedAt) : NaN;
@@ -70,13 +81,22 @@ export function buildGrowthCollectionManifest(workspace: GrowthWorkspace, period
     sourceHash: growthCollectionSourceHash(workspace), configRevision: configuration.revision, connectionVersion: configuration.connectionVersion, targets, reused, held, queries, maxCostMicros: queries.length*6000, provider: "dataforseo_serp", device: "desktop", depth: 100 };
   return { ...content, hash: collectionHash(content) };
 }
+/** UI and the payable manifest share the exact target, reuse and price rules. */
+export function growthCollectionMonitoringQuote(manifest: GrowthCollectionManifest): GrowthWorkspace["monitoringQuote"] {
+  return { approved: false, paidRequests: 0, queryCount: manifest.queries.length, reusedCount: manifest.reused.length, heldCount: manifest.held.length, maxCostMicros: manifest.maxCostMicros,
+    queries: manifest.queries.map(query => {
+      const targets = manifest.targets.filter(target => query.targetIds.includes(target.id));
+      const sites = strings(targets.map(target => target.site));
+      return { id: `query:${query.key}`, site: sites[0], sites, keyword: query.keyword, country: query.country, language: query.language, targetIds: query.targetIds, urls: strings(targets.flatMap(target => target.publishedUrls)), approved: false, maxCostMicros: query.maxCostMicros, reason: "季度或已批准热点的真实已建页目标；缺本期完整同词同市场SERP，清单与费用须先审" };
+    }), reason: "本页与正式采集清单共用规则；只读估算，未授权或提交新查询。" };
+}
 export function assertGrowthCollectionManifest(manifest: GrowthCollectionManifest) {
   const {hash: digest, ...content}=manifest;
   if (digest !== collectionHash(content) || manifest.maxCostMicros !== manifest.queries.length*6000 || manifest.version !== "growth-collection-v1" || manifest.device !== "desktop" || manifest.depth !== 100 || !Number.isFinite(Date.parse(manifest.preparedAt)) || !Number.isFinite(Date.parse(manifest.expiresAt))) throw new GrowthCollectionError("manifest_changed", "冻结清单或费用已变化，须重新审核");
   const targetMap = new Map(manifest.targets.map(target => [target.id,target]));
   const period=serpPeriodFromKey(manifest.periodKey),nextPeriod=serpPeriodFromKey(nextSerpPeriodKey(manifest.periodKey));
   if(manifest.periodDueAt!==period.dueAt||manifest.reused.some(row=>{const checkedAt=Date.parse(row.checkedAt);return !Number.isFinite(checkedAt)||checkedAt<Date.parse(period.dueAt)||checkedAt>=Date.parse(nextPeriod.dueAt)||checkedAt>Date.parse(manifest.preparedAt)||Date.parse(manifest.preparedAt)-checkedAt>14*86400000;}))throw new GrowthCollectionError("reuse_period_mismatch","复用回执不在本期真实采集窗口；保留原期次，不能作为本期占位");
-  if (targetMap.size !== manifest.targets.length || new Set(manifest.queries.map(query=>query.key)).size !== manifest.queries.length) throw new GrowthCollectionError("duplicate_query", "清单目标或查询重复");
+  if (targetMap.size !== manifest.targets.length || new Set(manifest.queries.map(query=>query.key)).size !== manifest.queries.length || new Set(manifest.queries.map(query=>growthWordKey(query.keyword))).size !== manifest.queries.length) throw new GrowthCollectionError("duplicate_query", "清单目标或原词查询重复；同词本期只查一个主国家");
   const covered = new Set(manifest.reused.map(item=>item.targetId));
   for (const query of manifest.queries) {
     const market=GROWTH_COLLECTION_MARKETS[query.country];

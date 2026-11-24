@@ -2,6 +2,8 @@ import { ExternalLink } from "lucide-react";
 import type { WorkflowTask } from "@/lib/seo-workflow";
 import { shanghaiStamp } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 export function WorkflowEvidence({ evidence, heading }: { evidence: WorkflowTask["evidence"]; heading?: string }) {
   const links = evidence.flatMap(({ url, label, observedAt }) => {
@@ -20,7 +22,7 @@ export function WorkflowEvidence({ evidence, heading }: { evidence: WorkflowTask
   return <>
     {heading ? <h4>{heading}</h4> : null}
     <ul className={styles.evidence}>{links.map(({ href, label, observedAt }, index) => <li key={index}>
-      <a href={href} target="_blank" rel="noreferrer">{label} <ExternalLink size={12} aria-hidden="true" /></a>
+      <SeoAnchor href={href} target="_blank" rel="noreferrer">{label} <ExternalLink size={12} aria-hidden="true" /></SeoAnchor>
       <small>{shanghaiStamp(observedAt)}</small>
     </li>)}</ul>
   </>;

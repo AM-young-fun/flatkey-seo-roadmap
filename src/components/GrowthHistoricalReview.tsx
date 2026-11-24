@@ -3,9 +3,23 @@
 import type { GrowthWorkspace } from "@/lib/growth-types";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./GrowthHistoricalReview.module.css";
+import type { TrendPoint } from "@/lib/ranking-trends";
+import { REGIONS } from "@/lib/seo";
 
 /** Versioned language projection, never a replacement for the original period snapshots. */
-export function GrowthHistoricalReview() {
+export function GrowthHistoricalReview({ points }: { points?: TrendPoint[] } = {}) {
+  return points ? <NativeHistory points={points} /> : <OriginalHistory />;
+}
+function NativeHistory({ points }: { points: TrendPoint[] }) {
+  return <details className={styles.root}><summary>历史期次与原词语种去重核对</summary>
+    <p>原始快照保留。只采用原词语言与实际采样国家相符的结果；同一关键词跨国家、跨站只计一次，保留有效最佳名次及其原国家。未知语种不算无排名，不把其他国家结果搬到目标国家。</p>
+    {points.length ? <div className={styles.scroll}><table><thead><tr><th>原期次</th><th>原词去重数</th><th>非品牌词</th><th>已确认上榜</th><th>语种待核</th><th>国家归属</th></tr></thead><tbody>{points.map(point => <tr key={point.periodKey ?? point.date}>
+      <th scope="row">{point.periodLabel ?? point.date}</th><td>{point.languageProjection?.rawTotal ?? "未核定"}</td><td>{point.total}</td><td>{point.ranked}</td><td>{point.languageProjection?.unknownLanguageWords ?? "未核定"}</td>
+      <td>{point.languageProjection?.countryCounts.map(row => `${REGIONS[row.country].label} ${row.count}`).join(" · ")}<small>各期采样范围不同，不计算环比</small></td>
+    </tr>)}</tbody></table></div> : <p>历史语种校正投影尚未读取，不用旧汇总代替。</p>}
+  </details>;
+}
+function OriginalHistory() {
   const { data, error, retry } = useSeoRead<GrowthWorkspace>("/api/seo/growth");
   const review = data?.reconciliation.historicalLanguageReview;
   return <details className={styles.root}><summary>历史期次、采集范围与关键词语种复核</summary>

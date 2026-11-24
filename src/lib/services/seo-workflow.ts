@@ -9,6 +9,7 @@ import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimS
 import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
+import { quarterAllocationProblems } from "@/lib/growth-quarter-planning";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { timedRead } from "@/lib/read-profile";
 
@@ -89,6 +90,11 @@ async function saveLocalWorkflow(input: unknown, actor: WorkflowActor, directory
     const prior = state.events.find(event => event.requestId === request.requestId);
     if (prior) { if (prior.requestHash !== hash) throw new WorkflowError("idempotency_conflict", "同一请求编号已用于不同内容"); return { stored: true, replay: true, kind: prior.kind, record: prior.record, storage: "local_preview" as const }; }
     const prepared = prepareWorkflowMutation(request, state.records, actor);
+    if (prepared.kind === "plan" && (prepared.record as WorkflowPlan).strategyAllocation && isExecutableWorkflowPlan((prepared.record as WorkflowPlan).status)) {
+      const { loadGrowthStrategy } = await import("./growth-strategy");
+      const problems = quarterAllocationProblems(prepared.record as WorkflowPlan, await loadGrowthStrategy(true), state.records.filter(row => row.kind === "task").map(row => row.record as WorkflowTask), state.records.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));
+      if (problems.length) throw new WorkflowError("quarter_plan_approval_required", problems.join("；"));
+    }
     state.records = state.records.filter(row => row.kind !== prepared.kind || row.record.id !== prepared.record.id);
     state.records.push({ kind: prepared.kind, record: prepared.record });
     state.events.push({ requestId: request.requestId, requestHash: hash, kind: prepared.kind, record: prepared.record });
@@ -126,7 +132,25 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     const rows = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } } });
     const all = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
     const prepared = prepareWorkflowMutation(request, all, actor);
+    if (prepared.kind === "plan" && (prepared.record as WorkflowPlan).strategyAllocation && isExecutableWorkflowPlan((prepared.record as WorkflowPlan).status)) {
+      const { readGrowthStrategy } = await import("./growth-strategy");
+      const problems = quarterAllocationProblems(prepared.record as WorkflowPlan, await readGrowthStrategy(tx), all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask), all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));
+      if (problems.length) throw new WorkflowError("quarter_plan_approval_required", problems.join("；"));
+    }
     if (prepared.kind === "task" || prepared.kind === "plan") {
+      const prior = all.find(row => row.kind === prepared.kind && row.record.id === prepared.record.id)?.record;
+      const extraIds = prepared.kind === "task"
+        ? (prepared.record as WorkflowTask).capacityClass === "authorized_hotspot_extra" && (prior as WorkflowTask | undefined)?.capacityClass !== "authorized_hotspot_extra" ? [prepared.record.id] : []
+        : (prepared.record as WorkflowPlan).taskIds.filter(id => !(prior as WorkflowPlan | undefined)?.taskIds.includes(id) && all.some(row => row.kind === "task" && row.record.id === id && (row.record as WorkflowTask).capacityClass === "authorized_hotspot_extra"));
+      if (extraIds.length) {
+        // The claims advisory lock is already held. A lease cannot be acquired
+        // between this check and the normal task/plan CAS write.
+        const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
+        const leases = await tx.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: clock.now } }, select: { runId: true, status: true, leaseUntil: true } });
+        const { hotspotLeaseConflict } = await import("../growth-hotspot-admission");
+        const conflict = hotspotLeaseConflict(extraIds, all.filter(row => row.kind === "run").map(row => row.record as import("../seo-workflow").WorkflowRun), leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString() })), clock.now);
+        if (conflict) throw new WorkflowError("hotspot_in_flight", conflict);
+      }
       const tasks = prepared.kind === "task" ? [prepared.record as WorkflowTask] : all.filter(row => row.kind === "task" && (prepared.record as WorkflowPlan).taskIds.includes(row.record.id)).map(row => row.record as WorkflowTask);
       const requiresExecutionCheck = (task: WorkflowTask) => !isCompletedGrowthEvidenceAppend(task, all.find(row => row.kind === "task" && row.record.id === task.id)?.record as WorkflowTask | undefined);
       for (const task of tasks.filter(task => requiresExecutionCheck(task) && task.workflowContract === "growth-v1.5" && ["blog", "landing", "optimization", "cluster"].includes(task.kind) && ["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"].includes(task.status))) {

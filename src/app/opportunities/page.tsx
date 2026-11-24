@@ -19,5 +19,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   if (params.view === "legacy" || params.keyword || params.status || params.crossLanguage || params.business) return <KeywordDetails initialBusiness={params.business === "FLATKEY_API" || params.business === "CLOUD_GPU" ? params.business : "all"}
     initialSearch={typeof params.keyword === "string" ? params.keyword : ""} initiallyOptimized={params.status === "optimized"}
     initialCrossLanguage={params.crossLanguage === "1"} />;
-  return <GrowthTopicWorkspace />;
+  return <GrowthTopicWorkspace initialTab={params.tab === "hotspots" ? "hotspots" : "quarter"} />;
 }

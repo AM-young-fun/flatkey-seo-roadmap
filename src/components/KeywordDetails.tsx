@@ -28,6 +28,8 @@ import { keywordMarketVolume } from "@/lib/keyword-market";
 import { keywordRankingPages } from "@/lib/keyword-ranking-pages";
 import { bestKeywordDetailRank, detailRegions, groupKeywordDetails, keywordDetailCountryRanks, validKeywordDetailRank,
   type KeywordCountryScope, type KeywordCountryRank, type KeywordDetailGroup } from "@/lib/keyword-details-group";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const number = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString("zh-CN");
 const position = (value: number | null) => value == null ? "—" : Number(value.toFixed(2)).toString();
@@ -39,14 +41,14 @@ function rankMovement(rank: RankSummary | null) {
   return rank?.movement ? labels[rank.movement] : "—";
 }
 function TargetPages({ urls }: { urls: string[] }) {
-  const link = (url: string) => <a className="observedUrl" href={url} title={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a>;
+  const link = (url: string) => <SeoAnchor className="observedUrl" href={url} title={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</SeoAnchor>;
   return <>{urls.slice(0, 2).map(link)}{urls.length > 2 ? <details className="simpleExplanation" style={{ margin: 0 }}><summary>展开其余 {urls.length - 2} 个目标页面</summary><div className="evidenceSummary">{urls.slice(2).map(link)}</div></details> : null}</>;
 }
 type DetailPage = RankingPageEvidence & { region: SearchRegionCode; siteName: string; memberId: string };
 function ObservedPages({ pages, compact = false }: { pages: DetailPage[]; compact?: boolean }) {
   const visible = compact ? pages.slice(0, 1) : pages;
   return <div className="rankingPageList">{visible.map(page => <div className="rankingPageRecord" key={`${page.memberId}:${page.region}:${page.url}`}>
-    <a className="observedUrl" href={page.url} title={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</a>
+    <SeoAnchor className="observedUrl" href={page.url} title={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</SeoAnchor>
     <strong>{REGIONS[page.region].label} · {page.siteName} · #{position(page.rank)}</strong><small>排名采集：{localDate(page.checkedAt)}</small>
   </div>)}{compact && pages.length > 1 ? <details className="simpleExplanation" style={{ margin: 0 }}><summary>其余 {pages.length - 1} 条页面排名</summary><ObservedPages pages={pages.slice(1)} /></details> : null}</div>;
 }
@@ -58,8 +60,8 @@ function coverage(rank: RankSummary) {
 function HistoryEvidence({ evidence, region }: { evidence: RankingEvidence; region: SearchRegionCode }) {
   return <section><strong>{REGIONS[region].label} · {evidence.source === "gsc" ? "GSC历史记录" : evidence.source === "dataforseo_labs" ? "Labs历史记录" : "Ahrefs历史记录"}</strong>
     <p>{evidence.periodStart && evidence.periodEnd ? `${evidence.periodStart} 至 ${evidence.periodEnd}` : evidence.dataDate ?? "来源日期未提供"} · 采集于 {localDate(evidence.checkedAt)}</p>
-    {evidence.pages.length ? <ul>{evidence.pages.map(page => <li key={page.url}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · {evidence.source === "gsc" ? "平均位置" : "历史名次"} {position(page.rank)} · {localDate(page.checkedAt)}{evidence.source === "gsc" ? ` · 曝光 ${number(page.impressions)} · 点击 ${number(page.clicks)}` : ""}</li>)}</ul> : <p>{evidence.url ? <>来源页面：<a href={evidence.url} target="_blank" rel="noreferrer">{evidence.url}</a></> : "来源未提供独立页面记录"}</p>}
-    {evidence.daily?.length ? <table className="dailyEvidenceTable"><thead><tr><th>日期</th><th>曝光</th><th>点击</th><th>当日平均位置</th><th>页面</th></tr></thead><tbody>{evidence.daily.map(day => <tr key={`${day.date}:${day.url ?? "query"}`}><td>{day.date}</td><td>{number(day.impressions)}</td><td>{number(day.clicks)}</td><td>{position(day.rank)}</td><td>{day.pages.map(page => <div key={page.url}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a> · 均值 {position(page.rank)}</div>)}{!day.pages.length && day.url ? <a href={day.url} target="_blank" rel="noreferrer">{day.url}</a> : null}</td></tr>)}</tbody></table> : null}
+    {evidence.pages.length ? <ul>{evidence.pages.map(page => <li key={page.url}><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url}</SeoAnchor> · {evidence.source === "gsc" ? "平均位置" : "历史名次"} {position(page.rank)} · {localDate(page.checkedAt)}{evidence.source === "gsc" ? ` · 曝光 ${number(page.impressions)} · 点击 ${number(page.clicks)}` : ""}</li>)}</ul> : <p>{evidence.url ? <>来源页面：<SeoAnchor href={evidence.url} target="_blank" rel="noreferrer">{evidence.url}</SeoAnchor></> : "来源未提供独立页面记录"}</p>}
+    {evidence.daily?.length ? <table className="dailyEvidenceTable"><thead><tr><th>日期</th><th>曝光</th><th>点击</th><th>当日平均位置</th><th>页面</th></tr></thead><tbody>{evidence.daily.map(day => <tr key={`${day.date}:${day.url ?? "query"}`}><td>{day.date}</td><td>{number(day.impressions)}</td><td>{number(day.clicks)}</td><td>{position(day.rank)}</td><td>{day.pages.map(page => <div key={page.url}><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url}</SeoAnchor> · 均值 {position(page.rank)}</div>)}{!day.pages.length && day.url ? <SeoAnchor href={day.url} target="_blank" rel="noreferrer">{day.url}</SeoAnchor> : null}</td></tr>)}</tbody></table> : null}
   </section>;
 }
 
@@ -90,12 +92,12 @@ function KeywordExpandedMember({member,country,audit,urls,pageLabel,pageColor,ho
     <div className="keywordCountryTableWrap"><table className="keywordCountryTable"><thead><tr><th>国家</th><th>实际排名</th><th>月搜索量</th><th>实际排名页面</th><th>排名采集时间</th></tr></thead><tbody>{regions.map(region=>{
       const rank=rankFor(member,region),tag=keywordRankingResultTag(rank),valid=validKeywordDetailRank(rank);
       const pages=valid?keywordRankingPages(rank,keywordEvidence(member,region),member.siteDomain??"flatkey.ai"):[];
-      return <tr key={region}><th><span className="keywordCountryFlag">{{US:"🇺🇸",JP:"🇯🇵",ES:"🇪🇸",BR:"🇧🇷"}[region]}</span>{REGIONS[region].label}</th><td><Tooltip title={tag.tooltip}><span className={`keywordCountryRank ${valid?"isRanked":""}`}>{valid?`#${rank.rank}`:tag.key==="UNRANKED"?"100之外":"—"}</span></Tooltip></td><td>{number(member.marketVolumes[region])}</td><td>{pages.length?<><a className="keywordCountryUrl" href={pages[0].url} title={pages[0].url} target="_blank" rel="noreferrer">{pages[0].url.replace(/^https?:\/\//,"")}</a>{pages.length>1?<details className="keywordMorePages"><summary>另 {pages.length-1} 个页面</summary>{pages.slice(1).map(page=><div key={page.url}><span>#{page.rank}</span><a href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//,"")}</a></div>)}</details>:null}</>:<span className="muted">—</span>}</td><td className="keywordCountryTime">{rank?.checkedAt?localDate(rank.checkedAt):"—"}</td></tr>;
+      return <tr key={region}><th><span className="keywordCountryFlag">{{US:"🇺🇸",JP:"🇯🇵",ES:"🇪🇸",BR:"🇧🇷"}[region]}</span>{REGIONS[region].label}</th><td><Tooltip title={tag.tooltip}><span className={`keywordCountryRank ${valid?"isRanked":""}`}>{valid?`#${rank.rank}`:tag.key==="UNRANKED"?"100之外":"—"}</span></Tooltip></td><td>{number(member.marketVolumes[region])}</td><td>{pages.length?<><SeoAnchor className="keywordCountryUrl" href={pages[0].url} title={pages[0].url} target="_blank" rel="noreferrer">{pages[0].url.replace(/^https?:\/\//,"")}</SeoAnchor>{pages.length>1?<details className="keywordMorePages"><summary>另 {pages.length-1} 个页面</summary>{pages.slice(1).map(page=><div key={page.url}><span>#{page.rank}</span><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//,"")}</SeoAnchor></div>)}</details>:null}</>:<span className="muted">—</span>}</td><td className="keywordCountryTime">{rank?.checkedAt?localDate(rank.checkedAt):"—"}</td></tr>;
     })}</tbody></table></div>
     <details className="keywordSecondaryDetails"><summary><span>采集记录与历史</span><ChevronDown size={14}/></summary><div className="keywordArchiveGrid">{regions.map(region=>{
       const rank=rankFor(member,region);
-      return <div className="keywordArchiveCountry" key={region}><div className="keywordArchiveHeading"><strong>{REGIONS[region].label}</strong><a href={`https://www.google.com/search?${new URLSearchParams({q:member.text,gl:REGIONS[region].gl,hl:REGIONS[region].hl,pws:"0"})}`} target="_blank" rel="noreferrer">Google 搜索 ↗</a></div>{rank?<p className="chartNote">{keywordRankingTag(rank).label}{coverage(rank)?` · ${coverage(rank)}`:""}</p>:null}{rank?.checkedAt?<SerpQuerySnapshot keyword={member.text} region={region}/>:null}<KeywordHistory member={member} region={region}/></div>;
-    })}</div>{audit?.candidateUrls.length?<details className="keywordPageReferences"><summary>候选页面 · {audit.candidateUrls.length}</summary><TargetPages urls={audit.candidateUrls}/></details>:null}{audit?.actualPages.length?<details className="keywordPageReferences"><summary>历史页面 · {audit.actualPages.length}</summary>{audit.actualPages.map((page,index)=><a key={`${page.url}:${index}`} href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//,"")}</a>)}</details>:null}</details>
+      return <div className="keywordArchiveCountry" key={region}><div className="keywordArchiveHeading"><strong>{REGIONS[region].label}</strong><SeoAnchor href={`https://www.google.com/search?${new URLSearchParams({q:member.text,gl:REGIONS[region].gl,hl:REGIONS[region].hl,pws:"0"})}`} target="_blank" rel="noreferrer">Google 搜索 ↗</SeoAnchor></div>{rank?<p className="chartNote">{keywordRankingTag(rank).label}{coverage(rank)?` · ${coverage(rank)}`:""}</p>:null}{rank?.checkedAt?<SerpQuerySnapshot keyword={member.text} region={region}/>:null}<KeywordHistory member={member} region={region}/></div>;
+    })}</div>{audit?.candidateUrls.length?<details className="keywordPageReferences"><summary>候选页面 · {audit.candidateUrls.length}</summary><TargetPages urls={audit.candidateUrls}/></details>:null}{audit?.actualPages.length?<details className="keywordPageReferences"><summary>历史页面 · {audit.actualPages.length}</summary>{audit.actualPages.map((page,index)=><SeoAnchor key={`${page.url}:${index}`} href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//,"")}</SeoAnchor>)}</details>:null}</details>
   </section>;
 }
 
@@ -182,7 +184,7 @@ export function KeywordDetails({ embedded = false, initiallyOptimized = false, i
     { title: "优化完成时间", key: "optimizedAt", width: 190, render: (_, group) => {
       const pages = [...new Map(group.members.flatMap(member => optimizedPagesForKeyword(member, optimizedPages)).map(page => [page.id, page])).values()];
       return pages.length ? <div className="evidenceSummary">{pages.map(page => <div key={page.id} title={page.optimizationNote ?? undefined}>
-        {pages.length > 1 ? <a className="observedUrl" href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</a> : null}
+        {pages.length > 1 ? <SeoAnchor className="observedUrl" href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</SeoAnchor> : null}
         {page.optimizedAt ? <time dateTime={page.optimizedAt}>{/^\d{4}-\d{2}-\d{2}$/.test(page.optimizedAt) ? `${page.optimizedAt}（日期）` : `${localDate(page.optimizedAt)}（北京时间）`}</time> : <span className="muted">来源未记录优化时间</span>}
       </div>)}</div> : <span className="muted">—</span>;
     } },

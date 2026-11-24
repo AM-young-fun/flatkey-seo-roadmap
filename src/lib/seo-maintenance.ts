@@ -70,6 +70,7 @@ export const maintenanceQaSchema = z.object({
   preservedPublishedAt: stamp.optional(), modifiedAt: stamp.optional(),
   linkReadbacks: z.array(z.object({
     from: url, to: url, canonicalUrl: url, language: z.string().min(2).max(20),
+    checkedAt: stamp.optional(), fromContentVersion: z.string().trim().min(1).max(200).optional(), toContentVersion: z.string().trim().min(1).max(200).optional(),
     httpStatus: z.literal(200), anchor: z.string().trim().min(2).max(300), crawlableAnchor: z.literal(true),
     indexable: z.literal(true), redirectCount: z.literal(0), evidence: z.array(proof).min(1).max(10),
   }).strict()).max(100).optional(),
@@ -111,6 +112,8 @@ export function maintenancePublicationProblems(task: WorkflowTask, publication: 
   const errors = maintenanceTaskProblems(task);
   const qa = publication.maintenanceQa;
   if (!qa || qa.contentVersion !== publication.contentVersion || Date.parse(qa.checkedAt) < Date.parse(publication.publishedAt)) return [...errors, "维护发布须提供同版本实际上线检查"];
+  const actualEvidence = (rows: z.infer<typeof proof>[]) => rows.length > 0 && rows.every(row => Date.parse(row.observedAt) >= Date.parse(publication.publishedAt) && Date.parse(row.observedAt) <= Date.parse(qa.checkedAt));
+  if (qa.checks.some(check => !actualEvidence(check.evidence))) errors.push("维护验收须使用实际上线后的检查证据，不能复用改前资料冒充新版本通过");
   const passed = (key: typeof qa.checks[number]["key"], pageUrl: string) => qa.checks.some(check => check.key === key && check.pageUrl === pageUrl);
   if (task.workClass === "content_refresh") {
     const refresh = task.maintenance?.refresh;
@@ -120,9 +123,38 @@ export function maintenancePublicationProblems(task: WorkflowTask, publication: 
   }
   for (const link of task.maintenance?.links ?? []) {
     const directions = [[link.modelUrl, link.articleUrl, link.modelToArticleAnchor], [link.articleUrl, link.modelUrl, link.articleToModelAnchor]];
+    const reads = directions.map(([from, to, anchor]) => qa.linkReadbacks?.find(read => read.from === from && read.to === to && read.canonicalUrl === to && read.language === link.language && read.anchor === anchor));
     if (!passed("reciprocal_links", link.modelUrl) || !passed("reciprocal_links", link.articleUrl)
-      || directions.some(([from, to, anchor]) => !qa.linkReadbacks?.some(read => read.from === from && read.to === to && read.canonicalUrl === to && read.language === link.language && read.anchor === anchor))) errors.push("双向内链须逐页检查实际渲染锚文本、链接和规范页");
+      || reads.some(read => !read || !read.checkedAt || Date.parse(read.checkedAt) < Date.parse(publication.publishedAt) || Date.parse(read.checkedAt) > Date.parse(qa.checkedAt)
+        || !read.fromContentVersion || !read.toContentVersion || !actualEvidence(read.evidence)
+        || read.from === publication.pageUrl && read.fromContentVersion !== publication.contentVersion
+        || read.to === publication.pageUrl && read.toContentVersion !== publication.contentVersion)
+      || reads[0]?.fromContentVersion !== reads[1]?.toContentVersion || reads[0]?.toContentVersion !== reads[1]?.fromContentVersion) errors.push("双向内链须逐页检查实际渲染锚文本、链接、规范页及两端一致的实际版本");
   }
-  for (const check of task.maintenance?.technical ?? []) if (!passed(check.area, publication.pageUrl)) errors.push(`技术维护缺少${check.area}实际修复回执`);
+  for (const check of task.maintenance?.technical ?? []) {
+    if (!passed(check.area, publication.pageUrl)) errors.push(`技术维护缺少${check.area}实际修复回执`);
+    if (check.area === "performance" && !qa.checks.some(row => row.key === check.area && row.pageUrl === publication.pageUrl && row.method === check.method)) errors.push("性能验收须保留本次计划的现场或实验室来源方法，不能以渲染检查冒充CWV结果");
+  }
+  return errors;
+}
+
+type MaintenanceHistory = Pick<WorkflowPublication, "taskId" | "siteDomain" | "pageUrl" | "contentVersion" | "publishedAt" | "kind" | "status">;
+/** Compare only actually recorded prior releases. Missing CMS history is not
+ * manufactured here; the executor must still retain its original-page proof. */
+export function maintenanceHistoryProblems(task: WorkflowTask, history: MaintenanceHistory[], publication?: WorkflowPublication) {
+  if (!task.workClass || publication && publication.status !== "verified") return [];
+  const errors: string[] = [], accepted = history.filter(row => row.siteDomain === task.siteDomain && ["published", "verified"].includes(row.status));
+  if (task.workClass === "content_refresh" && task.maintenance?.refresh) {
+    const refresh = task.maintenance.refresh;
+    const previous = accepted.filter(row => row.pageUrl === task.pageUrl && row.taskId !== task.id).sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+    if (previous[0] && previous[0].contentVersion !== refresh.baseContentVersion) errors.push("翻新改前版本与同页面最近已记录的正式版本不一致，须先重读原页而不能覆盖旧稿");
+    const firstSource = previous.filter(row => ["source_blog", "translation", "backfill_translation"].includes(row.kind)).sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt))[0];
+    if (firstSource && Date.parse(firstSource.publishedAt) !== Date.parse(refresh.originalPublishedAt)) errors.push("翻新首发日期与原页面已记录的源发布事实不一致，不能把更新时间当首次发布");
+  }
+  if (publication?.status === "verified") for (const read of publication.maintenanceQa?.linkReadbacks ?? []) {
+    const peer = read.from === publication.pageUrl ? { url: read.to, version: read.toContentVersion } : { url: read.from, version: read.fromContentVersion };
+    const latest = accepted.filter(row => row.pageUrl === peer.url).sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))[0];
+    if (latest && latest.contentVersion !== peer.version) errors.push("内链对端验收版本与已有正式发布记录不一致，不能用旧对端回执冒充完整互链");
+  }
   return errors;
 }

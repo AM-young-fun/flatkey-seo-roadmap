@@ -23,6 +23,8 @@ import { pageVisitorRows, type WeeklyPageVisitors } from "@/lib/weekly-page-visi
 import type { WeeklyReportingCutoff } from "@/lib/weekly-cutoff";
 import styles from "./WeeklyReport.module.css";
 import workspace from "./SeoWorkspace.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type Week = { newUsers: number; newRegistrations: number; registrationRate: number | null; collectedAt: string; sites?: number; timezones?: string[]; registrationMetrics?: string[] };
 type InsightData = {
@@ -158,7 +160,7 @@ function WeeklyEvidenceTables({ data }: { data: InsightData | null }) {
   if (evidence?.trafficScope !== "organic_search") return null;
   return <>
     <WeeklyChannelComparison evidence={evidence} comparable={data?.reportingCutoff?.comparable ?? true} period={data?.draft ? `${data.draft.comparisonPeriods.current.start}—${data.draft.comparisonPeriods.current.end} 对比 ${data.draft.comparisonPeriods.previous.start}—${data.draft.comparisonPeriods.previous.end}` : !evidence.complete ? "本周更新中，暂不计算环比" : undefined} />
-    {evidence.search?.decliningPages.length ? <section className="dailyPanel"><h2>自然搜索点击下降页面</h2><p className="chartNote">GSC 全站七天对比 · 点击下降与关键词跌出排名分别判断</p><div className="siteTrafficTable"><table><thead><tr><th>页面</th><th>上期点击</th><th>本期点击</th><th>平均位置：上期 → 本期</th></tr></thead><tbody>{evidence.search.decliningPages.map(page=><tr key={page.url}><td><a href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</a></td><td>{page.clicks.previous}</td><td>{page.clicks.current}</td><td>{page.position.previous ?? "—"} → {page.position.current ?? "—"}</td></tr>)}</tbody></table></div></section> : null}
+    {evidence.search?.decliningPages.length ? <section className="dailyPanel"><h2>自然搜索点击下降页面</h2><p className="chartNote">GSC 全站七天对比 · 点击下降与关键词跌出排名分别判断</p><div className="siteTrafficTable"><table><thead><tr><th>页面</th><th>上期点击</th><th>本期点击</th><th>平均位置：上期 → 本期</th></tr></thead><tbody>{evidence.search.decliningPages.map(page=><tr key={page.url}><td><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url.replace(/^https?:\/\//, "")}</SeoAnchor></td><td>{page.clicks.previous}</td><td>{page.clicks.current}</td><td>{page.position.previous ?? "—"} → {page.position.current ?? "—"}</td></tr>)}</tbody></table></div></section> : null}
   </>;
 }
 

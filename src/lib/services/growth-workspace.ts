@@ -4,9 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { buildGrowthWorkspace, GROWTH_MARKETS, GROWTH_SITES, growthPublicUrl, growthWordKey, type GrowthRankEvidence, type GrowthWorkspaceInput } from "@/lib/growth-workspace";
 import { MARKET_ASSIGNMENT_SOURCE_ID } from "@/lib/keyword-market-policy";
 import { loadWorkflowSnapshot } from "./seo-workflow";
+import type { WorkflowSnapshot } from "@/lib/seo-workflow";
 import type { GrowthWorkspace } from "@/lib/growth-types";
 import { approvedDiagnosticWordLanguages } from "@/lib/growth-word-language-evidence";
 import { siteSourceReadiness } from "@/lib/seo-cluster-sites";
+import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "@/lib/growth-collection";
+import { serpPeriod } from "@/lib/serp-periods";
+import { buildGrowthHotspotView } from "@/lib/growth-hotspots";
+import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const array = (value: unknown) => Array.isArray(value) ? value.map(object) : [];
@@ -22,8 +27,8 @@ const providerMarkets: Record<string, { location: number; language: string[] }> 
 /** Read only the saved normalized results. This query deliberately has no run
  * scope/date filter, so the separately approved 1,499-word diagnostic is reused.
  * Trim competitor result arrays in SQL before transferring them to the server. */
-async function savedSerpEvidence(): Promise<GrowthRankEvidence[]> {
-  const tasks = await prisma.$queryRaw<SavedTask[]>(Prisma.sql`
+async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = prisma): Promise<GrowthRankEvidence[]> {
+  const tasks = await db.$queryRaw<SavedTask[]>(Prisma.sql`
     SELECT t.id, t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."requestJson",
       r.id AS "runId", r."periodKey", r."periodLabel", r.scope, r."cohortHash", r."targetCount", r."queryCount",
       jsonb_build_object('keyword', "normalizedJson"->'keyword', 'locationCode', "normalizedJson"->'locationCode',
@@ -64,8 +69,8 @@ async function savedSerpEvidence(): Promise<GrowthRankEvidence[]> {
   });
 }
 
-async function savedDiscoveryEvidence(): Promise<GrowthRankEvidence[]> {
-  const runs = await prisma.dataForSeoRun.findMany({ where: { status: "COMPLETED", OR:[{requestId:{startsWith:"discovery-"}},{requestId:{startsWith:"gd-"}}] }, select: { requestId: true, siteDomain: true, normalized: true, collectedAt: true } });
+async function savedDiscoveryEvidence(db: Prisma.TransactionClient | typeof prisma = prisma): Promise<GrowthRankEvidence[]> {
+  const runs = await db.dataForSeoRun.findMany({ where: { status: "COMPLETED", OR:[{requestId:{startsWith:"discovery-"}},{requestId:{startsWith:"gd-"}}] }, select: { requestId: true, siteDomain: true, normalized: true, collectedAt: true } });
   return runs.flatMap(run => {
     const snapshot = object(run.normalized), country = typeof snapshot.region === "string" ? snapshot.region : null;
     if (snapshot.datasetType !== "provider_ranked_keywords_snapshot" || !country || snapshot.targetDomain !== run.siteDomain) return [];
@@ -79,19 +84,21 @@ async function savedDiscoveryEvidence(): Promise<GrowthRankEvidence[]> {
 }
 
 /** No import APIs, mutations, provider fetches, scheduling or paid switches. */
-export async function loadGrowthWorkspace(localPreview = false, now = new Date(), selectedSite?: string): Promise<GrowthWorkspace> {
+export async function loadGrowthWorkspace(localPreview = false, now = new Date(), selectedSite?: string, transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot }): Promise<GrowthWorkspace> {
   if (!process.env.DATABASE_URL) throw new Error("GROWTH_DATABASE_UNAVAILABLE");
+  const db = transaction?.db ?? prisma;
   const goalSites = GROWTH_SITES.filter(site => site.keywordGoals).map(site => site.domain);
-  const [topics, members, assignments, inventory, workflow, savedSites, planRows, optional] = await Promise.all([
-    prisma.topic.findMany({ select: { id: true, text: true, active: true, parentId: true, childEdges: { select: { parentId: true } }, sites: { select: { siteDomain: true } } } }),
-    prisma.siteKeyword.findMany({ where: { siteDomain: { in: goalSites } }, select: { siteDomain: true, keywordId: true, active: true, topicId: true, pool: true, origin: true, targetUrls: true, mappingStatus: true, sourceUrl: true,
+  const [topics, members, assignments, inventory, workflow, savedSites, planRows, quarterRow, optional] = await Promise.all([
+    db.topic.findMany({ select: { id: true, text: true, active: true, parentId: true, childEdges: { select: { parentId: true } }, sites: { select: { siteDomain: true } } } }),
+    db.siteKeyword.findMany({ where: { siteDomain: { in: goalSites } }, select: { siteDomain: true, keywordId: true, active: true, topicId: true, pool: true, origin: true, targetUrls: true, mappingStatus: true, sourceUrl: true,
       topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }),
-    prisma.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: MARKET_ASSIGNMENT_SOURCE_ID }, select: { siteDomain: true, rowKey: true, snapshot: true } }),
-    prisma.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
-    loadWorkflowSnapshot({ allHistory: true }, localPreview),
-    prisma.seoSite.findMany({ select: { domain: true, ga4PropertyId: true } }),
-    prisma.seoWorkflowRecord.findMany({where:{kind:"plan",status:{in:["scheduled","reviewed"]}},select:{recordId:true,status:true,payload:true}}),
-    Promise.allSettled([savedSerpEvidence(), savedDiscoveryEvidence(), prisma.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true, collectedAt: true } })]),
+    db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: MARKET_ASSIGNMENT_SOURCE_ID }, select: { siteDomain: true, rowKey: true, snapshot: true } }),
+    db.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
+    transaction?.workflow ?? loadWorkflowSnapshot({ allHistory: true }, localPreview),
+    db.seoSite.findMany({ select: { domain: true, ga4PropertyId: true } }),
+    db.seoWorkflowRecord.findMany({where:{kind:"plan",status:{in:["scheduled","reviewed"]}},select:{recordId:true,status:true,payload:true}}),
+    db.seoWorkflowRecord.findUnique({ where: { key: "growth-strategy:2026-close" }, select: { payload: true } }),
+    Promise.allSettled([savedSerpEvidence(db), savedDiscoveryEvidence(db), db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true, collectedAt: true } })]),
   ]);
   const sources: GrowthWorkspace["reconciliation"]["sources"] = [{ name: "TopicMap／站点成员／真实页面库存／跨周原任务", available: true, reason: null }];
   const plans=planRows.flatMap(row=>{const plan=object(row.payload);return plan.id===row.recordId&&plan.status===row.status&&Array.isArray(plan.taskIds)&&plan.taskIds.every(id=>typeof id==="string")?[{id:row.recordId,status:row.status,taskIds:plan.taskIds as string[]}]:[];});
@@ -115,6 +122,20 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
       targetUrls: row.targetUrls, sourceUrl: row.sourceUrl, mappingStatus: row.mappingStatus, marketAssignment: assignmentById.get(`${row.siteDomain}:keyword:${row.keywordId}`) })),
     inventory: inventory.map(row => ({ url: row.url, lastSeen: row.lastSeen.toISOString() })), tasks: workflow.tasks, publications: workflow.publications, plans,wordLanguageEvidence:approvedDiagnosticWordLanguages(),ranks, sources };
   const workspace = buildGrowthWorkspace(input, selectedSite);
+  const quarterState = object(quarterRow?.payload), baseline = object(quarterState.baseline), quarterPlan = object(quarterState.quarterPlanning), approved = object(quarterPlan.approval);
+  const quarterTargets = Array.isArray(baseline.targets) ? baseline.targets.flatMap(value => { const row = object(value); return typeof row.id === "string" ? [row.id] : []; }) : [];
+  const approvedHistory = Array.isArray(quarterState.quarterPlanningHistory) ? quarterState.quarterPlanningHistory.map(object).filter(row => object(row.approval).hash === row.hash).at(-1) : undefined;
+  const approvedHash = typeof quarterPlan.hash === "string" && approved.hash === quarterPlan.hash ? quarterPlan.hash : approvedHistory?.hash ?? baseline.sourceVersion;
+  if (quarterTargets.length && typeof approvedHash === "string") workspace.quarter = { targetIds: quarterTargets, keywordCount: quarterTargets.length, hash: approvedHash };
+  const approvedDirections = array(quarterState.directions).filter(direction => {
+    const decision = object(direction.decision);
+    return decision.actor === "human" && decision.decision === "approve" && decision.revision === direction.revision && typeof direction.expiresAt === "string" && Date.parse(direction.expiresAt) > now.getTime();
+  });
+  const extraTasks = workflow.tasks.filter(task => task.capacityClass === "authorized_hotspot_extra" && !task.deletedAt && approvedDirections.some(direction => direction.id === task.directionId && direction.experimentId === task.experimentId && array(object(direction.decision).scope).some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && typeof scope.validUntil === "string" && Date.parse(scope.validUntil) > now.getTime())));
+  const parsedStrategy = growthStrategyStoredSchema.safeParse(quarterRow?.payload);
+  const authorizedHotTaskIds = new Set(parsedStrategy.success ? buildGrowthHotspotView(parsedStrategy.data, workflow, plans, now).items.filter(item => item.researchComplete && item.admission.status === "scheduled").flatMap(item => item.taskIds) : []);
+  workspace.hotspotTargetIds = workspace.targets.filter(target => extraTasks.some(task => authorizedHotTaskIds.has(task.id) && target.site === task.siteDomain && target.keywordId === task.keywordId && target.country === task.country && target.language === task.language && growthWordKey(target.keyword) === growthWordKey(task.keyword ?? ""))).map(target => target.id);
+  workspace.monitoringQuote = growthCollectionMonitoringQuote(buildGrowthCollectionManifest(workspace, serpPeriod(now).key, { revision: 0, connectionVersion: 0 }, now));
   workspace.sites = workspace.sites.map(site => {
     const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;
     return { ...site, dataReadiness: siteSourceReadiness(site.domain, savedProperty) };

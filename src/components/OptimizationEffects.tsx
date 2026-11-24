@@ -15,6 +15,8 @@ import { useSeoCountry } from "./useSeoCountry";
 import { analyticsUrl, numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 import effects from "./OptimizationEffects.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type GaDay = { date: string; sessions: number | null; registrations: number | null };
 type Metric = keyof typeof labels;
@@ -186,7 +188,7 @@ export function OptimizationEffects() {
             </div>
             {filtered.length ? <ul className={effects.list}>{filtered.map(({ page, version }) => <li className={effects.row} key={page.url}>
               <div className={effects.rowPage}><strong>{page.title}</strong>
-                <a href={page.url} target="_blank" rel="noreferrer">{page.url} <ArrowUpRight size={12} aria-hidden="true" /></a></div>
+                <SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url} <ArrowUpRight size={12} aria-hidden="true" /></SeoAnchor></div>
               <span className={effects.site}>{siteName(page.site)}</span>
               <span className={effects.date}>{version.date ? dateLabel(version.date) : "日期待核实"}</span>
               <Link className={`${styles.secondary} ${effects.open}`} href={effectHref(country, params, version.id)} prefetch={false}>查看详情 <ChevronRight size={15} aria-hidden="true" /></Link>

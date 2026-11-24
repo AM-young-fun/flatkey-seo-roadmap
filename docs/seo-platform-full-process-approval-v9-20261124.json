@@ -1,0 +1,19 @@
+{
+  "version": 9,
+  "status": "APPROVED_FOR_IMPLEMENTATION",
+  "approvedBy": "user_in_current_chat",
+  "approvedReviewSha256": "93da0f8ba8890a22d83c34e280cdd4c9f5f8b462e9c78bbc13f903b21c53ec48",
+  "userInstructions": [
+    "按照这个做吧",
+    "开始做吧"
+  ],
+  "subsequentRankingScope": "付费排名监测只查已真实上线内容或页面的目标词；未建页不付费查排名；优先复用现有结果。Ahrefs需求校验独立列清单费用先审。",
+  "recordedAt": "2026-11-24T07:18:41.380080+00:00",
+  "clientTimezone": "Asia/Shanghai",
+  "executionBoundaries": {
+    "keepSchedulingPausedUntilAcceptance": true,
+    "paidQueryListsRequireSeparateApproval": true,
+    "weeklyExactTextReviewBeforeSend": true,
+    "googleAndProductWritesRequireSpecificApproval": true
+  }
+}

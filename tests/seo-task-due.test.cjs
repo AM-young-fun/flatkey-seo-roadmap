@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { dueTasks } = require("../scripts/lib/seo-task-due.cjs");
+const { dueTasks, websiteTaskAllowed } = require("../scripts/lib/seo-task-due.cjs");
 const { isSeoWorkday } = require("../scripts/lib/seo-workday.cjs");
 
 const instant = day => new Date(day + "T10:15:00+08:00");
@@ -13,6 +13,24 @@ function snapshot(tasks, patch = {}) {
   return { tasks, workWeek: { overdueTaskIds: tasks.map(row => row.id),
     reviewOrReleaseTaskIds: [], dependencyStatuses: {}, ...patch } };
 }
+
+test("public article terminology cannot turn authorized SEO work into a product task", () => {
+  const original = task("seo-finding:e3025377cbc1198150348276f92162b56a3f22e608aced9807258f760492b8c8:task", "2026-11-26", {
+    title: "vLLM原页优化：补齐EP后端默认值与版本条件", kind: "optimization", pageType: "blog",
+    pageUrl: "https://flatkey.ai/blog/vllm-expert-parallel-deployment", dueAt: "2026-11-26T17:00:00+08:00",
+  });
+  const before = structuredClone(original);
+  assert.equal(websiteTaskAllowed(original), true);
+  const result = dueTasks(snapshot([original]), "optimization", new Date("2026-11-26T17:15:00+08:00"));
+  assert.deepEqual(result.candidates.map(row => row.task.id), [original.id]);
+  assert.equal(result.candidates[0].task, original); assert.deepEqual(original, before);
+  for (const title of ["API后端兼容性教程", "GA4与LLM代理日志的区别", "不修改埋点的调用排障说明"]) assert.equal(websiteTaskAllowed({ ...original, title }), true);
+  for (const patch of [{ channel: "product" }, { channel: "github" },
+    { pageUrl: "https://console.flatkey.ai/models" }, { pageUrl: "https://router.flatkey.ai/docs" },
+    { pageUrl: "https://flatkey.ai/api/models" }, { pageUrl: "https://flatkey.ai/router/models" },
+    { id: "api-paid-success-evidence-20261118" }, { title: "【用户已取消】原技术任务" },
+    { siteDomain: "jev-llm.com", pageUrl: "https://jev-llm.com/blog/example" }]) assert.equal(websiteTaskAllowed({ ...original, ...patch }), false);
+});
 const scopeFixtures = [
   ["blog", {}],
   ["modelfit_blog", { siteDomain: "modelfit.cc" }],

@@ -96,10 +96,11 @@ test('exact traffic reaggregation validates real metadata, native dateHour, UTC 
   assert.equal(saved.trafficEvidence[0].sourceTimezone,'Asia/Shanghai');
   assert.equal(growthHash(saved),growthHash(JSON.parse(JSON.stringify(saved,(key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).reverse()):value))));
 });
-test('failed growth reads keep a fixed six-section review draft with explicit unknown goals and a snapshot-bound identity', () => {
+test('failed growth reads keep the current five-section review draft with explicit unknown goals and a snapshot-bound identity', () => {
   const growth=unavailableGrowthReportSnapshot(period,now,'source unavailable');
   const report=buildSeoDigest({date:'2026-11-19',kind:'weekly',now,notificationCompact:true,growthSnapshot:growth,observations:[],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing'});
-  for(const n of ['一','二','三','四','五','六'])assert.match(report.text,new RegExp('\\*\\*'+n+'、'));
+  for(const n of ['一','二','三','四','五'])assert.match(report.text,new RegExp('\\*\\*'+n+'、'));
+  assert.doesNotMatch(report.text,/\*\*六、|GitHub/);
   assert.match(report.text,/基线待核定/); assert.match(report.text,/同窗口来源未齐/); assert.equal(report.growthSnapshot.sourceVersion,'unavailable');
   const payload={date:report.date,text:report.text,detailText:report.detailText,growthSnapshot:growth};
   assert.notEqual(digestSnapshotId(payload),digestSnapshotId({...payload,growthSnapshot:{...growth,strategyVersion:99}}));
@@ -107,7 +108,7 @@ test('failed growth reads keep a fixed six-section review draft with explicit un
 test('attribution compares full native daily evidence, retains page URLs and original tasks, and never includes GitHub or missing page rows as zero', () => {
   const ws=workspace([target('a')]);
   const rows=Array.from({length:14},(_,i)=>({kind:'gsc-pages',property:'sc-domain:flatkey.ai',date:new Date(Date.parse('2026-11-05T00:00:00Z')+i*86400000).toISOString().slice(0,10),observedAt:now.toISOString(),source:'google-api',complete:true,rows:[{url:'https://flatkey.ai/blog/a',clicks:i<7?2:4,impressions:50,position:5}]}));
-  const directions=growthPageContributionDirections(ws,[],rows,period,now); assert.equal(directions.length,1); assert.equal(directions[0].drivers[0].previous,14); assert.equal(directions[0].drivers[0].current,28); assert.equal(directions[0].drivers[0].url,'https://flatkey.ai/blog/a'); assert.deepEqual(directions[0].taskIds,['task-a']); assert.match(directions[0].drivers[0].limitation,/不据此证明因果/);
+  const directions=growthPageContributionDirections(ws,[],rows,period,now); assert.equal(directions.length,1); assert.equal(directions[0].drivers[0].previous,14); assert.equal(directions[0].drivers[0].current,28); assert.equal(directions[0].drivers[0].url,'https://flatkey.ai/blog/a'); assert.deepEqual(directions[0].taskIds,['task-a']); assert.match(directions[0].drivers[0].explanation,/自然变化/);assert.match(directions[0].drivers[0].nextAction,/不据此自动创建整改任务/);assert.match(directions[0].drivers[0].limitation,/不推断/);
   rows[0].rows=[]; assert.deepEqual(growthPageContributionDirections(ws,[],rows,period,now),[]);
   assert.deepEqual(growthPageContributionDirections(ws,[],rows.slice(1),period,now),[]);
 });
@@ -118,6 +119,7 @@ test('unbuilt formal targets stay in the frozen denominator while paid monitorin
  const ws=workspace([t]);const state=freeze(emptyGrowthStrategy(),ws);
  assert.equal(state.baseline.targets.length,1);assert.equal(state.baseline.targets[0].pageState,'unmapped');
  assert.equal(evaluateGrowthGoals(state,ws,[],period,now).baselineCount,1);
+ ws.quarter={targetIds:state.baseline.targets.map(row=>row.id),keywordCount:state.baseline.targets.length,hash:'a'.repeat(64)};
  const manifest=buildGrowthCollectionManifest(ws,'2026-11-17',{revision:1,connectionVersion:1},now);
  assert.equal(manifest.queries.length,0);assert.equal(manifest.held.length,1);
 });

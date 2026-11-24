@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { REGION_CODES } from "@/lib/seo";
 import type { SerpMonitorPreview, SerpMonitorStatus } from "@/lib/serp-monitor-types";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const money = (micros: number) => `$${(micros / 1_000_000).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
 const time = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "待授权后安排";
@@ -44,7 +46,7 @@ export function SerpMonitorPanel() {
       <p className="chartNote">按各词已审核目标国家查询，本期预算上限 {money(status.quote.maxCostMicros)} · 每月两期预算参考 {money(status.quote.monthlyAverageMicros)}。</p>
       <details className="simpleExplanation"><summary>查看范围与计费说明</summary><p>{Object.entries(status.cohort.bySite).map(([domain, count]) => `${domain} ${count}词`).join(" · ")}。只纳入已核实有合适页面的正式词；页面上线并核实后自动加入。去重后 {status.quote.queryCount.toLocaleString()} 次Google查询，同词的多个网站和页面共用结果。预算按当前可监控范围动态计算，付费执行需另行授权。</p></details>
     </> : null}
-    {preview ? <div className="dataforseoPreview" aria-label="SERP费用预览"><h3>费用预览 · 未执行抓取</h3><p>{(preview.quote.queryCount / REGION_CODES.length).toLocaleString()} 个页面已就绪的关键词 · 去重后 {preview.quote.queryCount.toLocaleString()} 次Google查询 · 每词前100</p><p>单轮预算 <strong>{money(preview.quote.maxCostMicros)}</strong> · 月均约2.17期，月均预算 <strong>{money(preview.quote.monthlyAverageMicros)}</strong> · 全年约26期 <strong>{money(preview.quote.annualCostMicros)}</strong></p><a className="textLink" href={preview.quote.pricingUrl} target="_blank" rel="noreferrer">查看官方价格 →</a><p className="chartNote">报价基于每10条结果$0.0006、前100每次查询$0.006；仅含接口费用。此预览不会创建付费任务。</p></div> : null}
+    {preview ? <div className="dataforseoPreview" aria-label="SERP费用预览"><h3>费用预览 · 未执行抓取</h3><p>{(preview.quote.queryCount / REGION_CODES.length).toLocaleString()} 个页面已就绪的关键词 · 去重后 {preview.quote.queryCount.toLocaleString()} 次Google查询 · 每词前100</p><p>单轮预算 <strong>{money(preview.quote.maxCostMicros)}</strong> · 月均约2.17期，月均预算 <strong>{money(preview.quote.monthlyAverageMicros)}</strong> · 全年约26期 <strong>{money(preview.quote.annualCostMicros)}</strong></p><SeoAnchor className="textLink" href={preview.quote.pricingUrl} target="_blank" rel="noreferrer">查看官方价格 →</SeoAnchor><p className="chartNote">报价基于每10条结果$0.0006、前100每次查询$0.006；仅含接口费用。此预览不会创建付费任务。</p></div> : null}
     <details className="dataforseoRuns"><summary>排名采集记录（{status?.runs.length ?? "—"}）</summary>{status?.runs.length ? status.runs.map(run => <article key={run.id}><strong>{run.periodLabel.split(" · ")[0]} · {stateLabels[run.status] ?? run.status}</strong><p>{run.targetCount} 个目标 · {run.queryCount} 次查询 · 开始于 {time(run.startedAt)} · {run.status === "COMPLETED" ? "结算费用" : "当前费用（含未结算）"} {run.actualCostMicros == null ? "待确认" : money(run.actualCostMicros)}</p></article>) : <p className="muted">尚未执行SERP抓取，暂无采集记录。</p>}</details>
   </section>;
 }

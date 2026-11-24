@@ -2,6 +2,8 @@
 import { useRef, useState } from "react";
 import type { PageAuditPayload, PageAuditResult } from "@/lib/page-audit";
 import { dashboardStore } from "@/lib/dashboard-client";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type Batch = PageAuditPayload & { preview?: PageAuditResult };
 type SiteAudit = { targetDomain: PageAuditPayload["targetDomain"]; rows: PageAuditPayload["rows"] };
@@ -54,7 +56,7 @@ export function PageAuditImportPanel() {
   const counts = batches.flatMap(batch => batch.rows).reduce((total, row) => ({ ...total, [row.verdict]: (total[row.verdict] ?? 0) + 1 }), {} as Record<string, number>);
   return <div className="pageAuditImport">
     <p>核实页面后更新关联与建设任务。</p>
-    <div className="pageAuditActions"><a href="/api/keywords/page-audit" download>导出未关联词</a><button disabled={busy} onClick={() => input.current?.click()}>选择核实结果</button><input ref={input} type="file" accept=".json,application/json" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void readFile(file); event.target.value = ""; }} /></div>
+    <div className="pageAuditActions"><SeoAnchor href="/api/keywords/page-audit" download>导出未关联词</SeoAnchor><button disabled={busy} onClick={() => input.current?.click()}>选择核实结果</button><input ref={input} type="file" accept=".json,application/json" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void readFile(file); event.target.value = ""; }} /></div>
     {batches.length ? <div className="pageAuditPreview"><strong>{fileName}</strong><p>{batches.reduce((sum, batch) => sum + batch.rows.length, 0)} 条网站关键词 · 已有页面 {counts.VERIFIED ?? 0} · 待优化 {counts.CONTENT_GAP ?? 0} · 待建设 {(counts.NO_MATCH ?? 0) + (counts.MISSING ?? 0)}</p><div className="pageAuditActions"><button disabled={busy} onClick={() => void submit(false)}>预览变更</button>{previewed ? <button className="pageAuditSave" disabled={busy} onClick={() => void submit(true)}>保存页面关联与任务</button> : null}</div></div> : null}
     {notice ? <p className="pageAuditNotice" role="status">{notice}</p> : null}
   </div>;

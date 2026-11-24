@@ -24,13 +24,14 @@ const captureTime = (point?: TrendPoint) => {
 };
 function isTrendResult(data: MultiRegionTrendResult) {
   return data.schemaVersion === 5 && data.mode === "serp-markets" && (data.points === null || Array.isArray(data.points)) && Array.isArray(data.markets) &&
+    (data.points ?? []).every(point => point.languageProjection?.version === "native-word-single-country-v1") &&
     REGION_CODES.every(region => data.markets.some(market => market.region === region &&
-      (market.status === "ERROR" && market.points === null || market.status === "READY" && Array.isArray(market.points))));
+      (market.status === "ERROR" && market.points === null || market.status === "READY" && Array.isArray(market.points) && market.points.every(point => point.languageProjection?.version === "native-word-single-country-v1"))));
 }
 
-export function RankingTrend({region = "all", module = "all", historicalScope = false}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule; historicalScope?: boolean}) {
+export function RankingTrend({region = "all", module = "all", historicalScope = false, chartsOnly = false}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule; historicalScope?: boolean; chartsOnly?: boolean}) {
   const [range, setRange] = useState(() => serpTrendRange());
-  const key = `serp-markets-v5:current-target-modules-v2:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
+  const key = `serp-markets-v5:native-word-single-country-v1:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
   const moduleLabel = OVERVIEW_PAGE_MODULES.find(([value]) => value === module)?.[1];
   const [result, setResult] = useState<(MultiRegionTrendResult & { key: string }) | null>(() => {
     const saved = trendResults.get(key);
@@ -107,7 +108,8 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
         const values = raw as { axisValue: string }[];
         const point = byPeriod.get(String(values[0]?.axisValue));
         if (!point) return "暂无SERP实测记录";
-        return [point.periodLabel ?? point.date, `当期关键词：${point.total} 词；已查 ${captured(point)} 词`,
+        return [point.periodLabel ?? point.date, `当期非品牌原词：${point.total} 词；语种匹配有效采集 ${captured(point)} 词`,
+          `原有效采集（含待核语种）：${point.languageProjection?.rawCaptured ?? captured(point)} 词`,
           `${SERIES}：${point.ranked} 词`,
           ...rankBuckets.map((bucket, index) => `第 ${bucket.range} 名：${point.counts[index] ?? "—"} 词`),
           `原范围：${point.scopeLabel || "范围待核"}`,
@@ -120,7 +122,7 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
           const label = byPeriod.get(value)?.periodLabel ?? value;
           return dates.every(key => key.slice(0, 4) === dates[0].slice(0, 4)) ? label.replace(/^\d{4}年/, "") : label;
         }, color: "#64748b" }, axisLine: { lineStyle: { color: "#e2e8f0" } } },
-      yAxis: { type: "value", min: 0, minInterval: 1, splitNumber: 4, axisLabel: { color: "#64748b" },
+      yAxis: { type: "value", name: "词", min: 0, minInterval: 1, splitNumber: 4, axisLabel: { color: "#64748b" },
         splitLine: { lineStyle: { color: "#e9eef5", type: "dashed" } } },
       series: [{ name: SERIES, type: "scatter", symbol: "emptyCircle", symbolSize: 8,
         label: { show: dates.length <= 4, position: "top", color: "#334155", fontWeight: 600 }, labelLayout: { hideOverlap: true },
@@ -136,17 +138,17 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
   }, [validPoints, hasPoints]);
   return <section className="dailyPanel trendPanel">
-    <div className="dailyHeading"><div><h2>{historicalScope ? "历史目标词监控趋势" : "上榜关键词数趋势"}</h2><p className="chartNote">{region === "all" ? "四国去重" : REGIONS[region].label} · {moduleLabel}{historicalScope ? " · 原定时监控快照；全站合并总数见上方" : ""}</p></div></div>
+    <div className="dailyHeading"><div><h2>{historicalScope ? "历史目标词监控趋势" : "上榜关键词数趋势"}</h2><p className="chartNote">{region === "all" ? "原词语种匹配 · 同词只计一次" : REGIONS[region].label} · {moduleLabel}{historicalScope ? " · 原定时监控快照；全站合并总数见上方" : ""}</p></div></div>
     {module !== "all" ? <p className="chartNote">按当前登记目标页筛选历史实测；不代表当时的模块归属。</p> : null}
-    {latest ? <>
+    {latest && !chartsOnly ? <>
       <div className="inventoryTrendSummary">
         <div className="inventoryTrendTotal">
-          <span>{captured(latest) < latest.total ? "已查部分进入前100" : historicalScope ? "原监控观察进入前100" : "进入前 100"}</span>
+          <span>{captured(latest) < latest.total ? "匹配语种已确认前100" : historicalScope ? "匹配语种已确认前100" : "进入前 100"}</span>
           <strong>{latest.ranked.toLocaleString()}</strong>
         </div>
         <div className="inventoryTrendPeriod">
           <strong>{latest.periodLabel ?? latest.date}</strong>
-          <span title={captureTime(latest)}>已查 {captured(latest).toLocaleString()} / {latest.total.toLocaleString()} 词</span>
+          <span title={captureTime(latest)}>语种匹配有效采集 {captured(latest).toLocaleString()} / {latest.total.toLocaleString()} 词</span>
         </div>
       </div>
       <dl className="trendRankCounts" aria-label="最新一期各排名区间词数">
@@ -157,8 +159,9 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
       </dl>
     </> : null}
     {error || failed.length ? <div className="loadError"><span>{error ? "趋势暂时无法读取" : `${failed.map(market => REGIONS[market.region].label).join("、")}趋势暂时无法读取`}</span><button onClick={() => retry(value => value + 1)}>重新加载</button></div> : null}
-    {!markets ? error ? null : <ReportLoading label="正在读取排名趋势" compact /> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "四国去重" : REGIONS[region].label}历史排名离散观察图，仅核定可比区间连线`} />}
-    <p className="chartNote">保留各期原始观察值；覆盖不完整、目标集合不同或可比性未知的期次不连线、不计算环比。</p>
-    <GrowthHistoricalReview />
+    {!markets ? error ? null : <ReportLoading label="正在读取排名趋势" compact /> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "原词语种匹配 · 同词只计一次" : REGIONS[region].label}历史排名离散观察图，仅核定可比区间连线`} />}
+    <p className="chartNote">原始快照保留；按原词语种筛选实际国家结果，同词跨国家、跨站仅记一次并取有效最佳名次。语种待核不认作无排名，不匹配国家的结果不迁移。各期范围不同不计算环比。</p>
+    {latest?.languageProjection ? <p className="chartNote">原有效采集（含待核语种）{latest.languageProjection.rawCaptured} 词；本期语种待核 {latest.languageProjection.unknownLanguageWords} 词；排除自有品牌 {latest.languageProjection.excludedBrandWords} 词。{region === "all" ? latest.languageProjection.countryCounts.map(row => `${REGIONS[row.country].label} ${row.count}`).join(" · ") : ""}</p> : null}
+    {!chartsOnly ? <GrowthHistoricalReview points={points ?? []} /> : null}
   </section>;
 }

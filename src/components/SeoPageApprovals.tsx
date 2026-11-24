@@ -16,6 +16,8 @@ import { UiSelect } from "./UiSelect";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 import review from "./SeoPageApprovals.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type ApprovalItem = WorkflowApproval["items"][number];
 type ApprovalDecision = Omit<WorkflowApproval["decisions"][number], "recordedAt">;
@@ -45,10 +47,10 @@ export function ReviewChangeSummary({ item }: { item: ReviewItem }) {
     <p>{summary}</p>
     {additional ? <p>{additional}</p> : null}
     <div className={review.previewLink}>
-      {item.postPublicationId ? <a href={item.pageUrl} target="_blank" rel="noreferrer">查看已上线页面 <ExternalLink size={13} aria-hidden="true" /></a> : url ? <a href={url} target="_blank" rel="noreferrer">打开同版本测试预览 <ExternalLink size={13} aria-hidden="true" /></a>
+      {item.postPublicationId ? <SeoAnchor href={item.pageUrl} target="_blank" rel="noreferrer">查看已上线页面 <ExternalLink size={13} aria-hidden="true" /></SeoAnchor> : url ? <SeoAnchor href={url} target="_blank" rel="noreferrer">打开同版本测试预览 <ExternalLink size={13} aria-hidden="true" /></SeoAnchor>
         : <span className={styles.muted}>待部署并核验测试版本</span>}
-      {item.operation === "update" && !item.postPublicationId ? <a href={item.pageUrl} target="_blank" rel="noreferrer">查看正式页面 <ExternalLink size={13} aria-hidden="true" /></a> : null}
-      {item.draftUrl && item.draftUrl !== url ? <a href={item.draftUrl} target="_blank" rel="noreferrer">查看稿件 <ExternalLink size={13} aria-hidden="true" /></a> : null}
+      {item.operation === "update" && !item.postPublicationId ? <SeoAnchor href={item.pageUrl} target="_blank" rel="noreferrer">查看正式页面 <ExternalLink size={13} aria-hidden="true" /></SeoAnchor> : null}
+      {item.draftUrl && item.draftUrl !== url ? <SeoAnchor href={item.draftUrl} target="_blank" rel="noreferrer">查看稿件 <ExternalLink size={13} aria-hidden="true" /></SeoAnchor> : null}
     </div>
   </div>;
 }

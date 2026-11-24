@@ -83,7 +83,8 @@ test("one four-market read shares the immutable cohort and keeps failed, missing
   assert.equal(markets.JP.status, "ERROR"); assert.equal(markets.JP.points, null);
   assert.equal(body.points, null, "a failed country cannot become zero in the combined trend");
   assert.equal(markets.ES.status, "READY"); assert.deepEqual(markets.ES.points, []);
-  assert.equal(markets.BR.points[0].ranked, 0); assert.equal(markets.BR.points[0].captured, 1);
+  assert.equal(markets.BR.points[0].ranked, 0); assert.equal(markets.BR.points[0].captured, 0);
+  assert.equal(markets.BR.points[0].languageProjection.rawCaptured, 1, "raw capture survives native-language exclusion");
   const [period] = multiRegionTrendPeriods(body.markets);
   assert.deepEqual(REGION_CODES.map(region => marketTrendCount(period.points[region])), [1, null, null, 0]);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
@@ -94,8 +95,9 @@ test("the total trend counts a keyword once across countries and websites while 
   t.after(() => frozenTargets.pop());
   const response = await GET(request()), body = await response.json(), [period] = multiRegionTrendPeriods(body.markets);
   assert.deepEqual(calls.filter(call => call[0] === "tasks"), [["tasks", "all"]], "one healthy ledger query serves all four countries");
-  assert.equal(marketTrendCount(period.points.US), 1); assert.equal(marketTrendCount(period.points.JP), 1);
-  assert.equal(period.points.US.total, 2); assert.equal(period.points.JP.total, 2);
+  assert.equal(marketTrendCount(period.points.US), 1); assert.equal(marketTrendCount(period.points.JP), 0, "English words cannot count as Japanese rankings");
+  assert.equal(period.points.US.total, 2); assert.equal(period.points.JP.total, 0);
+  assert.equal(period.points.JP.languageProjection.rawTotal, 2, "raw frozen inventory is retained separately");
   assert.equal(period.points.US.captureStartAt, "2026-10-16T03:00:00.000Z");
   assert.equal(body.points[0].ranked, 1); assert.deepEqual(body.points[0].counts, [1, 0, 0, 0]);
   assert.equal(body.points[0].total, 2); assert.equal(body.points[0].movementSummary, undefined);
@@ -107,7 +109,8 @@ test("each country keeps its own frozen historical cohort when another country's
   scopedHistory = true;
   const response = await GET(request()), body = await response.json();
   const countries = Object.fromEntries(body.markets.map(market => [market.region, market]));
-  assert.equal(countries.US.points[0].total, 2); assert.equal(countries.JP.points[0].total, 3);
+  assert.equal(countries.US.points[0].total, 2); assert.equal(countries.JP.points[0].total, 0);
+  assert.equal(countries.JP.points[0].languageProjection.rawTotal, 3, "the union retains the older Japanese snapshot members without calling its English words Japanese");
   assert.deepEqual(countries.BR.points, []); assert.deepEqual(countries.ES.points, []);
   assert.equal(body.points[0].total, 3, "the global period unions the countries' immutable snapshots rather than taking one country's newer inventory");
   assert.equal(globalThis.fetch.mock.callCount(), 0);

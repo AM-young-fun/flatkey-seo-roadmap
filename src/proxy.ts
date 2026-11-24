@@ -23,13 +23,22 @@ function isAuthorizedCron(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  // This exact SEO-library endpoint validates a human cookie and same-origin writes itself.
+  if (request.nextUrl.pathname === "/api/keywords/quarter-membership" && ["GET", "POST"].includes(request.method)) return NextResponse.next();
   // These exact growth handlers authenticate their own cookie/collector credentials
   // and distinguish read, evidence write, and human-only decisions.
   const growth = ["/api/seo/growth", "/api/seo/growth/strategy", "/api/seo/growth/collection", "/api/seo/growth/discovery"].includes(request.nextUrl.pathname);
   if (growth && (request.method === "GET" || request.method === "POST" && request.nextUrl.pathname !== "/api/seo/growth")) return NextResponse.next();
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
+  // The fixed historical export authenticates the same saved-ranking read scope.
   if (request.nextUrl.pathname === "/api/seo/trends/history-export" && request.method === "GET") return NextResponse.next();
+  // This exact POST authenticates the human cookie and same-origin write itself.
+  if (request.nextUrl.pathname === "/api/seo/growth/hotspots/admit" && request.method === "POST") return NextResponse.next();
+  // The exact hotspot GET authenticates its own cookie/collector read scope.
+  if (request.nextUrl.pathname === "/api/seo/growth/hotspots" && request.method === "GET") return NextResponse.next();
+  // Saved conversion evidence uses the existing read-only cookie/SEO scope.
+  if (request.nextUrl.pathname === "/api/seo/growth/conversion" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review" && request.method === "GET") return NextResponse.next();
   // The saved-evidence handler retains its own cookie/collector authorization.
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review/evidence" && request.method === "GET") return NextResponse.next();

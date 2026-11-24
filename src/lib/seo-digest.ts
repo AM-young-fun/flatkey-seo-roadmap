@@ -6,8 +6,11 @@ import { summarizeReportTechnical } from "./seo-report-technical-summary";
 import { seoToday, weeklyReportRange } from "./seo-date-range";
 import { SEO_REPORT_LA_SWITCH_DATE, reportDay, reportDayStart, reportStamp, reportTime } from "./seo-report-time.cjs";
 import type { AccountRegistrationSummary } from "./seo-account-registrations";
-import { flatkeyRegistrationCount, weeklyBusinessDigestLines, type BusinessAnalytics } from "./seo-business-analytics";
-import { githubDigestLines, type GithubChannel } from "./seo-github-channel";
+import { flatkeyRegistrationCount, type BusinessAnalytics } from "./seo-business-analytics";
+import type { GithubChannel } from "./seo-github-channel";
+import { conversionReportLines, unavailableConversionProjection, type ConversionProjection } from "./seo-conversion";
+import { SEO_REPORT_TEMPLATE_VERSION } from "./seo-report-template";
+import { reportModuleShareLines, savedReportModuleShares, type ReportModuleShareSnapshot } from "./report-module-shares";
 import { digestTopPages } from "./seo-digest-pages";
 import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
 import { technicalQaSummary, type TechnicalQaReport } from "./seo-technical-qa-report";
@@ -21,7 +24,7 @@ import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, i
 import { executionViewRoutes, workTaskHref } from "./seo-workspace-routes";
 import { reportFocusLines } from "./seo-report-plan-display";
 import { digestExecutionPeriod, digestExecutionWeek } from "./seo-digest-work-plan";
-import { growthReportLines, growthDirectionFactLines, growthCohortFactLines, growthObservationFactLines, type GrowthReportSnapshot } from "./growth-strategy";
+import { growthReportLines, growthDirectionFactLines, growthCohortFactLines, growthObservationFactLines, unavailableGrowthReportSnapshot, type GrowthReportSnapshot } from "./growth-strategy";
 import type { GrowthAnalysisCountry } from "./seo-growth-markets";
 
 export const SEO_DATA_HUB = "https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz";
@@ -59,6 +62,8 @@ export type DigestWorkPlan = {
 
 export type DigestInput = {
   growthSnapshot?: GrowthReportSnapshot;
+  conversionSnapshot?: ConversionProjection;
+  moduleShareSnapshot?: ReportModuleShareSnapshot;
   registrationPeriods?: RegistrationPeriod[];
   notificationCompact?: boolean;
   dailyAcquisition?: DailySeoTrafficHistory;
@@ -461,13 +466,15 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   if (weekly && input.growthSnapshot) {
     const growth = input.growthSnapshot;
     const lines = [`**${title}**`, "", `本周自然搜索会话 ${sessions.label}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
-      `统计周期：洛杉矶时间 ${dateLabel}；对比周期 ${previousLabel}。取数 ${reportStamp(now)}（洛杉矶）。周报供审核，批准确切版本后发送。`,
+      `统计周期：洛杉矶时间 ${dateLabel}；对比周期 ${previousLabel}。整理取数 ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间；实际来源采集时点见回执）。周报供审核，批准确切版本后发送。`,
       "", "**一、业务与搜索表现**", ...growthReportLines(growth).slice(0, 2), ...growthCohortFactLines(growth),
       `Google 点击 ${clicks.label}；曝光 ${impressions.label}；CTR ${previousCtr === null ? "待更新" : formatCtr(previousCtr)} → ${currentCtr === null ? "待更新" : formatCtr(currentCtr)}。`,
       `SEO 注册 ${cardComparison(registrations.previous, registrations.current, registrationCanCompare)}（整段首次自然搜索获客去重）。`,
-      "", "**二、各站与主要市场及方向归因**", "| 站点 | 自然搜索会话 | Google点击 | Google曝光 |", "|---|---:|---:|---:|"];
+      ...conversionReportLines(input.conversionSnapshot),
+      "", "**二、各站与主要市场**", "| 站点 | 自然搜索会话 | Google点击 | Google曝光 |", "|---|---:|---:|---:|"];
     for (const site of SEO_SITES) lines.push(`| ${site} | ${metricText(comparableMetric(input.observations, site, "sessions", input.date, "all", "weekly"))} | ${metricText(comparableMetric(input.observations, site, "clicks", input.date, "all", "weekly"))} | ${metricText(comparableMetric(input.observations, site, "impressions", input.date, "all", "weekly"))} |`);
     for (const country of ["US", "JP", "BR", "SG", "ES"] as const) lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, "weekly"))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, "weekly"))}。`);
+    lines.push(...reportModuleShareLines(input.moduleShareSnapshot?.values));
     if (growth.directions.length) {
       for (const direction of growth.directions.slice(0, 3)) {
         lines.push(...growthDirectionFactLines(direction));
@@ -485,14 +492,16 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     }
     lines.push(...growthObservationFactLines(growth));
     if (!growth.observations.length) lines.push("本期尚无完成完整窗口的7/14/28天效果回执，继续沿原任务复查。");
-    lines.push("", "**四、独立渠道结果**", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, true, now), "GitHub仅作独立UTC参考展示，不计入SEO归因、实验、投入及季度目标。", "", "**五、关键词、收录与技术观察**");
+    lines.push("", "**四、关键词、收录与技术观察**");
     if (input.rankingNotes?.length) lines.push(...input.rankingNotes.map(note => "• " + escaped(note)));
     const technical = summarizeReportTechnical(dailyTechnicalLines(input.technicalQa));
-    lines.push(...(technical.issues.length ? technical.issues.map(issue => "• " + issue) : ["• " + technical.message]), "", "**六、下周安排与复盘**", ...focus.slice(0, 3).map((row, index) => `${index + 1}. ${row}`));
+    lines.push(...(technical.issues.length ? technical.issues.map(issue => "• " + issue) : ["• " + technical.message]), "", "**五、下周安排与复盘**", ...focus.slice(0, 3).map((row, index) => `${index + 1}. ${row}`));
     if (!focus.length) lines.push("下周计划尚未排期；先完成研究和原任务去重，不重复建单。");
     if (input.nextPlanUrl) lines.push(link("查看下周完整工作计划", input.nextPlanUrl));
-    lines.push("新热点、全新方向及重大加码先提交完整机会卡供用户判断；常规执行和观察沿原任务推进。", `[数据基础](${SEO_DATA_HUB})`);
-    return lines.join("\n\n");
+    lines.push("热点沿原每日轻扫与每周集中研究形成证据，先由用户判断方向；常规执行和观察沿原任务去重推进。", `[数据基础](${SEO_DATA_HUB})`);
+    // Blank paragraphs separate prose, while adjacent Markdown table rows must
+    // remain contiguous for GFM in both the review screen and the sent body.
+    return lines.join("\n\n").replace(/(\|[^\n]*\|)\n\n(?=\|)/g, "$1\n");
   }
   const lines = [`**${title}**`, "",
     `**${weekly ? "本周" : "今日"}结论** ${heading} · GA4 自然搜索去重注册 ${headlineRegistration}`,
@@ -514,6 +523,8 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
     `• Google 全站曝光 ${impressions.label}${cardCoverage(clicks) === cardCoverage(impressions) ? "" : " · " + cardCoverage(impressions)}`,
     `• Google CTR ${previousCtr === null ? "待更新" : formatCtr(previousCtr)} → ${currentCtr === null ? "待更新" : formatCtr(currentCtr)}${ctrDelta}`);
   if (input.accountRegistrations) lines.push(`• Flatkey 账户注册 ${cardNumber(input.accountRegistrations.users)}${input.accountRegistrations.users === null ? "" : " 人"} · UTC${weekly && window.workTimezone === "America/Los_Angeles" ? "（独立来源日桶，非洛杉矶周合计）" : ""}`);
+  lines.push(...conversionReportLines(input.conversionSnapshot));
+  if (input.moduleShareSnapshot || input.date >= "2026-11-24") lines.push(...reportModuleShareLines(input.moduleShareSnapshot?.values));
 
   if (weekly) {
     lines.push("", "**2. 重点页面**");
@@ -740,6 +751,23 @@ const optimizationPlotUrl = (row: OptimizationReportRow) => SEO_PLATFORM + "/opt
 
 export function buildSeoDigest(input: DigestInput) {
   const window = digestWindow(input.date, input.kind), now = input.now ?? new Date();
+  const currentTemplate = input.date >= "2026-11-24" || !!input.growthSnapshot || !!input.conversionSnapshot;
+  const scope = { site: "flatkey.ai", start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const, country: "all" };
+  const suppliedConversion = input.conversionSnapshot;
+  const conversionSnapshot = suppliedConversion && Object.entries(scope).every(([key, value]) => suppliedConversion.scope[key as keyof typeof scope] === value)
+    ? suppliedConversion : unavailableConversionProjection(scope, now, suppliedConversion ? "转化来源与本报告统计窗口不一致，未混用其他日期或市场" : undefined);
+  input = { ...input, ...(currentTemplate ? { conversionSnapshot,
+    ...(window.kind === "weekly" && !input.growthSnapshot ? { growthSnapshot: unavailableGrowthReportSnapshot({ start: window.trafficStart, end: window.trafficEnd }, now) } : {}) } : {}) };
+  // Optional in the public legacy type; every newly built report freezes v9.
+  const suppliedShares = input.moduleShareSnapshot, shareValues = savedReportModuleShares(suppliedShares?.values), previousOffset = window.kind === "weekly" ? -7 : -1;
+  const moduleShareSnapshot: ReportModuleShareSnapshot | undefined = suppliedShares?.timezone === "America/Los_Angeles" && suppliedShares.period.start === window.trafficStart && suppliedShares.period.end === window.trafficEnd
+    && suppliedShares.comparisonPeriod.start === shift(window.trafficStart, previousOffset) && suppliedShares.comparisonPeriod.end === shift(window.trafficEnd, previousOffset)
+    && shareValues?.observedAt && Date.parse(shareValues.observedAt) <= now.getTime() && reportDay(new Date(shareValues.observedAt)) > window.trafficEnd
+    && /^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/u.test(suppliedShares.sourceReportId) && /^[a-f0-9]{64}$/u.test(suppliedShares.sourceEvidenceSha256)
+    ? { version: 1, period: { start: window.trafficStart, end: window.trafficEnd }, comparisonPeriod: { start: shift(window.trafficStart, previousOffset), end: shift(window.trafficEnd, previousOffset) }, timezone: "America/Los_Angeles",
+      sourceReportId: suppliedShares.sourceReportId, sourceEvidenceSha256: suppliedShares.sourceEvidenceSha256, values: shareValues } : undefined;
+  input = { ...input, moduleShareSnapshot };
+  const templateSnapshot: { reportTemplateVersion?: number; conversionSnapshot?: ConversionProjection; moduleShareSnapshot?: ReportModuleShareSnapshot } = currentTemplate ? { reportTemplateVersion: SEO_REPORT_TEMPLATE_VERSION, conversionSnapshot, moduleShareSnapshot } : {};
   const thisWeek = window.kind === "weekly" && input.date === "2026-11-13";
   const weeklyHighlights = thisWeek ? november13Highlights : undefined;
   const weeklyTraffic = window.kind === "weekly" ? weeklyTrafficRows(input, window) : undefined;
@@ -900,13 +928,12 @@ export function buildSeoDigest(input: DigestInput) {
   } else {
     lines.push("", `Flatkey 注册人数 ${flatkeyRegistrations.users == null ? "待更新" : flatkeyRegistrations.users + " 人"}（GA4 全渠道区间去重）`);
   }
-  if (window.kind === "weekly") lines.push("", ...weeklyBusinessDigestLines(input.businessObservations ?? [], window.trafficStart, window.trafficEnd));
-  lines.push("", ...githubDigestLines(input.githubObservations ?? [], window.trafficStart, window.trafficEnd, window.kind === "weekly", now));
-  if (losAngelesWeek) lines.push("GitHub 浏览/克隆为独立 UTC 日桶，未合并为洛杉矶周合计；到站会话仍按其标明的洛杉矶区间单列。");
+  lines.push("", ...conversionReportLines(input.conversionSnapshot));
   lines.push("", "Flatkey 四国分项（四国合计不等于全站）");
   for (const country of ["US", "JP", "BR", "ES"] as const) {
     lines.push(`• ${country}：自然会话 ${metricText(comparableMetric(input.observations, "flatkey.ai", "sessions", input.date, country, window.kind))}；Google 点击 ${metricText(comparableMetric(input.observations, "flatkey.ai", "clicks", input.date, country, window.kind))}；曝光 ${metricText(comparableMetric(input.observations, "flatkey.ai", "impressions", input.date, country, window.kind))}`);
   }
+  if (currentTemplate) lines.push(...reportModuleShareLines(input.moduleShareSnapshot?.values));
   if (!thisWeek && input.rankingNotes?.length) lines.push("", window.kind === "weekly" ? "关键词实测（本期实际回执）" : "关键词实测（核对各条采集日期）", ...input.rankingNotes.map(note => "• " + escaped(note)));
   const nextPlanScheduled = isExecutableWorkflowPlan(input.nextPlanStatus ?? (input.workPlan?.tasks.length ? input.workPlan.status : undefined));
   lines.push("", window.kind === "weekly" ? `下周事项与关键词（${nextPlanScheduled ? "已排期" : "尚未排期"}）` : "明日优先关注");
@@ -940,7 +967,7 @@ export function buildSeoDigest(input: DigestInput) {
   lines.push("", `[数据基础](${SEO_DATA_HUB})`);
   if (input.growthSnapshot) lines.push("", "季度目标与方向", ...growthReportLines(input.growthSnapshot));
   const detailText = lines.join("\n");
-  const text = input.notificationCompact ? detailedNotification(title, input, window, now, {
+  const text = input.notificationCompact || currentTemplate && window.kind === "weekly" ? detailedNotification(title, input, window, now, {
     pagePerformance, completed: {
       blogs,
       optimized: window.workTimezone === "America/Los_Angeles" ? optimizations.length : optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
@@ -951,7 +978,7 @@ export function buildSeoDigest(input: DigestInput) {
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
   const executionWindow = { start: window.executionStart ?? window.workStart, end: window.executionEnd ?? window.workEnd, timezone: window.executionTimezone ?? window.workTimezone };
-  return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}), ...(businessDate ? { businessDate, sourceDay, executionWindow } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { ...templateSnapshot, registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...templateSnapshot, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}), ...(businessDate ? { businessDate, sourceDay, executionWindow } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
     ...(businessDate ? { businessDate, sourceDay } : {}),
     ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),

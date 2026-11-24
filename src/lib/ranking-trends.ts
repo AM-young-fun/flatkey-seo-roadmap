@@ -45,6 +45,11 @@ export type TrendPoint = {
   /** Explicitly verified comparison identity. Legacy absence means unknown. */
   cohortHash?: string | null;
   comparable?: boolean;
+  languageProjection?: {
+    version: "native-word-single-country-v1"; rawSnapshotsPreserved: true; rawTotal: number; rawRanked: number; rawCaptured: number;
+    unknownLanguageWords: number; mismatchedObservationRows: number; excludedBrandWords: number;
+    countryCounts: { country: SearchRegionCode; count: number }[];
+  };
 };
 export type TrendModuleScope = { module: OverviewPageModule; basis: "current-registered-target-pages" };
 export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope };
@@ -81,7 +86,7 @@ export function multiRegionTrendPeriods(markets: MarketTrend[]) {
   return [...periods.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 export function marketTrendCount(point: TrendPoint | undefined, mode: "observation" | "comparison" = "observation"): number | null {
-  if (!point || (point.captured ?? point.checked ?? point.ranked + point.outside) <= 0) return null;
+  if (!point || (point.languageProjection?.rawCaptured ?? point.captured ?? point.checked ?? point.ranked + point.outside) <= 0) return null;
   if (mode === "comparison" && (point.comparable !== true || !point.cohortHash || point.sampleOnly
     || point.total <= 0 || (point.captured ?? point.checked ?? point.ranked + point.outside) !== point.total
     || point.pending !== 0 || (point.failed ?? 0) > 0 || (point.incomplete ?? 0) > 0 || (point.queued ?? 0) > 0 || (point.queryChanged ?? 0) > 0)) return null;

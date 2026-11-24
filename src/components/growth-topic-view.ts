@@ -1,8 +1,24 @@
 import type { GrowthTarget, GrowthTopic, GrowthWorkspace } from "@/lib/growth-types";
+import { currentRankingSummary } from "@/lib/current-ranking-summary";
 
 export type GrowthScope = { site: string; country: string; language: string; membership: "formal" | "opportunity" | "review"; search: string };
 export const defaultGrowthScope: GrowthScope = { site: "all", country: "all", language: "all", membership: "formal", search: "" };
 export type GrowthRankingView = "all" | "formal";
+
+/** The execution workspace contains the one quarterly TopicMap list. Discovery
+ * observations remain available to the overview without becoming target queues. */
+export function quarterTargetWorkspace(data: GrowthWorkspace): GrowthWorkspace {
+  const ids = data.quarter ? new Set(data.quarter.targetIds) : null;
+  const rows = data.targets.filter(target => target.membership === "formal" && target.topicId
+    && data.topics.some(topic => topic.topicId === target.topicId && topic.site === target.site)
+    && (!ids || ids.has(target.id)));
+  const words = new Map<string, GrowthTarget>();
+  for (const target of rows) {
+    const key = target.keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
+    if (!words.has(key)) words.set(key, target);
+  }
+  return { ...data, targets: [...words.values()], opportunities: [] };
+}
 
 /** Ranking observations have their own scope; a formal TopicMap membership is
  * not a condition for an existing exact-market rank to be visible. */
@@ -11,16 +27,15 @@ export function growthRankingEvidence(data: GrowthWorkspace, scope: GrowthScope,
     (view === "all" || target.membership === "formal") && (scope.site === "all" || target.site === scope.site)
     && (scope.country === "all" || target.country?.toUpperCase() === scope.country)
     && (scope.language === "all" || target.language === scope.language));
-  const ranked = targets.filter(target => target.rankEligible && target.rankSource === "serp" && target.languageStatus === "match"
-    && target.country && target.language && target.checkedAt && target.rank !== null && target.rank >= 1 && target.rank <= 100);
+  const summary = currentRankingSummary(targets, data.generatedAt);
+  const ranked = summary.combinations;
   const currentIds = new Set(ranked.map(target => target.id)), generatedAt = Date.parse(data.generatedAt);
   const background = targets.filter(target => !currentIds.has(target.id) && target.rank !== null && target.rankSource).map(target => {
     const expired = target.checkedAt && Number.isFinite(generatedAt) && generatedAt - Date.parse(target.checkedAt) > 14 * 86400000;
     const kind: "database" | "gsc" | "expired" | "unverified" = target.rankSource === "database" ? "database" : target.rankSource === "gsc" ? "gsc" : expired ? "expired" : "unverified";
     return { target, kind };
   });
-  return { targets, ranked, background,
-    uniqueWords: new Set(ranked.map(target => target.keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase())).size };
+  return { targets, ranked, background, summary, uniqueWords: summary.total };
 }
 
 export function readGrowthScope(params: URLSearchParams): GrowthScope {

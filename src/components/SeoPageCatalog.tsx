@@ -20,6 +20,8 @@ import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS } from "@/lib/seo";
 import { WorkflowPageHistory } from "./WorkflowPageHistory";
 import { PageOptimizationActions } from "./PageOptimizationActions";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 export { classifyPage } from "@/lib/seo-page-inventory";
 type Row = CatalogRow;
 type Inventory = { pages: InventoryPage[]; capturedAt: string | null; storage: string };
@@ -171,7 +173,7 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
     {selected ? <>
       <button type="button" className={styles.back} onClick={() => select(null)}><ArrowLeft size={14} aria-hidden="true" />返回页面列表</button>
       <h2 className={styles.detailTitle} tabIndex={-1} ref={detailHeading}>{pageName(selected)}</h2>
-      <a className={styles.url} href={selected} target="_blank" rel="noreferrer">{selected} ↗</a>
+      <SeoAnchor className={styles.url} href={selected} target="_blank" rel="noreferrer">{selected} ↗</SeoAnchor>
       <PageOptimizationActions key={`${selected}:${country}`} pageUrl={selected} site={site} country={country} />
       <div className={styles.metrics} aria-label="所选区间页面指标" role="group">{metrics.map(key => <div key={key}><span>{metricLabels[key]}</span><strong>{numberText(valueOf(selectedMetrics, key))}</strong>{partial(selectedMetrics, key) ? <small>部分数据</small> : null}</div>)}</div>
       <details className={styles.disclosure}><summary>流量趋势与 Google 搜索词</summary>
@@ -180,13 +182,13 @@ export function PageCatalog({ category, categoryLabel, range, comparison, catego
       {!detail.pageDaily.some(point => point[metric] !== null) ? <p className={styles.note}>所选区间暂无该页面的{metricLabels[metric]}记录。</p> : null}</>}
       <SeoPageQueries key={`${site}:${country}:${selected}:${range.start}:${range.end}`} range={range} url={selected} country={country} site={site} />
       </details>
-      <details className={styles.disclosure}><summary>搜索表现与关联词</summary><dl className={styles.metadata}><div><dt>搜索曝光</dt><dd>{numberText(selectedMetrics?.gsc?.impressions)}</dd></div><div><dt>点击率</dt><dd>{selectedMetrics?.gsc?.ctr == null ? "—" : (selectedMetrics.gsc.ctr * 100).toFixed(2) + "%"}</dd></div><div><dt>平均排名</dt><dd>{selectedMetrics?.gsc?.position?.toFixed(1) ?? "—"}</dd></div></dl><p>关联目标词：{selectedRow?.keywords.length ? selectedRow.keywords.join(" · ") : "尚未关联"}</p><a href={"/opportunities?" + new URLSearchParams({ targetUrl: selected, country, ...range })}>查看关键词声量与优化预估 →</a></details>
+      <details className={styles.disclosure}><summary>搜索表现与关联词</summary><dl className={styles.metadata}><div><dt>搜索曝光</dt><dd>{numberText(selectedMetrics?.gsc?.impressions)}</dd></div><div><dt>点击率</dt><dd>{selectedMetrics?.gsc?.ctr == null ? "—" : (selectedMetrics.gsc.ctr * 100).toFixed(2) + "%"}</dd></div><div><dt>平均排名</dt><dd>{selectedMetrics?.gsc?.position?.toFixed(1) ?? "—"}</dd></div></dl><p>关联目标词：{selectedRow?.keywords.length ? selectedRow.keywords.join(" · ") : "尚未关联"}</p><SeoAnchor href={"/opportunities?" + new URLSearchParams({ targetUrl: selected, country, ...range })}>查看关键词声量与优化预估 →</SeoAnchor></details>
       <details className={styles.disclosure}><summary>每日明细{comparison ? "与对比区间" : ""}</summary>
         {detail ? <div className={styles.scroll}><table className={styles.daily}><thead><tr><th>日期</th><th>访问</th><th>注册</th><th>搜索点击</th></tr></thead><tbody>{detail.pageDaily.map(day => <tr key={day.date}><td>{day.date}</td><td>{numberText(day.sessions)}</td><td>{numberText(day.registrations)}</td><td>{numberText(day.clicks)}</td></tr>)}</tbody></table></div> : null}
         {comparison ? <><p>对比区间：{comparison.start} — {comparison.end}</p>{prior.error ? <p role="alert">{prior.error} <FeedbackButton onClick={comparePerformance.retry} pending={comparePerformance.pending} pendingLabel="正在读取…">重试</FeedbackButton></p> : <p>访问 {numberText(prior.data?.pages[0]?.ga4?.sessions)} · 注册 {numberText(prior.data?.pages[0]?.ga4?.registrations)} · 搜索点击 {numberText(prior.data?.pages[0]?.gsc?.clicks)}</p>}{prior.data ? <><SeoAnalyticsStatus name="GA4 对比期" source={prior.data.ga4} /><SeoAnalyticsStatus name="GSC 对比期" source={prior.data.gsc} /></> : null}</> : null}
       </details>
-      {hasVariants ? <details className={styles.disclosure}><summary>原始 URL 来源（{sourceUrls.length}）</summary><p>章节锚点和跟踪参数合并为一页；访问量只计一次。Google 指标采用页面原始记录，不叠加章节曝光。</p><ul>{sourceUrls.map(url => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}</ul></details> : null}
-      <details className={styles.disclosure}><summary>页面发现记录</summary>{selectedRow?.inventory ? <><p>{selectedRow.inventory.baseline ? "存量页面" : "新发现页面"} · 首次发现 {stamp(selectedRow.inventory.firstSeen)} · 最近发现 {stamp(selectedRow.inventory.lastSeen)}</p><p>首次发现日期可能晚于上线日期。</p><a href={selectedRow.inventory.sourceUrl} target="_blank" rel="noreferrer">查看 Sitemap 来源 ↗</a></> : <p>尚未在 Sitemap 清单中发现。</p>}</details>
+      {hasVariants ? <details className={styles.disclosure}><summary>原始 URL 来源（{sourceUrls.length}）</summary><p>章节锚点和跟踪参数合并为一页；访问量只计一次。Google 指标采用页面原始记录，不叠加章节曝光。</p><ul>{sourceUrls.map(url => <li key={url}><SeoAnchor href={url} target="_blank" rel="noreferrer">{url}</SeoAnchor></li>)}</ul></details> : null}
+      <details className={styles.disclosure}><summary>页面发现记录</summary>{selectedRow?.inventory ? <><p>{selectedRow.inventory.baseline ? "存量页面" : "新发现页面"} · 首次发现 {stamp(selectedRow.inventory.firstSeen)} · 最近发现 {stamp(selectedRow.inventory.lastSeen)}</p><p>首次发现日期可能晚于上线日期。</p><SeoAnchor href={selectedRow.inventory.sourceUrl} target="_blank" rel="noreferrer">查看 Sitemap 来源 ↗</SeoAnchor></> : <p>尚未在 Sitemap 清单中发现。</p>}</details>
       <details className={styles.disclosure}><summary>任务、修改与复盘记录</summary><WorkflowPageHistory pageUrl={selected} country={country} /></details>
     </> : <>
       <div className={styles.listActions}>

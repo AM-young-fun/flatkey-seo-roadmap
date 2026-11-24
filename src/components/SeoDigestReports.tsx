@@ -23,11 +23,14 @@ import { summarizeReportTechnical } from "@/lib/seo-report-technical-summary";
 import { bestMonthlyOptimizations } from "@/lib/seo-digest-recent-pages";
 import { blogPageCounts } from "@/lib/seo-blog-page-counts";
 import type { SeoDigest } from "@/lib/seo-digest";
+import { conversionReportLines, type ConversionProjection } from "@/lib/seo-conversion";
 import { reportStamp } from "@/lib/seo-report-time.cjs";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import { UiSelect } from "./UiSelect";
 import styles from "./SeoWorkWorkspace.module.css";
 import reportStyles from "./SeoDigestReports.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const reportDateLabel = (date: string) => new Intl.DateTimeFormat("zh-CN", {
   timeZone: "UTC", year: "numeric", month: "short", day: "numeric", weekday: "short",
@@ -40,7 +43,7 @@ function ReportLine({ line }: { line: string }) {
   for (const match of line.matchAll(inline)) {
     content.push(line.slice(position, match.index));
     const [, label, url, emphasis] = match;
-    content.push(url ? <a href={url} key={match.index} target="_blank" rel="noreferrer">{label}</a> : <strong key={match.index}>{emphasis}</strong>);
+    content.push(url ? <SeoAnchor href={url} key={match.index} target="_blank" rel="noreferrer">{label}</SeoAnchor> : <strong key={match.index}>{emphasis}</strong>);
     position = match.index + match[0].length;
   }
   content.push(line.slice(position));
@@ -70,7 +73,7 @@ function TrafficCell({ metric, coverage, canCompare = true, delta }: {
   </td>;
 }
 
-export function SearchTraffic({ groups, countries, rankings, organicRegistrations, completeWeekRequired = false, organicRegistrationCanCompare, registrationCoverageNote, dashboardTraffic }: {
+export function SearchTraffic({ groups, countries, rankings, organicRegistrations, completeWeekRequired = false, organicRegistrationCanCompare, registrationCoverageNote, dashboardTraffic, conversionSnapshot }: {
   groups: ReturnType<typeof parseReportComparisons>;
   countries: ReturnType<typeof parseReportComparisons>;
   rankings: SeoDigest["pagePerformance"];
@@ -79,6 +82,7 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
   organicRegistrationCanCompare?: boolean;
   registrationCoverageNote?: string;
   dashboardTraffic?: NonNullable<SeoDigest["dashboard"]>["traffic"];
+  conversionSnapshot?: ConversionProjection;
 }) {
   const ga4 = rankings.find(ranking => ranking.source === "GA4")?.flatkey;
   const gsc = rankings.find(ranking => ranking.source === "GSC")?.flatkey;
@@ -134,6 +138,7 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
         </tbody>
       </table>
     </div>
+    {conversionSnapshot ? <div className={reportStyles.note} aria-label="GPU业务承接与API转化质量">{conversionReportLines(conversionSnapshot).map(line => <p key={line}>{line}</p>)}</div> : null}
     {countries ? <ReportCountryShares groups={countries} /> : null}
   </section>;
 }
@@ -172,7 +177,7 @@ function RecentPageTraffic({ pages, day }: { pages: SeoDigest["recentPages"]; da
               const beforeCtr = page.before?.impressions ? page.before.clicks / page.before.impressions * 100 : null;
               const afterCtr = page.latest?.impressions ? page.latest.clicks / page.latest.impressions * 100 : null;
               return <tr key={page.url}>
-                <th scope="row"><a href={page.url} target="_blank" rel="noreferrer">{page.title}</a>
+                <th scope="row"><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.title}</SeoAnchor>
                   <small>{page.day} · {page.change === "optimization" ? "优化" : "新增"}</small></th>
                 <td>{changeCell(page.before?.clicks ?? null, page.latest?.clicks ?? null)}
                   {page.before || page.latest ? <small>{[page.before?.date, page.latest?.date].filter(Boolean).join(" → ")}</small> : null}</td>
@@ -208,7 +213,7 @@ function GithubComparison({ lines }: { lines: string[] }) {
   return <div className={reportStyles.tableScroll}>
     <table className={reportStyles.comparison} aria-label="GitHub 仓库对比">
       <thead><tr><th scope="col">指标</th>{repositories.map(repo => <th scope="col" key={repo.href}>
-        <a href={repo.href} target="_blank" rel="noreferrer">{repo.label}</a>
+        <SeoAnchor href={repo.href} target="_blank" rel="noreferrer">{repo.label}</SeoAnchor>
       </th>)}</tr></thead>
       <tbody>{metrics.map(metric => <tr key={metric.label}><th scope="row">{metric.label}</th>
         {repositories.map(repo => {
@@ -261,7 +266,7 @@ export function ReportWorkPlan({ plan: sourcePlan, weekly, day }: { plan?: SeoDi
               <thead><tr><th scope="col">{pageTask ? "页面 / 任务" : "关键词"}</th><th scope="col">{pageTask ? "目标关键词" : "内容任务"}</th><th scope="col">市场 / 语言</th><th scope="col">{weekly ? "安排" : "进度"}</th></tr></thead>
               <tbody>{tasks.map(task => <tr key={task.id}>
                 <th scope="row"><Link href={workTaskHref({ id: task.id, weekStart: task.weekStart ?? plan.weekStart }, filters)}>{pageTask ? task.title : task.keyword ?? "关键词待补"}</Link>
-                  {pageTask && task.pageUrl ? <small><a href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</a></small> : null}</th>
+                  {pageTask && task.pageUrl ? <small><SeoAnchor href={task.pageUrl} target="_blank" rel="noreferrer">{new URL(task.pageUrl).pathname}</SeoAnchor></small> : null}</th>
                 <td>{pageTask ? task.keyword ?? "—" : task.title}{task.siteDomain && task.siteDomain !== "flatkey.ai" ? <small>{task.siteDomain}</small> : null}</td>
                 <td>{[task.country, task.language].filter(Boolean).join(" / ") || "—"}</td>
                 <td>{task.scheduled === false ? task.status === "planned" ? "候选 · 待研究" : `候选 · ${reportTaskStatuses[task.status] ?? "待核实"}` : reportTaskStatuses[task.status] ?? "状态待核实"}<small>{shanghaiStamp(task.dueAt).split(" ")[0]}</small></td>
@@ -274,7 +279,7 @@ export function ReportWorkPlan({ plan: sourcePlan, weekly, day }: { plan?: SeoDi
   </section>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, workPlan, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, currentWorkPlan, reportPeriod, dashboard, rankingNotes, businessDate }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; currentWorkPlan?: SeoDigest["currentWorkPlan"]; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; businessDate?: string }) {
+function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, workPlan, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, currentWorkPlan, reportPeriod, dashboard, rankingNotes, businessDate, reportTemplateVersion, conversionSnapshot, moduleShareSnapshot }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; workPlan?: SeoDigest["workPlan"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; currentWorkPlan?: SeoDigest["currentWorkPlan"]; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; businessDate?: string; reportTemplateVersion?: number; conversionSnapshot?: ConversionProjection; moduleShareSnapshot?: SeoDigest["moduleShareSnapshot"] }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -295,15 +300,15 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
   const countrySection = sections.find(section => section.title.startsWith("Flatkey 四国分项"));
   const countries = dashboard?.traffic?.countries ?? (countrySection ? parseReportComparisons(countrySection.lines) : null);
   const sites = sections.find(section => section.title.startsWith("五站自然搜索"));
-  const github = githubSection?.slice(1) ?? sections.find(section => section.title.startsWith("GitHub 提示词渠道"))?.lines;
+  const github = reportTemplateVersion !== undefined && reportTemplateVersion >= 9 ? undefined : githubSection?.slice(1) ?? sections.find(section => section.title.startsWith("GitHub 提示词渠道"))?.lines;
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const next = sections.find(section => section.title.startsWith(weekly ? "下周事项与关键词" : "明日优先关注"));
   const focus = reportFocusLines(workPlan, next?.lines);
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={dashboard?.traffic?.sites ?? (sites ? parseReportComparisons(sites.lines) : null)} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations}
-      completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} />
+      completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} conversionSnapshot={conversionSnapshot} />
     {dashboard?.attributionText ? <ReviewedReportBody text={"### 流量上涨与下跌原因\n\n" + dashboard.attributionText} label="流量上涨与下跌原因" /> : null}
-    {reportPeriod ? <ReportModuleShares range={reportPeriod} comparisonRange={{ start: shiftDay(reportPeriod.start, weekly ? -7 : -1), end: shiftDay(reportPeriod.end, weekly ? -7 : -1) }} values={dashboard?.moduleShares} /> : null}
+    {reportPeriod ? <ReportModuleShares range={reportPeriod} comparisonRange={{ start: shiftDay(reportPeriod.start, weekly ? -7 : -1), end: shiftDay(reportPeriod.end, weekly ? -7 : -1) }} values={dashboard?.moduleShares ?? moduleShareSnapshot?.values} showShares={reportTemplateVersion !== undefined && reportTemplateVersion >= 9} /> : null}
     {github ? <section className={reportStyles.section}>
       <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
     </section> : null}
@@ -402,7 +407,7 @@ export function SeoDigestReports() {
             <small>首次获客为自然搜索 · 区间去重</small>
             <small>America/Los_Angeles</small></div>
         </dl>
-        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection}
+        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} workPlan={report.workPlan} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} conversionSnapshot={report.conversionSnapshot} moduleShareSnapshot={report.moduleShareSnapshot}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} currentWorkPlan={report.currentWorkPlan} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} businessDate={report.businessDate} /></>}
         {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}
       </article>}

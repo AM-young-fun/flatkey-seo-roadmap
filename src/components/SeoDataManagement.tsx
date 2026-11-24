@@ -15,6 +15,8 @@ import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import type { InventoryPage } from "@/lib/seo-page-inventory";
 import shell from "./SeoWorkspace.module.css";
 import styles from "./SeoDataManagement.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type Inventory = { source: string; capturedAt: string | null; pages: InventoryPage[] };
 
@@ -62,11 +64,11 @@ export function SeoDataManagement() {
         <p className={styles.count}>已登记 <strong>{inventory.data.pages.length.toLocaleString("zh-CN")}</strong> 个页面 · 基线之后新发现 <strong>{newPages.toLocaleString("zh-CN")}</strong> 个</p>
         <p className={styles.note}>{inventory.data.capturedAt ? `最近同步 ${shanghaiStamp(inventory.data.capturedAt)}（北京时间）` : "尚无同步记录"}</p>
       </> : inventory.error ? <p role="alert">{inventory.error}</p> : <p className={styles.note}>正在读取页面台账…</p>}
-      <div className={styles.links}><Link className={styles.link} href={"/pages?" + new URLSearchParams({ ...range, category: "new", country })}>查看新发现页面 →</Link><a className={styles.link} href="https://flatkey.ai/sitemap.xml" target="_blank" rel="noreferrer">查看 Sitemap ↗</a></div>
+      <div className={styles.links}><Link className={styles.link} href={"/pages?" + new URLSearchParams({ ...range, category: "new", country })}>查看新发现页面 →</Link><SeoAnchor className={styles.link} href="https://flatkey.ai/sitemap.xml" target="_blank" rel="noreferrer">查看 Sitemap ↗</SeoAnchor></div>
       {notice ? <p role="status" className={styles.note}>{notice}</p> : null}
       {syncError ? <p role="alert">{syncError}</p> : null}
       <p className={styles.note}>同步会保留首次发现日期。首次发现不等于上线时间；暂时从 Sitemap 消失的页面仍保留在台账中。</p>
     </section>
-    <footer className={styles.footer}><a href="https://flatkey-seo-roadmap.vercel.app/manage" target="_blank" rel="noreferrer">打开线上管理（关键词、采集计划与账号）↗</a></footer>
+    <footer className={styles.footer}><SeoAnchor href="https://flatkey-seo-roadmap.vercel.app/manage" target="_blank" rel="noreferrer">打开线上管理（关键词、采集计划与账号）↗</SeoAnchor></footer>
   </main>;
 }

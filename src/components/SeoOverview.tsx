@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "./PageHeader";
-import { SessionSeoReport } from "./SessionSeoReport";
+import { OverviewTrafficCharts } from "./OverviewTrafficCharts";
 import { SeoDateControl, useSeoRange } from "./SeoDateControl";
 import { RankingTrend } from "./RankingTrend";
 import { GrowthRankingCoverage, GrowthTopicNetwork } from "./GrowthTopicWorkspace";
@@ -11,7 +11,6 @@ import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS } from "@/lib/seo";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
 import { UiSelect } from "./UiSelect";
-import { ModuleSeoReport } from "./ModuleSeoReport";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
@@ -48,11 +47,10 @@ export function SeoOverview() {
             </div>
             <SeoDateControl value={context} />
           </div>
-          {module === "all" ? <SessionSeoReport range={context.range} comparison={context.comparison} compact organicRegistrations showDetails={false} showComparisonDate={false} />
-            : <ModuleSeoReport range={context.range} comparison={context.comparison} module={module} country={country} showDetails={false} />}
+          <OverviewTrafficCharts range={context.range} comparison={context.comparison} module={module} country={country} />
         </section>
         <div className={styles.rankings}>
-          <RankingTrend region={country} module={module} historicalScope />
+          <RankingTrend region={country} module={module} historicalScope chartsOnly />
         </div>
       </div>
       <div className={styles.network}>

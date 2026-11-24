@@ -3,6 +3,7 @@ import { analyticsSiteForProperty } from "./seo-analytics";
 import { CLUSTER_SITES } from "./seo-cluster-sites";
 import type { GrowthWorkspace } from "./growth-types";
 import type { GrowthDriver, GrowthPublicationReference, GrowthReportSnapshot } from "./growth-strategy";
+import type { WorkflowTask } from "./seo-workflow";
 
 const shift = (day: string, n: number) => new Date(Date.parse(day + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 const pageKey = (url: string) => { const value = new URL(url); return value.origin + value.pathname.replace(/\/$/, ""); };
@@ -18,7 +19,7 @@ function pageRoute(url: string, site: string) {
 }
 /** Conservative contribution evidence only. Missing page rows are not converted
  * to zero and page/country/source slices are never added into a causal total. */
-export function growthPageContributionDirections(workspace: GrowthWorkspace, publications: (GrowthPublicationReference & { title?: string })[], observations: AnalyticsObservation[], period: { start: string; end: string }, now = new Date()): GrowthReportSnapshot["directions"] {
+export function growthPageContributionDirections(workspace: GrowthWorkspace, publications: (GrowthPublicationReference & { title?: string })[], observations: AnalyticsObservation[], period: { start: string; end: string }, now = new Date(), tasks: WorkflowTask[] = []): GrowthReportSnapshot["directions"] {
   const start = shift(period.start, -7), dates = Array.from({ length: 14 }, (_, index) => shift(start, index));
   const groups = new Map<string, Map<string, AnalyticsObservation>>();
   for (const row of observations) {
@@ -49,13 +50,20 @@ export function growthPageContributionDirections(workspace: GrowthWorkspace, pub
       const target = targets.find(target => target.country === country) ?? targets[0];
       const pages = publications.filter(publication => publication.status === "verified" && pageKey(publication.pageUrl) === urlKey);
       const actualChanges = pages.filter(publication => { const day = publishedReportDay(publication.publishedAt); return day !== null && day >= period.start && day <= period.end; });
+      const actions = actualChanges.map(publication => {
+        const task = tasks.find(task => task.id === publication.taskId && task.contentVersion === publication.contentVersion);
+        const label = task?.workClass === "content_refresh" ? "旧文翻新" : task?.workClass === "internal_linking" ? "内链调整" : publication.kind === "optimization" ? "页面优化" : "内容发布";
+        const completed = task?.progress?.filter(row => row.observedAt >= publication.publishedAt && Date.parse(row.observedAt) <= now.getTime()).sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0]?.summary;
+        // A proposed plan is not evidence that its specific edits shipped.
+        return `${publishedReportDay(publication.publishedAt)} ${label}；版本${publication.contentVersion}；原任务${publication.taskId}${completed ? `；完成回执：${completed}` : "；具体改动见原任务该版本发布回执"}`;
+      });
       const taskIds = [...new Set([...targets.flatMap(target => target.taskIds), ...pages.map(page => page.taskId)])];
       const route = pageRoute(page.url, site), pageLanguages = [...new Set(pages.map(page => page.language).filter((language): language is string => Boolean(language)))];
       const language = route.language ?? (pageLanguages.length === 1 ? pageLanguages[0] : target?.language ?? "und");
       drivers.push({ title: pages.find(publication => publication.title)?.title ?? `页面 ${new URL(page.url).pathname}`, url: page.url, topicId: topics.length === 1 ? topics[0] : null, module: route.module, country, language, source: kind === "gsc-pages" ? "GSC" : "GA4", metric: kind === "gsc-pages" ? "clicks" : "sessions", previous, current, window: { ...period, previousStart: start, previousEnd: shift(period.start, -1), timezone: "America/Los_Angeles" }, publicationIds: actualChanges.map(page => page.id), taskIds,
-        explanation: actualChanges.length ? `本期存在${actualChanges.some(page => page.kind === "optimization") ? "优化" : "上线"}回执，页面贡献${current - previous > 0 ? "增加" : "减少"}${Math.abs(current - previous)}；需结合原词原市场及外部需求核实动作作用。` : `既有页面的${kind === "gsc-pages" ? "Google点击" : "自然会话"}贡献${current > previous ? "增加" : "减少"}${Math.abs(current - previous)}，本期未找到该页新上线/优化回执。`,
-        limitation: "这是同窗口相关贡献；查询需求、竞品变化及本站优势尚待补证，不据此证明因果。页面、国家、来源切片不相加。",
-        nextAction: current > previous ? "复核本语言查询、需求持续性、竞争缺口与转化；有优势证据后提交加码方案，优先补原页和原任务" : "沿原页原任务核查曝光/排名/CTR、索引、竞争变化与页面改动，再确定刷新内容、修复问题或继续观察" });
+        explanation: actualChanges.length ? `${actions.join("；")}。页面贡献${current - previous > 0 ? "增加" : "减少"}${Math.abs(current - previous)}。` : `自然变化。${kind === "gsc-pages" ? "Google点击" : "自然会话"}${current > previous ? "增加" : "减少"}${Math.abs(current - previous)}；本期未找到该页新发布或优化回执。`,
+        limitation: actualChanges.length ? "改动与流量属于同窗口相关贡献，尚不能证明因果。页面、国家、来源切片不相加。" : "保留实际页面、话题、国家及来源供用户查看；不推断为内容过时、缺失或意图错误。",
+        nextAction: !actualChanges.length ? "由用户查看自然变化原因；不据此自动创建整改任务" : current > previous ? "结合原词需求持续性和商业承接供用户判断加码；新词挂回原话题，原季度1600成员和已排任务保留" : "沿原任务检查实际改动；有证据时明确内容过时、覆盖不足、意图不符、CTR、竞争需求或技术原因，再给修复与验证指标" });
     }
   }
   const sorted = (sign: 1 | -1) => drivers.filter(driver => Math.sign(driver.current - driver.previous) === sign).sort((a, b) => Math.abs(b.current - b.previous) - Math.abs(a.current - a.previous)).slice(0, 3);
@@ -64,6 +72,6 @@ export function growthPageContributionDirections(workspace: GrowthWorkspace, pub
     const rows = selected.filter(driver => Math.sign(driver.current - driver.previous) === sign);
     if (!rows.length) return [];
     const topics = [...new Set(rows.map(row => row.topicId ? workspace.topics.find(topic => topic.topicId === row.topicId)?.name ?? row.topicId : row.module))];
-    return [{ id: `contributions:${period.start}:${sign}`, title: `${sign > 0 ? "上升" : "下降"}方向：${topics.join("、")}`, experimentId: "evidence-review", recommendation: sign > 0 ? "先核验高贡献模块/话题的外部需求与本站优势，再提交有范围和指标的加码机会卡" : "优先查清下降页面的排名、需求、竞品及本站改动，沿原任务补证并给出修复方案", decision: "AI观察信号，未作新增方向或加码批准", taskIds: [...new Set(rows.flatMap(row => row.taskIds))], drivers: rows }];
+    return [{ id: `contributions:${period.start}:${sign}`, title: `${sign > 0 ? "上升" : "下降"}方向：${topics.join("、")}`, experimentId: "evidence-review", recommendation: rows.every(row => !row.publicationIds.length) ? "自然变化，保留具体贡献供用户查看原因，不自动建整改任务" : sign > 0 ? "结合真实改动、需求持续性和商业承接供用户判断加码，新增词挂回原话题" : "结合该版本实际改动和问题证据，沿原任务提出修复与验证指标", decision: "AI观察信号，未作新增方向或加码批准", taskIds: [...new Set(rows.flatMap(row => row.taskIds))], drivers: rows }];
   });
 }
