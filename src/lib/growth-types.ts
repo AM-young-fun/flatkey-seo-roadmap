@@ -19,7 +19,8 @@ export type GrowthTarget = {
   relatedTopicIds?: string[];
   keyword: string; country: string | null; language: string | null; membership: GrowthMembership;
   pageState: "published" | "planned" | "unmapped"; publishedUrls: string[]; plannedUrls: string[];
-  workState: "planned" | "in_progress" | "completed" | "unknown";
+  workState: "planned" | "scheduled" | "researching" | "in_progress" | "completed" | "unknown";
+  workStateProof?: { taskIds: string[]; planIds: string[]; reason: string };
   rank: number | null; rankUrl: string | null; rankSource: GrowthRankSource | null; checkedAt: string | null;
   captureScope?: string | null; capturePeriodKey?: string | null; captureRunId?: string | null;
   sourcePool?: string; membershipSource?: "stored_formal" | "committed_task" | "research" | "review";

@@ -14,10 +14,17 @@ Module._load = function(name, parent, ...rest) {
 };
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
 const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets, growthRankingEvidence, quarterTargetWorkspace } = require("../src/components/growth-topic-view.ts");
-const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage, GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
+const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage, GrowthTopicWorkspace, GrowthTopicContributionCells } = require("../src/components/GrowthTopicWorkspace.tsx");
 const target = (id, patch = {}) => ({ id, keywordId: id, keyword: "GPU rental", site: "flatkey.ai", topicId: "topic/1", topicName: "GPU计算", country: "US", language: "en", membership: "formal", pageState: "published", workState: "completed", publishedUrls: ["https://flatkey.ai/gpu"], plannedUrls: [], rank: 22, rankSource: "serp", rankUrl: "https://flatkey.ai/gpu", checkedAt: "2026-11-23T00:00:00Z", languageStatus: "match", languageReason: "", captureState: "ranked", rankEligible: true, taskIds: ["original-task"], reason: "", ...patch });
 const topic = { id: "flatkey.ai:topic/1", site: "flatkey.ai", topicId: "topic/1", name: "GPU计算", parentIds: [], formalCount: 3, markets: [] };
 const data = targets => ({ quarter: {targetIds:targets.filter(row=>row.membership==="formal").map(row=>row.id),keywordCount:targets.filter(row=>row.membership==="formal").length,hash:"reviewed"}, generatedAt: "2026-11-23T08:00:00Z", reconciliation: { sources: [] }, targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
+test("topic contribution cells keep unavailable cohort attribution unknown and expose real page/window evidence",()=>{
+ const snapshot={period:{start:'2026-11-12',end:'2026-11-18',timezone:'America/Los_Angeles'},directions:[{drivers:[{topicId:topic.topicId,url:'https://flatkey.ai/blog/gpu',country:'US',language:'en',metric:'sessions',source:'GA4',previous:10,current:15,window:{start:'2026-11-12',end:'2026-11-18',previousStart:'2026-11-05',previousEnd:'2026-11-11',timezone:'America/Los_Angeles'}}]}]};
+ const html=renderToStaticMarkup(React.createElement('table',null,React.createElement('tbody',null,React.createElement('tr',null,React.createElement(GrowthTopicContributionCells,{snapshot,topic,scope:defaultGrowthScope})))));
+ assert.match(html,/10 → 15/);assert.match(html,/2026-11-12—2026-11-18/);assert.match(html,/nofollow/);assert.match(html,/暂无可核归因/);assert.match(html,/未用全站数字分摊或填0/);
+ const empty=renderToStaticMarkup(React.createElement('table',null,React.createElement('tbody',null,React.createElement('tr',null,React.createElement(GrowthTopicContributionCells,{snapshot:null,topic,scope:defaultGrowthScope})))));
+ assert.match(empty,/暂无同窗口页面贡献证据/);assert.doesNotMatch(empty,/0 → 0/);
+});
 
 test("topic totals preserve distinct market targets and separate outside opportunities", () => {
   const workspace = data([target("us"), target("jp", { country: "JP", language: "ja", keyword: "GPUレンタル" }), target("opportunity", { membership: "opportunity" })]);
