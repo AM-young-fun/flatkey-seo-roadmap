@@ -15,10 +15,38 @@ test("valid movement crosses top10 and includes real ranking page", () => {
  const notes = digestRankingNotes([row("2026-11-1", 8), row("2026-10-2", 12)], ...window).join("\n");
  assert.match(notes, /12→8 · 新进前10/); assert.match(notes, /https:\/\/flatkey.ai\/models\/api/);
 });
-test("failed current query is not a drop and owned brands are excluded", () => {
- const notes = digestRankingNotes([row("2026-11-1", null, { state: "FAILED", normalizedJson: null }), row("2026-10-2", 8)], ...window).join("\n");
- assert.match(notes, /待核验 1/); assert.doesNotMatch(notes, /掉出前10/);
+test("failed queries without a received provider result cannot create the weekly keyword block", () => {
+ const attempted = row("2026-11-1", null, { state: "FAILED", normalizedJson: null, providerTaskId: null });
+ const mutations = [
+   {}, { providerTaskId: "submitted-provider-id" },
+   { state: "QUEUED", providerTaskId: "submitted-provider-id" },
+   { state: "COMPLETE", normalizedJson: row("2026-11-1", 8).normalizedJson },
+   { state: "COMPLETE", providerTaskId: "invalid/id", normalizedJson: row("2026-11-1", 8).normalizedJson },
+   { state: "COMPLETE", providerTaskId: "submitted-provider-id", normalizedJson: { captureComplete: true, completeDepth: true } },
+ ];
+ for (const patch of mutations) assert.deepEqual(digestRankingNotes([{ ...attempted, ...patch }, row("2026-10-2", 8)], ...window), [], JSON.stringify(patch));
  assert.deepEqual(digestRankingNotes([row("2026-11-1", 1, { keyword: "Flatkey pricing" })], ...window), []);
+});
+
+test("real captures keep failed sibling diagnostics without counting failures as rankings or drops", () => {
+ const captured = row("2026-11-1", 8);
+ const failed = { ...captured, id: "failed-sibling", keyword: "other api", targetsJson: [{ keywordId: "other", siteDomain: "flatkey.ai" }], state: "FAILED", normalizedJson: null, providerTaskId: null };
+ const notes = digestRankingNotes([captured, failed], ...window).join("\n");
+ assert.match(notes, /前100去重词 1，.*结果 1\/2，待核验 1/);
+ assert.doesNotMatch(notes, /掉出前10/);
+});
+
+test("an old same-run capture cannot unlock a failed current-window attempt", () => {
+ const captured = row("2026-11-1", 8, { checkedAt: "2026-11-09T09:59:59Z" });
+ const failed = { ...captured, id: "failed-sibling", keyword: "other api", targetsJson: [{ keywordId: "other", siteDomain: "flatkey.ai" }], checkedAt: "2026-11-10T08:00:00Z", state: "FAILED", normalizedJson: null, providerTaskId: null };
+ assert.deepEqual(digestRankingNotes([captured, failed], ...window), []);
+});
+
+test("a genuinely received short capture is shown but cannot prove a Top100 absence", () => {
+ const captured = row("2026-11-1", null, { state: "INCOMPLETE", normalizedJson: { normalizationVersion: 2, captureComplete: true, queryStatus: "EXACT", completeDepth: false, rankingVerified: true, organicResults: [] } });
+ const notes = digestRankingNotes([captured], ...window).join("\n");
+ assert.match(notes, /有新回执/); assert.match(notes, /结果 0\/1，待核验 1/);
+ assert.doesNotMatch(notes, /掉出前10/);
 });
 
 test("a real scheduled Thursday capture belongs to the just-closed LA week only after it has returned", () => {

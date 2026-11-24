@@ -15,6 +15,14 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
       ? !!task.periodKey && serpCaptureBelongsToWeek(task.periodKey, laDate(from), laDate(until - 1))
       : +new Date(task.checkedAt) < until));
   if (!fresh.length) return [];
+  const receiptKey = (row: { runId: string | null; providerTaskId: string | null; checkedAt: Date | string | null }) =>
+    JSON.stringify([row.runId, row.providerTaskId, row.checkedAt ? +new Date(row.checkedAt) : null]);
+  const received = new Set(fresh.filter(task => {
+    const normalized = task.normalizedJson && typeof task.normalizedJson === "object"
+      ? task.normalizedJson as Record<string, unknown> : null;
+    return typeof task.providerTaskId === "string" && /^[a-zA-Z0-9-]{5,100}$/.test(task.providerTaskId)
+      && Array.isArray(normalized?.organicResults);
+  }).map(receiptKey));
   const rows: (SerpKeywordResult & { region: string })[] = [];
   for (const region of ["US", "JP", "BR", "ES"] as const) {
     const latest = fresh.filter(task => task.region === region).sort((a, b) => +new Date(b.runCreatedAt) - +new Date(a.runCreatedAt))[0];
@@ -33,7 +41,10 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
     }
     rows.push(...buildSerpKeywordResults([...targets.values()], history, { currentRunId: latest.runId }).map(row => ({ ...row, region })));
   }
-  if (!rows.length) return [];
+  // An attempted/submitted query is not a received search result. Reuse the
+  // result normalizer's modern/legacy capture guard, bound to this window's
+  // actual provider receipt; pending/failed diagnostics alone stay internal.
+  if (!rows.some(row => row.captureComplete && received.has(receiptKey(row)))) return [];
   const checked = rows.filter(row => row.status === "RANKED" || row.status === "OUTSIDE_TOP100");
   const ranked = checked.filter(row => row.rank !== null);
   const uniqueWords = new Set(ranked.map(row => row.keyword.normalize("NFKC").trim().toLocaleLowerCase("en-US")));
