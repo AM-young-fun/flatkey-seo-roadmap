@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { analyticsObservationSchema, analyticsSiteForProperty, scopedAnalytics } from "../seo-analytics";
 import { CLUSTER_SITES } from "../seo-cluster-sites";
-import { weeklyReportRange } from "../seo-date-range";
+import { latestClosedLa7DayRange, shiftDay, weeklyReportRange } from "../seo-date-range";
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
@@ -110,7 +110,7 @@ function growthSourceTimezones(state: GrowthStrategy): Record<string, string | n
   for (const row of [...state.trafficEvidence].sort((a, b) => a.metadata.observedAt.localeCompare(b.metadata.observedAt))) result[row.site] = row.sourceTimezone;
   return result;
 }
-export async function loadGrowthTraffic(period: { start: string; end: string }, now = new Date(), state = emptyGrowthStrategy()): Promise<GrowthTrafficEvidence[]> {
+export async function loadGrowthTraffic(period: { start: string; end: string }, now = new Date(), state = emptyGrowthStrategy(), options: { wholeIntervalScalarOnly?: boolean } = {}): Promise<GrowthTrafficEvidence[]> {
   const [rows, weekly, sites] = await Promise.all([
     prisma.seoAnalyticsDay.findMany({ where: { kind: "ga4-site", date: { gte: period.start, lte: period.end } }, select: { payload: true } }),
     prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: [...GROWTH_TRAFFIC_SITES] }, periodStart: new Date(period.start), periodEnd: new Date(period.end) }, select: { siteDomain: true, ga4PropertyId: true, analysis: true } }),
@@ -121,31 +121,42 @@ export async function loadGrowthTraffic(period: { start: string; end: string }, 
     const parsed = growthExactTrafficSchema.safeParse("exactOrganicSessions" in analysis ? analysis.exactOrganicSessions : null);
     return parsed.success && parsed.data.site === row.siteDomain && parsed.data.propertyId === row.ga4PropertyId ? [parsed.data] : [];
   });
-  const exact = [...state.trafficEvidence, ...imported].filter(row => row.start === period.start && row.end === period.end && growthTrafficHasCompleteHostScope(row) && Date.parse(row.observedAt) <= now.getTime() && sites.some(site => site.domain === row.site && site.ga4PropertyId === row.propertyId)).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
+  const exact = [...state.trafficEvidence, ...imported].filter(row => row.start === period.start && row.end === period.end && (!options.wholeIntervalScalarOnly || row.method === "whole_interval_scalar") && growthTrafficHasCompleteHostScope(row) && Date.parse(row.observedAt) <= now.getTime() && sites.some(site => site.domain === row.site && site.ga4PropertyId === row.propertyId)).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
   const parsed = rows.flatMap(({ payload }) => { const row = analyticsObservationSchema.safeParse(payload); return row.success ? scopedAnalytics([row.data]) : []; });
   const count = Math.round((Date.parse(period.end) - Date.parse(period.start)) / 86400000) + 1;
   return GROWTH_TRAFFIC_SITES.map(site => {
     const exactPeriod = exact.find(row => row.site === site);
-    if (exactPeriod) return { site, ...period, timezone: "America/Los_Angeles", sessions: exactPeriod.sessions, complete: true, observedAt: exactPeriod.observedAt, reason: `真实属性${exactPeriod.propertyId}，原metadata ${exactPeriod.sourceTimezone}，${exactPeriod.method === "utc_hours" ? "完整UTC小时重聚" : "完整原生日桶"}；证据${exactPeriod.id}` };
+    if (exactPeriod) return { site, ...period, timezone: "America/Los_Angeles", sessions: exactPeriod.sessions, complete: true, observedAt: exactPeriod.observedAt, reason: `真实属性${exactPeriod.propertyId}，原metadata ${exactPeriod.sourceTimezone}，${exactPeriod.method === "whole_interval_scalar" ? "整段无日期维度会话标量" : exactPeriod.method === "utc_hours" ? "完整UTC小时重聚" : "完整原生日桶"}；证据${exactPeriod.id}` };
     const days = new Map(parsed.filter(row => row.kind === "ga4-site" && !row.country && analyticsSiteForProperty(row.property) === site && Date.parse(row.observedAt) <= now.getTime()).sort((a, b) => a.observedAt.localeCompare(b.observedAt)).map(row => [row.date, row]));
     const values = [...days.values()].filter(row => row.kind === "ga4-site" && row.sessions !== null);
     return { site, ...period, timezone: "unknown", sessions: null, complete: false,
       observedAt: values.map(row => row.observedAt).sort().at(-1) ?? null,
-      reason: values.length === count && count === 7 ? "已有7日日桶，但缺原metadata时区、完整官网/控制台范围及整周exact证据包；保留原档，不硬编码齐全" : "完整周exact来源未齐，不填0；须复用原metadata与完整日桶/小时证据包" };
+      reason: options.wholeIntervalScalarOnly ? "最新完整滚动7日的同口径整段会话标量未齐；不回退旧固定周、不将日桶求和当该标量、不填0" : values.length === count && count === 7 ? "已有7日日桶，但缺原metadata时区、完整官网/控制台范围及整周exact证据包；保留原档，不硬编码齐全" : "完整周exact来源未齐，不填0；须复用原metadata与完整日桶/小时证据包" };
   });
 }
 
-export async function loadGrowthReportSnapshot(date: string, localPreview = false, now = new Date(), provided: { state?: GrowthStrategy; workspace?: GrowthWorkspace; workflow?: WorkflowSnapshot } = {}): Promise<GrowthReportSnapshot> {
+export async function loadGrowthReportSnapshot(date: string, localPreview = false, now = new Date(), provided: { state?: GrowthStrategy; workspace?: GrowthWorkspace; workflow?: WorkflowSnapshot; trafficObservation?: "rolling7day-v1"; trafficEndLimit?: string } = {}): Promise<GrowthReportSnapshot> {
   const period = weeklyReportRange(date);
+  const dailyObservation = provided.trafficObservation === "rolling7day-v1";
+  const trafficPeriod = dailyObservation ? latestClosedLa7DayRange(now, provided.trafficEndLimit) : period;
+  const previousTrafficPeriod = { start: shiftDay(trafficPeriod.start, -1), end: shiftDay(trafficPeriod.end, -1) };
   const previousStart = new Date(Date.parse(period.start + "T00:00:00Z") - 7 * 86400000).toISOString().slice(0, 10);
   const [state, workspace, workflow, archive] = await Promise.all([provided.state ?? loadGrowthStrategy(localPreview), provided.workspace ?? loadGrowthWorkspace(localPreview, now), provided.workflow ?? loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoAnalyticsDay.findMany({ where: { OR: [{ kind: { startsWith: "ga4-pages" } }, { kind: { startsWith: "gsc-pages" } }], date: { gte: previousStart, lte: period.end } }, select: { payload: true } })]);
-  const traffic = localPreview ? [] : await loadGrowthTraffic(period, now, state);
+  const [traffic, previousTraffic] = localPreview ? [[], []] : await Promise.all([
+    loadGrowthTraffic(trafficPeriod, now, state, { wholeIntervalScalarOnly: dailyObservation }),
+    dailyObservation ? loadGrowthTraffic(previousTrafficPeriod, now, state, { wholeIntervalScalarOnly: true }) : Promise.resolve([]),
+  ]);
   const observations = archive.flatMap(({ payload }) => { const row = analyticsObservationSchema.safeParse(payload); return row.success ? scopedAnalytics([row.data]) : []; });
   const contributions = growthPageContributionDirections(workspace, workflow.publications, observations, period, now, workflow.tasks);
   const finalEvidence = now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF) ? await Promise.all([
     loadGrowthWorkspace(localPreview, new Date(GROWTH_DEADLINE_CUTOFF)), localPreview ? Promise.resolve([]) : loadGrowthTraffic(GROWTH_FINAL_TRAFFIC_PERIOD, now, state),
   ]).then(([workspace, traffic]) => ({ workspace, traffic })) : undefined;
-  const goals = evaluateGrowthGoals(state, workspace, traffic, period, now, finalEvidence);
+  const goals = evaluateGrowthGoals(state, workspace, traffic, trafficPeriod, now, finalEvidence);
+  goals.trafficWindowKind = goals.evaluationMode === "final" ? "quarter-acceptance" : dailyObservation ? "rolling7day-v1" : "fixed-week";
+  if (dailyObservation) {
+    const current = traffic.find(row => row.site === "flatkey.ai" && row.complete), previous = previousTraffic.find(row => row.site === "flatkey.ai" && row.complete);
+    goals.dailyTrafficObservation = { version: "rolling7day-v1", asOf: now.toISOString(), period: trafficPeriod, previousPeriod: previousTrafficPeriod, sessions: current?.sessions ?? null, previousSessions: previous?.sessions ?? null, difference: current?.sessions !== null && current?.sessions !== undefined && previous?.sessions !== null && previous?.sessions !== undefined ? current.sessions - previous.sessions : null, complete: Boolean(current), previousComplete: Boolean(previous) };
+  }
   return { version: "growth-v1.5", strategyVersion: state.version, sourceVersion: growthWorkspaceIdentity(workspace), generatedAt: now.toISOString(), period: { ...period, timezone: "America/Los_Angeles" }, goals,
     directions: [...growthReportDirections(state, workspace, period, now), ...contributions],
     observations: state.observations.filter(row => row.windowEnd >= period.start && row.windowEnd <= period.end) };
@@ -153,7 +164,7 @@ export async function loadGrowthReportSnapshot(date: string, localPreview = fals
 export async function loadGrowthStrategyView(localPreview = false, now = new Date()) {
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
   const [state, workspace, workflow] = await Promise.all([loadGrowthStrategy(localPreview), loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview)]);
-  const snapshot = await loadGrowthReportSnapshot(date, localPreview, now, { state, workspace, workflow });
+  const snapshot = await loadGrowthReportSnapshot(date, localPreview, now, { state, workspace, workflow, trafficObservation: "rolling7day-v1" });
   const inventory = growthDueObservationInventory(workflow, state.observations, growthSourceTimezones(state), now);
   return { state, snapshot, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), ...inventory };
 }

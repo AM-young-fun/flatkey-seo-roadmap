@@ -12,6 +12,7 @@ import { flatkeyRegistrationCount, type BusinessAnalytics } from "./seo-business
 import type { GithubChannel } from "./seo-github-channel";
 import { conversionReportLines, unavailableConversionProjection, type ConversionProjection } from "./seo-conversion";
 import { SEO_REPORT_TEMPLATE_VERSION } from "./seo-report-template";
+import { dailyTrafficComparisonText } from "./growth-goal-display";
 import { reportModuleShareLines, savedReportModuleShares, type ReportModuleShareSnapshot } from "./report-module-shares";
 import { digestTopPages } from "./seo-digest-pages";
 import { effectStatusLabel, formatCtr, formatDelta, type OptimizationReportRow } from "./seo-page-effects";
@@ -521,7 +522,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       `GA4自然搜索会话 ${sessions.label}；首次自然搜索新用户 ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
       `Google点击 ${clicks.label}；曝光 ${impressions.label}；CTR ${previousCtr === null ? "—" : formatCtr(previousCtr)} → ${currentCtr === null ? "—" : formatCtr(currentCtr)}。`,
       ...(clicks.current === null ? [`GSC ${dateLabel}尚无有效结果；${previousLabel}仅作已标日期的上期数据，不替代本日。`] : []),
-      ...(g ? [`季度流量目标：Flatkey单站每完整周3000；${g.trafficPeriod.start}—${g.trafficPeriod.end}已核实${g.weeklySessions ?? "来源未齐"}${g.trafficGap === null ? "" : `，距目标差${g.trafficGap}`}。`,
+      ...(g ? [`季度流量目标：Flatkey单站每完整周3000；${g.trafficWindowKind === "rolling7day-v1" ? "日常最新完整滚动7日 " : ""}${g.trafficPeriod.start}—${g.trafficPeriod.end}已核实${g.weeklySessions ?? "来源未齐"}${g.trafficGap === null ? "" : `，距目标差${g.trafficGap}`}。${dailyTrafficComparisonText(g) ?? ""}`,
         g.baselineFrozen && g.baselineCount === 1600 ? `季度关键词前100 ${g.rankedCount}/1600；已有排名中前50 ${g.top50Count}/${g.rankedCount}，目标分别60%和80%。` : "季度关键词：1600词清单尚未核定，暂不计算本季覆盖率；目标为前100覆盖60%、其中前50占80%。"] : ["季度关键词：1600词清单尚未核定，暂不计算本季覆盖率。"]),
       ...conversionReportLines(input.conversionSnapshot), "", ...dailyTrafficSection(evidence, dateLabel), "", "**流量涨跌原因**"];
     // Read the complete same-day landing source before display Top10 truncation;

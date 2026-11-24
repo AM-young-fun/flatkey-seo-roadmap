@@ -37,6 +37,14 @@ test("unknown goal values never become zero progress or inherit the historical f
   const historical=render(React.createElement(OverviewGoalCharts,{snapshot:{period:{start:"2026-11-12",end:"2026-11-18"},goals:{deadline:"2027-02-05",daysRemaining:70,trafficPeriod:{start:"2026-11-12",end:"2026-11-18"},weeklySessions:2000,trafficComplete:true,baselineCount:null,rankedCount:null,top50Count:null,coverage:null,quality:null,latestRankAt:null}}}));
   assert.doesNotMatch(historical,/2,000|2，000/);assert.match(historical,/历史统计范围/);assert.match(historical,/基线|清单尚未核定/);
 });
+test("the daily goal labels the measured rolling7 window and day-over-day change without rewriting a fixed snapshot",()=>{
+ const {unavailableGrowthReportSnapshot}=require('../src/lib/growth-strategy.ts');
+ const snapshot=unavailableGrowthReportSnapshot({start:'2026-11-12',end:'2026-11-18'},new Date('2026-11-25T01:00:00Z'));
+ Object.assign(snapshot.goals,{trafficWindowKind:'rolling7day-v1',trafficPeriod:{start:'2026-11-17',end:'2026-11-23',timezone:'America/Los_Angeles'},weeklySessions:1558,trafficGap:1442,trafficComplete:true,dailyTrafficObservation:{version:'rolling7day-v1',asOf:'2026-11-25T01:00:00Z',period:{start:'2026-11-17',end:'2026-11-23'},previousPeriod:{start:'2026-11-16',end:'2026-11-22'},sessions:1558,previousSessions:1485,difference:73,complete:true,previousComplete:true}});
+ const before=JSON.stringify(snapshot),html=render(React.createElement(OverviewGoalCharts,{snapshot}));assert.match(html,/最新滚动7日/);assert.match(html,/2026-11-17—2026-11-23/);assert.match(html,/1485 → 1558，\+73/);assert.match(html,/1,442/);assert.equal(JSON.stringify(snapshot),before);
+ snapshot.goals.dailyTrafficObservation.previousSessions=null;snapshot.goals.dailyTrafficObservation.difference=null;
+ assert.match(render(React.createElement(OverviewGoalCharts,{snapshot})),/同口径标量未齐，暂不计算变化/);
+});
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
   assert.equal((html.match(/<circle /g)||[]).length,2);assert.match(html,/d="M42,[^ ]+ {2}M558,/);assert.match(html,/缺失日期保留断点/);

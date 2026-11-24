@@ -3,7 +3,7 @@ const load = Module._load;
 Module._load = function(name, ...args) { return name === "server-only" ? {} : load.call(this, name, ...args); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
 const { fetchGa4ExactOrganicWeek } = require("../src/lib/services/ga4-organic.ts");
-const { collectGrowthWeeklyTraffic } = require("../scripts/lib/seo-growth-weekly-traffic.cjs");
+const { collectGrowthWeeklyTraffic, collectGrowthRollingTraffic } = require("../scripts/lib/seo-growth-weekly-traffic.cjs");
 const period = { start: "2026-11-12", end: "2026-11-18" };
 const sites = ["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org"].map((domain, index) => ({ domain, ga4: String(index + 1), ga4TimeZone: "Asia/Shanghai" }));
 function google(t, responder) {
@@ -16,6 +16,11 @@ function google(t, responder) {
  });
 }
 const row = (bucket, count = 1) => ({ dimensionValues: bucket === null ? [] : [{ value: bucket }], metricValues: [{ value: String(count) }] });
+test("the original daily rolling collector adds only one Flatkey whole-interval scope and preserves fixed-week receipts",async()=>{
+ const reads=[],state={version:0,trafficEvidence:[{id:'original-fixed',site:'flatkey.ai',start:'2026-11-12',end:'2026-11-18',sessions:1421}]};const prior=JSON.stringify(state.trafficEvidence[0]);
+ const result=await collectGrowthRollingTraffic({sites,period:{start:'2026-11-17',end:'2026-11-23'},credential:'test',fetchWeek:async(site,property,timezone,range)=>{reads.push([site,range]);return{id:'daily-scalar',site,...range,sessions:1558,method:'whole_interval_scalar'};},fetcher:async(_url,init)=>{if(init.method==='POST'){const c=JSON.parse(init.body);assert.equal(c.action,'record_traffic');state.trafficEvidence.push(c.evidence);state.version++;}return Response.json({state});}});
+ assert.deepEqual(reads,[['flatkey.ai',{start:'2026-11-17',end:'2026-11-23'}]]);assert.equal(result.complete,true);assert.equal(result.paidRequests,0);assert.equal(JSON.stringify(state.trafficEvidence[0]),prior);
+});
 test("Shanghai source uses exact UTC hours, real metadata and corresponding production host/channel filters", async t => {
  google(t, query => {
   assert.deepEqual(query.dimensions, [{ name: "dateHour" }]);

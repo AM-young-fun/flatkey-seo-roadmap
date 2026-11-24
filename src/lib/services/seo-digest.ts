@@ -36,7 +36,7 @@ import { currentCanonicalWeeklyDraft } from "../seo-weekly-review-window";
 import { buildReviewedSeoDigest, sameReviewedDigest } from "../seo-reviewed-digest";
 import { loadGrowthReportSnapshot } from "./growth-strategy";
 import { growthHash, unavailableGrowthReportSnapshot } from "../growth-strategy";
-import { weeklyReportRange } from "../seo-date-range";
+import { latestClosedLa7DayRange, weeklyReportRange } from "../seo-date-range";
 import { loadGrowthWorkspace } from "./growth-workspace";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -112,7 +112,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     hasClosedHistory ? loadDailySeoPageGroupsHistory({ ...historyQuery, ruleVersion: DAILY_SEO_PAGE_GROUP_RULE_VERSION }) : Promise.resolve(undefined),
     loadRegistrationPeriods(reportHistoryStart, window.trafficEnd),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(executionWeek, -7) }, false),
-    dailyGrowthWorkspace ? dailyGrowthWorkspace.then(workspace => loadGrowthReportSnapshot(date, false, now, { workspace })) : loadGrowthReportSnapshot(date, false, now),
+    dailyGrowthWorkspace ? dailyGrowthWorkspace.then(workspace => loadGrowthReportSnapshot(date, false, now, { workspace, trafficObservation: "rolling7day-v1", trafficEndLimit: window.trafficEnd })) : loadGrowthReportSnapshot(date, false, now),
     loadConversionProjection({ site: "flatkey.ai", start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles", country: "all" }, now),
     loadReportModuleShares({ start: window.trafficStart, end: window.trafficEnd }, { start: shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), end: shiftWorkflowDay(window.trafficEnd, kind === "weekly" ? -7 : -1) }, kind, now),
   ]);
@@ -181,8 +181,10 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     return parsed.success ? [parsed.data] : [];
   });
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
+  const unavailableGrowth = unavailableGrowthReportSnapshot(kind === "daily" ? latestClosedLa7DayRange(now, window.trafficEnd) : weeklyReportRange(date), now);
+  unavailableGrowth.goals.trafficWindowKind = kind === "daily" ? "rolling7day-v1" : "fixed-week";
   const input: DigestInput = {
-    growthSnapshot: reads[12].status === "fulfilled" ? reads[12].value : unavailableGrowthReportSnapshot(weeklyReportRange(date), now),
+    growthSnapshot: reads[12].status === "fulfilled" ? reads[12].value : unavailableGrowth,
     conversionSnapshot: reads[13].status === "fulfilled" ? reads[13].value : unavailableConversionProjection({ site: "flatkey.ai", start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles", country: "all" }, now, "转化证据存档读取失败，未将缺源填0"),
     moduleShareSnapshot: reads[14].status === "fulfilled" ? reads[14].value : undefined,
     date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
