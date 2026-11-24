@@ -2,6 +2,7 @@ import { z } from "zod";
 import { digestWindow, type SeoDigest } from "./seo-digest";
 import { ReviewedDigestError, reviewedTextHash } from "./seo-reviewed-digest";
 import { dashboardComparisonGroups, reportDashboardEvidenceSchema, sameReportDashboard } from "./seo-report-dashboard";
+import { reportModuleShareLines, type ReportModuleShareSnapshot } from "./report-module-shares";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const count = z.number().int().nonnegative().nullable();
@@ -47,7 +48,19 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
       modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable } } : {}),
   };
   const key = reviewedTextHash(canonical(["daily-dashboard-v1", base.id, input.sourceEvidenceSha256, input.moduleShares, input.dashboardEvidence]));
+  const currentTemplate = base.reportTemplateVersion !== undefined && base.reportTemplateVersion >= 9;
+  const moduleShareSnapshot: ReportModuleShareSnapshot = { version: 1, period: { start: period.start, end: period.end },
+    comparisonPeriod: { start: shift(period.start), end: shift(period.end) }, timezone: "America/Los_Angeles", sourceReportId: base.id, sourceEvidenceSha256: input.sourceEvidenceSha256, values: input.moduleShares };
+  const replaceShares = (text: string) => {
+    const escaped = reportModuleShareLines(base.moduleShareSnapshot?.values).map(line => line.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+    const before = new RegExp(escaped.join("\\s*"), "u"), after = reportModuleShareLines(input.moduleShares).join("  \n");
+    if (!before.test(text)) throw new ReviewedDigestError("日报模块正文与原来源快照不一致，须先核对原版本");
+    return text.replace(before, after);
+  };
+  const text = currentTemplate ? replaceShares(base.text) : base.text, detailText = currentTemplate ? replaceShares(base.detailText) : base.detailText;
+  if (currentTemplate) dashboard.detailText = replaceShares(dashboard.detailText);
   return { ...base, id: `seo-digest:${input.date}:${key.slice(0, 16)}`, generatedAt: now.toISOString(), dashboard,
+    ...(currentTemplate ? { moduleShareSnapshot, text, detailText, hash: reviewedTextHash(text) } : {}),
     dailyDashboardBody: { version: 1, recordOnly: true, baseReportId: base.id, baseReportHash: base.hash,
       baseGeneratedAt: base.generatedAt, sourceEvidenceSha256: input.sourceEvidenceSha256 },
   };

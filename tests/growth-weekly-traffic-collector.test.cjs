@@ -95,15 +95,15 @@ test("four duplicate site entries cannot stand in for four distinct verified sit
  assert.equal(reads, 0);
 });
 
-test("RougeCue deferral performs no Google read and cannot block Flatkey exact-week goal; observer evidence remains separate", async () => {
+test("an explicit deferred observer performs no Google read and cannot block Flatkey exact-week goal", async () => {
  const { CLUSTER_SITES } = require("../src/lib/seo-cluster-sites.ts");
  const registered = [sites[0], ...CLUSTER_SITES.filter(site => ["rackrate.org", "modelfit.cc", "rougecue.org"].includes(site.domain))];
  const rouge = registered.find(site => site.domain === "rougecue.org");
- assert.equal(rouge.googleCollectionDeferred, true);
- assert.deepEqual(registered.filter(site => site.googleCollectionDeferred === true).map(site => site.domain), ["rougecue.org"]);
+ assert.equal(rouge.googleCollectionDeferred, false, "Current user authorization lifts the old registry deferral");
+ const deferred = registered.map(site => site.domain === "rougecue.org" ? { ...site, googleCollectionDeferred: true, googleCollectionDeferReason: "explicit_fixture_deferral" } : site);
  const reads = [], state = { version: 0, trafficEvidence: [{ id: "old-rouge", site: "rougecue.org", sessions: 17 }] };
  let posts = 0;
- const result = await collectGrowthWeeklyTraffic({ sites: registered, period, credential: "test", fetchWeek: async site => {
+ const result = await collectGrowthWeeklyTraffic({ sites: deferred, period, credential: "test", fetchWeek: async site => {
   reads.push(site); assert.notEqual(site, "rougecue.org"); return { id: site, site, sessions: 5 };
  }, fetcher: async (_url, init) => {
   if (init.method === "POST") { posts++; const command = JSON.parse(init.body); assert.equal(command.expectedVersion, state.version); state.version++; state.trafficEvidence.push(command.evidence); }
@@ -111,7 +111,7 @@ test("RougeCue deferral performs no Google read and cannot block Flatkey exact-w
  } });
  assert.deepEqual(reads.sort(), ["flatkey.ai", "modelfit.cc", "rackrate.org"]);
  assert.equal(posts, 3); assert.equal(result.complete, true);assert.equal(result.allSourcesComplete,false); assert.equal(result.paidRequests, 0);
- assert.deepEqual(result.results.find(row => row.site === "rougecue.org"), { site: "rougecue.org", status: "source_deferred", reason: "user_deferred_google_sources" });
+ assert.deepEqual(result.results.find(row => row.site === "rougecue.org"), { site: "rougecue.org", status: "source_deferred", reason: "explicit_fixture_deferral" });
  assert.deepEqual(state.trafficEvidence.find(row => row.id === "old-rouge"), { id: "old-rouge", site: "rougecue.org", sessions: 17 });
  assert.equal(state.trafficEvidence.filter(row => row.site === "rougecue.org").length, 1);
 });
@@ -119,11 +119,14 @@ test("RougeCue deferral performs no Google read and cannot block Flatkey exact-w
 test("GSC inspection excludes deferred RougeCue even if a property is later configured, without excluding other sites", () => {
  const { CLUSTER_SITES } = require("../src/lib/seo-cluster-sites.ts"), vm = require("node:vm"), path = require("node:path");
  const source = fs.readFileSync(path.join(__dirname, "../scripts/server-seo-index-sample.cjs"), "utf8");
- const fixture = CLUSTER_SITES.map(site => site.domain === "rougecue.org" ? { ...site, gsc: "sc-domain:rougecue.org" } : site);
+ const fixture = CLUSTER_SITES.map(site => site.domain === "rougecue.org" ? { ...site, googleCollectionDeferred: true } : site);
  const context = vm.createContext({ CLUSTER_SITES: fixture });
  vm.runInContext(source.slice(source.indexOf("const samples ="), source.indexOf("async function inspect")) + "globalThis.result = samples;", context);
  const samples = JSON.parse(JSON.stringify(context.result));
  assert.ok(!samples.some(([url, property]) => url.includes("rougecue.org") || property.includes("rougecue.org")));
  for (const site of fixture.filter(site => site.domain !== "rougecue.org" && site.gsc)) assert.ok(samples.some(([, property]) => property === site.gsc));
  assert.equal(samples.filter(([, property]) => property === "sc-domain:flatkey.ai").length, 2);
+ const current = vm.createContext({ CLUSTER_SITES });
+ vm.runInContext(source.slice(source.indexOf("const samples ="), source.indexOf("async function inspect")) + "globalThis.result = samples;", current);
+ assert.ok(current.result.some(([url, property]) => url === "https://rougecue.org/" && property === "sc-domain:rougecue.org"), "Current authorized source joins the existing read-only inspection entry");
 });

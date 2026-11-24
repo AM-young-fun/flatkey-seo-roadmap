@@ -10,7 +10,7 @@ const siteDefinitions=[{domain:'flatkey.ai',ga4:'541304395',gsc:'sc-domain:flatk
 const now=new Date('2026-11-24T12:00:00Z'),stamp='2026-11-24T09:00:00.000Z',day='2026-11-23';
 const sha=t=>crypto.createHash('sha256').update(t).digest('hex');
 const parseAnalytics=raw=>{const v={...raw};if(v.country==='all')delete v.country;const p=analyticsObservationSchema.safeParse(v);return p.success?scopedAnalytics([p.data])[0]:null;};
-function base(){const r=buildSeoDigest({date:'2026-11-24',kind:'daily',now,observations:[],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing',rankingNotes:['本日未有新回执'],workPlan:{weekStart:'2026-11-23',status:'scheduled',tasks:[]}});r.dashboard={detailText:'原完整六块正文',attributionText:'博客贡献202→222 [原文章](https://flatkey.ai/blog/original)',technicalText:'暂无问题'};r.pageGroups={source:'immutable-original'};r.growthSnapshot={source:'immutable-quarter'};return r;}
+function base(){const r=buildSeoDigest({date:'2026-11-24',kind:'daily',now,observations:[],publications:[],optimizations:[],effects:[],priorities:[],issues:[],runNotes:[],publicationCoverage:'missing',optimizationCoverage:'missing',rankingNotes:['本日未有新回执'],workPlan:{weekStart:'2026-11-23',status:'scheduled',tasks:[]}});r.dashboard={detailText:r.detailText,attributionText:'博客贡献202→222 [原文章](https://flatkey.ai/blog/original)',technicalText:'暂无问题'};r.pageGroups={source:'immutable-original'};r.growthSnapshot={source:'immutable-quarter'};return r;}
 function analytics(){return [day,'2026-11-22'].flatMap((date,i)=>[
  {kind:'ga4-site',property:'541304395',scope:'session-organic-search',hostScope:'production-hosts-v1',country:'all',date,observedAt:stamp,source:'google-api',complete:false,sessions:i?145:202,registrations:null},
  {kind:'gsc-site',property:'sc-domain:flatkey.ai',date,observedAt:stamp,source:'google-api',complete:false,clicks:0,impressions:0,position:null},
@@ -28,8 +28,10 @@ test('offline assembler recomputes independent scalars from source bytes and kee
  for(const site of ['rackrate.org','modelfit.cc','rougecue.org'])assert.equal(pkg.command.dashboardEvidence.sites.find(r=>r.name===site).sessions.current,null);
  assert.equal(pkg.provenance.nativeReference.find(r=>r.site==='modelfit.cc').value,2);assert.equal(pkg.provenance.nativeReference.find(r=>r.site==='rackrate.org').value,0);assert.equal(pkg.complete,false);
  assert.equal(r.businessDate,'2026-11-24');assert.equal(r.sourceDay,'2026-11-23');assert.match(r.executionWindow.start,/2026-11-24/);
- for(const field of ['text','detailText','hash','title','workPlan','pageGroups','rankingNotes','growthSnapshot','executionWindow'])assert.deepEqual(r[field],pkg.baseReport[field]);
- for(const field of ['detailText','attributionText','technicalText'])assert.equal(r.dashboard[field],pkg.baseReport.dashboard[field]);
+ for(const field of ['title','workPlan','pageGroups','rankingNotes','growthSnapshot','conversionSnapshot','reportTemplateVersion','executionWindow'])assert.deepEqual(r[field],pkg.baseReport[field]);
+ for(const field of ['attributionText','technicalText'])assert.equal(r.dashboard[field],pkg.baseReport.dashboard[field]);
+ assert.match(r.text,/模块占比/);assert.doesNotMatch(r.text,/整段去重访客来源未齐/);assert.equal(r.hash,sha(r.text));assert.equal(r.moduleShareSnapshot.values.current.all,160);
+ assert.equal(pkg.provenance.bodyRevision.allowed,'whole-period-module-share-lines-only');assert.equal(pkg.preservedFields.some(row=>row.field==='text'),false);
  assert.equal(pkg.provenance.googleRequests,0);assert.equal(pkg.provenance.paidRequests,0);assert.equal(pkg.provenance.notifications,0);
 }));
 test('altered bytes, wrong dimensions/metadata and thresholded sources cannot become complete zero scalars',async()=>withFixture(async({filename,records,jobs})=>{
@@ -50,6 +52,10 @@ test('a partial later revision retains proven same-day metrics and attribution w
 test('missing actual source time cannot overwrite a good archive or turn missing evidence into zero',async()=>withFixture(async({scalarEvidence})=>{
  scalarEvidence.moduleShares.observedAt=null;assert.throws(()=>assemble(scalarEvidence),/actual_scalar_source_time/);
  scalarEvidence.sourceDay='2026-11-21';assert.throws(()=>assemble(scalarEvidence),/window_mismatch/);
+}));
+test('a malformed v9 structured body cannot bypass exact module source binding',async()=>withFixture(async({scalarEvidence})=>{
+ const broken=base();broken.dashboard.detailText='unrelated legacy six-block body without the frozen v9 module statement';
+ const pkg=assemble(scalarEvidence,broken);assert.throws(()=>buildDailyDashboardSeoDigest(pkg.baseReport,pkg.command,now),/模块正文与原来源快照不一致/);
 }));
 test('injected normal protocol reads immutable base, saves once, then verifies the exact created snapshot without approval',async()=>withFixture(async({scalarEvidence})=>{
  const pkg=assemble(scalarEvidence),rows=new Map([[pkg.baseReport.id,pkg.baseReport]]),calls=[];const api=async cmd=>{calls.push(cmd.action);if(cmd.action==='read_saved')return{report:rows.get(cmd.reportId)};const report=buildDailyDashboardSeoDigest(rows.get(cmd.baseReportId),cmd,now);rows.set(report.id,report);throw Error('ambiguous transport after actual save');};

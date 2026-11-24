@@ -9,6 +9,8 @@ import { keywordCaptureTime } from "@/lib/keyword-capture-time";
 import { continueApprovedOtherKeywordReview, type ApprovedOtherKeywordReviewCommand, type ApprovedOtherKeywordReviewView as Review } from "@/lib/approved-other-keyword-review-client";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./ApprovedOtherKeywordReview.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const endpoint = "/api/seo/approved-other-keyword-review";
 const countries: Record<string, string> = { US: "美国", JP: "日本", ES: "西班牙", BR: "巴西", CN: "中国" };
@@ -125,8 +127,8 @@ export function ApprovedOtherKeywordReview() {
           <th scope="row"><strong>{row.keyword}</strong><small>{row.keywordId}</small></th>
           <td>{countries[row.country] ?? row.country}<small>{row.language}{row.reused ? " · 复用原采样" : ""}</small></td>
           <td>{rankLabel(row)}{row.gap ? <small>{row.gap}</small> : null}{row.checkedAt ? <small>{keywordCaptureTime(row.checkedAt)}（洛杉矶时间）</small> : null}</td>
-          <td>{row.pages.length ? <ul>{row.pages.map(item => <li key={item.url}>{safeUrl(item.url) ? <a href={safeUrl(item.url)!} target="_blank" rel="noreferrer">第{item.rank}名 · {item.url}</a> : <span>{item.url}</span>}</li>)}</ul> : <span className={styles.note}>{row.ranked === false ? "本次完整结果中未见本站页面" : "尚无可核验的排名页面"}</span>}</td>
-          <td>{row.originalTargetUrls.length ? <ul>{row.originalTargetUrls.map(url => <li key={url}>{safeUrl(url) ? <a href={safeUrl(url)!} target="_blank" rel="noreferrer">{url}</a> : <span>{url}</span>}</li>)}</ul> : <span className={styles.note}>原记录未提供目标页面</span>}</td>
+          <td>{row.pages.length ? <ul>{row.pages.map(item => <li key={item.url}>{safeUrl(item.url) ? <SeoAnchor href={safeUrl(item.url)!} target="_blank" rel="noreferrer">第{item.rank}名 · {item.url}</SeoAnchor> : <span>{item.url}</span>}</li>)}</ul> : <span className={styles.note}>{row.ranked === false ? "本次完整结果中未见本站页面" : "尚无可核验的排名页面"}</span>}</td>
+          <td>{row.originalTargetUrls.length ? <ul>{row.originalTargetUrls.map(url => <li key={url}>{safeUrl(url) ? <SeoAnchor href={safeUrl(url)!} target="_blank" rel="noreferrer">{url}</SeoAnchor> : <span>{url}</span>}</li>)}</ul> : <span className={styles.note}>原记录未提供目标页面</span>}</td>
         </tr>) : <tr><td className={styles.empty} colSpan={5}>没有匹配的关键词。</td></tr>}</tbody>
       </table></div>
       <nav className={styles.pagination} aria-label="补采关键词分页"><button className={styles.button} type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>上一页</button><span>第 {currentPage} / {pages} 页</span><button className={styles.button} type="button" disabled={currentPage >= pages} onClick={() => setPage(currentPage + 1)}>下一页</button></nav>

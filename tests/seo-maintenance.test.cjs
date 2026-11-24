@@ -56,7 +56,7 @@ test("model links must match topic, real module, native language, host and both 
   const linking = task({ workClass: "internal_linking", status: "ready", maintenance: { version: "seo-maintenance-v1", links: [relation] } });
   assert.deepEqual(maintenanceTaskProblems(linking), []);
   for (const patch of [{ language: "ja" }, { modelUrl: "https://flatkey.ai/ja/models/model-123" }, { topicId: "unrelated" }, { modelUrl: "https://rackrate.org/models/model-123" }, { modelUrl: "https://flatkey.ai/pricing" }]) assert.ok(maintenanceTaskProblems({ ...linking, maintenance: { ...linking.maintenance, links: [{ ...relation, ...patch }] } }).length);
-  const receipt = publication({ maintenanceQa: { version: "seo-maintenance-v1", contentVersion: "v2", checkedAt: at, checks: [check("reciprocal_links", relation.modelUrl), check("reciprocal_links", relation.articleUrl)], linkReadbacks: [[relation.modelUrl, relation.articleUrl, relation.modelToArticleAnchor], [relation.articleUrl, relation.modelUrl, relation.articleToModelAnchor]].map(([from, to, anchor]) => ({ from, to, canonicalUrl: to, language: "en", httpStatus: 200, anchor, crawlableAnchor: true, indexable: true, redirectCount: 0, evidence: proof })) } });
+  const receipt = publication({ maintenanceQa: { version: "seo-maintenance-v1", contentVersion: "v2", checkedAt: at, checks: [check("reciprocal_links", relation.modelUrl), check("reciprocal_links", relation.articleUrl)], linkReadbacks: [[relation.modelUrl, relation.articleUrl, relation.modelToArticleAnchor], [relation.articleUrl, relation.modelUrl, relation.articleToModelAnchor]].map(([from, to, anchor]) => ({ from, to, canonicalUrl: to, language: "en", checkedAt: at, fromContentVersion: from === task().pageUrl ? "v2" : "model-v1", toContentVersion: to === task().pageUrl ? "v2" : "model-v1", httpStatus: 200, anchor, crawlableAnchor: true, indexable: true, redirectCount: 0, evidence: proof })) } });
   assert.deepEqual(maintenancePublicationProblems(linking, receipt), []);
   receipt.maintenanceQa.linkReadbacks.pop();
   assert.ok(maintenancePublicationProblems(linking, receipt).length);
@@ -66,7 +66,7 @@ test("technical maintenance requires area-specific real QA, retaining lab versus
   const technical = task({ kind: "technical", pageType: "technical", workClass: "technical_seo", status: "ready", maintenance: { version: "seo-maintenance-v1", technical: [{ area: "performance", method: "lab", before: "移动实验室发现主图延迟，现场数据尚未取得", change: "压缩实际LCP主图并修复同模板加载优先级", verify: "同条件复测LCP、INP、CLS，不冒称CrUX达标", evidence: proof }] } });
   assert.deepEqual(maintenanceTaskProblems(technical), []);
   assert.ok(maintenancePublicationProblems(technical, publication()).length);
-  const pub = publication(); pub.maintenanceQa.checks = [check("performance")];
+  const pub = publication(); pub.maintenanceQa.checks = [{ ...check("performance"), method: "lab" }];
   assert.deepEqual(maintenancePublicationProblems(technical, pub), []);
 });
 const dates = ["2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26"];

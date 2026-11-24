@@ -5,6 +5,8 @@ import type * as echarts from "echarts";
 import type { DailySeoPageGroupsHistory } from "@/lib/daily-seo-page-groups";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import styles from "./DailySeoPageGroups.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const BASE_API_URL = "/api/traffic/daily/groups?site=flatkey.ai";
 const GROUPS = [
@@ -32,7 +34,7 @@ function isHistory(data: DailySeoPageGroupsHistory): boolean {
 }
 
 function SourceLinks({ sources }: { sources: string[] }) {
-  return <>{sources.length ? sources.map((source, index) => <a key={source} href={source} target="_blank" rel="noreferrer">来源{sources.length > 1 ? ` ${index + 1}` : ""}</a>) : "来源待补采"}</>;
+  return <>{sources.length ? sources.map((source, index) => <SeoAnchor key={source} href={source} target="_blank" rel="noreferrer">来源{sources.length > 1 ? ` ${index + 1}` : ""}</SeoAnchor>) : "来源待补采"}</>;
 }
 
 function PointEvidence({ point }: { point: Point }) {

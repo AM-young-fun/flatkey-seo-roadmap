@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, ChevronDown, FileSpreadsheet, RefreshCw } from "lucide-react";
 import { SOURCE_SYNC_API_PATH } from "@/lib/source-sync";
 import type { SourceSyncHealthResponse } from "@/lib/source-sync-health";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "未记录";
 const shortTime = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "暂无";
@@ -37,7 +39,7 @@ export function SourceSyncStatus() {
     {error ? <p className="loadError" role="alert">{error}</p> : null}
     {loading ? <p className="muted" role="status">正在读取已保存的来源状态…</p> : null}
     <div className="sourceSyncSchedule"><span>Codex · 每日 10:30</span><span className={`managementBadge ${health?.dailyCheck.confirmed?"":"isPending"}`}>{health?.dailyCheck.confirmed?`检查完成 ${shortTime(health.dailyCheck.lastCompletedAt)}`:"日检待确认"}</span></div>
-    {health ? <div className="sourceSyncList">{health.sources.map(source => <article key={source.sourceId}><div><a href={source.url} target="_blank" rel="noreferrer">{source.label}<ArrowUpRight size={13} /></a><small>{source.status === "NO_BASELINE" ? "待建立基线" : `最近变更 ${shortTime(source.lastChangedAt)}`}</small></div><strong>{source.storedRows.toLocaleString()}<span>行</span></strong></article>)}</div> : null}
+    {health ? <div className="sourceSyncList">{health.sources.map(source => <article key={source.sourceId}><div><SeoAnchor href={source.url} target="_blank" rel="noreferrer">{source.label}<ArrowUpRight size={13} /></SeoAnchor><small>{source.status === "NO_BASELINE" ? "待建立基线" : `最近变更 ${shortTime(source.lastChangedAt)}`}</small></div><strong>{source.storedRows.toLocaleString()}<span>行</span></strong></article>)}</div> : null}
     <details className="sourceSyncDetails"><summary><span>同步详情</span><ChevronDown size={14} /></summary>
       {health ? <ul>{health.sources.map(source => <li key={source.sourceId}><strong>{source.label} · {source.sheetName}</strong>：最近内容入库 {time(source.lastChangedAt)}；已变更行的来源读取时间 {time(source.lastChangedSourceReadAt)}。</li>)}</ul> : null}
       <p className="chartNote">Codex 使用已登录 DWS 读取三表。刷新只读保存状态；“检查完成”来自独立采集回执，内容未变化也可记录完整检查。缺行不删除词库，不覆盖人工关联。</p>

@@ -1,3 +1,4 @@
+require('./register-ui-modules.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), Module = require('node:module'), ts = require('typescript');
@@ -33,7 +34,7 @@ test('the approved six-section format renders tables, section titles, emphasis, 
 
 test('GFM preserves right alignment, escaped pipes and HTTPS evidence links inside table cells', () => {
   const html = render('| 页面 | 访问 |\n|---|---:|\n| [A\\|B](https://flatkey.ai/zh/blog/gemini-api-pricing) | **123** |\n');
-  assert.match(html, /<a href="https:\/\/flatkey.ai\/zh\/blog\/gemini-api-pricing" target="_blank" rel="noopener noreferrer">A\|B<\/a>/);
+  assert.match(html, /<a\b(?=[^>]*href="https:\/\/flatkey.ai\/zh\/blog\/gemini-api-pricing")(?=[^>]*target="_blank")(?=[^>]*rel="noopener noreferrer nofollow")[^>]*>A\|B<\/a>/);
   assert.match(html, /text-align:right|align="right"/);
   assert.equal((html.match(/<td/g) || []).length, 2);
 });

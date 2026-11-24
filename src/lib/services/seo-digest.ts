@@ -11,7 +11,9 @@ import { GA4_HOST_SCOPE, GA4_HOST_UNVERIFIED } from "../ga4-host-scope";
 import { loadBusinessAnalytics } from "./seo-business-analytics";
 import { accountRegistrationSummary } from "../seo-account-registrations";
 import { loadAccountRegistrationSummary } from "./seo-account-registrations";
-import { loadGithubChannels } from "./seo-github-channel";
+import { loadConversionProjection } from "./seo-conversion";
+import { unavailableConversionProjection } from "../seo-conversion";
+import { loadReportModuleShares } from "./report-module-shares";
 import { getSeoReportingControl } from "./seo-reporting-control";
 import { webhookReceiptSchema, type WebhookReceipt } from "../seo-webhook-receipt";
 import { randomUUID } from "node:crypto";
@@ -72,7 +74,6 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const window = digestWindow(date, kind);
   const executionWeek = digestReportExecutionWeek(date, kind);
   const workStart = window.executionStart ?? window.workStart, workEnd = window.executionEnd ?? window.workEnd;
-  const start = shiftWorkflowDay(window.trafficStart, -15);
   const pageStart = shiftWorkflowDay(window.trafficEnd, -59);
   const reportHistoryEnd = [window.trafficEnd, shiftWorkflowDay(dailySeoPropertyDate(now), -1)].sort()[0];
   const reportHistoryStart = shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1);
@@ -105,15 +106,17 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       return digestRankingNotes(tasks, workStart, workEnd, now);
     })(),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
-    loadGithubChannels(start, window.trafficEnd),
+    Promise.resolve([]), // Slot retained for archived reader index compatibility; no GitHub report read.
     loadAccountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
     kind === "daily" && hasClosedHistory ? loadDailySeoTrafficHistory(historyQuery) : Promise.resolve(undefined),
     hasClosedHistory ? loadDailySeoPageGroupsHistory({ ...historyQuery, ruleVersion: DAILY_SEO_PAGE_GROUP_RULE_VERSION }) : Promise.resolve(undefined),
     loadRegistrationPeriods(reportHistoryStart, window.trafficEnd),
     loadWorkflowSnapshot({ week: shiftWorkflowDay(executionWeek, -7) }, false),
     dailyGrowthWorkspace ? dailyGrowthWorkspace.then(workspace => loadGrowthReportSnapshot(date, false, now, { workspace })) : loadGrowthReportSnapshot(date, false, now),
+    loadConversionProjection({ site: "flatkey.ai", start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles", country: "all" }, now),
+    loadReportModuleShares({ start: window.trafficStart, end: window.trafficEnd }, { start: shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), end: shiftWorkflowDay(window.trafficEnd, kind === "weekly" ? -7 : -1) }, kind, now),
   ]);
-  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "GitHub渠道归档", "Flatkey 账户注册归档", "GA4 首次获客日报", "GA4 页面组和同日注册漏斗", "GA4 首次获客注册区间", "上周执行计划", "季度目标与方向证据"][index]}读取失败，相关项保留缺失。`] : []);
+  const issues: string[] = reads.flatMap((read, index) => read.status === "rejected" ? [`${["执行台账", "下周计划", "GA4/GSC归档", "采集回执", "排名回执", "GA4业务归档", "保留归档槽位", "Flatkey 账户注册归档", "GA4 首次获客日报", "GA4 页面组和同日注册漏斗", "GA4 首次获客注册区间", "上周执行计划", "季度目标与方向证据", "转化质量证据", "整段模块占比来源"][index]}读取失败，相关项保留缺失。`] : []);
   const workflow = reads[0].status === "fulfilled" ? reads[0].value : workflowSnapshot([], { week: executionWeek, allHistory: true }, "database");
   const nextWeek = reads[1].status === "fulfilled" ? reads[1].value : workflowSnapshot([], { week: shiftWorkflowDay(executionWeek, 7) }, "database");
   const previousWeek = reads[11].status === "fulfilled" ? reads[11].value : workflowSnapshot([], { week: shiftWorkflowDay(executionWeek, -7) }, "database");
@@ -180,6 +183,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
   const optimizationMonitoring = optimizationReportRows(workflow, monitorObservations, monitoringAsOf, monitoringEnd, versionCutoff);
   const input: DigestInput = {
     growthSnapshot: reads[12].status === "fulfilled" ? reads[12].value : unavailableGrowthReportSnapshot(weeklyReportRange(date), now),
+    conversionSnapshot: reads[13].status === "fulfilled" ? reads[13].value : unavailableConversionProjection({ site: "flatkey.ai", start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles", country: "all" }, now, "转化证据存档读取失败，未将缺源填0"),
+    moduleShareSnapshot: reads[14].status === "fulfilled" ? reads[14].value : undefined,
     date, kind, now, observations, pageObservations, publications, optimizations, optimizationMonitoring,
     registrationPeriods: reads[10].status === "fulfilled" ? reads[10].value : [],
     dailyAcquisition: reads[8].status === "fulfilled" ? reads[8].value : undefined,
@@ -189,7 +194,6 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     recentPages: recentPublishedPages(workflow, pageObservations, date, now, kind === "weekly", window), technicalQa: technicalQaReport(workflow, workStart, workEnd, monitoringAsOf), notificationCompact: true,
     accountRegistrations: reads[7].status === "fulfilled" ? reads[7].value : accountRegistrationSummary({ start: window.trafficStart, end: window.trafficEnd }),
     businessObservations: reads[5].status === "fulfilled" ? reads[5].value : [],
-    githubObservations: reads[6].status === "fulfilled" ? reads[6].value : [],
     reviewWorkflow: reads[0].status === "fulfilled" ? workflow : undefined,
     historicalImports: workflow.historicalImports.map(archive => ({ id: archive.id, recordedAt: archive.recordedAt, sourceRunId: archive.sourceRunId,
       originals: archive.publications.filter(page => page.kind === "source_blog").length, translations: archive.publications.filter(page => page.kind === "translation").length,
@@ -231,7 +235,9 @@ export async function saveSeoDigest(digest: SeoDigest) {
   await prisma.seoReportVersion.createMany({ data: { id: digest.id, siteDomain: "flatkey.ai", kind: "SEO_DIGEST", periodStart: new Date(digest.date), periodEnd: new Date(digest.date), createdAt: new Date(digest.generatedAt), payload: json(digest) }, skipDuplicates: true });
   const stored = await prisma.seoReportVersion.findUniqueOrThrow({ where: { id: digest.id } });
   const saved = stored.payload as unknown as SeoDigest;
-  if (saved.hash !== digest.hash || saved.text !== digest.text || saved.detailText !== digest.detailText || growthHash(saved.growthSnapshot) !== growthHash(digest.growthSnapshot)) throw new DigestError("报告版本冲突");
+  if (saved.hash !== digest.hash || saved.text !== digest.text || saved.detailText !== digest.detailText || growthHash(saved.growthSnapshot) !== growthHash(digest.growthSnapshot)
+    || saved.reportTemplateVersion !== digest.reportTemplateVersion || growthHash(saved.conversionSnapshot) !== growthHash(digest.conversionSnapshot)
+    || growthHash(saved.moduleShareSnapshot) !== growthHash(digest.moduleShareSnapshot)) throw new DigestError("报告版本冲突");
   return saved;
 }
 

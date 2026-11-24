@@ -6,10 +6,25 @@ const {buildGrowthWorkspace}=require('../src/lib/growth-workspace.ts');
 const {buildGrowthCollectionManifest,buildGrowthCollectionRequest,approveGrowthCollection,assertGrowthCollectionApproval,assertGrowthCollectionManifest,collectionHash}=require('../src/lib/growth-collection.ts');
 const now=new Date('2026-11-23T10:00:00Z'),url='https://flatkey.ai/blog/pricing';
 const member=(patch={})=>({site:'flatkey.ai',keywordId:'k',keyword:'gpu pricing',active:true,keywordActive:true,topicId:'t',pool:'FORMAL',origin:'PLANNED',targetUrls:[url],marketAssignment:{primaryCountry:'US',language:'en',evidence:'Original country and language approval'},...patch});
-const workspace=(patch={})=>buildGrowthWorkspace({generatedAt:now.toISOString(),topics:[{id:'t',text:'GPU opportunity',active:true,sites:['flatkey.ai','modelfit.cc']}],memberships:[member()],tasks:[],publications:[],inventory:[{url,lastSeen:now.toISOString()}],ranks:[],sources:[{name:'全部已存SERP',available:true,reason:null}],...patch});
+const workspace=(patch={})=>{const ws=buildGrowthWorkspace({generatedAt:now.toISOString(),topics:[{id:'t',text:'GPU opportunity',active:true,sites:['flatkey.ai','modelfit.cc']}],memberships:[member()],tasks:[],publications:[],inventory:[{url,lastSeen:now.toISOString()}],ranks:[],sources:[{name:'全部已存SERP',available:true,reason:null}],...patch});ws.quarter={targetIds:ws.targets.filter(t=>t.membership==='formal').map(t=>t.id),keywordCount:ws.targets.filter(t=>t.membership==='formal').length,hash:'a'.repeat(64)};return ws;};
 const prepare=(ws=workspace())=>buildGrowthCollectionManifest(ws,'2026-11-17',{revision:2,connectionVersion:3},now);
 const state=(manifest=prepare())=>({id:'2026-11-17',version:1,manifest,approval:null,runId:null});
 const command=(s)=>({action:'approve',requestId:'approval-001',expectedVersion:s.version,periodKey:s.id,manifestHash:s.manifest.hash,maxCostMicros:s.manifest.maxCostMicros,reason:'已审确切清单与费用'});
+test('no frozen quarter cannot fall back to all formal targets, and cross-country word conflicts never charge twice',()=>{
+ const ws=workspace();delete ws.quarter;assert.equal(prepare(ws).queries.length,0);ws.hotspotTargetIds=[ws.targets[0].id];assert.equal(prepare(ws).queries.length,1,'only separately admitted hotspot scope remains');
+ const conflict=workspace();const second={...conflict.targets[0],id:'another-country',country:'JP',language:'ja',languageStatus:'match'};conflict.targets.push(second);conflict.quarter.targetIds.push(second.id);
+ const manifest=prepare(conflict);assert.equal(manifest.queries.length,0);assert.equal(manifest.held.length,2);assert.match(manifest.held[0].reason,/多个主国家/);
+});
+test('paid manifest locks approved quarter members plus separately approved hotspots, without charging historic unselected words',()=>{
+ const {growthCollectionSourceHash,growthCollectionMonitoringQuote}=require('../src/lib/growth-collection.ts');
+ const ws=workspace({memberships:[member(),member({keywordId:'old',keyword:'old api guide'}),member({keywordId:'hot',keyword:'gpu rental pricing'})]});
+ const [base,old,hot]=['gpu pricing','old api guide','gpu rental pricing'].map(word=>ws.targets.find(target=>target.keyword===word));
+ ws.quarter={targetIds:[base.id],keywordCount:1600,hash:'a'.repeat(64)};
+ let manifest=prepare(ws);assert.deepEqual(manifest.targets.map(target=>target.id),[base.id]);assert.equal(manifest.queries.length,1);
+ const digest=growthCollectionSourceHash(ws);ws.hotspotTargetIds=[hot.id];manifest=prepare(ws);
+ assert.equal(manifest.targets.length,2);assert.equal(manifest.targets.some(target=>target.id===old.id),false);assert.notEqual(growthCollectionSourceHash(ws),digest);assert.equal(ws.quarter.keywordCount,1600);
+ const quote=growthCollectionMonitoringQuote(manifest);assert.equal(quote.queryCount,manifest.queries.length);assert.equal(quote.maxCostMicros,manifest.maxCostMicros);assert.deepEqual(quote.queries.flatMap(query=>query.targetIds).sort(),manifest.queries.flatMap(query=>query.targetIds).sort());
+});
 test('manifest binds original target/market/page identities, reuses exact receipts, and never pulls unbuilt/research/data-only targets',()=>{
  const ws=workspace({memberships:[member(),member({keyword:'best gpu',targetUrls:['https://flatkey.ai/blog/planned']}),member({keyword:'gpu rental',pool:'RESEARCH'}),member({site:'rougecue.org'})]});
  const m=prepare(ws);assert.equal(m.targets.length,1);assert.equal(m.queries.length,1);assert.equal(m.maxCostMicros,6000);assert.equal(m.held.length,1);assertGrowthCollectionManifest(m);assert.equal(m.periodKey,'2026-11-17');

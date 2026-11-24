@@ -43,6 +43,9 @@ export type GrowthHistoricalPeriod = { id: string; label: string; scope: string;
 export type GrowthWorkspace = {
   version: "growth-v1.5"; generatedAt: string; sites: GrowthSite[]; markets: GrowthMarket[];
   topics: GrowthTopic[]; targets: GrowthTarget[]; opportunities: GrowthTarget[];
+  quarter?: { targetIds: string[]; keywordCount: number; hash: string };
+  /** Approved, still-valid hotspot targets are extra; never grow quarterly N. */
+  hotspotTargetIds?: string[];
   reconciliation: {
     formalCount: number; opportunityCount: number; reviewCount: number; totalCount: number;
     /** Raw word-text union across sites; not the formal target denominator. */

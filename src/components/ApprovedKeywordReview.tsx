@@ -9,6 +9,8 @@ import { keywordCaptureTime } from "@/lib/keyword-capture-time";
 import { continueApprovedKeywordReview, type ApprovedKeywordReviewCommand, type ApprovedKeywordReviewView as ApprovedReview } from "@/lib/approved-keyword-review-client";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./ApprovedKeywordReview.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const countries: Record<string, string> = { US: "美国", JP: "日本", ES: "西班牙", BR: "巴西" };
 const count = (value: number) => value.toLocaleString("zh-CN");
@@ -125,7 +127,7 @@ export function ApprovedKeywordReview() {
                   <th scope="row"><strong>{row.keyword}</strong><small>{row.keywordId}</small></th>
                   <td>{row.classificationLabel}<small>{row.candidateMarkets.length ? row.candidateMarkets.map(market => `${market.countryLabel ?? market.countryCode}${market.language === "zh-CN" ? "／简体中文" : ""}`).join("、") : "国家待归属"}</small><small>{row.candidateMarkets.map(market => market.note).filter(Boolean).join("；")}</small></td>
                   <td>{row.reason}</td>
-                  <td>{row.originalTargetUrls.length ? <ul>{row.originalTargetUrls.map(url => <li key={url}>{sourcePageUrl(url) ? <a href={sourcePageUrl(url)!} target="_blank" rel="noreferrer">{url}</a> : <span>{url}</span>}</li>)}</ul> : <span className={styles.note}>原记录未提供目标页面</span>}</td>
+                  <td>{row.originalTargetUrls.length ? <ul>{row.originalTargetUrls.map(url => <li key={url}>{sourcePageUrl(url) ? <SeoAnchor href={sourcePageUrl(url)!} target="_blank" rel="noreferrer">{url}</SeoAnchor> : <span>{url}</span>}</li>)}</ul> : <span className={styles.note}>原记录未提供目标页面</span>}</td>
                 </tr>) : <tr><td colSpan={4} className={styles.empty}>没有匹配的观察词。</td></tr>}</tbody>
               </table>
             </div>

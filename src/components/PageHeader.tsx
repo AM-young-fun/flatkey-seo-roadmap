@@ -10,6 +10,8 @@ import styles from "./PageHeader.module.css";
 import { UiSelect } from "./UiSelect";
 import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS, REGION_CODES } from "@/lib/seo";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const workspaceLinks = [
   ["overview", "/", "总览", LayoutDashboard],
@@ -67,11 +69,11 @@ export function PageHeader({ active, marketControl = true }: {
           <summary className={styles.toolsButton} aria-label="工具与设置"><Settings2 size={16} aria-hidden="true" /><span>工具与设置</span><ChevronDown size={13} aria-hidden="true" /></summary>
           <div className={styles.menu}>
             <Link href="/credentials" aria-current={active === "credentials" ? "page" : undefined}>接入凭据 <KeyRound size={13} aria-hidden="true" /></Link>
-            <a href={GA4_REALTIME_URL} target="_blank" rel="noreferrer">GA4 全渠道实时报告 <ExternalLink size={13} aria-hidden="true" /></a>
+            <SeoAnchor href={GA4_REALTIME_URL} target="_blank" rel="noreferrer">GA4 全渠道实时报告 <ExternalLink size={13} aria-hidden="true" /></SeoAnchor>
             {!preview ? <form action="/api/auth/logout" method="post" onSubmit={() => { dashboardStore.clear(); clientReadCache.clear(); }}><button type="submit">退出登录</button></form> : null}
           </div>
         </details>
-        <a className={styles.foundation} href="https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz" target="_blank" rel="noreferrer">数据基础 <ArrowUpRight size={13} aria-hidden="true" /></a>
+        <SeoAnchor className={styles.foundation} href="https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz" target="_blank" rel="noreferrer">数据基础 <ArrowUpRight size={13} aria-hidden="true" /></SeoAnchor>
         {preview ? <span className={styles.preview}><CircleCheck size={12} aria-hidden="true" />本地预览</span> : null}
       </div>
     </header>

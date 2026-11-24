@@ -1,3 +1,4 @@
+require('./register-ui-modules.cjs');
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");

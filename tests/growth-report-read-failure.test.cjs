@@ -21,10 +21,11 @@ Module._load=function(name,parent,...args){
   return originalLoad.call(this,name,parent,...args);
 };
 const {generateSeoDigest}=require('../src/lib/services/seo-digest.ts');
-test('a real generation read failure keeps the v1.5 six blocks and unknown quarter goals rather than silently switching to legacy template',async()=>{
+test('a real generation read failure keeps the current five blocks and unknown quarter goals rather than silently switching to legacy template',async()=>{
   const result=await generateSeoDigest('2026-11-19',new Date('2026-11-23T12:00:00Z'),'weekly');
   assert.equal(result.growthSnapshot.sourceVersion,'unavailable');assert.equal(result.growthSnapshot.goals.weeklySessions,null);assert.equal(result.growthSnapshot.goals.baselineCount,null);
-  for(const section of ['一','二','三','四','五','六'])assert.match(result.text,new RegExp('\\*\\*'+section+'、'));
+  for(const section of ['一','二','三','四','五'])assert.match(result.text,new RegExp('\\*\\*'+section+'、'));
+  assert.doesNotMatch(result.text,/\\*\\*六、|GitHub/);
   assert.match(result.detailText,/季度目标与方向证据读取失败/);assert.match(result.text,/同窗口来源未齐/);
 });
 test('daily ranking notes and the growth snapshot share one complete workspace read and never fall back to the legacy scope-filtered loader',async()=>{

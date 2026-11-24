@@ -1,3 +1,4 @@
+require('./register-ui-modules.cjs');
 const {test}=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),Module=require("node:module"),ts=require("typescript");
 const filename=path.resolve(__dirname,"../src/components/GrowthCollectionReview.tsx"),originalLoad=Module._load;
 let slots=[],cursor=0,effects=[];

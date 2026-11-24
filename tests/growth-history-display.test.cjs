@@ -1,9 +1,11 @@
+require('./register-ui-modules.cjs');
 const assert = require("node:assert/strict"), { test } = require("node:test");
 const fs = require("node:fs"), Module = require("node:module"), ts = require("typescript");
 const originalLoad = Module._load;
 let response = { data: null };
 let expectedUrl = "/api/seo/growth";
 Module._load = function(name, ...rest) {
+  if (name === "@/lib/seo") return { REGIONS: { US: { label: "美国" }, JP: { label: "日本" }, BR: { label: "巴西" }, ES: { label: "西班牙" } } };
   if (name === "./useSeoAnalytics") return { useSeoRead: url => { assert.equal(url, expectedUrl); return response; } };
   if (name === "./AppLink") return { __esModule: true, default: ({ children, ...props }) => React.createElement("a", props, children) };
   if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, property) => property === "__esModule" ? false : String(property) });
@@ -23,6 +25,13 @@ test("historical language review exposes original scope, denominator and unknown
   assert.doesNotMatch(html, /周环比|付费|开启采集/);
 });
 
+test("overview uses the corrected period words and exclusive countries rather than the legacy target-row totals", () => {
+  const html = renderToStaticMarkup(React.createElement(GrowthHistoricalReview, { points: [{ periodKey: "2026-11-03", periodLabel: "2026年11月第1期", total: 100, ranked: 40, languageProjection: { rawTotal: 104, unknownLanguageWords: 20, countryCounts: [{ country: "US", count: 35 }, { country: "JP", count: 5 }] } }] }));
+  assert.match(html, /同一关键词跨国家、跨站只计一次/); assert.match(html, /美国 35 · 日本 5/);
+  assert.match(html, /<td>104<\/td><td>100<\/td><td>40<\/td><td>20<\/td>/);
+  assert.doesNotMatch(html, /匹配语种且上榜目标|original-cohort/);
+});
+
 test("topic direction uses the same stored strategy scope, real drivers and exact human-review deep link", () => {
   expectedUrl = "/api/seo/growth/strategy";
   const direction = { id: "gpu/方向", title: "GPU比较方向", revision: 3, updatedAt: "2026-11-23T00:00:00Z", scope: [{ site: "flatkey.ai", topicId: "gpu", country: "US", language: "en" }], decision: null, hypothesis: "比较页更能承接价格需求", proposedAction: "补充成本实验", taskIds: ["existing-task"], experiment: { primaryMetric: "自然搜索会话", successCondition: "同窗提升", adjustmentCondition: "下降则补原页", reviewAt: "2026-12-01T00:00:00Z" }, drivers: [{ topicId: "gpu", title: "真实比较文章", url: "https://flatkey.ai/blog/gpu-compare", country: "US", language: "en", source: "GA4", metric: "sessions", previous: 10, current: 20, explanation: "旧页优化后的相关增长", limitation: "尚不能证明因果", nextAction: "核验转化", taskIds: ["existing-task"] }, { topicId: "other", title: "其他话题", country: "US", language: "en", taskIds: [] }] };
@@ -30,6 +39,6 @@ test("topic direction uses the same stored strategy scope, real drivers and exac
   const html = renderToStaticMarkup(React.createElement(GrowthTopicDirections, { site: "flatkey.ai", topicId: "gpu", country: "US", language: "en" }));
   assert.match(html, /10 → 20（\+10）/); assert.match(html, /尚不能证明因果/); assert.match(html, /核验转化/);
   assert.match(html, /href="https:\/\/flatkey.ai\/blog\/gpu-compare"/); assert.match(html, /href="\/work\/existing-task"/);
-  assert.match(html, /href="\/#growth-direction-gpu%2F%E6%96%B9%E5%90%91"/); assert.match(html, /v3 完整方向/);
+  assert.match(html, /href="\/opportunities#growth-direction-gpu%2F%E6%96%B9%E5%90%91"/); assert.match(html, /v3 完整方向/);
   assert.doesNotMatch(html, /其他站方向|其他话题|批准当前范围|付费/);
 });

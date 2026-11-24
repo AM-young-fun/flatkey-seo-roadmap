@@ -5,6 +5,8 @@ export const GROWTH_MARKET_LANGUAGES = {
 } as const;
 export const GROWTH_LANGUAGES = ["en", "ja", "pt-BR", "zh-CN", "es-ES", "fr", "de", "ru", "vi", "id"] as const;
 export const GROWTH_COUNTRIES = ["US", "JP", "BR", "SG", "ES", "FR", "DE", "RU", "VN", "ID"] as const;
+/** Russian remains a translation/data locale, not a dedicated research market. */
+export const GROWTH_RESEARCH_COUNTRIES = ["US", "JP", "BR", "SG", "ES", "FR", "DE", "VN", "ID"] as const;
 export const GROWTH_EXECUTION_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc"] as const;
 export const GROWTH_BLOG_SITES = ["flatkey.ai", "modelfit.cc"] as const;
 export const GROWTH_TARGET_ALLOCATION = { US: 35, JP: 25, BR: 20, SG: 15, other: 5 } as const;

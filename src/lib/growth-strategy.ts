@@ -5,6 +5,7 @@ import { growthExactTrafficSchema, growthTrafficHasCompleteHostScope, type Growt
 import { growthObservationComparisonInputSchema, growthObservationComparisonStoredSchema, prepareGrowthObservationComparison, type GrowthObservationComparison } from "./growth-observation-comparison";
 import { growthObservationComparisonText } from "./growth-observation-display";
 import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
+import { quarterPlanningInputSchema, quarterPlanningStoredSchema } from "./growth-quarter-planning";
 
 export const GROWTH_STRATEGY_KIND = "growth-strategy";
 export const GROWTH_QUARTER_ID = "2026-close";
@@ -60,6 +61,8 @@ export type GrowthStrategy = {
   batches: GrowthBatch[]; directions: GrowthDirection[]; observations: GrowthObservation[]; trafficEvidence: GrowthExactTrafficEvidence[];
   /** Baseline IDs/members stay immutable; explicitly approved scope supplements are append-only. */
   identityRevisions: GrowthIdentityRevision[];
+  quarterPlanning?: z.infer<typeof quarterPlanningStoredSchema> | null;
+  quarterPlanningHistory?: z.infer<typeof quarterPlanningStoredSchema>[];
 };
 const decisionSchema = z.object({ decision: z.enum(["approve", "hold", "reject"]), reason: text, decidedAt: stamp, actor: z.literal("human"), revision: z.number().int().positive(), scope: z.array(scopeSchema).min(1) }).strict();
 const baselineTargetSchema = z.object({ id, keywordId: id.nullable(), site: z.enum(GROWTH_EXECUTION_SITES), topicId: id, keyword: z.string().min(1), country: z.string().min(2).nullable(), language: z.string().min(2).nullable(), publishedUrls: z.array(z.url()), plannedUrls: z.array(z.url()), pageState: z.enum(["published", "planned", "unmapped"]).optional(), reason: z.string().optional(), languageStatus: z.enum(["match", "mismatch", "unknown"]).optional() }).strict();
@@ -71,11 +74,15 @@ export const growthStrategyStoredSchema = z.object({
   directions: z.array(growthDirectionSchema.extend({ revision: z.number().int().positive(), preparedBy: z.enum(["human", "collector"]), updatedAt: stamp, decisions: z.array(decisionSchema), decision: decisionSchema.nullable() }).strict()),
   observations: z.array(storedObservationSchema),
   trafficEvidence: z.array(growthExactTrafficSchema).default([]),
+  quarterPlanning: quarterPlanningStoredSchema.nullable().optional(),
+  quarterPlanningHistory: z.array(quarterPlanningStoredSchema).optional(),
   identityRevisions: z.array(z.object({ revision: z.number().int().positive(), approvedAt: stamp, actor: z.literal("human"), sourceVersion: id, reason: text, mappings: z.array(identityMappingSchema).min(1) }).strict()).default([]),
 }).strict();
 export const emptyGrowthStrategy = (): GrowthStrategy => ({ id: GROWTH_QUARTER_ID, version: 0, updatedAt: null, deadline: "2027-02-05", coverageGoal: 0.6, qualityGoal: 0.8, weeklySessionsGoal: 3000, baseline: null, batches: [], directions: [], observations: [], trafficEvidence: [], identityRevisions: [] });
 const commandBase = { requestId: z.string().regex(/^[a-zA-Z0-9:_-]{8,200}$/), expectedVersion: z.number().int().nonnegative() };
 export const growthStrategyCommandSchema = z.discriminatedUnion("action", [
+  z.object({ ...commandBase, action: z.literal("save_quarter_plan"), plan: quarterPlanningInputSchema }).strict(),
+  z.object({ ...commandBase, action: z.literal("approve_quarter_plan"), hash: z.string().regex(/^[a-f0-9]{64}$/), sourceVersion: id, reason: text }).strict(),
   z.object({ ...commandBase, action: z.literal("save_direction"), direction: growthDirectionSchema }).strict(),
   z.object({ ...commandBase, action: z.literal("decide_direction"), directionId: id, revision: z.number().int().positive(), decision: z.enum(["approve", "hold", "reject"]), reason: text }).strict(),
   z.object({ ...commandBase, action: z.literal("freeze_baseline"), targetIds: z.array(id).min(1).max(20000), sourceVersion: id, reason: text }).strict(),
@@ -143,10 +150,36 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
   if (command.expectedVersion !== state.version) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试");
   const next: GrowthStrategy = structuredClone(state);
   next.identityRevisions ??= [];
-  if (["decide_direction", "freeze_baseline", "resolve_baseline_identities"].includes(command.action) && actor !== "human") throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
-  if (command.action === "freeze_baseline") {
+  if (["decide_direction", "freeze_baseline", "resolve_baseline_identities", "approve_quarter_plan"].includes(command.action) && actor !== "human") throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
+  if (command.action === "save_quarter_plan") {
+    const plan = command.plan;
+    if (plan.sourceVersion !== growthWorkspaceIdentity(workspace)) throw new GrowthStrategyError("source_changed", "季度方案需绑定完整当前候选底账");
+    const formal = state.baseline ? state.baseline.targets.map(row => row.id).sort() : workspace.targets.filter(row => row.membership === "formal").map(row => row.id).sort();
+    if (!state.baseline && plan.targetUnit === "normalized_original_word") {
+      const selected = workspace.targets.filter(row => plan.targetIds.includes(row.id));
+      const words = new Set(selected.map(row => originalWord(row.keyword)));
+      const formalWords = new Set(workspace.targets.filter(row => row.membership === "formal").map(row => originalWord(row.keyword)));
+      if (selected.length !== 1600 || words.size !== 1600 || selected.some(row => row.membership !== "formal" || !row.topicId)
+        || plan.version === "quarter-planning-v1" && (words.size !== formalWords.size || [...formalWords].some(word => !words.has(word)))) throw new GrowthStrategyError("quarter_inventory_incomplete", "季度清单须是实际TopicMap正式词中的1600个唯一原词；历史未入选词及跨站别名保留，不重复计数");
+    } else if (JSON.stringify([...plan.targetIds].sort()) !== JSON.stringify(formal)) throw new GrowthStrategyError("quarter_inventory_incomplete", "季度方案保留完整底账；不能因没有排名而移出成员");
+    for (const stream of plan.workstreams) {
+      if (stream.topicIds.some(topicId => !workspace.topics.some(topic => topic.topicId === topicId)) || stream.taskIds.some(id => !taskIds.includes(id))) throw new GrowthStrategyError("quarter_reference_missing", "方向须关联真实本站话题和原任务");
+    }
+    if (plan.reservedOriginalTaskIds.some(id => !taskIds.includes(id))) throw new GrowthStrategyError("quarter_reference_missing", "原保留任务须来自真实工作台");
+    if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不再变更季度执行方案");
+    if (state.quarterPlanning?.approval) next.quarterPlanningHistory = [...(state.quarterPlanningHistory ?? []).filter(plan => plan.hash !== state.quarterPlanning!.hash), structuredClone(state.quarterPlanning)];
+    next.quarterPlanning = { revision: (state.quarterPlanning?.revision ?? 0) + 1, plan, hash: growthHash(plan), submittedAt: now.toISOString(), approval: null };
+  } else if (command.action === "approve_quarter_plan") {
+    const draft = state.quarterPlanning;
+    if (!draft || draft.hash !== command.hash || growthHash(draft.plan) !== command.hash || command.sourceVersion !== draft.plan.sourceVersion || command.sourceVersion !== growthWorkspaceIdentity(workspace)) throw new GrowthStrategyError("quarter_plan_changed", "须审阅当前确切季度方案，源或方案已变化时重审");
+    if (draft.plan.version === "quarter-planning-v2" && !state.baseline) resolveTargets(draft.plan.targetIds, workspace, true);
+    if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不能事后批准新方案");
+    next.quarterPlanning = { ...draft, approval: { actor: "human", approvedAt: now.toISOString(), hash: command.hash, reason: command.reason } };
+    if (!state.baseline) next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets: resolveTargets(draft.plan.targetIds, workspace, false), reason: command.reason };
+  } else if (command.action === "freeze_baseline") {
     if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不能事后冻结新的有利分母冒充原季度目标");
     if (state.baseline) throw new GrowthStrategyError("baseline_frozen", "季度基线已冻结；新词请进入新增批次");
+    if (now >= new Date("2026-11-24T04:00:00Z")) throw new GrowthStrategyError("quarter_plan_required", "先审阅完整季度方向、市场研究预算及实际投入方案，再一次确认并冻结；词库汇总不等于季度规划");
     if (command.sourceVersion !== growthWorkspaceIdentity(workspace)) throw new GrowthStrategyError("source_changed", "词库身份已变化，请重新核对完整清单");
     const formalIds = workspace.targets.filter(t => t.membership === "formal" && GROWTH_EXECUTION_SITES.some(site => site === t.site)).map(t => t.id).sort();
     if (JSON.stringify([...command.targetIds].sort()) !== JSON.stringify(formalIds)) throw new GrowthStrategyError("baseline_incomplete", "冻结须覆盖全部正式目标；不能移出未获排名词缩小分母");

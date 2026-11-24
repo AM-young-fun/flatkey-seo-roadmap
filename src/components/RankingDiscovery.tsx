@@ -6,6 +6,8 @@ import type { ColumnsType } from "antd/es/table";
 import type { SearchRegionCode } from "@/lib/seo";
 import type { RankingDiscoveryResponse, RankingDiscoveryRow } from "@/lib/ranking-discovery-types";
 import { useRankingDiscovery } from "@/components/useRankingDiscovery";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const POOLS = { FORMAL: "正式目标", RESEARCH: "候选研究", NEW_CANDIDATE: "新发现候选", AMBIGUOUS: "业务意图待复核" };
 const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#f97316"];
@@ -42,9 +44,9 @@ export function RankingDiscoveryTable({ site, region }: { site: string; region: 
   const columns: ColumnsType<RankingDiscoveryRow> = [
     { title: "关键词 / 状态", key: "keyword", width: 270, render: (_, row) => <div className="evidenceSummary"><strong>{row.keyword}</strong><div><Tag color={row.rank <= 10 ? "green" : "blue"}>{rankTag(row.rank)}</Tag><Tag color={row.pool === "FORMAL" ? "blue" : "gold"}>{POOLS[row.pool]}</Tag></div>{row.pool !== "FORMAL" ? <small>{row.reviewReason ?? "实际排名页面不等于已通过目标页面审计"}</small> : null}</div> },
     { title: "数据库名次", key: "rank", width: 140, defaultSortOrder: "ascend", sorter: (a, b) => a.rank - b.rank, render: (_, row) => <strong>#{row.rank}</strong> },
-    { title: "实际排名页面 / 各页名次", key: "pages", width: 520, render: (_, row) => <div className="rankingPageList">{row.pages.map(page => <div className="rankingPageRecord" key={`${page.url}:${page.sourceSerpUpdatedAt}`}><a className="observedUrl" href={page.url} target="_blank" rel="noreferrer">{page.url}</a><strong>页面名次 #{page.rank}</strong><small>SERP 更新：{date(page.sourceSerpUpdatedAt)} · 采集：{date(page.collectedAt)}</small></div>)}</div> },
+    { title: "实际排名页面 / 各页名次", key: "pages", width: 520, render: (_, row) => <div className="rankingPageList">{row.pages.map(page => <div className="rankingPageRecord" key={`${page.url}:${page.sourceSerpUpdatedAt}`}><SeoAnchor className="observedUrl" href={page.url} target="_blank" rel="noreferrer">{page.url}</SeoAnchor><strong>页面名次 #{page.rank}</strong><small>SERP 更新：{date(page.sourceSerpUpdatedAt)} · 采集：{date(page.collectedAt)}</small></div>)}</div> },
     { title: "月搜索量 · 美国", key: "volume", width: 140, render: (_, row) => row.volume?.toLocaleString() ?? "未提供" },
-    { title: "人工核对", key: "check", width: 130, render: (_, row) => <a href={`https://www.google.com/search?${new URLSearchParams({ q: row.keyword, gl: "us", hl: "en", pws: "0" })}`} target="_blank" rel="noreferrer">Google 搜索 ↗</a> },
+    { title: "人工核对", key: "check", width: 130, render: (_, row) => <SeoAnchor href={`https://www.google.com/search?${new URLSearchParams({ q: row.keyword, gl: "us", hl: "en", pws: "0" })}`} target="_blank" rel="noreferrer">Google 搜索 ↗</SeoAnchor> },
   ];
   return <div className="discoveryWorkspace">
     <div className="contentPlanIntro"><div><h2>数据库发现的排名词与页面</h2><p>逐词列出正式目标、候选池和新发现词；相同页面上不同关键词保留各自名次，不共用排名。</p></div><button className="okrRefresh" onClick={refresh}>重新读取已存记录</button></div>

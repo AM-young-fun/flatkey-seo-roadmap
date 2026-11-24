@@ -3,6 +3,8 @@
 import { Button, Tooltip } from "antd";
 import { optimizedPageCaptureProcessing } from "@/lib/optimized-keyword-details";
 import type { OptimizedKeywordPage, useOptimizedPageCapture } from "./useOptimizedPageCapture";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 export function KeywordRankActions({ pages, capture }: { pages: OptimizedKeywordPage[]; capture: ReturnType<typeof useOptimizedPageCapture> }) {
   if (!pages.length) return <span className="muted">—</span>;
@@ -39,7 +41,7 @@ export function KeywordRankActions({ pages, capture }: { pages: OptimizedKeyword
     const label = pending ? "处理中" : retryable ? "重试取结果" : page.run?.status === "UNKNOWN" ? "需核对"
       : page.usedToday ? failed ? "今日抓取失败" : partial ? "今日部分完成" : page.run?.status === "COMPLETED" ? "今日已完成" : "今日已提交" : noTargets ? "待核对" : "抓取排名";
     return <div key={page.id}>
-      {pages.length > 1 ? <a className="observedUrl" href={page.url} target="_blank" rel="noreferrer">{new URL(page.url).pathname}</a> : null}
+      {pages.length > 1 ? <SeoAnchor className="observedUrl" href={page.url} target="_blank" rel="noreferrer">{new URL(page.url).pathname}</SeoAnchor> : null}
       <Tooltip title={tip}><span><Button size="small" type={page.usedToday ? "default" : "primary"} disabled={disabled} loading={busy === page.id || Boolean(pending)} onClick={() => void (retryable ? retry(page) : start(page))}>{label}</Button></span></Tooltip>
       {retryable && !pending ? <small>可重试原任务，不再次计费。</small> : null}
       {receipt ? <small role="status">{pending || noTargets || page.usedToday ? "" : "上次"}{receipt}</small> : null}

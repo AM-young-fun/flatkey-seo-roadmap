@@ -12,13 +12,14 @@ import { loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
 import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
 import type { GrowthWorkspace } from "../growth-types";
+import { workflowSnapshot, type WorkflowStoredRow } from "../seo-workflow-state";
 import type { WorkflowTask, WorkflowSnapshot } from "../seo-workflow";
 import { growthExactTrafficSchema, growthTrafficHasCompleteHostScope } from "../growth-exact-traffic";
+import { growthDueObservationInventory } from "../growth-due-observations";
 
 const key = `${GROWTH_STRATEGY_KIND}:${GROWTH_QUARTER_ID}`;
 type Reader = Pick<Prisma.TransactionClient, "seoWorkflowRecord">;
 type LocalState = { state: GrowthStrategy; events: { requestId: string; requestHash: string; state: GrowthStrategy }[] };
-type DueObservation = { publicationId: string; taskId: string; contentVersion: string; pageUrl: string; checkpoint: 7 | 14 | 28; dueDay: string | null; timezone: string | null; reason: string };
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 function routineApprovedTargetIds(workspace: GrowthWorkspace, tasks: WorkflowTask[], state: GrowthStrategy, now: Date) {
   return workspace.targets.filter(target => target.membership === "formal" && tasks.some(task => {
@@ -47,13 +48,17 @@ export async function loadGrowthStrategy(localPreview = false) {
 }
 export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collector", localPreview = false, now = new Date()) {
   const command = growthStrategyCommandSchema.parse(raw), requestHash = growthHash({ actor, command });
-  if (actor === "collector" && ["decide_direction", "freeze_baseline", "resolve_baseline_identities"].includes(command.action)) throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
+  if (command.action === "save_quarter_plan" && command.plan.version !== "quarter-planning-v2") throw new GrowthStrategyError("legacy_allocation_read_only", "新季度方案统一GPU/API/其他70/25/5；旧版本仅保留历史，不再提交两套投入比例", 422);
+  const assertApprovalContract = (state: GrowthStrategy) => {
+    if (command.action === "approve_quarter_plan" && state.quarterPlanning?.plan.version !== "quarter-planning-v2") throw new GrowthStrategyError("legacy_approval_read_only", "旧待审草稿不能作为新季度基座；请先保存本轮GPU优先的1600词确切方案，旧已审历史保留", 422);
+  };
+  if (actor === "collector" && ["decide_direction", "freeze_baseline", "resolve_baseline_identities", "approve_quarter_plan"].includes(command.action)) throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
   const requestId = `growth:${command.requestId}`;
   // Evidence references are read from the real sources; caller-supplied target
   // identities, page versions or task IDs cannot become the source of truth.
   const [workspace, workflow, sites] = await Promise.all([loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_EXECUTION_SITES] } }, select: { domain: true, ga4PropertyId: true } })]);
   const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[]) => ({ routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now), siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state) });
-  const prepare = (state: GrowthStrategy) => growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks)));
+  const prepare = (state: GrowthStrategy) => { assertApprovalContract(state); return growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks))); };
   const directory = previewDirectory(localPreview);
   if (directory) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -74,11 +79,18 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
     const replay = await tx.seoWorkflowEvent.findUnique({ where: { requestId } });
     if (replay) { if (replay.requestHash !== requestHash) throw new GrowthStrategyError("idempotency_conflict", "同一请求编号已用于不同内容或身份"); return { state: growthStrategyStoredSchema.parse(replay.payload), replay: true, storage: "database" }; }
     const current = await readGrowthStrategy(tx);
+    assertApprovalContract(current);
     // Re-read original publication/task records inside the task-write lock.
-    const references = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: ["task", "publication"] } }, select: { kind: true, recordId: true, payload: true } });
+    const references = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: ["task", "publication", "plan", "historical_import"] } }, select: { kind: true, recordId: true, payload: true } });
     const publications = references.filter(row => row.kind === "publication").map(row => row.payload as unknown as import("../growth-strategy").GrowthPublicationReference);
     const tasks = references.filter(row => row.kind === "task").map(row => row.payload as unknown as WorkflowTask);
-    const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(current, command, actor, workspace, publications, tasks.map(task => task.id), now, contextFor(current, tasks)));
+    // Approval reads identities, TopicMap and task/page sources from the same
+    // repeatable-read transaction snapshot. This does not lock future Topic edits.
+    const identityCommands = ["save_quarter_plan", "approve_quarter_plan", "freeze_baseline", "resolve_baseline_identities"];
+    const transactionWorkspace = identityCommands.includes(command.action)
+      ? await loadGrowthWorkspace(false, now, undefined, { db: tx, workflow: workflowSnapshot(references.map(row => ({ kind: row.kind, record: row.payload })) as unknown as WorkflowStoredRow[], { allHistory: true }, "database", now) })
+      : workspace;
+    const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(current, command, actor, transactionWorkspace, publications, tasks.map(task => task.id), now, contextFor(current, tasks)));
     const data = { kind: GROWTH_STRATEGY_KIND, recordId: GROWTH_QUARTER_ID, weekStart: "2026-11-23", siteDomain: null, status: state.baseline ? "frozen" : "draft", version: state.version, payload: json(state) };
     if (current.version === 0) await tx.seoWorkflowRecord.create({ data: { key, ...data } });
     else { const saved = await tx.seoWorkflowRecord.updateMany({ where: { key, version: command.expectedVersion }, data }); if (saved.count !== 1) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试"); }
@@ -86,7 +98,7 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
     const readback = await readGrowthStrategy(tx);
     if (growthHash(readback) !== growthHash(state)) throw new GrowthStrategyError("readback_failed", "方向记录读回不一致", 503);
     return { state: readback, replay: false, storage: "database" };
-  }, { maxWait: 10_000, timeout: 30_000 });
+  }, { maxWait: 10_000, timeout: 90_000, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 
 function growthSourceTimezones(state: GrowthStrategy): Record<string, string | null> {
@@ -125,7 +137,7 @@ export async function loadGrowthReportSnapshot(date: string, localPreview = fals
   const [state, workspace, workflow, archive] = await Promise.all([provided.state ?? loadGrowthStrategy(localPreview), provided.workspace ?? loadGrowthWorkspace(localPreview, now), provided.workflow ?? loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoAnalyticsDay.findMany({ where: { OR: [{ kind: { startsWith: "ga4-pages" } }, { kind: { startsWith: "gsc-pages" } }], date: { gte: previousStart, lte: period.end } }, select: { payload: true } })]);
   const traffic = localPreview ? [] : await loadGrowthTraffic(period, now, state);
   const observations = archive.flatMap(({ payload }) => { const row = analyticsObservationSchema.safeParse(payload); return row.success ? scopedAnalytics([row.data]) : []; });
-  const contributions = growthPageContributionDirections(workspace, workflow.publications, observations, period, now);
+  const contributions = growthPageContributionDirections(workspace, workflow.publications, observations, period, now, workflow.tasks);
   const finalEvidence = now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF) ? await Promise.all([
     loadGrowthWorkspace(localPreview, new Date(GROWTH_DEADLINE_CUTOFF)), localPreview ? Promise.resolve([]) : loadGrowthTraffic(GROWTH_FINAL_TRAFFIC_PERIOD, now, state),
   ]).then(([workspace, traffic]) => ({ workspace, traffic })) : undefined;
@@ -138,14 +150,6 @@ export async function loadGrowthStrategyView(localPreview = false, now = new Dat
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
   const [state, workspace, workflow] = await Promise.all([loadGrowthStrategy(localPreview), loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview)]);
   const snapshot = await loadGrowthReportSnapshot(date, localPreview, now, { state, workspace, workflow });
-  const sourceTimezones = growthSourceTimezones(state);
-  const due = workflow.publications.filter(p => p.status === "verified" && ["source_blog", "translation", "backfill_translation", "landing", "cluster", "optimization"].includes(p.kind)).flatMap(publication => ([7, 14, 28] as const).flatMap<DueObservation>(checkpoint => {
-    const timezone = sourceTimezones[publication.siteDomain];
-    if (!timezone) return [{ publicationId: publication.id, taskId: publication.taskId, contentVersion: publication.contentVersion, pageUrl: publication.pageUrl, checkpoint, dueDay: null, timezone: null, reason: "来源时区未核定，保留待补" }];
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
-    const publishDay = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date(publication.publishedAt));
-    const dueDay = new Date(Date.parse(publishDay + "T00:00:00Z") + checkpoint * 86400000).toISOString().slice(0, 10);
-    return dueDay < today && !state.observations.some(row => row.publicationId === publication.id && row.checkpoint === checkpoint && row.coverage?.indexing === "verified" && row.coverage.ranking === "verified" && row.coverage.traffic === "verified" && ["complete", "new_page"].includes(row.comparison?.status ?? "")) ? [{ publicationId: publication.id, taskId: publication.taskId, contentVersion: publication.contentVersion, pageUrl: publication.pageUrl, checkpoint, dueDay, timezone, reason: "沿原窗口分别补收录、原词原市场排名、等长前后完整日的页面自然流量比较" }] : [];
-  }));
-  return { state, snapshot, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), dueObservations: due };
+  const inventory = growthDueObservationInventory(workflow, state.observations, growthSourceTimezones(state), now);
+  return { state, snapshot, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), ...inventory };
 }

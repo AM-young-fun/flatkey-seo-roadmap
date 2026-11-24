@@ -1,6 +1,8 @@
 import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import styles from "./ReviewedReportBody.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 function reportUrl(url: string) {
   const safe = defaultUrlTransform(url);
@@ -21,7 +23,7 @@ const components: Components = {
   },
   a({ children, href }) {
     if (!href) return <span>{children}</span>;
-    return <a href={href} target={/^https:/i.test(href) ? "_blank" : undefined} rel="noopener noreferrer">{children}</a>;
+    return <SeoAnchor href={href} target={/^https:/i.test(href) ? "_blank" : undefined} rel="noopener noreferrer">{children}</SeoAnchor>;
   },
   table({ children }) {
     return <div className={styles.tableScroll} role="region" aria-label="周报数据表，可横向滚动" tabIndex={0}>

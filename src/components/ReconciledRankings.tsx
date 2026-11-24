@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Table, Tabs } from "antd";
 import type { RankingReconciliation } from "@/lib/ranking-reconciliation";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 const names: Record<string,string> = { US: "美国", JP: "日本", ES: "西班牙", BR: "巴西", CN: "中国" };
 const colors = ["#588bf5", "#8b7bdd", "#e6aa54", "#47b49a", "#ee7686"];
 const date = (value: string | null) => value ? new Date(value).toLocaleDateString("zh-CN", { timeZone: "America/Los_Angeles" }) : "—";
@@ -40,13 +42,13 @@ export function ReconciledRankings({ site, region }: { site: string; region: str
         {key:"ranked",label:`有排名的关键词 ${ranked.length}`,children:<Table size="small" rowKey="key" dataSource={ranked} pagination={{defaultPageSize:10,showSizeChanger:true}} scroll={{x:1000}} columns={[
           {title:"国家 / 关键词",key:"keyword",render:(_,row)=><><small>{names[row.country]}</small><div>{row.keyword}</div></>},
           {title:"排名",dataIndex:"rank",width:80,render:value=><strong>#{value}</strong>},
-          {title:"实际排名页面 / 各页名次",key:"page",render:(_,row)=>row.pages.map(page=><div key={`${page.country}:${page.url}:${page.checkedAt}:${page.source}`}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a><strong> #{page.rank}</strong><small> · {names[page.country]}</small></div>)},
-          {title:"已建承接页面",key:"expected",render:(_,row)=>row.expectedPages.length?row.expectedPages.map(url=><div key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></div>):"暂无已核对关联"},
+          {title:"实际排名页面 / 各页名次",key:"page",render:(_,row)=>row.pages.map(page=><div key={`${page.country}:${page.url}:${page.checkedAt}:${page.source}`}><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url}</SeoAnchor><strong> #{page.rank}</strong><small> · {names[page.country]}</small></div>)},
+          {title:"已建承接页面",key:"expected",render:(_,row)=>row.expectedPages.length?row.expectedPages.map(url=><div key={url}><SeoAnchor href={url} target="_blank" rel="noreferrer">{url}</SeoAnchor></div>):"暂无已核对关联"},
           {title:"来源 / 日期（洛杉矶）",key:"date",width:180,render:(_,row)=><>{row.source==="serp"?"实测":"数据库索引"}<div>{date(row.checkedAt)}</div></>},
         ]}/>},
         {key:"unranked",label:`已建页未检出 / 待查 ${unranked.length}`,children:<Table size="small" rowKey={row=>`${row.country}:${row.keyword}`} dataSource={unranked} pagination={{defaultPageSize:10,showSizeChanger:true}} scroll={{x:1000}} columns={[
           {title:"国家 / 目标词",key:"word",render:(_,row)=><>{names[row.country]}<div>{row.keyword}</div></>},
-          {title:"已建设页面",key:"pages",render:(_,row)=>row.pages.map(page=><div key={page.url}><a href={page.url} target="_blank" rel="noreferrer">{page.url}</a></div>)},
+          {title:"已建设页面",key:"pages",render:(_,row)=>row.pages.map(page=><div key={page.url}><SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url}</SeoAnchor></div>)},
           {title:"已有结果",key:"result",render:(_,row)=><>{row.reason}<div>{date(row.checkedAt)}</div></>},
         ]}/>},
       ]}/>:null}

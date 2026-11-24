@@ -5,6 +5,8 @@ import type * as echarts from "echarts";
 import type { DailySeoTrafficHistory } from "@/lib/daily-seo-traffic";
 import { clientReadCache, ClientReadError } from "@/lib/client-read-cache";
 import styles from "./DailySeoTrafficTrend.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const BASE_URL = "/api/traffic/daily?site=flatkey.ai";
 const count = (value: number | null | undefined) => value == null ? "待补采" : value.toLocaleString("zh-CN");
@@ -122,7 +124,7 @@ export function DailySeoTrafficTrend({ start, end, expanded = false }: {start?:s
         <p className={styles.provenance}>GA4 属性：{data.ga4PropertyId} · 渠道维度：{data.channelDimension} · 注册事件：sign_up_success</p>
       </details>
       <div className={styles.provenance}><span>最近采集：{stamp(data.collectedAt)}{data.collectedAt ? "（北京时间）" : ""}</span>
-        {data.sources.length ? <span>数据来源：{data.sources.map((source, index) => <a key={source} href={source} target="_blank" rel="noreferrer">GA4{data.sources.length > 1 ? ` ${index + 1}` : ""}</a>)}</span> : null}
+        {data.sources.length ? <span>数据来源：{data.sources.map((source, index) => <SeoAnchor key={source} href={source} target="_blank" rel="noreferrer">GA4{data.sources.length > 1 ? ` ${index + 1}` : ""}</SeoAnchor>)}</span> : null}
       </div>
     </>}
   </section>;

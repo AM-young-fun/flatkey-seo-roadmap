@@ -1,10 +1,12 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/SeoLink";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { GrowthCollectionState } from "@/lib/growth-collection";
 import { serpPeriod } from "@/lib/serp-periods";
 import { FeedbackButton } from "./FeedbackButton";
 import styles from "./GrowthCollectionReview.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type View = { state: GrowthCollectionState | null; run: { id: string; status: string; actualCostMicros: number | null } | null };
 const dollars = (micros: number) => `$${(micros / 1e6).toFixed(3)}`;
@@ -38,7 +40,7 @@ export function GrowthCollectionReview() {
         <table><thead><tr><th>国家</th><th>语言</th><th>查询数</th><th>费用上限</th></tr></thead><tbody>{markets.map(([country, row]) => <tr key={country}><td>{country}</td><td>{row.language}</td><td>{row.queries}</td><td>{dollars(row.cost)}</td></tr>)}</tbody></table>
         <p>清单生成于 {manifest!.preparedAt}；首次批准有效至 {manifest!.expiresAt}。每条查询绑定其真实页面，同词同市场跨站共享一次查询。</p>
         {manifest!.held.length ? <details><summary>本次未纳入查询的目标（{manifest!.held.length}）</summary><ul>{manifest!.held.map(row => <li key={row.targetId}>{row.targetId}：{row.reason}</li>)}</ul></details> : null}
-        <h2>完整新增查询清单</h2><div className={styles.scroll}><table><thead><tr><th>原关键词</th><th>国家 / 语言</th><th>目标页面</th><th>单次上限</th></tr></thead><tbody>{manifest!.queries.slice(page * 50, page * 50 + 50).map(query => <tr key={query.key}><td>{query.keyword}</td><td>{query.country} / {query.language}</td><td>{query.targetIds.flatMap(id => manifest!.targets.find(row => row.id === id)?.publishedUrls ?? []).filter((url, index, rows) => rows.indexOf(url) === index).map(url => <p key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></p>)}</td><td>{dollars(query.maxCostMicros)}</td></tr>)}</tbody></table></div>
+        <h2>完整新增查询清单</h2><div className={styles.scroll}><table><thead><tr><th>原关键词</th><th>国家 / 语言</th><th>目标页面</th><th>单次上限</th></tr></thead><tbody>{manifest!.queries.slice(page * 50, page * 50 + 50).map(query => <tr key={query.key}><td>{query.keyword}</td><td>{query.country} / {query.language}</td><td>{query.targetIds.flatMap(id => manifest!.targets.find(row => row.id === id)?.publishedUrls ?? []).filter((url, index, rows) => rows.indexOf(url) === index).map(url => <p key={url}><SeoAnchor href={url} target="_blank" rel="noreferrer">{url}</SeoAnchor></p>)}</td><td>{dollars(query.maxCostMicros)}</td></tr>)}</tbody></table></div>
         {manifest!.queries.length > 50 ? <div className={styles.actions}><button disabled={page === 0} onClick={() => setPage(value => value - 1)}>上一页</button><span>{page + 1} / {Math.ceil(manifest!.queries.length / 50)}</span><button disabled={(page + 1) * 50 >= manifest!.queries.length} onClick={() => setPage(value => value + 1)}>下一页</button></div> : null}
         {state.approval ? <p>该确切清单已批准，上限 {dollars(state.approval.maxCostMicros)}。{view.run ? `原采集记录：${view.run.status}；实际费用 ${view.run.actualCostMicros == null ? "尚无费用回执" : dollars(view.run.actualCostMicros)}。` : "到原定时点后按此清单执行。"}</p> : <><label className={styles.confirm}><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />我已核对本期完整查询及国家语言，批准本次最高 {dollars(manifest!.maxCostMicros)}，由原采集流程按该清单执行。</label><div className={styles.actions}><FeedbackButton pending={busy} pendingLabel="正在保存批准…" disabled={!confirmed} onClick={() => void mutate("approve")}>批准此清单及费用</FeedbackButton><FeedbackButton pending={busy} pendingLabel="正在重新核对…" onClick={() => void mutate("prepare")}>重新核对并生成待审版本</FeedbackButton></div></>}
       </>}

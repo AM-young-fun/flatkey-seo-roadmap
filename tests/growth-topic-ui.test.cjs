@@ -13,8 +13,8 @@ Module._load = function(name, parent, ...rest) {
   return originalLoad.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest);
 };
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
-const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets, growthRankingEvidence } = require("../src/components/growth-topic-view.ts");
-const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage } = require("../src/components/GrowthTopicWorkspace.tsx");
+const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets, growthRankingEvidence, quarterTargetWorkspace } = require("../src/components/growth-topic-view.ts");
+const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage, GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const target = (id, patch = {}) => ({ id, keywordId: id, keyword: "GPU rental", site: "flatkey.ai", topicId: "topic/1", topicName: "GPU计算", country: "US", language: "en", membership: "formal", pageState: "published", workState: "completed", publishedUrls: ["https://flatkey.ai/gpu"], plannedUrls: [], rank: 22, rankSource: "serp", rankUrl: "https://flatkey.ai/gpu", checkedAt: "2026-11-23T00:00:00Z", languageStatus: "match", languageReason: "", captureState: "ranked", rankEligible: true, taskIds: ["original-task"], reason: "", ...patch });
 const topic = { id: "flatkey.ai:topic/1", site: "flatkey.ai", topicId: "topic/1", name: "GPU计算", parentIds: [], formalCount: 3, markets: [] };
 const data = targets => ({ generatedAt: "2026-11-23T08:00:00Z", reconciliation: { sources: [] }, targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
@@ -36,7 +36,7 @@ test("shared topic relations are browseable but do not duplicate primary progres
   assert.equal(selectGrowthTargets(workspace, defaultGrowthScope, secondary).length, 0);
   assert.equal(growthRelatedTargets(workspace.topics, secondary, [shared])[0].id, "shared");
   const html = renderToStaticMarkup(React.createElement(GrowthTopicClusters, { data: workspace, scope: defaultGrowthScope, targets: [shared] }));
-  assert.match(html, /1 个目标/); assert.match(html, /2 个话题簇/); assert.match(html, /另有关联 1 词/);
+  assert.match(html, /1 个关键词/); assert.match(html, /1 个话题簇/); assert.match(html, /关联话题在详情中浏览/); assert.equal((html.match(/data-keyword-id=/g)||[]).length,1);
 });
 
 test("parent topics without direct words include descendant primary targets once across a multi-parent DAG", () => {
@@ -44,7 +44,7 @@ test("parent topics without direct words include descendant primary targets once
   const a = { ...topic, topicId: "a", id: "a", parentIds: ["parent"] };
   const b = { ...topic, topicId: "b", id: "b", parentIds: ["parent"] };
   const child = { ...topic, topicId: "child", id: "child", parentIds: ["a", "b"] };
-  const targets = [target("one", { topicId: "child" }), target("two", { topicId: "a" })];
+  const targets = [target("one", { topicId: "child" }), target("two", { topicId: "a", keyword: "GPU pricing" })];
   const workspace = { ...data(targets), topics: [parent, a, b, child] };
   assert.equal(growthTopicTargets(workspace.topics, parent, targets).length, 2);
   assert.equal(selectGrowthTargets(workspace, defaultGrowthScope, parent).length, 2);
@@ -53,8 +53,8 @@ test("parent topics without direct words include descendant primary targets once
   parent.parentIds = ["child"];
   assert.equal(growthTopicTargets(workspace.topics, parent, targets).length, 2);
   const html = renderToStaticMarkup(React.createElement(GrowthTopicClusters, { data: workspace, scope: defaultGrowthScope, targets }));
-  assert.match(html, /4 个话题簇/); assert.match(html, /主归属 0 词 · 含子话题 2 词/);
-  assert.match(html, /总量按目标身份去重/);
+  assert.match(html, /2 个话题簇/); assert.equal((html.match(/data-keyword-id=/g)||[]).length,2);
+  assert.match(html, /每词一个点/);
 });
 
 test("only eligible actual SERP rankings count and unknown never shares confirmed outside100 label", () => {
@@ -75,10 +75,10 @@ test("topic and graph deep links retain original market, language and target ide
   assert.equal(url.searchParams.get("target"), "word:JP:ja"); assert.equal(url.searchParams.get("site"), "flatkey.ai");
 });
 
-test("cluster collapse discloses complete target total and routes nodes into the same topic", () => {
-  const targets = Array.from({ length: 27 }, (_, index) => target(`word-${index}`));
+test("circular graph renders every distinct word rather than a 24-word preview", () => {
+  const targets = Array.from({ length: 27 }, (_, index) => target(`word-${index}`, {keyword:`GPU rental ${index}`}));
   const html = renderToStaticMarkup(React.createElement(GrowthTopicClusters, { data: data(targets), scope: defaultGrowthScope, targets }));
-  assert.match(html, /27 个目标/); assert.match(html, /查看全部 27 词/); assert.match(html, /图中预览 24 词/);
+  assert.match(html, /27 个关键词/); assert.equal((html.match(/data-keyword-id=/g)||[]).length,27); assert.doesNotMatch(html, /图中预览/);
   assert.match(html, /topics\/topic%2F1\?site=flatkey.ai&amp;target=word-0/);
   assert.equal((html.match(/class="cluster"/g) || []).length, 1);
 });
@@ -125,14 +125,28 @@ test("all current ranking observations cross the three pools once and keep backg
   assert.equal(growthRankingEvidence(workspace, { ...defaultGrowthScope, site: "rackrate.org" }, "all").ranked.length, 0);
 });
 
-test("overview defaults to observation labels and formal switch retains its own R/N", () => {
+test("overview counts original words once and uses the same denominator for both charts", () => {
   readData = coverageData();
   const html = renderToStaticMarkup(React.createElement(GrowthRankingCoverage));
-  assert.match(html, /aria-pressed="true">全部有效实测/); assert.match(html, /有效实测组合<\/span><strong>3<\/strong>/);
-  assert.match(html, /独立原词<\/span><strong>2<\/strong>/); assert.match(html, /66\.7%/); assert.match(html, /33\.3%/);
+  assert.match(html, /aria-pressed="true">全部有效实测/); assert.match(html, /已获排名关键词/); assert.match(html, /2<\/strong>/);
+  assert.match(html, /其中前50关键词/); assert.match(html, /其中正式目标词/);
+  assert.match(html, /同词跨国、跨站只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);
+  assert.match(html, /去重关键词最佳排名（2 个词）/); assert.match(html, /原始有效实测来源（3 个站点／国家组合/);
   assert.match(html, /数据库名次 1/); assert.match(html, /GSC均位 1/); assert.match(html, /过期SERP名次 1/);
-  assert.doesNotMatch(html, /目标关键词<\/span>|当前正式目标 R\/N/);
+  assert.doesNotMatch(html, /目标关键词<\/span>|当前正式目标记录 R\/N/);
   const formal = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { initialView: "formal" }));
-  assert.match(formal, /aria-pressed="true">正式目标实测/); assert.match(formal, /当前正式目标 R\/N：1 \/ 2（50\.0%）/);
+  assert.match(formal, /aria-pressed="true">正式目标实测/); assert.match(formal, /当前正式目标记录 R\/N：1 \/ 1（100\.0%）/);
   readData = null;
+});
+
+
+test("quarter execution contains the exact approved TopicMap list and never displays discovery queues or graph", () => {
+ const workspace = data([target("quarter-a"), target("alias", {keyword:"GPU RENTAL"}), target("not-selected", {keyword:"unselected formal"}), target("outside", {keyword:"discovered phrase",membership:"opportunity"}), target("review", {keyword:"unconfirmed phrase",membership:"review"})]);
+ workspace.quarter={targetIds:["quarter-a"],keywordCount:1,hash:"reviewed-quarter"};
+ const before=JSON.stringify(workspace), selected=quarterTargetWorkspace(workspace);
+ assert.deepEqual(selected.targets.map(row=>row.id),["quarter-a"]);assert.equal(JSON.stringify(workspace),before);
+ readData=workspace;
+ const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
+ assert.match(html,/GPU计算/);assert.doesNotMatch(html,/规划外机会|待核归属|关键词规划归属|个话题簇/);assert.doesNotMatch(html,/discovered phrase|unconfirmed phrase/);
+ assert.equal((html.match(/<h2>业务词库关系图<\/h2>/g)||[]).length,0);
 });

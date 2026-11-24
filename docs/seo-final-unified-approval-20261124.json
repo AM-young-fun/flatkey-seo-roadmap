@@ -1,0 +1,23 @@
+{
+  "version": "seo-unified-release-v5",
+  "approvedAtRecorded": "2026-11-24T06:06:37.840268+00:00",
+  "approvedBy": "user_in_current_chat",
+  "reviewSha256": "e7e80fe288936a2ecb542dc4b2f0966d0363ae271ebd412e18f9207dea27f651",
+  "approvedPatchSha256": "398214cb50a5e016f68bc1f338f1b0fafa0c9d0a3bc2c56237a297a34b4d8abb",
+  "userInstruction": "可以，就按这版统一发布，把前三期历史数据按关键词语种重新划分，同一个词只计一次，核对好后再恢复约定的任务。付费抓取仍先给我审核，周报还是先审后发。",
+  "releaseScope": [
+    "publish_exact_reviewed_v5",
+    "read_existing_three_historical_periods_and_recalculate_by_native_word_once",
+    "restore_14_agreed_original_automations_only_after_history_acceptance",
+    "keep_paid_collectors_and_old_friday_send_paused",
+    "weekly_exact_text_human_review_before_send"
+  ],
+  "subsequentRougeCueAuthorization": {
+    "userInstructions": [
+      "然后现在可以接入rougecue",
+      "那边基本都ok了"
+    ],
+    "scope": "normal_read_only_GA4_GSC_data_onboarding_and_collection_only",
+    "doesNotChange": "Flatkey_only_3000_content_technical_scope_and_Google_write_permissions"
+  }
+}

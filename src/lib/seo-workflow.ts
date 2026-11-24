@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GROWTH_COUNTRIES, GROWTH_LANGUAGES, GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
+import { planStrategyAllocationSchema } from "./growth-quarter-planning";
 import { maintenanceWorkClassSchema, maintenancePlanSchema, maintenanceQaSchema } from "./seo-maintenance";
 
 export const WORKFLOW_SITES = ["flatkey.ai", "jev-llm.com", "mochichatbot.com", "modelfit.cc", "rackrate.org"] as const;
@@ -115,6 +116,7 @@ export const workflowTaskSchema = z.object({
 });
 export const workflowPlanSchema = z.object({
   id, weekStart: workflowWeekSchema, status: z.enum(["draft", "scheduled", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
+  strategyAllocation: planStrategyAllocationSchema.optional(), committedTaskIds: z.array(id).max(500).optional(),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
   targets: z.union([
     z.object({ cadence: z.literal("growth"),

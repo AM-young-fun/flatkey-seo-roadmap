@@ -9,13 +9,17 @@ function websiteTaskAllowed(task) {
   // User 2026-11-19: stop new Flatkey landing work; retain already-live history for verification.
   if (task.siteDomain === "flatkey.ai" && task.kind === "landing" && !["published", "verified", "observing"].includes(task.status)) return false;
   if (task.channel && task.channel !== "website") return false;
+  // An article can legitimately discuss API backends, GA4 or instrumentation.
+  // Scope follows the actual channel/site/target, not words in the article's
+  // title. Explicitly withdrawn original IDs and cancellation markers remain
+  // excluded, and the URL/channel checks still reject product work.
   if (["api-paid-success-evidence-20261118", "seo-core-pool-weekly-execution-20261111"].includes(task.id) ||
-    /(?:ga4|\bgtm\b|google analytics|后端|埋点|【用户已取消】)/i.test([task.id, task.title].join(" "))) return false;
+    /【用户已取消】/u.test(String(task.title ?? ""))) return false;
   let url;
   if (task.pageUrl) {
     try { url = new URL(task.pageUrl); } catch { return false; }
     if (url.protocol !== "https:" || url.username || url.password || url.port ||
-      ![task.siteDomain, "www." + task.siteDomain].includes(url.hostname) || /^\/(?:api|console|admin|sign-in|sign-up)(?:\/|$)/.test(url.pathname)) return false;
+      ![task.siteDomain, "www." + task.siteDomain].includes(url.hostname) || /^\/(?:api|console|router|admin|sign-in|sign-up)(?:\/|$)/.test(url.pathname)) return false;
   }
   const blog = task.kind === "blog" || task.pageType === "blog" || /\/(?:blog|blogs)(?:\/|$)/.test(url?.pathname || "");
   return !blog || ["flatkey.ai", "modelfit.cc"].includes(task.siteDomain);

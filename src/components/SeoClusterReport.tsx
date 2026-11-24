@@ -8,6 +8,8 @@ import { analyticsUrl, numberText, useSeoRead } from "./useSeoAnalytics";
 import { useSeoCountry } from "./useSeoCountry";
 import styles from "./SeoPageCatalog.module.css";
 import measurement from "./BusinessMeasurementStatus.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type ClusterDay = {
   date: string;
@@ -38,7 +40,7 @@ function SiteRow({ site, url }: {
           ? <button type="button" className={styles.pageLink} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{site.name}</button>
           : site.name}
         <small>{site.domain}</small>
-        <a className={styles.siteAction} href={"/pages?" + new URLSearchParams({ ...Object.fromEntries(new URL(url, "https://workspace.invalid").searchParams), site: site.domain })}>选择该站页面 →</a>
+        <SeoAnchor className={styles.siteAction} href={"/pages?" + new URLSearchParams({ ...Object.fromEntries(new URL(url, "https://workspace.invalid").searchParams), site: site.domain })}>选择该站页面 →</SeoAnchor>
         {report.error ? <FeedbackButton type="button" onClick={report.retry} pending={report.pending} pendingLabel="正在读取…">重试</FeedbackButton>
           : !site.ga4 && !site.gsc ? <small>待开通报表权限</small>
           : !report.data ? <small>读取中</small>
@@ -72,7 +74,7 @@ export function SeoClusterReport({ range }: { range: DateRange }) {
     <p className={styles.note}>先选择站点，再进入具体页面创建优化任务。</p>
     <ClusterSiteTable range={range} />
     <aside className={measurement.panel} aria-label="集群业务贡献接入状态">
-      <div><strong>集群业务贡献待接入</strong><a href="/issues">查看集群待处理事项 →</a></div>
+      <div><strong>集群业务贡献待接入</strong><SeoAnchor href="/issues">查看集群待处理事项 →</SeoAnchor></div>
       <dl><div><dt>站内功能使用</dt><dd>待接入</dd></div><div><dt>前往 Flatkey 的访问</dt><dd>待接入</dd></div><div><dt>引流后的激活与付费</dt><dd>待接入</dd></div></dl>
       <p>上表为各站自身的自然搜索数据。集群引流贡献需单独核验来源页面、按钮和后续事件；各站注册事件未核实前保持缺失，不合并为 Flatkey 注册。</p>
     </aside>

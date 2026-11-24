@@ -1,8 +1,11 @@
 import { z } from "zod";
-import { digestWindow, type SeoDigest } from "./seo-digest";
+import { digestWindow, reportDay, type SeoDigest } from "./seo-digest";
 import { ReviewedDigestError, reviewedTextHash } from "./seo-reviewed-digest";
 import { dashboardComparisonGroups, reportDashboardEvidenceSchema, sameReportDashboard } from "./seo-report-dashboard";
 import { growthHash, growthReportMissingFactLines } from "./growth-strategy";
+import { conversionReportMissingFactLines } from "./seo-conversion";
+import { hasWeeklyReportSections, weeklyReportSections, weeklyTechnicalText } from "./seo-report-template";
+import { reportModuleShareLines, savedReportModuleShares, type ReportModuleShareSnapshot } from "./report-module-shares";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 export const draftDigestCommandSchema = z.object({
@@ -30,29 +33,37 @@ export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Dat
     || base.workWindow.start !== expected.workStart || base.workWindow.end !== expected.workEnd) throw new ReviewedDigestError("待审正文须保持基础周报的统计周期");
   if (Buffer.byteLength(input.text, "utf8") > 24000 || reviewedTextHash(input.text) !== input.textSha256
     || Array.from(input.text).some(c => c.charCodeAt(0) < 32 && ![9, 10, 13].includes(c.charCodeAt(0)))) throw new ReviewedDigestError("正文长度、字符或 SHA256 不匹配");
-  for (const section of ["一", "二", "三", "四", "五", "六"]) {
-    if (!new RegExp(`(?:^|\\n)(?:\\*\\*|#{1,3}\\s*)${section}、`, "u").test(input.text)) throw new ReviewedDigestError("待审正文须包含完整六块内容");
-  }
+  if (!hasWeeklyReportSections(input.text, base.reportTemplateVersion)) throw new ReviewedDigestError(`待审正文须包含当前模板完整${weeklyReportSections(base.reportTemplateVersion).length}块内容`);
   const title = input.text.split(/\r?\n/, 1)[0].replace(/^\*\*(.+)\*\*$/, "$1").replace(/^#{1,3}\s+/, "");
   if (!title || title.length > 160 || title.includes("\r")) throw new ReviewedDigestError("正文标题无效");
   if (input.attributionText && !input.text.includes(input.attributionText)) throw new ReviewedDigestError("涨跌分析须属于同一待审正文");
   if (base.growthSnapshot && growthReportMissingFactLines(base.growthSnapshot, input.text).length) throw new ReviewedDigestError("正文与冻结growth事实不一致：须保留季度/批次目标、方向页面值与URL、原任务、行动及前后窗口；修改须另存同步来源快照");
+  if (base.conversionSnapshot && conversionReportMissingFactLines(base.conversionSnapshot, input.text).length) throw new ReviewedDigestError("正文与冻结转化事实不一致；缺源、注册分母及30天观察限制须保留");
+  let moduleShareSnapshot = base.moduleShareSnapshot;
+  if (base.reportTemplateVersion !== undefined && base.reportTemplateVersion >= 9 && input.dashboardEvidence?.moduleShares) {
+    const values = savedReportModuleShares(input.dashboardEvidence.moduleShares);
+    if (!values?.observedAt || Date.parse(values.observedAt) > now.getTime() || reportDay(new Date(values.observedAt)) <= input.reportPeriod.end) throw new ReviewedDigestError("模块占比来源时间无效或分母不成立");
+    moduleShareSnapshot = { version: 1, period: { start: input.reportPeriod.start, end: input.reportPeriod.end },
+      comparisonPeriod: { start: new Date(Date.parse(input.reportPeriod.start) - 7 * 86400000).toISOString().slice(0, 10), end: new Date(Date.parse(input.reportPeriod.end) - 7 * 86400000).toISOString().slice(0, 10) },
+      timezone: "America/Los_Angeles", sourceReportId: base.id, sourceEvidenceSha256: input.sourceEvidenceSha256, values } satisfies ReportModuleShareSnapshot;
+  }
+  if (base.reportTemplateVersion !== undefined && base.reportTemplateVersion >= 9 && reportModuleShareLines(moduleShareSnapshot?.values).some(line => !input.text.includes(line))) throw new ReviewedDigestError("正文与冻结模块占比来源不一致，不能改用日人数相加或移除缺源说明");
   // Draft identities are separate from the approved body identity, so approval
   // creates another immutable snapshot instead of upgrading this row in place.
   const key = reviewedTextHash(JSON.stringify(["weekly-review-draft-v1", base.id, input.textSha256, input.sourceEvidenceSha256,
     input.attributionText, input.dashboardEvidence]));
-  return { ...base, id: `seo-digest:${input.date}:${key.slice(0, 16)}`, title,
+  return { ...base, moduleShareSnapshot, id: `seo-digest:${input.date}:${key.slice(0, 16)}`, title,
     text: input.text, detailText: input.text, hash: input.textSha256, generatedAt: now.toISOString(), reviewedBody: undefined,
     draftBody: { version: 1, recordOnly: true, pendingReview: true, baseReportId: base.id, baseReportHash: base.hash,
       baseGeneratedAt: base.generatedAt, textSha256: input.textSha256, sourceEvidenceSha256: input.sourceEvidenceSha256 },
     dashboard: { detailText: base.dashboard?.detailText ?? base.detailText ?? base.text, attributionText: input.attributionText ?? "",
       sourceEvidenceSha256: input.sourceEvidenceSha256,
-      technicalText: /\*\*五、[^\n]+\*\*\s*\n([\s\S]*?)(?=\n\*\*六、)/u.exec(input.text)?.[1].trim(),
+      technicalText: weeklyTechnicalText(input.text, base.reportTemplateVersion),
       ...(input.dashboardEvidence ? { traffic: {
         sites: dashboardComparisonGroups(input.dashboardEvidence.sites, input.reportPeriod, input.dashboardEvidence.gscComparable),
         countries: dashboardComparisonGroups(input.dashboardEvidence.countries, input.reportPeriod, input.dashboardEvidence.gscComparable),
         modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable,
-      }, moduleShares: input.dashboardEvidence.moduleShares } : {}),
+      }, moduleShares: moduleShareSnapshot?.values ?? input.dashboardEvidence.moduleShares } : {}),
     },
   };
 }
@@ -63,6 +74,8 @@ export function sameDraftDigest(stored: SeoDigest, expected: SeoDigest) {
     && stored.title === expected.title && stored.text === expected.text && stored.detailText === expected.detailText
     && stored.hash === expected.hash && reviewedTextHash(stored.text) === stored.hash && sameReportDashboard(stored.dashboard, expected.dashboard)
     && growthHash(stored.growthSnapshot) === growthHash(expected.growthSnapshot)
+    && stored.reportTemplateVersion === expected.reportTemplateVersion && growthHash(stored.conversionSnapshot) === growthHash(expected.conversionSnapshot)
+    && growthHash(stored.moduleShareSnapshot) === growthHash(expected.moduleShareSnapshot)
     && stored.readyAfter === expected.readyAfter && stored.deliveryProtocol === expected.deliveryProtocol
     && stored.workWindow.start === expected.workWindow.start && stored.workWindow.end === expected.workWindow.end
     && stored.reportPeriod?.start === expected.reportPeriod?.start && stored.reportPeriod?.end === expected.reportPeriod?.end

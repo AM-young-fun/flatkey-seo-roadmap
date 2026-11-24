@@ -9,11 +9,13 @@ import { seoToday } from "@/lib/seo-date-range";
 import { KEYWORD_OKR_AUDIT_ID, type KeywordContentTask, type KeywordOkrMutation, type KeywordOkrMutationResponse } from "@/lib/keyword-okr";
 import type { PageTaskMergeResult, PageTaskMergeSummary } from "@/lib/keyword-page-tasks";
 import { matchesPageTask, pageTaskChecklist, PAGE_TASK_LABELS, PAGE_TASK_SITE_LABELS, PAGE_TASK_STATUS_LABELS, pageTasksCsv, primaryPageTaskUrl } from "@/lib/keyword-page-task-view";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "—";
 
 function UrlList({ urls }: { urls: string[] }) {
-  return urls.length ? <div className="evidenceSummary">{urls.map(url => /^https?:\/\//.test(url) ? <a className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</a> : <span key={url}>{url}</span>)}</div> : <span className="muted">待制作并关联</span>;
+  return urls.length ? <div className="evidenceSummary">{urls.map(url => /^https?:\/\//.test(url) ? <SeoAnchor className="observedUrl" href={url} target="_blank" rel="noreferrer" key={url}>{url.replace(/^https?:\/\//, "")}</SeoAnchor> : <span key={url}>{url}</span>)}</div> : <span className="muted">待制作并关联</span>;
 }
 
 export function KeywordOkrWorkspace({ okr, section }: { okr: ReturnType<typeof useKeywordOkr>; section: "tasks" | "audit" }) {

@@ -7,6 +7,8 @@ import { actionFailed, actionSucceeded } from "@/lib/interaction-feedback";
 import { approvalReviewReadiness, pageBelongsToSite, reviewPreviewUrl, workflowCodeSourceSchema, workflowApprovalEffectiveItemStatus, type WorkflowApproval, type WorkflowPublication, type WorkflowTask } from "@/lib/seo-workflow";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
 import styles from "./SeoWorkWorkspace.module.css";
+import { SeoAnchor } from "@/components/SeoAnchor";
+
 
 type Props = {
   task: WorkflowTask;
@@ -94,12 +96,12 @@ export function PageDeliveryActions({ task, approvals, publications, mutate, onS
       {!receipt && !["published", "verified", "observing", "blocked", "failed"].includes(task.status) ? <button type="button" className={styles.secondary} onClick={() => setEditing(true)}>回填测试预览</button> : null}
     </div>
     {showBrief ? <textarea aria-label="本地 Codex 任务说明" rows={8} value={brief} readOnly /> : null}
-    {reviewPreview ? <p><a href={reviewPreview} target="_blank" rel="noreferrer">打开测试预览 ↗</a></p>
+    {reviewPreview ? <p><SeoAnchor href={reviewPreview} target="_blank" rel="noreferrer">打开测试预览 ↗</SeoAnchor></p>
       : !receipt && (task.status === "review_pending" || taskApprovals.length > 0) ? <p className={styles.muted}>测试预览待补齐</p> : null}
     {receipt ? <p role="status">{receipt.status === "verified" ? "正式页已核验" : "发布待核验"} · {receipt.contentVersion}</p> : null}
-    {task.codeSource ? <p>工作分支 <a href={`https://github.com/${task.codeSource.repository}/tree/${encodeURIComponent(task.codeSource.branch)}`} target="_blank" rel="noreferrer">{task.codeSource.branch} ↗</a> · <code>{task.codeSource.commitSha.slice(0, 12)}</code></p> : null}
+    {task.codeSource ? <p>工作分支 <SeoAnchor href={`https://github.com/${task.codeSource.repository}/tree/${encodeURIComponent(task.codeSource.branch)}`} target="_blank" rel="noreferrer">{task.codeSource.branch} ↗</SeoAnchor> · <code>{task.codeSource.commitSha.slice(0, 12)}</code></p> : null}
     {task.codeSource && task.branchObservation && task.branchObservation.headSha !== task.codeSource.commitSha ? <p className={styles.warning}>
-      分支已有新提交 <a href={`https://github.com/${task.codeSource.repository}/compare/${task.codeSource.commitSha}...${task.branchObservation.headSha}`} target="_blank" rel="noreferrer">{task.branchObservation.headSha.slice(0, 12)} · 查看改动</a>。执行任务会更新预览、截图并重新送审。
+      分支已有新提交 <SeoAnchor href={`https://github.com/${task.codeSource.repository}/compare/${task.codeSource.commitSha}...${task.branchObservation.headSha}`} target="_blank" rel="noreferrer">{task.branchObservation.headSha.slice(0, 12)} · 查看改动</SeoAnchor>。执行任务会更新预览、截图并重新送审。
     </p> : null}
     {approved && !receipt && (!task.branchObservation || task.branchObservation.headSha === task.codeSource?.commitSha) ? <p role="status">{approved.item.codeSource ? "此版本已批准，等待发布回执。" : "历史审批缺少独立分支和提交记录。"}</p> : null}
     {editing && !receipt ? <form className={styles.reviewForm} onSubmit={event => void savePreview(event)}>

@@ -25,7 +25,7 @@ test("page-group requests stay inside the exact report window", () => {
   assert.match(empty, /暂无页面组回执/);
 });
 
-test("module visitor table preserves interval counts and changes without displaying shares", () => {
+test("legacy snapshots preserve their interval-count table while v9 restores whole-period shares in the same module", () => {
   const values = { previous: { all: 100, modelDetail: 70, prompts: 60 }, current: { all: 100, modelDetail: 80, prompts: 70 } };
   const rows = reportModuleShareRows(values);
   assert.deepEqual(rows.map(row => row.currentShare), [.8, .7]);
@@ -34,6 +34,8 @@ test("module visitor table preserves interval counts and changes without display
   assert.match(html, /<td>70<\/td><td>80<\/td><td>\+10<\/td>/);
   assert.match(html, /\+14\.3%/); assert.match(html, /2026-11-05 — 2026-11-11/);
   assert.doesNotMatch(html, /占比|百分点|80\.0%|70\.0%/);
+  const current = renderToStaticMarkup(React.createElement(ReportModuleShares, { range, comparisonRange, values, showShares: true }));
+  assert.match(current, /模块流量占比/); assert.match(current, /占比 80\.0%/); assert.match(current, /占比 70\.0%/); assert.match(current, /模块可重叠，不相加/);
 });
 
 test("unknowns, empty denominators and invalid subsets never produce fabricated shares", () => {
@@ -43,4 +45,6 @@ test("unknowns, empty denominators and invalid subsets never produce fabricated 
   assert.equal(wholePeriodUserShare(0, 100), 0);
   const html = renderToStaticMarkup(React.createElement(ReportModuleShares, { range, comparisonRange }));
   assert.match(html, /<td>—<\/td>/); assert.doesNotMatch(html, /0\.0%|NaN|Infinity/);
+  const current = renderToStaticMarkup(React.createElement(ReportModuleShares, { range, comparisonRange, showShares: true }));
+  assert.match(current, /占比 —/); assert.doesNotMatch(current, /0\.0%|NaN|Infinity/);
 });
