@@ -49,6 +49,15 @@ export function reviewGrowthLanguage(keyword: string, country: string | null, la
   if (japanese) return language === "ja" ? { status: "match", reason: "原词含明确日语假名" } : { status: "mismatch", reason: "原词为日语，不能转记为当前市场排名" };
   if (chinese) return language === "zh-CN" ? { status: "match", reason: "原词含明确中文用语" } : { status: "mismatch", reason: "原词为中文，不能转记为当前市场排名" };
   if (han) return { status: "unknown", reason: "仅汉字短语无法可靠区分中日语，保留原市场待核" };
+  // Native grammar is stronger evidence than shared cloud-computing words.
+  // Existing explicit proofs/reviews above still retain their authority.
+  if (/\b(?:combien\s+coûte|pour\s+louer|louer\s+des|location\s+de\s+(?:gpu|serveurs?))\b/iu.test(text)) {
+    return language === "fr" ? { status: "match", reason: "原词含明确法语语法；cloud等共享技术词不改变原词语种" }
+      : { status: "mismatch", reason: "原词含明确法语语法，不能转记为当前市场排名" };
+  }
+  // "location" also exists in English. A short rental-style query made only
+  // of it and shared technical terms needs the normal reviewed source proof.
+  if (/^location(?:\s+(?:gpu|cloud))+$/iu.test(text)) return { status: "unknown", reason: "共享词location与GPU/cloud不足以独立确认语种，保留原词及市场等待真实语种审核" };
   const lexical = [
     ["en", /\b(?:how|what|which|why|best|pricing|prices?|rental|rent|versus|comparison|compare|review|reviews|tutorial|guide|examples?|alternatives?|download|free|cheapest|cheap|cost|costs|calculator|compatibility|requirements|inference|training|storage|memory|latency|throughput|hosting|cloud|open source|image generation|video generation|for developers)\b/iu],
     ["pt-BR", /\b(?:como|preço|preços|melhor|melhores|gratuito|grátis|gerador|geração|alugar|aluguel|comparação|inteligência|artificial|português|barato)\b/iu],

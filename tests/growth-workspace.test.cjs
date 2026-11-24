@@ -53,6 +53,33 @@ test('database-only, stale SERP, neutral model ids and wrong languages never bec
  assert.equal(reviewGrowthLanguage('NVIDIA B300','US','en').status,'unknown');assert.equal(reviewGrowthLanguage('gpu pricing','JP','ja').status,'mismatch');assert.equal(reviewGrowthLanguage('API料金 比較','JP','ja').status,'match');
  assert.equal(reviewGrowthLanguage('GPUの価格','JP','ja').status,'match');assert.equal(reviewGrowthLanguage('模型价格','SG','zh-CN').status,'match');
 });
+test('native French grammar cannot be overridden by borrowed cloud or alternatives terms',()=>{
+ const words=['combien coûte la location de gpu dans le cloud ?','alternatives aux hyperscalers pour louer des gpu','location de gpu dans le cloud'];
+ for(const keyword of words){
+  assert.equal(reviewGrowthLanguage(keyword,'FR','fr').status,'match',keyword);
+  for(const [country,language] of [['US','en'],['BR','pt-BR'],['ES','es-ES'],['JP','ja']])assert.equal(reviewGrowthLanguage(keyword,country,language).status,'mismatch',`${country}: ${keyword}`);
+ }
+ for(const keyword of ['best gpu cloud rental','gpu cloud alternatives','best location gpu cloud']){
+  assert.equal(reviewGrowthLanguage(keyword,'US','en').status,'match',keyword);
+  assert.equal(reviewGrowthLanguage(keyword,'FR','fr').status,'mismatch',keyword);
+ }
+});
+test('shared location GPU/cloud terms stay unknown until an actual original-word proof, without moving markets',()=>{
+ const keyword='location gpu cloud',before=keyword;
+ assert.equal(reviewGrowthLanguage(keyword,'FR','fr').status,'unknown');
+ assert.equal(reviewGrowthLanguage(keyword,'US','en').status,'unknown');
+ const proof={site:'flatkey.ai',keywordId:'original-fr-word',keyword,language:'fr',scope:'current-target-only',source:'human-reviewed:exact-original-word-source',evidence:[{text:'location gpu',start:0,end:12}]};
+ assert.equal(reviewGrowthLanguage(keyword,'FR','fr',[],proof).status,'match');
+ assert.equal(reviewGrowthLanguage(keyword,'US','en',[],proof).status,'mismatch');
+ assert.equal(keyword,before);
+});
+test('native French fallback never overrides an existing explicit proof or conflicting word review',()=>{
+ const keyword='combien coûte la location de gpu dans le cloud ?',start=keyword.indexOf('cloud'),proof={site:'flatkey.ai',keywordId:'original',keyword,language:'en',source:'existing-explicit-source',evidence:[{text:'cloud',start,end:start+5}]};
+ assert.equal(reviewGrowthLanguage(keyword,'FR','fr',[],proof).status,'mismatch');
+ assert.equal(reviewGrowthLanguage(keyword,'FR','fr',[{keyword,country:'FR',classification:'CLEAR_MISMATCH'}]).status,'mismatch');
+ assert.equal(reviewGrowthLanguage('NVIDIA B300','FR','fr').status,'unknown');
+ assert.equal(reviewGrowthLanguage('GPU料金 比較','FR','fr').status,'mismatch');
+});
 test('independent country counts retain approved separate targets; no best-country allocation or input mutation',()=>{
  const data=input({memberships:[member({keyword:'API',marketAssignment:{primaryCountry:'US',language:'en',evidence:'explicit reviewed original market',secondaryMarkets:[{country:'JP',reason:'explicit approved separate original target'}]}})],ranks:[evidence({keyword:'API'}),evidence({keyword:'API',country:'JP',language:'ja',rank:8})],languageReviews:[{keyword:'API',country:'US',classification:'CLEAR_MATCH'},{keyword:'API',country:'JP',classification:'CLEAR_MATCH'}]});
  const before=JSON.stringify(data),result=buildGrowthWorkspace(data);assert.equal(result.reconciliation.formalCount,2);assert.equal(result.reconciliation.rankedCount,2);assert.equal(result.reconciliation.uniqueKeywordCount,1);assert.deepEqual(result.reconciliation.countryCounts.map(c=>[c.country,c.count]),[['JP',1],['US',1]]);assert.equal(JSON.stringify(data),before);assert.notEqual(growthTargetId('flatkey.ai','API','US','en'),growthTargetId('flatkey.ai','API','JP','ja'));
