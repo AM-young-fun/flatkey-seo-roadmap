@@ -8,6 +8,7 @@ import { quarterTargetWorkspace } from "./growth-topic-view";
 import { BarPlot, ChartPanel, EmptyPlot, GoalPlot, chartNumber } from "./OverviewCharts";
 import styles from "./OverviewCharts.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
+import { growthContributionDrivers } from "@/lib/growth-topic-contributions";
 
 
 export function OverviewGoalCharts({ snapshot }: { snapshot: GrowthReportSnapshot }) {
@@ -22,9 +23,9 @@ export function OverviewGoalCharts({ snapshot }: { snapshot: GrowthReportSnapsho
 }
 function ContentProgress({ workspace }: { workspace: GrowthWorkspace | null }) {
   const rows = workspace ? quarterTargetWorkspace(workspace).targets : [];
-  const states = [["completed", "已完成"], ["in_progress", "进行中"], ["planned", "已规划"], ["unknown", "进度待核"]] as const;
+  const states = [["completed", "已有公开页"], ["in_progress", "制作中"], ["scheduled", "已排期"], ["researching", "研究中"], ["planned", "已规划"], ["unknown", "进度待核"]] as const;
   return <ChartPanel title="季度内容建设进度" note={`单位：原词；分母为当前可读取的季度成员 ${workspace?.quarter ? rows.length : "尚未核定"}，不是页面数或任务数；${workspace?.generatedAt ?? "来源待读取"}`}>
-    <BarPlot rows={workspace && rows.length ? states.map(([state, label]) => ({ label, value: rows.filter(row => row.workState === state).length, color: state === "completed" ? "#32aa8b" : state === "unknown" ? "#b1bdcd" : undefined })) : []} unit="词" denominator="已完成、进行中、规划中及待核互斥计数" empty="季度成员或进度来源尚未齐全，暂不绘制" />
+    <BarPlot rows={workspace && rows.length ? states.map(([state, label]) => ({ label, value: rows.filter(row => row.workState === state).length, color: state === "completed" ? "#32aa8b" : state === "unknown" ? "#b1bdcd" : undefined })) : []} unit="词" denominator="建设阶段互斥；已排期须有正式计划，制作中依据原制作状态；已有公开页不代表维护任务全部完成" empty="季度成员或进度来源尚未齐全，暂不绘制" />
     <SeoAnchor className={styles.link} href="/opportunities">查看话题与关键词进度 →</SeoAnchor>
   </ChartPanel>;
 }
@@ -32,7 +33,7 @@ function TopicComparison({ snapshot, workspace }: { snapshot: GrowthReportSnapsh
   const [groupBy, setGroupBy] = useState<"topic" | "module">("topic");
   const [metric, setMetric] = useState<"sessions" | "clicks" | "impressions">("sessions");
   const labels = { sessions: "自然搜索会话", clicks: "Google点击", impressions: "Google曝光" };
-  const drivers = [...new Map((snapshot?.directions.flatMap(direction => direction.drivers) ?? []).filter(row => row.metric === metric && row.window && row.window.start === snapshot?.period.start && row.window.end === snapshot?.period.end).map(row => [`${row.url}:${row.country}:${row.language}:${JSON.stringify(row.window)}:${row.source}`, row])).values()];
+  const drivers = growthContributionDrivers(snapshot, metric);
   const groups = new Map<string, { label: string; current: number; previous: number; href: string }>();
   for (const row of drivers) {
     const site = new URL(row.url).hostname.replace(/^www\./, "");

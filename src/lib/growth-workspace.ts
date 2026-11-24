@@ -1,4 +1,5 @@
 import { isGrowthTopicPlaceholder } from "./seo-growth-markets";
+import { growthContentProgress } from "./growth-content-progress";
 import languageReview from "./data/ranking-word-language-review-20261123.json";
 import { isOwnedBrandKeyword } from "./keyword-market-policy";
 import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
@@ -196,7 +197,7 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
       const candidate:GrowthTarget={ id, keywordId: row.keywordId, site: row.site, topicId: topic?.id ?? null, topicName: topic?.text ?? null, relatedTopicIds: topics.map(topic => topic.id), keyword: row.keyword, ...scope, membership,
         sourcePool:row.pool,sourceActive:row.active&&row.keywordActive,membershipSource,wordLanguage:originalLanguage?.language??null,planningProofs:proofs.filter(proof=>proof.country===scope.country&&proof.language===scope.language),memberProvenance:[{keywordId:row.keywordId,keyword:row.keyword,pool:row.pool,active:row.active&&row.keywordActive}],aliasKeywordIds:[],
         pageState: publishedUrls.length ? "published" : plannedUrls.length ? "planned" : "unmapped", publishedUrls, plannedUrls,
-        workState: publishedUrls.length ? "completed" : linkedTasks.some(task => !["planned", "failed", "blocked"].includes(task.status)) ? "in_progress" : membership === "formal" || linkedTasks.length ? "planned" : "unknown",
+        ...growthContentProgress(publishedUrls, membership, linkedTasks, plansByTask),
         rank: null, rankUrl: null, rankSource: null, checkedAt: null, languageStatus: language.status, languageReason: language.reason,
         captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: unique(linkedTasks.map(task => task.id)),...(taskRelations.length?{taskRelations}:{}), reason };
       targets.set(id,mergeGrowthTargets(targets.get(id),candidate));

@@ -7,6 +7,24 @@ const time='2026-11-23T10:00:00Z',url='https://flatkey.ai/blog/pricing';
 const member=(patch={})=>({site:'flatkey.ai',keywordId:'k1',keyword:'gpu pricing',active:true,keywordActive:true,topicId:'t1',pool:'FORMAL',origin:'PLANNED',targetUrls:[url],marketAssignment:{primaryCountry:'US',language:'en',evidence:'original researched US English market'},...patch});
 const evidence=(patch={})=>({site:'flatkey.ai',keyword:'gpu pricing',country:'US',language:'en',rank:18,url,source:'serp',checkedAt:time,exact:true,complete:true,...patch});
 const input=(patch={})=>({generatedAt:time,topics:[{id:'t1',text:'GPU pricing',active:true,sites:['flatkey.ai','modelfit.cc']}],memberships:[member()],tasks:[],publications:[],inventory:[{url,lastSeen:time}],ranks:[evidence()],...patch});
+test('content construction separates original formal scheduling from research and actual production without changing identity',()=>{
+ const original={id:'original',siteDomain:'flatkey.ai',keyword:'gpu pricing',keywordId:'k1',country:'US',language:'en',pageUrl:url,status:'ready',kind:'blog'};
+ const data=input({inventory:[],ranks:[],tasks:[original],plans:[{id:'draft-plan',status:'draft',taskIds:['original']}]});
+ const planned=buildGrowthWorkspace(data).targets[0];assert.equal(planned.workState,'planned');
+ data.plans[0].status='scheduled';const scheduled=buildGrowthWorkspace(data).targets[0];assert.equal(scheduled.workState,'scheduled');assert.deepEqual(scheduled.workStateProof.planIds,['draft-plan']);
+ original.status='researching';assert.equal(buildGrowthWorkspace(data).targets[0].workState,'researching');
+ original.status='drafting';const producing=buildGrowthWorkspace(data).targets[0];assert.equal(producing.workState,'in_progress');
+ for(const row of [scheduled,producing])for(const key of ['id','keywordId','keyword','country','language','topicId'])assert.equal(row[key],planned[key]);
+ original.status='verified';assert.equal(buildGrowthWorkspace(data).targets[0].workState,'in_progress','status alone is not a live page');
+ data.inventory=[{url,lastSeen:time}];assert.equal(buildGrowthWorkspace(data).targets[0].workState,'completed');
+});
+test('a research plan, foreign task or original page optimization cannot imply scheduled new content',()=>{
+ const task={id:'original',siteDomain:'flatkey.ai',keyword:'gpu pricing',keywordId:'k1',country:'US',language:'en',pageUrl:url,status:'ready',kind:'research'};
+ const data=input({inventory:[],ranks:[],tasks:[task],plans:[{id:'original-plan',status:'reviewed',taskIds:['original']}]});
+ assert.equal(buildGrowthWorkspace(data).targets[0].workState,'planned');
+ task.kind='optimization';assert.equal(buildGrowthWorkspace(data).targets[0].workState,'planned');
+ task.kind='blog';task.country='JP';assert.equal(buildGrowthWorkspace(data).targets[0].workState,'planned');
+});
 test('formal membership requires a real active site TopicMap and the formal pool, not a nonempty topic id',()=>{
  const data=input({memberships:[member(),member({keywordId:'k2',keyword:'gpu rental',pool:'RESEARCH'}),member({keywordId:'k3',keyword:'best gpu',topicId:'placeholder'}),member({keywordId:'k4',keyword:'gpu guide',topicId:'missing'})],topics:[...input().topics,{id:'placeholder',text:'自然搜索发现词',active:true,sites:['flatkey.ai']}]});
  const result=buildGrowthWorkspace(data);assert.equal(result.reconciliation.formalCount,1);assert.equal(result.reconciliation.opportunityCount,1);assert.equal(result.reconciliation.reviewCount,2);assert.equal(result.topics.length,2);assert.equal(result.topics.filter(t=>t.site==='flatkey.ai')[0].formalCount,1);
