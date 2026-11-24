@@ -2,7 +2,7 @@ const assert = require("node:assert/strict"), {test}=require("node:test"), fs=re
 const root=path.resolve(__dirname,".."), original=Module._load;
 Module._load=function(name,parent,...rest){return original.call(this,name.startsWith("@/")?path.join(root,"src",name.slice(2)):name,parent,...rest)};
 require.extensions[".ts"]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
-const {buildGrowthHotspotView,activeGrowthHotspot}=require("../src/lib/growth-hotspots.ts");
+const {buildGrowthHotspotView,activeGrowthHotspot,publishedGrowthHotspotTaskIds}=require("../src/lib/growth-hotspots.ts");
 const now=new Date("2026-11-24T07:00:00Z");
 const evidence=role=>({label:`seo-hotspot-v1;event=gpu-launch;at=2026-11-23T00:00:00Z;basis=event;role=${role};verified=1`,url:role==="official"?"https://vendor.example/launch":"https://users.example/discussion",observedAt:"2026-11-23T01:00:00Z"});
 const review=()=>({keyword:"gpu new model",country:"US",language:"en",reviewedAt:"2026-11-24T01:00:00Z",serpResults:Array.from({length:10},(_,i)=>`https://search.example/${i}`),openedResults:Array.from({length:5},(_,i)=>`https://search.example/${i}`),evidence:[evidence("official")],quality:Object.fromEntries(["intent","keywordsAndAlt","experience","links","behavior","algorithmAndManual","eeat"].map(key=>[key,"完整研究证据与对应处置说明，原词原市场核验通过"]))});
@@ -54,4 +54,24 @@ test("expiry keeps the original event timestamp and source pair and never refres
 test("different intent tasks are not swept into a hotspot through a shared direction",()=>{
   const tasks=[task("research"),task("unrelated",{kind:"blog",keyword:"other keyword",evidence:[],dependencies:[],capacityClass:"authorized_hotspot_extra"})];
   const view=project(tasks,[{id:"plan",status:"scheduled",taskIds:["unrelated"]}]);assert.deepEqual(view.items[0].taskIds,["research"]);assert.notEqual(view.items[0].admission.status,"scheduled");
+});
+test("published authorized hotspots remain eligible for reviewed monitoring after event expiry without renewing execution",()=>{
+  const strategy=state();strategy.directions[0].experimentId="experiment-one";
+  const research=task("research"),blog=task("blog",{kind:"blog",status:"verified",experimentId:"experiment-one",capacityClass:"authorized_hotspot_extra",evidence:[],dependencies:["research"],pageUrl:"https://flatkey.ai/blog/gpu-update",contentVersion:"published-v1"});
+  const original={tasks:[research,blog],publications:[{id:"publication",taskId:blog.id,status:"verified",kind:"source_blog",siteDomain:blog.siteDomain,pageUrl:blog.pageUrl,contentVersion:blog.contentVersion,publishedAt:"2026-11-25T08:00:00Z"}]};
+  const plans=[{id:"original-plan",status:"reviewed",taskIds:["ordinary-original",blog.id]}],later=new Date("2026-12-10T00:00:00Z"),before=JSON.stringify({strategy,original,plans});
+  assert.deepEqual(publishedGrowthHotspotTaskIds(strategy,original,plans,later),[blog.id]);
+  assert.equal(buildGrowthHotspotView(strategy,original,plans,later).items[0].admission.status,"blocked","monitoring does not renew expired execution");
+  assert.equal(JSON.stringify({strategy,original,plans}),before);
+  for(const mutate of [x=>x.publications[0].status="published",x=>x.publications[0].contentVersion="different-version",x=>x.tasks[1].experimentId="different-experiment",x=>x.tasks.forEach(task=>{task.researchReview.serpResults[0]=task.researchReview.serpResults[1];})]){
+    const copy=structuredClone(original);mutate(copy);assert.deepEqual(publishedGrowthHotspotTaskIds(strategy,copy,plans,later),[]);
+  }
+  assert.deepEqual(publishedGrowthHotspotTaskIds(strategy,original,[],later),[]);
+  const late=structuredClone(strategy);late.directions[0].decision.decidedAt="2026-11-26T00:00:00Z";assert.deepEqual(publishedGrowthHotspotTaskIds(late,original,plans,later),[]);
+});
+test("a direction card cannot borrow a task from a different experiment or direction",()=>{
+  const strategy=state();strategy.directions[0].experimentId="current-experiment";
+  const tasks=[task("research"),task("blog",{kind:"blog",experimentId:"old-experiment",evidence:[],dependencies:["research"],capacityClass:"authorized_hotspot_extra"})];
+  const view=project(tasks,[{id:"original-plan",status:"scheduled",taskIds:["blog"]}],strategy);
+  assert.equal(view.items[0].admission.status,"not_approved");
 });

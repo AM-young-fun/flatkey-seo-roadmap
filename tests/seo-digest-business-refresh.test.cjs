@@ -18,7 +18,7 @@ test('new daily business date counts Beijing actual-day delivery separately from
 test('refresh and ordinary optimization are separate original-position counts; translations, duplicates and unproven producers do not inflate refresh',()=>{
  const proof={workClass:'content_refresh',primaryDelivery:true,taskId:'original-task',publicationId:'original-publication'};
  const report=buildSeoDigest(input({notificationCompact:true,optimizations:[opt('ordinary'),opt('refresh',proof),opt('duplicate',{...proof,url:'https://flatkey.ai/blog/refresh'}),opt('translated',{...proof,primaryDelivery:false}),opt('unmapped',{workClass:'content_refresh'}),opt('same',{verifiedAt:'2026-11-24T01:00:00Z'}),opt('latest',{...proof,url:'https://flatkey.ai/blog/same'})]}));
- assert.equal(report.counts.optimizedPages,1);assert.equal(report.counts.refreshedPages,2);assert.match(report.text,/内容刷新 \*\*2 个页面\*\*/);assert.match(report.detailText,/内容刷新 2 个页面/);assert.match(report.detailText,/https:\/\/flatkey.ai\/blog\/refresh/);
+ assert.equal(report.counts.optimizedPages,1);assert.equal(report.counts.refreshedPages,2);assert.match(report.text,/优化1页；旧文翻新2页/);assert.match(report.detailText,/旧文翻新2页/);assert.match(report.detailText,/https:\/\/flatkey.ai\/blog\/refresh/);
  const legacy=buildSeoDigest(input({date:'2026-11-23',optimizations:[]}));assert.equal(legacy.counts.refreshedPages,undefined);assert.equal(legacy.businessDate,undefined);assert.equal(legacy.sourceDay,undefined);assert.doesNotMatch(legacy.text,/内容刷新/);
 });
 test('work plan carries optional refresh quota and classification without retyping original optimization task',()=>{

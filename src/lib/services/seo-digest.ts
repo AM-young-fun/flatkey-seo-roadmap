@@ -145,7 +145,7 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     const publication = verified.find(p => p.id === change.publicationId);
     const producer = publication && workflow.tasks.find(task => task.id === publication.taskId);
     return publication && publication.kind === "optimization" && publication.pageUrl === row.pageUrl ? [{ id: change.id, url: row.pageUrl, keyword: row.keyword, changes: change.description, verifiedAt: publication.verifiedAt!, recordedAt: publication.verificationRecordedAt!, baselineId: row.id + ":baseline",
-      taskId: producer?.id, publicationId: publication.id, workClass: producer?.workClass,
+      publishedAt: publication.publishedAt, taskId: producer?.id, publicationId: publication.id, workClass: producer?.workClass,
       primaryDelivery: Boolean(producer && producer.pageUrl === publication.pageUrl && producer.country === publication.country && producer.language === publication.language),
     }] : [];
   }));
