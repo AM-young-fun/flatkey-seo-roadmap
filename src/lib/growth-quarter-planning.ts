@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { WorkflowPlan, WorkflowTask } from "./seo-workflow";
-import type { GrowthStrategy } from "./growth-strategy";
+import type { GrowthBaselineTarget, GrowthStrategy } from "./growth-strategy";
+import { growthLogicalTargetIdSchema } from "./growth-target-id-schema";
+import { growthPublicUrl, growthWordKey } from "./growth-workspace";
 
 export const MARKET_RESEARCH_WEIGHTS = { US: 35, JP: 25, BR: 20, SG: 15, other: 5 } as const;
 export const DELIVERY_WEIGHTS = { primary: 60, foundation: 25, experiment: 15 } as const;
@@ -37,7 +39,7 @@ const compatibleDeliveryBudgetSchema = z.union([deliveryBudgetSchema, businessDe
 export const quarterPlanningInputSchema = z.object({
   version: planningVersionSchema, sourceVersion: z.string().regex(/^[a-f0-9]{64}$/),
   targetUnit: z.literal("normalized_original_word").optional(),
-  title: z.string().min(1).max(300), targetIds: z.array(id).min(1).max(20000),
+  title: z.string().min(1).max(300), targetIds: z.array(growthLogicalTargetIdSchema).min(1).max(20000),
   artifact: z.object({ reference: z.string().min(1).max(3000), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   executionStart: z.iso.date(), executionEnd: z.literal("2027-02-05"),
   workstreams: z.array(z.object({ id, title: z.string().min(1).max(300), bucket: bucketSchema,
@@ -75,6 +77,41 @@ export const planStrategyAllocationSchema = z.object({
   if ([...value.tasks, ...value.gaps].some(row => !(row.bucket in weights)) || Object.keys(value.futureBudget.counts).some(key => !(key in weights))) ctx.addIssue({ code: "custom", message: "工作包分类和预算须使用同一版本" });
 });
 
+type BusinessBucket = keyof typeof BUSINESS_DELIVERY_WEIGHTS;
+const deliverySites = new Set(["flatkey.ai", "rackrate.org", "modelfit.cc"]);
+function publicMaintenancePage(task: WorkflowTask) {
+  if (task.kind !== "optimization" || !task.pageUrl || !deliverySites.has(task.siteDomain)) return false;
+  const page = growthPublicUrl(task.pageUrl, task.siteDomain);
+  if (!page) return false;
+  const path = new URL(page).pathname;
+  return !/^\/(?:api|console|router|admin)(?:\/|$)/iu.test(path)
+    && !(task.siteDomain === "rackrate.org" && /\/blog(?:\/|$)/iu.test(path));
+}
+
+/** Attribution only: CLUSTER is a legacy delivery channel, never an "other" default. */
+export function quarterTaskBusinessBucket(task: WorkflowTask, plan: QuarterPlanningInput, baselineTargets: GrowthBaselineTarget[]): BusinessBucket | null {
+  if (task.business === "GPU") return "gpu";
+  if (task.business === "API") return "api";
+  if (task.business !== "CLUSTER" || !deliverySites.has(task.siteDomain) || !task.topicId || !task.keyword?.trim()
+    || !task.country || !task.language || !["blog", "landing", "optimization"].includes(task.kind)
+    || task.kind === "blog" && task.siteDomain === "rackrate.org") return null;
+
+  const selectedIds = new Set(plan.targetIds);
+  const targets = baselineTargets.filter(target => selectedIds.has(target.id) && target.site === task.siteDomain);
+  const sameWord = targets.filter(target => growthWordKey(target.keyword) === growthWordKey(task.keyword!));
+  const sameId = targets.filter(target => Boolean(task.keywordId) && target.keywordId === task.keywordId);
+  const exact = sameWord.filter(target => Boolean(task.keywordId) && target.keywordId === task.keywordId
+    && target.country === task.country && target.language === task.language && target.topicId === task.topicId);
+  // An existing quarterly identity cannot be relabelled through a related topic,
+  // a different market or a duplicate ID. Non-quarter old-page maintenance stays separate.
+  if (sameWord.length || sameId.length) { if (!exact.length) return null; }
+  else if (!publicMaintenancePage(task)) return null;
+
+  const buckets = new Set(plan.workstreams.filter(stream => stream.topicIds.includes(task.topicId!))
+    .map(stream => stream.bucket).filter((bucket): bucket is BusinessBucket => bucket === "gpu" || bucket === "api" || bucket === "other"));
+  return buckets.size === 1 ? [...buckets][0] : null;
+}
+
 export function quarterAllocationProblems(plan: WorkflowPlan, strategy: GrowthStrategy, tasks: WorkflowTask[], existingPlans: WorkflowPlan[] = []) {
   const allocation = plan.strategyAllocation;
   if (!allocation) return [];
@@ -103,7 +140,7 @@ export function quarterAllocationProblems(plan: WorkflowPlan, strategy: GrowthSt
     if (!task?.topicId || !stream?.topicIds.includes(task.topicId)) errors.push("投入任务须关联已审方案的真实话题方向");
     if (row.bucket === "experiment" && (!task?.directionId || !task.experimentId)) errors.push("机会预留不是热点方向批准；实际试验任务须关联用户已审方向及原实验身份");
     if (task) {
-      if (allocation.version === "quarter-planning-v2" && (row.bucket === "gpu" && task.business !== "GPU" || row.bucket === "api" && task.business !== "API" || row.bucket === "other" && task.business !== "CLUSTER")) errors.push("GPU、API及其他工作包须与原任务真实业务方向一致，不换类凑比例");
+      if (allocation.version === "quarter-planning-v2" && quarterTaskBusinessBucket(task, quarter.plan, strategy.baseline?.targets ?? []) !== row.bucket) errors.push("预算须按原词及真实已审话题的唯一业务方向归因；CLUSTER仅是旧交付渠道，不改旧business或默认填其他预留");
       const dueDay = new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
       if (dueDay < quarter.plan.executionStart || dueDay > quarter.plan.executionEnd) errors.push("新增投入任务须在已审季度窗口内交付，不改原延期任务dueAt");
     }
