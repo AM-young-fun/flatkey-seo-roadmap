@@ -1,0 +1,20 @@
+.card { margin: 20px 0; padding: 24px; border: 1px solid #dfe5ed; border-radius: 10px; background: #fff; font-size: 14px; line-height: 1.7; }
+.card h2 { margin: 0 0 8px; font-size: 18px; }
+.note { color: #627189; }
+.identity { margin: 20px 0; }
+.identity > div { display: grid; grid-template-columns: 140px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid #edf0f5; }
+.identity dt { color: #627189; }
+.identity dd { margin: 0; overflow-wrap: anywhere; }
+.identity ul { margin: 0; padding-left: 18px; }
+.identity small { display: block; color: #627189; font-size: 12px; }
+.target dd { font-weight: 600; color: #2356ac; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.actions button { padding: 9px 15px; border: 1px solid #bbc9dd; border-radius: 6px; background: #fff; color: #2356ac; cursor: pointer; }
+.actions button:disabled { opacity: .5; cursor: not-allowed; }
+.actions button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.success { padding: 14px; border: 1px solid #a5d9c1; background: #f1fbf6; border-radius: 6px; color: #176747; }
+.success p { margin: 6px 0 0; }
+.error { color: #a5362e; }
+.receipt { margin-top: 20px; color: #627189; font-size: 12px; overflow-wrap: anywhere; }
+.receipt summary { cursor: pointer; }
+@media (max-width: 640px) { .card { padding: 16px; } .identity > div { grid-template-columns: 1fr; gap: 3px; } }

@@ -12,7 +12,8 @@ const tx = {
   seoSite: { findUnique: async ({ where }) => copy(state.sites.get(where.domain) ?? null) },
   keyword: { findUnique: async ({ where }) => copy(state.keywords.get(where.id) ?? null) },
   siteKeyword: { findUnique: async ({ where }) => { const w = where.siteDomain_keywordId; return copy(state.members.get(key(w.siteDomain, w.keywordId)) ?? null); } },
-  topic: { findUnique: async ({ where }) => copy(state.topics.get(where.id) ?? null) },
+  topic: { findUnique: async ({ where }) => copy(state.topics.get(where.id) ?? null),
+    findMany: async ({ where }) => copy([...state.topics.values()].filter(topic => where.id.in.includes(topic.id)).map(({ id, text }) => ({ id, text }))) },
   siteTopic: { findUnique: async ({ where }) => { const w = where.siteDomain_topicId; return copy(state.siteTopics.get(key(w.siteDomain, w.topicId)) ?? null); } },
   siteKeywordTopic: {
     findMany: async ({ where }) => copy(state.edges.filter(edge => edge.siteDomain === where.siteDomain && edge.keywordId === where.keywordId)),

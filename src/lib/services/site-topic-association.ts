@@ -56,8 +56,14 @@ function result(audit: Audit, requestId: string, replay: boolean, requestHash?: 
 export async function loadTopicAssociationPreview(raw: unknown, actor: WorkflowActor) {
   requireAssociationHuman(actor);
   const identity = topicAssociationIdentitySchema.parse(raw);
-  return prisma.$transaction(async tx => ({ status: "preview" as const, stored: false,
-    ...previewTopicAssociation(identity, await readState(tx, identity), actor) }),
+  return prisma.$transaction(async tx => {
+    const preview = previewTopicAssociation(identity, await readState(tx, identity), actor);
+    const ids = [...new Set([preview.state.member?.topicId, preview.state.keyword?.topicId,
+      ...preview.state.assignments.map(edge => edge.topicId)].filter((id): id is string => typeof id === "string"))];
+    const topics = await tx.topic.findMany({ where: { id: { in: ids } }, select: { id: true, text: true } });
+    return { status: "preview" as const, stored: false, ...preview,
+      topicLabels: Object.fromEntries(topics.map(topic => [topic.id, topic.text])) };
+  },
   { maxWait: 10_000, timeout: 20_000, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 export async function loadTopicAssociationReceipt(rawRequestId: unknown, actor: WorkflowActor) {
