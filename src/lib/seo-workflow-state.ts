@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
 import { maintenanceTaskProblems, maintenancePublicationProblems, maintenanceHistoryProblems } from "./seo-maintenance";
+import { legacyMaintenancePlanProblems } from "./seo-legacy-maintenance-plan";
 
 export class WorkflowError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); }
@@ -172,6 +173,8 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
 }
 
 function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[], now: Date) {
+  const legacyMaintenance = legacyMaintenancePlanProblems(plan, previous, all, now);
+  if (legacyMaintenance.length) reject(legacyMaintenance[0].code, legacyMaintenance[0].message);
   if (previous && "cadence" in previous.targets && previous.targets.cadence === "growth") {
     if (!("cadence" in plan.targets) || plan.targets.cadence !== "growth" || !same(plan.targets.executionRange, previous.targets.executionRange)) reject("growth_plan_contract_immutable", "保留原growth业务窗口和合同，不能换旧cadence绕过原ID及投入校验");
     if (previous.targets.maintenanceVersion && plan.targets.maintenanceVersion !== previous.targets.maintenanceVersion) reject("maintenance_plan_contract_immutable", "保留原独立翻新契约");
@@ -225,7 +228,7 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   // Legacy plans keep their original targets. Hotspots still pass every task
   // qualification above, but do not consume or fill ordinary quota/gaps.
   const ready = tasks.filter((task): task is WorkflowTask => Boolean(task && task.capacityClass !== "authorized_hotspot_extra" && !["planned", "researching", "blocked", "failed"].includes(task.status)));
-  const optimized = ready.filter(task => task.kind === "optimization" && task.pageUrl && (daily ? task.siteDomain === "flatkey.ai" : !focused || automaticTaskPolicy(task) === "auto_blog"));
+  const optimized = ready.filter(task => task.kind === "optimization" && task.workClass !== "content_refresh" && task.pageUrl && (daily ? task.siteDomain === "flatkey.ai" : !focused || automaticTaskPolicy(task) === "auto_blog"));
   if (focused) {
     const perDay = new Map<string, Set<string>>();
     for (const task of optimized) {
