@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { growthLogicalTargetIdSchema } from "./growth-target-id-schema";
 import type { GrowthTarget, GrowthWorkspace } from "./growth-types";
 import { growthExactTrafficSchema, growthTrafficHasCompleteHostScope, type GrowthExactTrafficEvidence } from "./growth-exact-traffic";
 import { growthObservationComparisonInputSchema, growthObservationComparisonStoredSchema, prepareGrowthObservationComparison, type GrowthObservationComparison } from "./growth-observation-comparison";
@@ -49,7 +50,7 @@ const observationSchema = z.object({ id, publicationId: id, taskId: id, site: z.
   publishedAt: stamp, checkpoint: z.union([z.literal(7), z.literal(14), z.literal(28), z.literal(56)]), checkedAt: stamp, timezone: z.string().min(1),
   windowStart: z.iso.date(), windowEnd: z.iso.date(), windowSource: z.enum(["GA4", "GSC"]).optional(), indexing: z.enum(["indexed", "not_indexed", "unknown"]), rank: z.number().int().min(1).max(100).nullable(), sessions: z.number().int().nonnegative().nullable(), evidence, conclusion: text, nextAction: text,
   indexingEvidence: z.object({ source: z.literal("GSC"), reference: text, checkedAt: stamp, url: z.url().startsWith("https://") }).strict().optional(),
-  rankingEvidence: z.object({ source: z.literal("SERP"), targetId: id, checkedAt: stamp, reference: text }).strict().optional(),
+  rankingEvidence: z.object({ source: z.literal("SERP"), targetId: growthLogicalTargetIdSchema, checkedAt: stamp, reference: text }).strict().optional(),
   trafficEvidence: z.object({ source: z.literal("GA4"), propertyId: z.string().regex(/^\d+$/), sourceTimezone: z.string().min(1), start: z.iso.date(), end: z.iso.date(), reference: text, complete: z.literal(true) }).strict().optional(),
 }).strict();
 const storedObservationSchema = observationSchema.extend({ coverage: z.object({ indexing: z.enum(["verified", "missing"]), ranking: z.enum(["verified", "missing"]), traffic: z.enum(["verified", "missing"]) }).strict().optional(), comparison: growthObservationComparisonStoredSchema.optional() });
@@ -65,8 +66,8 @@ export type GrowthStrategy = {
   quarterPlanningHistory?: z.infer<typeof quarterPlanningStoredSchema>[];
 };
 const decisionSchema = z.object({ decision: z.enum(["approve", "hold", "reject"]), reason: text, decidedAt: stamp, actor: z.literal("human"), revision: z.number().int().positive(), scope: z.array(scopeSchema).min(1) }).strict();
-const baselineTargetSchema = z.object({ id, keywordId: id.nullable(), site: z.enum(GROWTH_EXECUTION_SITES), topicId: id, keyword: z.string().min(1), country: z.string().min(2).nullable(), language: z.string().min(2).nullable(), publishedUrls: z.array(z.url()), plannedUrls: z.array(z.url()), pageState: z.enum(["published", "planned", "unmapped"]).optional(), reason: z.string().optional(), languageStatus: z.enum(["match", "mismatch", "unknown"]).optional() }).strict();
-const identityMappingSchema = z.object({ targetId: id, country: z.string().min(2).max(10), language: z.string().min(2).max(20) }).strict();
+const baselineTargetSchema = z.object({ id: growthLogicalTargetIdSchema, keywordId: id.nullable(), site: z.enum(GROWTH_EXECUTION_SITES), topicId: id, keyword: z.string().min(1), country: z.string().min(2).nullable(), language: z.string().min(2).nullable(), publishedUrls: z.array(z.url()), plannedUrls: z.array(z.url()), pageState: z.enum(["published", "planned", "unmapped"]).optional(), reason: z.string().optional(), languageStatus: z.enum(["match", "mismatch", "unknown"]).optional() }).strict();
+const identityMappingSchema = z.object({ targetId: growthLogicalTargetIdSchema, country: z.string().min(2).max(10), language: z.string().min(2).max(20) }).strict();
 export const growthStrategyStoredSchema = z.object({
   id: z.literal(GROWTH_QUARTER_ID), version: z.number().int().nonnegative(), updatedAt: stamp.nullable(), deadline: z.literal("2027-02-05"), coverageGoal: z.literal(0.6), qualityGoal: z.literal(0.8), weeklySessionsGoal: z.literal(3000),
   baseline: z.object({ frozenAt: stamp, actor: z.literal("human"), sourceVersion: id, targets: z.array(baselineTargetSchema).min(1), reason: text }).strict().nullable(),
@@ -85,9 +86,9 @@ export const growthStrategyCommandSchema = z.discriminatedUnion("action", [
   z.object({ ...commandBase, action: z.literal("approve_quarter_plan"), hash: z.string().regex(/^[a-f0-9]{64}$/), sourceVersion: id, reason: text }).strict(),
   z.object({ ...commandBase, action: z.literal("save_direction"), direction: growthDirectionSchema }).strict(),
   z.object({ ...commandBase, action: z.literal("decide_direction"), directionId: id, revision: z.number().int().positive(), decision: z.enum(["approve", "hold", "reject"]), reason: text }).strict(),
-  z.object({ ...commandBase, action: z.literal("freeze_baseline"), targetIds: z.array(id).min(1).max(20000), sourceVersion: id, reason: text }).strict(),
+  z.object({ ...commandBase, action: z.literal("freeze_baseline"), targetIds: z.array(growthLogicalTargetIdSchema).min(1).max(20000), sourceVersion: id, reason: text }).strict(),
   z.object({ ...commandBase, action: z.literal("resolve_baseline_identities"), mappings: z.array(identityMappingSchema).min(1).max(20000), sourceVersion: id, reason: text }).strict(),
-  z.object({ ...commandBase, action: z.literal("admit_batch"), batchId: id, targetIds: z.array(id).min(1).max(5000), deadline: z.iso.date(), reason: text }).strict(),
+  z.object({ ...commandBase, action: z.literal("admit_batch"), batchId: id, targetIds: z.array(growthLogicalTargetIdSchema).min(1).max(5000), deadline: z.iso.date(), reason: text }).strict(),
   z.object({ ...commandBase, action: z.literal("record_observation"), observation: newObservationSchema }).strict(),
   z.object({ ...commandBase, action: z.literal("record_traffic"), evidence: growthExactTrafficSchema }).strict(),
 ]);
