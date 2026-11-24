@@ -158,6 +158,38 @@ test('historical unknown metric time is an exact human exception, stays null in 
   assert.equal(market.snapshot.reviewedAt, now.toISOString()); assert.match(market.snapshot.evidence, /Historical metric time unknown/);
   assert.match(market.snapshot.evidence, /not metric collection/); assert.equal(applied.receipt.results[0].demandObservedAt, null);
 });
+test('a real demand calendar date preserves day precision and its original bytes without manufacturing midnight or expanding unknown-time exceptions', async () => {
+  const value = review(), item = value.assignments[0], content = item.demand.content + '\nOriginal source date: 2026/10/10';
+  Object.assign(item.demand, evidence(content), { observedAt: '2026-10-10', timePrecision: 'day', observedAtOriginal: '2026/10/10' });
+  const { command, result } = await prepare(value); assert.deepEqual(result.historicalTimeUnknown, []);
+  const applied = await savePreFreezeIdentities(command, 'human', now);
+  assert.equal(applied.receipt.results[0].demandObservedAt, '2026-10-10'); assert.equal(applied.receipt.results[0].demandObservedAtOriginal, '2026/10/10');
+  assert.equal(applied.receipt.results[0].demandTimePrecision, 'day'); assert.equal(applied.receipt.historicalTimeUnknownAcknowledged, false);
+  const source = db.sources.get('flatkey.ai:SEO_MARKET_ASSIGNMENT:keyword:keyword-0'); assert.match(source.snapshot.evidence, /day precision; original=2026\/10\/10/); assert.doesNotMatch(source.snapshot.evidence, /2026-10-10T00:00/);
+  for (const change of [{ timePrecision: 'instant' }, { observedAtOriginal: '2026/10/11' }, { observedAtOriginal: '2026-10-10' }]) {
+    const invalid = copy(value); Object.assign(invalid.assignments[0].demand, change); await assert.rejects(prepare(invalid), { code: 'day_precision_required' });
+  }
+  const badLanguage = copy(value); badLanguage.assignments[0].wordLanguage.observedAt = '2026-10-10'; await assert.rejects(prepare(badLanguage));
+});
+test('English endpoint base URL and explicitly expanded German KI are precise lexical contexts, not a blanket model or acronym exemption', async () => {
+  function lexical(word, country, language, spanText, languageQuote) {
+    db.members[0].keyword.text = word; const value = review(), item = value.assignments[0]; item.country = country; item.language = language;
+    item.demand = { ...evidence(JSON.stringify({ keyword: word, volume: 10, country })), exactKeyword: word, country, language, metric: 'monthly_searches', value: 10 };
+    const start = word.indexOf(spanText); item.wordLanguage = { ...evidence(languageQuote), language, spans: [{ text: spanText, start, end: start + spanText.length }], reason: 'Human reviewed exact original lexical context from the cited language source, not the query locale.' }; return value;
+  }
+  for (const word of ['openai api base url', 'grok api base url', 'gemini api base url', 'claude api base url', 'gemini base url', 'kimi base url', 'mistral base url']) {
+    await prepare(lexical(word, 'US', 'en', 'base', `The English endpoint phrase '${word}' uses base URL for its endpoint address.`));
+  }
+  await assert.rejects(prepare(lexical('llama base', 'US', 'en', 'base', 'llama base is a shared model base name, not an endpoint.')), { code: 'neutral_word_language' });
+  for (const word of ['is claude openai compatible', 'is gemini api openai compatible']) {
+    await assert.rejects(prepare(lexical(word, 'US', 'en', 'is', `The original English compatibility question is '${word}'.`)), { code: 'neutral_word_language' });
+    await prepare(lexical(word, 'US', 'en', 'compatible', `The original English compatibility question is '${word}'; compatible expresses interoperability.`));
+  }
+  await prepare(lexical('ki api', 'DE', 'de', 'ki', 'Die deutsche Abkürzung KI bezeichnet Künstliche Intelligenz; der Originalbegriff lautet ki api.'));
+  await assert.rejects(prepare(lexical('ki api', 'DE', 'de', 'ki', 'The query ki api was sent with German locale only.')), { code: 'neutral_word_language' });
+  await assert.rejects(prepare(lexical('ki api', 'US', 'en', 'ki', 'KI bezeichnet Künstliche Intelligenz; der Begriff lautet ki api.')), { code: 'neutral_word_language' });
+  await assert.rejects(prepare(lexical('ki model', 'DE', 'de', 'ki', 'KI bezeichnet Künstliche Intelligenz; der Begriff lautet ki model.')), { code: 'neutral_word_language' });
+});
 test('null identity first-freeze closes only after source apply and explicit stable-ID plan refresh; no implicit freeze or old draft rewrite', async () => {
   const { buildGrowthWorkspace } = require('../src/lib/growth-workspace.ts');
   const { emptyGrowthStrategy, prepareGrowthStrategyMutation, growthWorkspaceIdentity } = require('../src/lib/growth-strategy.ts');

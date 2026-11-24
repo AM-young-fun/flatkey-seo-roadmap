@@ -18,14 +18,14 @@ Module._load = function (name, parent, ...args) {
   if (name === 'next/headers') return { cookies: async () => ({ get: () => ({ value: 'test-cookie' }) }) };
   if (name === '@/lib/auth') return { AUTH_COOKIE_NAME: 'auth', isAuthEnabled: () => true, isValidAuthToken: async () => session };
   if (name === '@/lib/services/display-change') return { displayDataChanged: async () => {} };
-  if (name === '@/lib/services/quarter-membership') return { saveQuarterMembership: async () => { routeReads++; return { status: 'PREVIEW' }; }, loadQuarterMembership: async () => { routeReads++; return {}; } };
+  if (name === '@/lib/services/quarter-membership') return { saveQuarterMembership: async () => { routeReads++; return { status: 'PREVIEW' }; }, loadQuarterMembership: async () => { routeReads++; return {}; }, loadQuarterMembershipReceipt: async () => { routeReads++; return { status: 'APPLIED' }; } };
   if (name === '@/lib/services/pre-freeze-market-identities') return { savePreFreezeIdentities: async () => { routeReads++; return { status: 'IDENTITIES_PREVIEW', stored: false }; }, loadPreFreezeIdentityReceipt: async () => { routeReads++; return { replay: true }; } };
   if (name.startsWith('@/')) return load.call(this, path.join(root, 'src', name.slice(2)) + '.ts', parent, ...args);
   return load.call(this, name, parent, ...args);
 };
 require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { quarterMembershipSelectionSchema, canonicalQuarterSelection, planQuarterMembership } = require('../src/lib/quarter-membership.ts');
-const { saveQuarterMembership } = require('../src/lib/services/quarter-membership.ts');
+const { saveQuarterMembership, loadQuarterMembershipReceipt } = require('../src/lib/services/quarter-membership.ts');
 const { POST, GET } = require('../src/app/api/keywords/quarter-membership/route.ts');
 beforeEach(() => { state = { rows: rows(selection()), topics: [copy(topic)], audits: new Map() }; writes = []; session = false; routeReads = 0; });
 test('exactly1600 original words include cross-site memberships once and reject duplicate IDs or changed source selection', () => {
@@ -62,6 +62,14 @@ test('an audit replay never overwrites later library edits', async () => {
   await saveQuarterMembership(command); state.rows[0].targetUrls = ['https://flatkey.ai/blog/later'];
   await assert.rejects(saveQuarterMembership(command), { code: 'readback_changed' }); assert.equal(writes.length, 1600);
 });
+test('exact original membership receipt reads its human audit and all current members without another pool mutation', async () => {
+  const sel = selection(), preview = await saveQuarterMembership({ action: 'preview', requestId: 'exact-receipt', selection: sel });
+  await saveQuarterMembership({ action: 'apply', requestId: 'exact-receipt', selection: preview.manifest, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash });
+  const count = writes.length, original = await loadQuarterMembershipReceipt('exact-receipt'); assert.equal(original.requestId, 'exact-receipt'); assert.equal(original.actor, 'human'); assert.equal(original.readbackVerified, true);
+  assert.equal(writes.length, count); state.rows[0].targetUrls.push('https://flatkey.ai/blog/later-change');
+  assert.equal((await loadQuarterMembershipReceipt('exact-receipt')).readbackVerified, false); assert.equal(writes.length, count);
+  await assert.rejects(loadQuarterMembershipReceipt('never-applied'), { status: 404 });
+});
 test('route rejects collectors, missing human login and foreign origin before any source access', async () => {
   const url = 'https://seo.test/api/keywords/quarter-membership';
   const post = headers => POST(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ action: 'preview' }) }));
@@ -78,5 +86,7 @@ test('pre-freeze identity actions use the same real human origin gate and expose
   assert.equal((await post({ origin: 'https://other.test' })).status, 403); assert.equal(routeReads, 0);
   assert.equal((await post({ origin: 'https://seo.test' })).status, 200); assert.equal(routeReads, 1);
   assert.equal((await GET(new Request(url + '?identityRequestId=human-original'))).status, 200); assert.equal(routeReads, 2);
+  assert.equal((await GET(new Request(url + '?membershipRequestId=human-original'))).status, 200); assert.equal(routeReads, 3);
+  assert.equal((await GET(new Request(url + '?membershipRequestId=human-original', { headers: { authorization: 'Bearer collector' } }))).status, 403); assert.equal(routeReads, 3);
   assert.equal(writes.length, 0);
 });

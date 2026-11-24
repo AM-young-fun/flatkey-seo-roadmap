@@ -1,6 +1,8 @@
 # 冻结前市场身份审核
 
-在原“季度1600关键词与方向决定”审核区使用“冻结前核定原词市场身份”。仅真实登录用户同源操作；采集token和本地预览不能代替人审。原`quarter-membership`的成员升池动作保持独立，本功能不升池、不标记研究ready、不改原词/主父/任务/排名或旧历史。
+在原“季度1600关键词与方向决定”审核区，先使用“核定同一1600原词的正式成员与已审话题”，再使用“冻结前核定原词市场身份”。仅真实登录用户同源操作；采集token和本地预览不能代替人审。原`quarter-membership`的成员核定动作保持独立，身份部分不升池、不标记研究ready、不改原词/主父/任务/排名或旧历史。
+
+成员审核组件接受原完整selection，或包含同一selection的身份审核包。先读取真实预览，显示全部原ID/词/已审Topic及仅RESEARCH→FORMAL的实际变化数，再明确确认。提交使用预览返回的canonical manifest，原来源文件字节和sourceHash不改。未知结果只GET同一`membershipRequestId`的原审计，读回原请求、完整名单及当前全部成员/真实TopicMap边；不会再次apply、覆盖后续编辑、自动补身份或批准季度。审计验证成功的已审话题只供当前季度目标投影消费，不修改DB主父/旧边或历史期次。
 
 ## 审核包
 
@@ -22,11 +24,15 @@
 
 `content`是实际来源的UTF8文本；`sha256`是其确切字节SHA256；`quote`必须是content中的原文片段。服务器复核字节和时间，不自动外查。需求必须来自同词/同国/同语种，`metric`为monthly_searches、clicks或impressions，value为真实正数且原文包含该数值，不能借种子量。人审仍必须核对实际来源行，哈希绑定不冒充供应商真实性证明。
 
+需求来源只有真实日日期时，`demand.observedAt`使用原日历日`YYYY-MM-DD`，同时提供`timePrecision:"day"`及`observedAtOriginal`（来源的真实`YYYY-MM-DD`或`YYYY/MM/DD`原值，须在content中可核、归一后为同一天）。原值、日精度和缺少钟点/时区的事实保留到审计及市场说明，不补00:00或编造offset。这是已知日期，不计入113条历史时间未知例外。原ISO时点路径不变；语种证据仍必须真实ISO时点。
+
 需求来源已明确列为人审历史时间未知例外时，仅`demand.observedAt`可保留`null`，不得用本次审核时间冒充指标采集时间。此时必须提供`demand.historicalTimeUnknown`：`acknowledgement:"historical-time-unknown"`、`selectionSourceHash`（精确等于selection.sourceHash）、`keyword/country/language`（当前原词原国原语种）、`sourceSha256`（该需求原文SHA）和不少于12字的`reason`。缺任一绑定或错贴其他行均拒绝；已有真实指标日期的行不使用该例外。
 
 界面在真实预览后单列未知数量、逐词来源SHA及原因，须另行勾选接受本批例外。应用命令也必须带`historicalTimeUnknownAcknowledged:true`；审计保留原`null`、逐词绑定及明确确认，新增市场evidence注明历史指标日期未知。`reviewedAt`仅指本次人审。`wordLanguage.observedAt`仍须真实ISO时间，正需求值、原词语种、主国冲突、排名新鲜度和效果观察时间规则均未放松。
 
 `spans`为原关键词的准确`{text,start,end}`，索引按JavaScript UTF16位置；语种来源摘录须包含该原词或全部申报span，不能错贴另一词的证据。不能用查询locale或页面译文推定语种。仅型号、品牌、共享缩写和型号版本不足以确认，和既有明确词语种证据冲突也拒绝。没有可核来源的项继续留缺口，不伪造证据。
+
+两类明确词义按精确语境核验：美国英语词的`base URL`端点短语中对应的`base` span可作为该短语证明，普通模型名中的base仍不通过；德国德语原词`ki api`的`ki` span仅在真实语种摘录同时明确`KI`与`Künstliche Intelligenz`展开时通过。不会因为locale或任意缩写放宽门槛；兼容性问题可增补原词内真实`compatible` span，不能凭两字母is确认语种。
 
 可选`quarterPlan`是原完整`quarter-planning-v2`方向/预算方案，不是简化身份表。没有这个字段时，界面复用当前已保存的完整草稿。
 

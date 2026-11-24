@@ -13,6 +13,8 @@ import { serpPeriod } from "@/lib/serp-periods";
 import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
 import { HUMAN_WORD_LANGUAGE_SOURCE_ID, PRE_FREEZE_IDENTITY_AUDIT, auditedHumanWordLanguages, type IdentitySourceRow } from "@/lib/pre-freeze-market-identities";
+import { projectAppliedQuarterManifestTopics } from "@/lib/applied-quarter-manifest";
+import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const array = (value: unknown) => Array.isArray(value) ? value.map(object) : [];
@@ -89,16 +91,18 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
   if (!process.env.DATABASE_URL) throw new Error("GROWTH_DATABASE_UNAVAILABLE");
   const db = transaction?.db ?? prisma;
   const goalSites = GROWTH_SITES.filter(site => site.keywordGoals).map(site => site.domain);
-  const [topics, members, assignments, inventory, workflow, savedSites, planRows, quarterRow, optional] = await Promise.all([
+  const [topics, members, assignments, inventory, workflow, savedSites, planRows, quarterRow, membershipAudit, optional] = await Promise.all([
     db.topic.findMany({ select: { id: true, text: true, active: true, parentId: true, childEdges: { select: { parentId: true } }, sites: { select: { siteDomain: true } } } }),
     db.siteKeyword.findMany({ where: { siteDomain: { in: goalSites } }, select: { siteDomain: true, keywordId: true, active: true, topicId: true, pool: true, origin: true, targetUrls: true, mappingStatus: true, sourceUrl: true,
       topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }),
     db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: MARKET_ASSIGNMENT_SOURCE_ID }, select: { siteDomain: true, rowKey: true, snapshot: true } }),
     db.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
     transaction?.workflow ?? loadWorkflowSnapshot({ allHistory: true }, localPreview),
-    db.seoSite.findMany({ select: { domain: true, ga4PropertyId: true } }),
+    db.seoSite.findMany({ select: { domain: true, active: true, ga4PropertyId: true } }),
     db.seoWorkflowRecord.findMany({where:{kind:"plan",status:{in:["scheduled","reviewed"]}},select:{recordId:true,status:true,payload:true}}),
     db.seoWorkflowRecord.findUnique({ where: { key: "growth-strategy:2026-close" }, select: { payload: true } }),
+    db.keywordCurationAudit.findFirst({ where: { status: QUARTER_MEMBERSHIP_STATUS }, orderBy: { appliedAt: "desc" },
+      select: { id: true, siteDomain: true, status: true, payloadHash: true, before: true, after: true, summary: true, appliedAt: true, restoredAt: true } }),
     Promise.allSettled([savedSerpEvidence(db), savedDiscoveryEvidence(db), db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true, collectedAt: true } })]),
   ]);
   const humanLanguageRows = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: HUMAN_WORD_LANGUAGE_SOURCE_ID }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } });
@@ -126,7 +130,21 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
     memberships: members.map(row => ({ site: row.siteDomain, keywordId: row.keywordId, keyword: row.keyword.text, keywordActive: row.keyword.active, active: row.active, topicId: row.topicId, topicIds: row.topicAssignments.map(assignment => assignment.topicId), pool: row.pool, origin: row.origin,
       targetUrls: row.targetUrls, sourceUrl: row.sourceUrl, mappingStatus: row.mappingStatus, marketAssignment: assignmentById.get(`${row.siteDomain}:keyword:${row.keywordId}`) })),
     inventory: inventory.map(row => ({ url: row.url, lastSeen: row.lastSeen.toISOString() })), tasks: workflow.tasks, publications: workflow.publications, plans,wordLanguageEvidence:[...approvedDiagnosticWordLanguages(), ...humanLanguages],ranks, sources };
-  const workspace = buildGrowthWorkspace(input, selectedSite);
+  const currentTopics = projectAppliedQuarterManifestTopics(input, membershipAudit, savedSites);
+  sources.push({ name: "当前季度已应用人审主话题清单", available: Boolean(currentTopics.applied),
+    reason: currentTopics.applied
+      ? `仅当前视图投影${currentTopics.projections.length}项本站原ID主话题，${currentTopics.skipped}项当前关系/启用条件不符保留原值；审计${currentTopics.applied.auditId}，清单SHA ${currentTopics.applied.selectionHash}。数据库主父、旧边和历史期次未改。`
+      : membershipAudit ? "最新成员审计未通过确切apply/来源/成员哈希校验，未借用预览或回退旧清单改主话题。" : "尚无已应用的完整1600人审成员清单，保留当前数据库主话题。" });
+  const workspace = buildGrowthWorkspace(currentTopics.input, selectedSite);
+  // Export the original stored primary alongside the current-only preference;
+  // consumers must not interpret this as a database relationship migration.
+  const topicProvenance = new Map(currentTopics.projections.map(row => [`${row.site}\u0000${row.keywordId}`, row]));
+  const withTopicProvenance = (target: GrowthWorkspace["targets"][number]) => {
+    const proof = target.keywordId ? topicProvenance.get(`${target.site}\u0000${target.keywordId}`) : undefined;
+    return proof && proof.keyword === target.keyword && target.topicId === proof.topicId ? { ...target, currentQuarterTopicProjection: proof } : target;
+  };
+  workspace.targets = workspace.targets.map(withTopicProvenance);
+  workspace.opportunities = workspace.opportunities.map(withTopicProvenance);
   const quarterState = object(quarterRow?.payload), baseline = object(quarterState.baseline), quarterPlan = object(quarterState.quarterPlanning), approved = object(quarterPlan.approval);
   const quarterTargets = Array.isArray(baseline.targets) ? baseline.targets.flatMap(value => { const row = object(value); return typeof row.id === "string" ? [row.id] : []; }) : [];
   const approvedHistory = Array.isArray(quarterState.quarterPlanningHistory) ? quarterState.quarterPlanningHistory.map(object).filter(row => object(row.approval).hash === row.hash).at(-1) : undefined;

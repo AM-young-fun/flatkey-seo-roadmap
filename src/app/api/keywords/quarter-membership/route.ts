@@ -3,7 +3,7 @@ import { z, ZodError } from "zod";
 import { AUTH_COOKIE_NAME, isAuthEnabled, isValidAuthToken } from "@/lib/auth";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { QuarterMembershipError } from "@/lib/quarter-membership";
-import { loadQuarterMembership, saveQuarterMembership } from "@/lib/services/quarter-membership";
+import { loadQuarterMembership, loadQuarterMembershipReceipt, saveQuarterMembership } from "@/lib/services/quarter-membership";
 import { displayDataChanged } from "@/lib/services/display-change";
 import { PreFreezeIdentityError } from "@/lib/pre-freeze-market-identities";
 import { savePreFreezeIdentities, loadPreFreezeIdentityReceipt } from "@/lib/services/pre-freeze-market-identities";
@@ -26,6 +26,7 @@ function failure(error: unknown) {
 export async function GET(request: Request) {
   try { await authorize(request); const params = new URL(request.url).searchParams;
     if (params.has("identityRequestId")) return Response.json(await loadPreFreezeIdentityReceipt(z.string().min(1).max(200).parse(params.get("identityRequestId")), "human"), { headers });
+    if (params.has("membershipRequestId")) return Response.json(await loadQuarterMembershipReceipt(z.string().min(1).max(200).parse(params.get("membershipRequestId"))), { headers });
     const value = params.get("selectionHash"); const hash = value === null ? undefined : z.string().regex(/^[a-f0-9]{64}$/).parse(value); return Response.json(await loadQuarterMembership(hash), { headers }); } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

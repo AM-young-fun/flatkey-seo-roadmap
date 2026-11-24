@@ -43,3 +43,9 @@ test('unknown historical metric times list original sources and require a separa
   const checked = render([unknownBundle, preview, null, null, '', false, false, null, false, false, true]);
   assert.match(checked, /checked=""/); assert.doesNotMatch(checked, /disabled=""[^>]*>确认本批缺失身份/);
 });
+test('real day precision keeps its original date visible and is separate from unknown historical time exceptions', () => {
+  const dayBundle = structuredClone(bundle); Object.assign(dayBundle.review.assignments[0].demand, { observedAt: '2026-10-10', timePrecision: 'day', observedAtOriginal: '2026/10/10' });
+  const html = render([dayBundle, preview, null, null, '', false, false]);
+  assert.match(html, /只有真实日期/); assert.match(html, /日精度/); assert.match(html, /2026\/10\/10/);
+  assert.doesNotMatch(html, /确认本批历史指标时间未知例外/); assert.doesNotMatch(html, /2026-10-10T00:00/);
+});

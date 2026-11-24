@@ -20,7 +20,8 @@ export const preFreezeReviewSchema = z.object({ version: z.literal("pre-freeze-i
   selection: quarterMembershipSelectionSchema, selectionHash: sha,
   assignments: z.array(z.object({ siteDomain: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc"]), keywordId: id,
     keyword: z.string().min(1).max(2000), topicId: id, country: z.enum(GROWTH_RESEARCH_COUNTRIES), language: z.enum(GROWTH_LANGUAGES),
-    demand: evidence.extend({ observedAt: z.iso.datetime({ offset: true }).nullable(), historicalTimeUnknown: historicalTimeUnknown.optional(),
+    demand: evidence.extend({ observedAt: z.union([z.iso.datetime({ offset: true }), z.iso.date()]).nullable(),
+      timePrecision: z.enum(["day", "instant"]).optional(), observedAtOriginal: z.string().min(1).max(100).optional(), historicalTimeUnknown: historicalTimeUnknown.optional(),
       exactKeyword: z.string().min(1).max(2000), country: z.enum(GROWTH_RESEARCH_COUNTRIES), language: z.enum(GROWTH_LANGUAGES),
       metric: z.enum(["monthly_searches", "clicks", "impressions"]), value: z.number().positive().finite() }).strict(),
     wordLanguage: evidence.extend({ language: z.enum(GROWTH_LANGUAGES), spans: z.array(span).min(1).max(12), reason: z.string().trim().min(12).max(4000) }).strict(),
@@ -62,11 +63,18 @@ function rawSha(content: string) {
 }
 function validateEvidence(source: Omit<z.infer<typeof evidence>, "observedAt"> & { observedAt: string | null }, now: Date, allowUnknownTime = false) {
   if (rawSha(source.content) !== source.sha256 || !source.content.includes(source.quote)
-    || (source.observedAt === null ? !allowUnknownTime : Date.parse(source.observedAt) > now.getTime())) throw new PreFreezeIdentityError("evidence_changed", "来源字节SHA、原文摘录或真实时间不匹配", 422);
+    || (source.observedAt === null ? !allowUnknownTime : /^\d{4}-\d{2}-\d{2}$/u.test(source.observedAt)
+      ? source.observedAt > now.toISOString().slice(0, 10) : Date.parse(source.observedAt) > now.getTime())) throw new PreFreezeIdentityError("evidence_changed", "来源字节SHA、原文摘录或真实时间不匹配", 422);
 }
 const neutral = /^(?:gpu|cpu|api|ai|ia|llm|llms|ram|vram|cuda|gguf|ggml|moe|rag|ocr|vllm|lora|qlora|gpt|llama|qwen|claude|gemini|deepseek|mistral|llava|bloom|hunyuan|minimax|anthropic|openai|meta|google|nvidia|amd|intel|rtx|gtx|dgx|hbm|pcie|nvlink|nvl|tesla|geforce|quadro|blackwell|hopper|ampere|turing|volta|ada|lovelace|instruct|chat|base|vision|thinking|turbo|pro|ultra|mini|nano|flash|preview|fast)$/iu;
 function validateLanguage(item: PreFreezeReview["assignments"][number], selectionSourceHash: string, now: Date, originalProof?: GrowthWordLanguageEvidence) {
   const exception = item.demand.historicalTimeUnknown;
+  const day = item.demand.observedAt !== null && /^\d{4}-\d{2}-\d{2}$/u.test(item.demand.observedAt);
+  if (day && (item.demand.timePrecision !== "day" || !item.demand.observedAtOriginal
+    || item.demand.observedAtOriginal.replaceAll("/", "-") !== item.demand.observedAt || !item.demand.content.includes(item.demand.observedAtOriginal))) {
+    throw new PreFreezeIdentityError("day_precision_required", "真实日精度来源须明确timePrecision=day并保留同一原始日期值及来源，不补00:00或时区", 422);
+  }
+  if (!day && item.demand.timePrecision === "day") throw new PreFreezeIdentityError("day_precision_mismatch", "未知时间或精确时点不能标作日精度来源", 422);
   if (item.demand.observedAt === null && (!exception || exception.selectionSourceHash !== selectionSourceHash || exception.keyword !== item.keyword
     || exception.country !== item.country || exception.language !== item.language || exception.sourceSha256 !== item.demand.sha256)) {
     throw new PreFreezeIdentityError("historical_time_exception_required", "历史指标时间未知须逐词明确确认例外，并绑定本清单、原词原国及来源SHA；不能伪造当前时间", 422);
@@ -87,8 +95,14 @@ function validateLanguage(item: PreFreezeReview["assignments"][number], selectio
     && !spans.every(part => languageQuote.includes(part.text.normalize("NFKC").toLowerCase()))) {
     throw new PreFreezeIdentityError("word_language_source_mismatch", "语种来源摘录须包含当前原词或全部申报原词span，不能贴另一词的证据", 422);
   }
+  const baseUrl = /\bbase\s+url\b/iu.exec(item.keyword);
+  const englishBaseUrl = item.country === "US" && item.language === "en" && baseUrl && /\bbase\s+url\b/iu.test(languageQuote)
+    && spans.some(part => part.text.toLowerCase() === "base" && part.start === baseUrl.index && part.end === baseUrl.index + 4);
+  const germanKi = item.country === "DE" && item.language === "de" && item.keyword.normalize("NFKC").trim().toLowerCase() === "ki api"
+    && /\bki\b/iu.test(languageQuote) && /künstliche\s+intelligenz/iu.test(languageQuote)
+    && spans.some(part => part.start === 0 && part.end === 2 && part.text.toLowerCase() === "ki");
   if (spans.some(part => part.end <= part.start || item.keyword.slice(part.start, part.end) !== part.text)
-    || !spans.some(part => part.text.match(/\p{L}+/gu)?.some(token => !neutral.test(token) && (token.length >= 3 || /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(token))))) {
+    || !englishBaseUrl && !germanKi && !spans.some(part => part.text.match(/\p{L}+/gu)?.some(token => !neutral.test(token) && (token.length >= 3 || /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(token))))) {
     throw new PreFreezeIdentityError("neutral_word_language", "原词必须有可核实的本语言文本span；纯型号、品牌和共享缩写不能按查询语言确认", 422);
   }
   const intrinsic = reviewGrowthLanguage(item.keyword, item.country, item.language, undefined, originalProof);
@@ -150,7 +164,7 @@ export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFre
     if (!oldMarket) {
       const metricTime = item.demand.observedAt === null
         ? `Historical metric time unknown; historical-time-unknown explicitly acknowledged; selectionSourceHash=${review.selection.sourceHash}; sourceSha256=${item.demand.sha256}; reason=${item.demand.historicalTimeUnknown!.reason.slice(0, 300)}; reviewedAt is this human review, not metric collection. `
-        : `Metric observedAt=${item.demand.observedAt}. `;
+        : `Metric observedAt=${item.demand.observedAt}${item.demand.timePrecision === "day" ? ` (day precision; original=${item.demand.observedAtOriginal}; no clock or offset supplied)` : ""}. `;
       const snapshot = keywordMarketAssignmentSchema.parse({ primaryCountry: item.country, language: item.language, secondaryMarkets: [],
         evidence: `${metricTime}Human reviewed exact quarter word; ${item.demand.reference}#${item.demand.sha256}; ${item.wordLanguage.reference}#${item.wordLanguage.sha256}`.slice(0, 4000), reviewedAt: now.toISOString() });
       creates.push({ ...marketIdentity, snapshot, snapshotHash: preFreezeHash(snapshot), observedAt: now });
@@ -164,7 +178,8 @@ export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFre
       creates.push({ ...proofIdentity, snapshot, snapshotHash: preFreezeHash(snapshot), observedAt: now });
     }
     results.push({ siteDomain: item.siteDomain, keywordId: item.keywordId, keyword: item.keyword, topicId: item.topicId, country: item.country, language: item.language,
-      demandObservedAt: item.demand.observedAt, historicalTimeUnknown: item.demand.historicalTimeUnknown ?? null,
+      demandObservedAt: item.demand.observedAt, demandTimePrecision: item.demand.timePrecision ?? (item.demand.observedAt === null ? "unknown" : "instant"), demandObservedAtOriginal: item.demand.observedAtOriginal ?? null,
+      historicalTimeUnknown: item.demand.historicalTimeUnknown ?? null,
       previousCountry: current?.primaryCountry ?? null, previousLanguage: current?.language ?? null,
       market: oldMarket ? "reuse" as const : "create" as const, languageReview: oldProof ? "reuse" as const : "create" as const,
       targetIdAfter: growthTargetId(item.siteDomain, item.keyword, item.country, item.language) });

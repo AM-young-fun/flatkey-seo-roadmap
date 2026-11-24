@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canonicalQuarterSelection, planQuarterMembership, quarterMembershipCommandSchema, quarterMembershipHash, QUARTER_MEMBERSHIP_STATUS, QuarterMembershipError, type QuarterMembershipSelection, type QuarterMembershipRow, type QuarterMembershipTopic } from "../quarter-membership";
+import { readAppliedQuarterManifestAudit } from "../applied-quarter-manifest";
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 type AuditSummary = { version: "quarter-membership-v1"; requestId: string; selectionHash: string; sourceHash: string; expectedStateHash: string; afterHash: string; selection: QuarterMembershipSelection; changed: number; uniqueWords: number; membershipCount: number; actor: "human" };
 
@@ -19,6 +20,25 @@ export async function loadQuarterMembership(selectionHash?: string) {
   if (!row) return { initialized: false, manifest: null };
   const summary = row.summary as unknown as AuditSummary;
   return { initialized: true, auditId: row.id, appliedAt: row.appliedAt.toISOString(), ...summary, manifest: summary.selection };
+}
+
+/** Exact original receipt and current full selected rows; never reapplies an unknown request. */
+export async function loadQuarterMembershipReceipt(requestId: string) {
+  return prisma.$transaction(async tx => {
+    const audit = await tx.keywordCurationAudit.findUnique({ where: { id: `quarter-membership:2026-close:${requestId}` } });
+    if (!audit) throw new QuarterMembershipError("audit_missing", "尚无该原成员请求回执，保留原编号核对，不自动重提", 404);
+    const approved = readAppliedQuarterManifestAudit(audit);
+    if (!approved || approved.requestId !== requestId) throw new QuarterMembershipError("audit_invalid", "原成员审计与确切名单不一致，未覆盖或重新提交");
+    const [members, topics, sites] = await Promise.all([readMembers(tx, approved.selection), readTopics(tx, approved.selection),
+      tx.seoSite.findMany({ where: { domain: { in: [...new Set(approved.selection.members.map(row => row.siteDomain))] } }, select: { domain: true, active: true } })]);
+    let readbackVerified = quarterMembershipHash(members) === approved.afterHash && members.every(row => row.pool === "FORMAL")
+      && approved.selection.members.every(row => sites.some(site => site.domain === row.siteDomain && site.active));
+    try { planQuarterMembership({ action: "preview", requestId, selection: approved.selection, selectionHash: approved.selectionHash }, members, topics); }
+    catch (error) { if (error instanceof QuarterMembershipError) readbackVerified = false; else throw error; }
+    return { status: "APPLIED" as const, actor: approved.actor, requestId: approved.requestId, auditId: approved.auditId, appliedAt: approved.appliedAt,
+      selectionHash: approved.selectionHash, sourceHash: approved.sourceHash, expectedStateHash: approved.expectedStateHash, afterHash: approved.afterHash,
+      changed: approved.changed, uniqueWords: approved.uniqueWords, membershipCount: approved.membershipCount, manifest: approved.selection, readbackVerified };
+  }, { maxWait: 10_000, timeout: 90_000, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 
 /** Public SEO library metadata only. Never changes words, market evidence, tasks or unselected members. */
