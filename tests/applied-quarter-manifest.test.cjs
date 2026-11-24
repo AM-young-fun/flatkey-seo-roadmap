@@ -73,6 +73,9 @@ test('inactive, lost-edge, cross-site and changed raw identities never borrow th
   assert.equal(projectAppliedQuarterManifestTopics(input, audit, [{ domain: 'flatkey.ai', active: false }]).projections.length, 0);
   assert.equal(projectAppliedQuarterManifestTopics(input, null, [{ domain: 'flatkey.ai', active: true }]).input, input);
   assert.equal(projectAppliedQuarterManifestTopics(input, { ...audit, status: 'PREVIEW' }, [{ domain: 'flatkey.ai', active: true }]).projections.length, 0);
+  const historicalInput = { ...input, generatedAt: '2026-11-23T11:00:00Z' };
+  assert.equal(projectAppliedQuarterManifestTopics(historicalInput, audit, [{ domain: 'flatkey.ai', active: true }]).input, historicalInput,
+    'a later human apply never grants a current-topic preference to an earlier asOf view');
 });
 test('normal workspace reader consumes the committed audit and exports original primary provenance without writes', async () => {
   const { audit, input } = fixture(), sourceRows = input.memberships.map(row => ({ siteDomain: row.site, rowKey: `keyword:${row.keywordId}`, snapshot: row.marketAssignment }));

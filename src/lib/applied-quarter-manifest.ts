@@ -64,7 +64,10 @@ export type CurrentQuarterTopicProjection = {
 export function projectAppliedQuarterManifestTopics(input: GrowthWorkspaceInput, rawAudit: unknown,
   sites: readonly { domain: string; active: boolean }[]) {
   const applied = readAppliedQuarterManifestAudit(rawAudit), projections: CurrentQuarterTopicProjection[] = [];
-  if (!applied) return { input, applied, projections, skipped: 0 };
+  const asOf = Date.parse(input.generatedAt);
+  if (!applied || !Number.isFinite(asOf) || Date.parse(applied.appliedAt) > asOf) {
+    return { input, applied: null, projections, skipped: 0 };
+  }
   const selected = new Map(applied.selection.members.map(row => [memberKey(row.siteDomain, row.keywordId), row]));
   const approvedMembers = new Map(applied.afterMembers.map(row => [memberKey(row.siteDomain, row.keywordId), row]));
   const activeSites = new Set(sites.filter(site => site.active).map(site => site.domain));
