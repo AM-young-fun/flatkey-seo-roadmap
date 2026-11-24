@@ -180,7 +180,9 @@ function dispatch(scope, args) {
     if (existing && !resumeArg) return emit({ acquired: false, reason: "existing_codex_session", ...existing });
     if (resumeArg && resumeArg.slice("--resume-session=".length) !== existing?.sessionId) throw Error("resume_session_not_bound");
   }
-  const execution = spawnSync(process.execPath, [scanner, scope, ...args.filter(value => value !== resumeArg)], { stdio: "inherit" });
+  // The scanner must receive the already-validated original session identity:
+  // a published CMS write resumes verification through that exact reservation.
+  const execution = spawnSync(process.execPath, [scanner, scope, ...args], { stdio: "inherit" });
   if (execution.error) throw execution.error;
   process.exitCode = execution.status ?? 1;
 }

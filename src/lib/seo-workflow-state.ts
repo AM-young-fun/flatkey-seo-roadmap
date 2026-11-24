@@ -27,6 +27,25 @@ export function isCompletedGrowthEvidenceAppend(task: WorkflowTask, previous: Wo
 
 function reject(code: string, message: string): never { throw new WorkflowError(code, message); }
 const same = (a: unknown, b: unknown) => workflowHash(a) === workflowHash(b);
+function latestWorkflowPlans(plans: WorkflowPlan[]) {
+  const latest = new Map<string, WorkflowPlan>();
+  for (const plan of plans) {
+    const previous = latest.get(plan.weekStart);
+    if (!previous || (plan.updatedAt ?? "") > (previous.updatedAt ?? "") || plan.updatedAt === previous.updatedAt && plan.version > previous.version) latest.set(plan.weekStart, plan);
+  }
+  return [...latest.values()];
+}
+/** Monday keys store plans; a growth plan owns its exact IDs throughout the
+ * approved Friday–Thursday range, including its other Monday bucket. */
+function executablePlanIncludesTask(plan: WorkflowPlan, task: WorkflowTask) {
+  if (!isExecutableWorkflowPlan(plan.status) || !plan.taskIds.includes(task.id)) return false;
+  const targets = plan.targets;
+  if (!targets || !("cadence" in targets) || targets.cadence !== "growth") return plan.weekStart === task.weekStart;
+  const range = targets.executionRange, expected = workWeekDateRange(range.start);
+  const storageWeeks = [workflowWeek(new Date(range.start + "T00:00:00+08:00")), workflowWeek(new Date(range.end + "T00:00:00+08:00"))];
+  const dueDay = seoToday(new Date(task.dueAt));
+  return range.start === expected.start && range.end === expected.end && storageWeeks.includes(plan.weekStart) && dueDay >= range.start && dueDay <= range.end;
+}
 const contentKinds = new Set(["blog", "landing", "optimization", "cluster"]);
 const beforePublication = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
 const productionStates = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
@@ -416,9 +435,8 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
     if (automaticTaskPolicy(task, value.pageUrl) !== automatic) reject("automatic_policy_context", "自动发布必须匹配真实页面模块与任务类型");
     if (["planned", "researching", "blocked", "failed"].includes(task.status)) reject("automatic_task_not_ready", "任务须完成内容准备与质量检查");
     if (automatic === "auto_blog") {
-      const plan = all.filter(row => row.kind === "plan" && row.record.weekStart === value.weekStart).map(row => row.record as WorkflowPlan)
-        .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
-      if (task.source !== "human" && (!plan || !isExecutableWorkflowPlan(plan.status) || !plan.taskIds.includes(task.id))) reject("automatic_blog_plan_required", "博客自动执行只消费本周最新计划已排期的任务或用户明确设置的任务");
+      const plans = latestWorkflowPlans(all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));
+      if (task.source !== "human" && !plans.some(plan => executablePlanIncludesTask(plan, task))) reject("automatic_blog_plan_required", "博客自动执行只消费本周最新计划已排期的任务或用户明确设置的任务");
       const prior = all.filter(row => row.kind === "publication" && row.record.id !== value.id).map(row => row.record as WorkflowPublication).filter(row => row.pageUrl === value.pageUrl && ["published", "verified"].includes(row.status));
       const history = all.filter(row => row.kind === "historical_import").flatMap(row => (row.record as WorkflowHistoricalImport).publications).filter(row => row.pageUrl === value.pageUrl);
       const baseline = [...prior, ...history].sort((a,b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))[0];
@@ -628,18 +646,8 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
   const range = workWeekDateRange(today);
   const finalPlanWeek = workflowWeek(new Date(range.end + "T00:00:00+08:00"));
   const dueDay = (task: WorkflowTask) => seoToday(new Date(task.dueAt));
-  const plansByWeek = new Map<string, WorkflowPlan>();
-  for (const { kind, record } of all) {
-    if (kind !== "plan" || record.weekStart < FIRST_OPERATIONAL_WEEK || !workList && record.weekStart > finalPlanWeek) continue;
-    const plan = record as WorkflowPlan;
-    const previous = plansByWeek.get(plan.weekStart);
-    if (!previous || plan.updatedAt > previous.updatedAt || plan.updatedAt === previous.updatedAt && plan.version > previous.version) {
-      plansByWeek.set(plan.weekStart, plan);
-    }
-  }
-  const plannedIds = new Map([...plansByWeek.values()]
-    .filter(plan => isExecutableWorkflowPlan(plan.status))
-    .map(plan => [plan.weekStart, new Set(plan.taskIds)]));
+  const plans = latestWorkflowPlans(all.filter(row => row.kind === "plan" && row.record.weekStart >= FIRST_OPERATIONAL_WEEK
+    && (workList || row.record.weekStart <= finalPlanWeek)).map(row => row.record as WorkflowPlan));
 
   const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask).filter(task => !task.deletedAt);
   const issueTasks = new Set(all.filter(row => row.kind === "issue")
@@ -672,7 +680,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
       && !!task.pageUrl && pageBelongsToSite(task.pageUrl, task.siteDomain)
       && legacyPostReviewVersions.has(JSON.stringify([task.id, task.contentVersion, task.siteDomain, task.pageUrl, task.language]));
     if (isCodexTrackedTask(task)) return workList;
-    return task.source === "human" || plannedIds.get(task.weekStart)?.has(task.id) ||
+    return task.source === "human" || plans.some(plan => executablePlanIncludesTask(plan, task)) ||
       task.kind === "technical" && issueTasks.has(task.id);
   })
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));

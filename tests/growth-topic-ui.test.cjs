@@ -17,7 +17,7 @@ const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, 
 const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage, GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const target = (id, patch = {}) => ({ id, keywordId: id, keyword: "GPU rental", site: "flatkey.ai", topicId: "topic/1", topicName: "GPU计算", country: "US", language: "en", membership: "formal", pageState: "published", workState: "completed", publishedUrls: ["https://flatkey.ai/gpu"], plannedUrls: [], rank: 22, rankSource: "serp", rankUrl: "https://flatkey.ai/gpu", checkedAt: "2026-11-23T00:00:00Z", languageStatus: "match", languageReason: "", captureState: "ranked", rankEligible: true, taskIds: ["original-task"], reason: "", ...patch });
 const topic = { id: "flatkey.ai:topic/1", site: "flatkey.ai", topicId: "topic/1", name: "GPU计算", parentIds: [], formalCount: 3, markets: [] };
-const data = targets => ({ generatedAt: "2026-11-23T08:00:00Z", reconciliation: { sources: [] }, targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
+const data = targets => ({ quarter: {targetIds:targets.filter(row=>row.membership==="formal").map(row=>row.id),keywordCount:targets.filter(row=>row.membership==="formal").length,hash:"reviewed"}, generatedAt: "2026-11-23T08:00:00Z", reconciliation: { sources: [] }, targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
 
 test("topic totals preserve distinct market targets and separate outside opportunities", () => {
   const workspace = data([target("us"), target("jp", { country: "JP", language: "ja", keyword: "GPUレンタル" }), target("opportunity", { membership: "opportunity" })]);
@@ -149,4 +149,14 @@ test("quarter execution contains the exact approved TopicMap list and never disp
  const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
  assert.match(html,/GPU计算/);assert.doesNotMatch(html,/规划外机会|待核归属|关键词规划归属|个话题簇/);assert.doesNotMatch(html,/discovered phrase|unconfirmed phrase/);
  assert.equal((html.match(/<h2>业务词库关系图<\/h2>/g)||[]).length,0);
+});
+
+
+test("an unfrozen quarter never falls back to the formal inventory or labels it as current quarterly progress", () => {
+ const workspace=data([target("unreviewed-base")]); delete workspace.quarter;
+ assert.deepEqual(quarterTargetWorkspace(workspace).targets,[]);
+ readData=workspace;
+ const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
+ assert.match(html,/季度1600词清单尚未审核冻结/); assert.doesNotMatch(html,/当前筛选没有季度话题/);
+ readData=null;
 });

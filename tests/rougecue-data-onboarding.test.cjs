@@ -40,11 +40,18 @@ test("visible Google setup does not masquerade as persistent configuration, API 
   assert.equal(missing.ga4Configured, true); assert.equal(missing.collectorGa4Configured, true); assert.equal(missing.persistentGa4Configured, false); assert.equal(missing.persistedPropertyMatches, null); assert.match(missing.reason, /尚未持久登记/);
   assert.equal(mismatch.persistedPropertyMatches, false); assert.match(mismatch.reason, /不符/);
   assert.equal(matched.ga4Configured, true); assert.equal(matched.sourceTimezone, "America/Los_Angeles"); assert.equal(matched.apiPermissionVerified, false);
+  assert.equal(matched.apiVerificationScope, "not-checked-by-this-route");
   assert.equal(matched.gscProperty, "sc-domain:rougecue.org");
-  assert.match(matched.reason, /读取权限、注册事件及实际数据覆盖仍待核实/);
+  assert.equal(matched.metadataVerification, "visible-ga4-property", "Saved visible metadata is separate from a live permission probe");
+  assert.match(matched.reason, /采集可用性以来源台账实际回执\/日期为准/);
+  assert.match(matched.reason, /本配置接口未实时复查服务账号权限、注册事件及数据覆盖/);
+  assert.doesNotMatch(matched.reason, /仍待核实|读取被拒绝|权限失败/);
   for (const site of ["jev-llm.com", "mochichatbot.com"]) {
     const known = siteSourceReadiness(site, null);
     assert.equal(known.ga4Configured, true); assert.equal(known.persistentGa4Configured, false); assert.equal(known.configurationSource, "collector-registry"); assert.equal(known.metadataVerification, "collector-config-only");
+    assert.equal(known.apiPermissionVerified, false);
+    assert.equal(known.apiVerificationScope, "not-checked-by-this-route");
+    assert.match(known.reason, /来源台账实际回执\/日期/);
   }
 });
 

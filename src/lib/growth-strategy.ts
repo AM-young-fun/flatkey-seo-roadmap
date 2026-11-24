@@ -137,14 +137,15 @@ export function growthBaselineIdentityReview(state: GrowthStrategy, workspace: G
     return { targetId: target.id, site: target.site, keyword: target.keyword, ...scope, wordLanguage, confirmed, canSupplement: Boolean((!scope.country || !scope.language) && wordLanguage) };
   });
 }
-export type GrowthPublicationReference = { id: string; taskId: string; siteDomain: string; pageUrl: string; contentVersion: string; publishedAt: string; status: string; kind: string; country?: string | null; language?: string };
+export type GrowthPublicationReference = { id: string; taskId: string; siteDomain: string; pageUrl: string; contentVersion: string; publishedAt: string; status: string; kind: string; country?: string | null; language?: string; keyword?: string | null };
+export type GrowthTaskReference = { id: string; siteDomain: string; pageUrl: string | null; keyword: string | null; keywordId?: string | null; country: string | null; language: string | null; deletedAt?: string | null };
 export function growthBatchDeadline(admittedAt: Date): string {
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(admittedAt);
   const [year, month, day] = date.split("-").map(Number);
   const lastDay = new Date(Date.UTC(year, month + 3, 0)).getUTCDate();
   return new Date(Date.UTC(year, month - 1 + 3, Math.min(day, lastDay))).toISOString().slice(0, 10);
 }
-export type GrowthMutationContext = { routineApprovedTargetIds?: string[]; siteTimezones?: Record<string, string | null>; siteProperties?: Record<string, string | null> };
+export type GrowthMutationContext = { routineApprovedTargetIds?: string[]; taskReferences?: GrowthTaskReference[]; siteTimezones?: Record<string, string | null>; siteProperties?: Record<string, string | null> };
 export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknown, actor: "human" | "collector", workspace: GrowthWorkspace, publications: GrowthPublicationReference[], taskIds: string[], now = new Date(), context: GrowthMutationContext = {}): GrowthStrategy {
   const command = growthStrategyCommandSchema.parse(raw);
   if (command.expectedVersion !== state.version) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试");
@@ -262,7 +263,21 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     if (observation.indexing !== "unknown" && (!observation.indexingEvidence || observation.indexingEvidence.url !== publication.pageUrl || Date.parse(observation.indexingEvidence.checkedAt) > now.getTime() || Date.parse(observation.indexingEvidence.checkedAt) < Date.parse(publication.publishedAt))) throw new GrowthStrategyError("indexing_evidence_missing", "收录判断须有该原页面的独立GSC证据");
     const rankedTarget = observation.rankingEvidence ? workspace.targets.find(target => target.id === observation.rankingEvidence!.targetId) : null;
     if (observation.rank !== null || observation.rankingEvidence) {
-      if (!observation.rankingEvidence || !rankedTarget?.observationEligible || rankedTarget.site !== publication.siteDomain || rankedTarget.country !== publication.country || rankedTarget.language !== publication.language || rankedTarget.checkedAt !== observation.rankingEvidence.checkedAt || rankedTarget.rank !== observation.rank || !rankedTarget.publishedUrls.includes(publication.pageUrl)) throw new GrowthStrategyError("ranking_evidence_missing", "排名判断须复用原词原市场语言的真实实测证据，不能使用GSC平均位置");
+      const originalTask = context.taskReferences?.find(task => task.id === publication.taskId && !task.deletedAt);
+      const word = (value: string | null | undefined) => value?.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase() ?? "";
+      const sampledAt = Date.parse(observation.rankingEvidence?.checkedAt ?? "");
+      const identityMatches = Boolean(originalTask && word(publication.keyword) && word(originalTask.keyword) === word(publication.keyword)
+        && originalTask.siteDomain === publication.siteDomain && originalTask.pageUrl === publication.pageUrl
+        && originalTask.country === publication.country && originalTask.language === publication.language
+        && rankedTarget?.taskIds.includes(publication.taskId) && word(rankedTarget.keyword) === word(publication.keyword)
+        && (!originalTask.keywordId || originalTask.keywordId === rankedTarget.keywordId));
+      if (!observation.rankingEvidence || !rankedTarget?.observationEligible || rankedTarget.rankSource !== "serp" || rankedTarget.languageStatus !== "match"
+        || !identityMatches || rankedTarget.site !== publication.siteDomain || rankedTarget.country !== publication.country || rankedTarget.language !== publication.language
+        || rankedTarget.checkedAt !== observation.rankingEvidence.checkedAt || rankedTarget.rank !== observation.rank || !rankedTarget.publishedUrls.includes(publication.pageUrl)
+        || observation.rank !== null && rankedTarget.rankUrl !== publication.pageUrl
+        || !Number.isFinite(sampledAt) || sampledAt < Date.parse(publication.publishedAt) || sampledAt > Date.parse(observation.checkedAt)) {
+        throw new GrowthStrategyError("ranking_evidence_missing", "排名判断须绑定原任务、原词、原市场语言及该页面的真实SERP；采样不得早于实际发布或晚于本次检查。缺身份或合格采样时保留排名待补，不能借用同页其他词或GSC平均位置");
+      }
     }
     if (observation.sessions !== null && (!observation.trafficEvidence || observation.trafficEvidence.propertyId !== context.siteProperties?.[publication.siteDomain] || observation.trafficEvidence.sourceTimezone !== sourceTimezone || observation.trafficEvidence.sourceTimezone !== context.siteTimezones?.[publication.siteDomain] || observation.trafficEvidence.start !== windowStart || observation.trafficEvidence.end !== dueDay)) throw new GrowthStrategyError("traffic_evidence_missing", "页面自然流量须有真实属性及同一完整窗口的独立GA4证据");
     const comparisonResult = prepareGrowthObservationComparison(observation.comparison, publication, observation.checkpoint, { sourceTimezone, propertyId: context.siteProperties?.[publication.siteDomain] ?? null, now, sessions: observation.sessions });

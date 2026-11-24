@@ -64,3 +64,19 @@ test("summer LA daylight time uses its seven-hour offset rather than the winter 
   const row = driver(url, [publication("pdt-end", "2026-07-09T06:59:59Z", url), publication("pdt-next", "2026-07-09T07:00:00Z", url)], workspace, range);
   assert.deepEqual(row.publicationIds, ["pdt-end"]);
 });
+
+test("a newer incomplete source revision blocks stale complete weekly attribution for that exact identity", () => {
+  const url = "https://flatkey.ai/blog/original-page", rows = observations(url);
+  const before = structuredClone(rows), last = rows.at(-1);
+  assert.equal(growthPageContributionDirections(workspace, [], rows, period, now)[0].drivers[0].current, 28);
+  const newer = { ...last, observedAt: "2026-11-23T11:00:00Z", complete: false, rows: [] };
+  rows.forEach(row => { row.observedAt = "2026-11-23T10:00:00Z"; });
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [...rows, newer], period, now), []);
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [newer, ...rows], period, now), [], "input order cannot restore the obsolete complete row");
+  const anotherCountry = { ...newer, country: "JP" };
+  assert.equal(growthPageContributionDirections(workspace, [], [...rows, anotherCountry], period, now)[0].drivers[0].current, 28, "a different country identity does not invalidate the all-country source");
+  const ga = before.map(row => ({ ...row, observedAt: "2026-11-23T10:00:00Z", kind: "ga4-pages", property: "541304395", sessionsComplete: true, rows: [{ path: "/blog/original-page", sessions: row.date < period.start ? 2 : 4, users: 1, registrations: null }] }));
+  assert.equal(growthPageContributionDirections(workspace, [], ga, period, now)[0].drivers[0].current, 28);
+  const missingSessions = { ...ga.at(-1), observedAt: newer.observedAt, sessionsComplete: false };
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [...ga, missingSessions], period, now), []);
+});

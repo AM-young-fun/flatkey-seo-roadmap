@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { after, test } = require("node:test");
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "seo-codex-progress-"));
@@ -49,4 +50,20 @@ test("a checkpoint survives a failed archive flush and is retried against the or
   assert.deepEqual(await flush(null, 2000), { synced: 1, pending: 0 });
   assert.equal(saved.id, checkpoint.id);
   assert.equal(fs.existsSync(pending), false);
+});
+
+test("dispatch forwards only the bound original resume identity to the lease scanner", () => {
+  bind("resume-task", "work", "resume-session");
+  const scanner = path.join(directory, "argument-only-scanner.cjs");
+  fs.writeFileSync(scanner, 'console.log(JSON.stringify(process.argv.slice(2)));');
+  fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ scanner }));
+  const cli = path.resolve(__dirname, "../scripts/seo-codex-progress.cjs");
+  const invoke = (...args) => spawnSync(process.execPath, [cli, "--dispatch", "refresh", "resume-task", "original-owner", ...args], { env: process.env, encoding: "utf8" });
+  const valid = invoke("--resume-session=resume-session");
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.deepEqual(JSON.parse(valid.stdout), ["refresh", "resume-task", "original-owner", "--resume-session=resume-session"]);
+  const unbound = invoke("--resume-session=other-session");
+  assert.equal(unbound.status, 1); assert.match(unbound.stderr, /resume_session_not_bound/);
+  const alreadyBound = invoke();
+  assert.equal(alreadyBound.status, 0); assert.equal(JSON.parse(alreadyBound.stdout).reason, "existing_codex_session");
 });
