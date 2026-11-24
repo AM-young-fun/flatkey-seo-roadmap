@@ -52,7 +52,7 @@ export async function saveGrowthCollection(raw:unknown,actor:"human"|"collector"
         if(effectiveIdentity(proposal)!==effectiveIdentity(current.manifest))throw new GrowthCollectionError("source_changed","页面/词库或可复用结果已变化，请先更新清单，避免重复收费");
         state=approveGrowthCollection(current,command,actor,now);
       }else{
-        if(command.action==="reserve"||command.allowSubmit)assertGrowthCollectionApproval(current,now);
+        if(command.action==="reserve"||command.allowSubmit)assertGrowthCollectionApproval(current,now,{newSubmission:true,pageLiveChecks:workspace.pageLiveEvidenceComplete === true ? workspace.pageLiveChecks : []});
         else if(!current.approval)throw new GrowthCollectionError("approval_required","缺少原已审记录，不能冒用采集账本",403);
         state={...current,version:current.version+1};
         if(!current.runId){

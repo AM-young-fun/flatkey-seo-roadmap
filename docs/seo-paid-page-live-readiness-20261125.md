@@ -1,0 +1,11 @@
+# 收费排名的逐页上线证据
+
+页面库存、READY、targetUrls及已完成任务是原建设底账，不能单独证明当前页面真实上线。新收费清单和界面估算共用门槛：对应原词/KID及本站原URL有正常page-audit VERIFIED或版本一致的publication.liveCheck，实际checkedAt在新24小时内、HTTP200且self-canonical；官网仅Flatkey/RackRate/ModelFit及各自www，Console、API接口、Router、账号等产品范围排除。RackRate精确路径`/api`（可带尾斜杠）是既有公开介绍页，仅此路径按同一200/canonical证据门槛允许，`/api/*`数据接口不允许。该门槛只决定新的收费资格，不删除1600词、原页/任务或已有排名事实。
+
+同URL取最新正反证，新的307/404/REVIEW、缺canonical或缺fresh证据均暂缓；同一时刻冲突不靠顺序选通过，新的真实正证可以覆盖旧反证。所有来源保留原checkedAt，不能将审核时间、publishedAt、verifiedAt改作HTTP核验时刻。page-audit REVIEW原本会保留旧READY/targetUrls，因此须读原回执，不从旧字段推导通过。
+
+本轮采用既有正常接口补证，未做同步批量HTTP扫描，不新建job/DB结构、不修四个未上线模型路由、不调用供应商或启用付费。旧draft/已存账本仍可读取和核取已经收费的原回执；缺本轮上线证据政策的旧draft不能新增预留或提交费用。新提交还核当前已存逐页反证。对本期同词同国真实已收SERP的复用仍保留原日期、国家和事实，不因页面当前需复核就删除历史排名。
+
+正常发布服务对已verified的publication.liveCheck、verifiedAt和验收状态不可撤写，页面后续实际失效沿原page-audit反证保存；新的失败发布尝试没有页面HTTP事实时，不冒充旧页面已经失效。执行前读取当前逐页反证，不能用审批时的旧正证覆盖更新的实际失败。
+
+本轮实际HTTP307模型URL只作为原文件反证，不能填VERIFIED。原page-audit接口如因真实身份、旧时间或缺字段而不能正常保存，应保留原文件及明确缺口，不伪造时间/主词/国家或改保护字段；没有合格fresh正证时默认不授费。普通不付费流程与季度冻结不以补齐所有付费页面为前提。

@@ -15,6 +15,8 @@ import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
 import { HUMAN_WORD_LANGUAGE_SOURCE_ID, PRE_FREEZE_IDENTITY_AUDIT, auditedHumanWordLanguages, type IdentitySourceRow } from "@/lib/pre-freeze-market-identities";
 import { projectAppliedQuarterManifestTopics } from "@/lib/applied-quarter-manifest";
 import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
+import { growthPageAuditChecks, growthPublicationPageChecks } from "@/lib/growth-live-page-evidence";
+import { PAGE_AUDIT_SOURCE_ID } from "@/lib/page-audit";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const array = (value: unknown) => Array.isArray(value) ? value.map(object) : [];
@@ -136,6 +138,13 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
       ? `仅当前视图投影${currentTopics.projections.length}项本站原ID主话题，${currentTopics.skipped}项当前关系/启用条件不符保留原值；审计${currentTopics.applied.auditId}，清单SHA ${currentTopics.applied.selectionHash}。数据库主父、旧边和历史期次未改。`
       : membershipAudit ? "最新成员审计未通过确切apply/来源/成员哈希校验，未借用预览或回退旧清单改主话题。" : "尚无已应用的完整1600人审成员清单，保留当前数据库主话题。" });
   const workspace = buildGrowthWorkspace(currentTopics.input, selectedSite);
+  let pageAuditAvailable = true;
+  const pageAudits = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: PAGE_AUDIT_SOURCE_ID,
+    rowKey: { in: [...new Set(members.map(member => `keyword:${member.keywordId}`))] } }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } }).catch(() => { pageAuditAvailable = false; return []; });
+  workspace.pageLiveChecks = [...growthPageAuditChecks(pageAudits, workspace.targets), ...growthPublicationPageChecks(workflow, workspace.targets)]
+    .sort((a, b) => JSON.stringify([a.site, a.keywordId, a.url, a.checkedAt, a.source]).localeCompare(JSON.stringify([b.site, b.keywordId, b.url, b.checkedAt, b.source])));
+  workspace.pageLiveEvidenceComplete = pageAuditAvailable;
+  workspace.reconciliation.sources.push({ name: "现有逐页上线验收及反证", available: pageAuditAvailable, reason: pageAuditAvailable ? "仅复用正常page-audit/liveCheck回执；库存不代表当前HTTP200。缺少新24小时真实证据不授付费资格，不影响季度N/已有排名事实。" : "逐页QA来源未读齐；普通目标/历史保留，新的付费候选全部暂缓。" });
   // Export the original stored primary alongside the current-only preference;
   // consumers must not interpret this as a database relationship migration.
   const topicProvenance = new Map(currentTopics.projections.map(row => [`${row.site}\u0000${row.keywordId}`, row]));

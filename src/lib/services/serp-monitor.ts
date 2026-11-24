@@ -18,6 +18,7 @@ import { APPROVED_KEYWORD_REVIEW_SCOPE, APPROVED_KEYWORD_REVIEW_RUN_ID, assertAp
 import { APPROVED_OTHER_KEYWORD_REVIEW_SCOPE, APPROVED_OTHER_KEYWORD_REVIEW_RUN_ID,
   assertApprovedOtherKeywordReviewRun, getApprovedOtherKeywordReviewPlan, approvedOtherTask, normalizeApprovedOtherSerpResult, type ApprovedOtherCountry } from "@/lib/approved-other-keyword-review";
 import { GROWTH_COLLECTION_MARKETS, GROWTH_COLLECTION_SCOPE, assertGrowthCollectionApproval, buildGrowthCollectionRequest, collectionHash, type GrowthCollectionCountry, type GrowthCollectionQuery } from "@/lib/growth-collection";
+import { growthPageAuditChecks } from "@/lib/growth-live-page-evidence";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const OPEN_RUNS = ["PLANNED", "RUNNING", "UNKNOWN"];
@@ -203,7 +204,11 @@ async function submitOneBatch(runId: string, sampleAuthorizationHash?: string, d
       const meta=rawRecord(rawRecord(run.configJson).growthCollection),periodKey=typeof meta.periodKey==="string"?meta.periodKey:"";
       const approval=await readGrowthCollection(periodKey,tx);
       if(!approval)throw new ImportRequestError("本轮缺少真实人工批准的冻结清单",403);
-      assertGrowthCollectionApproval(approval);
+      // New charges consume current normal QA counterevidence too. A REVIEW
+      // may retain old READY/targetUrls, so inventory flags cannot bypass it.
+      const liveTargets=approval.manifest.targets;
+      const audits=await tx.keywordSourceRow.findMany({where:{sourceId:"page_audit",OR:liveTargets.filter(target=>target.keywordId).map(target=>({siteDomain:target.site,rowKey:`keyword:${target.keywordId}`}))},select:{siteDomain:true,sourceId:true,rowKey:true,snapshotHash:true,snapshot:true}});
+      assertGrowthCollectionApproval(approval,new Date(),{newSubmission:true,pageLiveChecks:[...(approval.manifest.pageLiveChecks??[]),...growthPageAuditChecks(audits,liveTargets)]});
       const manifest=approval.manifest,allTasks=await tx.serpMonitorTask.findMany({where:{runId}});
       growthQueries=new Map(manifest.queries.map(query=>[query.key,query]));
       if(approval.runId!==runId||run.scope!==GROWTH_COLLECTION_SCOPE||meta.manifestHash!==manifest.hash||run.cohortHash!==manifest.hash||run.queryCount!==manifest.queries.length||run.reservedCostMicros!==manifest.maxCostMicros||run.estimatedCostMicros!==manifest.maxCostMicros||allTasks.length!==manifest.queries.length||config?.revision!==manifest.configRevision)throw new ImportRequestError("执行账本与已批清单、版本或费用不一致",409);

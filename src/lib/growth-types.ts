@@ -47,6 +47,9 @@ export type GrowthWorkspace = {
   quarter?: { targetIds: string[]; keywordCount: number; hash: string };
   /** Approved, still-valid hotspot targets are extra; never grow quarterly N. */
   hotspotTargetIds?: string[];
+  /** Original normal QA/liveCheck receipts; inventory itself grants no paid eligibility. */
+  pageLiveChecks?: import("./growth-live-page").GrowthLivePageCheck[];
+  pageLiveEvidenceComplete?: boolean;
   reconciliation: {
     formalCount: number; opportunityCount: number; reviewCount: number; totalCount: number;
     /** Raw word-text union across sites; not the formal target denominator. */
