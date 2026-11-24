@@ -16,7 +16,7 @@ require.extensions[".ts"] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 
 const clone = value => structuredClone(value);
-let state, targets, queue, inTransaction, fetches, respond, events, liveBalance, balanceRequests, clockOffset, oneBatchDeadline, activeWorkerOptions;
+let state, targets, queue, inTransaction, fetches, respond, events, liveBalance, balanceRequests, clockOffset, oneBatchDeadline, activeWorkerOptions, fixtureCheckedAt;
 const realNow = Date.now.bind(Date);
 const originalLoad = Module._load;
 Module._load = function(name, ...rest) { if (name === "server-only") return {}; return originalLoad.call(this, name, ...rest); };
@@ -89,6 +89,7 @@ function model(key, defaults = {}) {
   };
 }
 const db = {
+  keywordSourceRow: { findMany: async ({where}) => clone((state.pageAudits ?? []).filter(row => matches(row,where))) },
   $transaction: async callback => {
     const prior = queue; let release; queue = new Promise(resolve => { release = resolve; }); await prior;
     const before = clone(state); inTransaction = true;
@@ -162,7 +163,7 @@ function growthFixtureWorkspace() {
     rank: null, rankUrl: null, rankSource: null, rankEligible: false, captureState: "unqueried", checkedAt: null, taskIds: [], reason: "Published fixture page with reviewed original market keyword",
   })));
   const sites = [...new Set(rows.map(row => row.site))].map(domain => ({domain,name:domain,execution:true,keywordGoals:true,trafficGoal:true,dataOnly:false}));
-  return { version: "growth-v1.5", generatedAt: new Date().toISOString(), sites, markets: [], quarter: { targetIds: rows.map(row=>row.id), keywordCount: rows.length, hash: "a".repeat(64) },
+  return { pageLiveEvidenceComplete: true, pageLiveChecks: rows.flatMap(target => target.publishedUrls.map(url => ({site:target.site,keywordId:target.keywordId,url,canonicalUrl:url,httpStatus:200,checkedAt:fixtureCheckedAt,verified:true,source:"explicit-test-live-check"}))), version: "growth-v1.5", generatedAt: new Date().toISOString(), sites, markets: [], quarter: { targetIds: rows.map(row=>row.id), keywordCount: rows.length, hash: "a".repeat(64) },
     topics: sites.map(site => ({id:`${site.domain}:fixture-topic`,topicId:"fixture-topic",site:site.domain,name:"Native-market model pricing",parentIds:[],targetIds:rows.filter(row=>row.site===site.domain).map(row=>row.id),formalCount:rows.filter(row=>row.site===site.domain).length,publishedCount:rows.filter(row=>row.site===site.domain).length,rankedCount:0,top50Count:0,markets:[]})), targets: rows, opportunities: [],
     reconciliation: { formalCount:rows.length,opportunityCount:0,reviewCount:0,totalCount:rows.length,uniqueKeywordCount:new Set(rows.map(row=>row.keyword)).size,rankedCount:0,top50Count:0,publishedCount:rows.length,countryCounts:[],historicalLanguageReview:{version:"fixture",rawSnapshotsPreserved:true,rows:0,matched:0,mismatched:0,unknown:0,comparableTrend:false,reason:"No prior fixture SERP results"},sources:[{name:"全部已存SERP",available:true,reason:null}],notes:[] },
     monitoringQuote: {approved:false,paidRequests:0,queryCount:rows.length,reusedCount:0,heldCount:0,maxCostMicros:rows.length*6000,queries:[],reason:"Fixture proposal; the real manifest service computes and freezes actual queries"},
@@ -200,7 +201,7 @@ async function runWorker(options = {}) {
 }
 beforeEach(t => {
   delete process.env.DATAFORSEO_SERP_PAID_ENABLED; delete process.env.DISABLE_EXTERNAL_FETCH;
-  clockOffset = 0; oneBatchDeadline = false; activeWorkerOptions = null;
+  clockOffset = 0; oneBatchDeadline = false; activeWorkerOptions = null; fixtureCheckedAt = new Date().toISOString();
   t.mock.method(Date, "now", () => realNow() + clockOffset);
   targets = [target("model api price"), target("brand key")];
   state = { records: [], collectionEvents: [], config: { id: "default", ...SERP_DEFAULT_CONFIG, revision: 1, authorizationVersion: 1 }, connection: true, runs: [], tasks: [] };
@@ -220,6 +221,14 @@ beforeEach(t => {
     fetches.push({ url, method: init.method, body: init.body });
     try { return await respond(url, init); } finally { if (init.method === "POST" && oneBatchDeadline) clockOffset += 91000; }
   });
+});
+test("a newly stored page REVIEW blocks new growth charges despite original READY inventory and prior approval",async()=>{
+ const saved=await reserveReviewed('live-counter-proof');const target=saved.state.manifest.targets[0];
+ state.pageAudits=[{siteDomain:target.site,sourceId:'page_audit',rowKey:`keyword:${target.keywordId}`,snapshotHash:'e'.repeat(64),snapshot:{version:1,keywordId:target.keywordId,keyword:target.keyword,verdict:'REVIEW',pageUrl:target.publishedUrls[0],httpStatus:307,checkedAt:new Date().toISOString(),evidence:{}}}];
+ const before=fetches.filter(row=>row.method==='POST').length;
+ await assert.rejects(resumeGrowthCollectionRun(saved.state.runId,{allowSubmit:true,deadline:Date.now()+90000}),/24小时|上线核验|反证/);
+ assert.equal(fetches.filter(row=>row.method==='POST').length,before);
+ assert.equal(state.tasks.some(task=>task.state==='SUBMITTING'),false);
 });
 
 test("SERP setup, status and preview are offline; neither flag alone can spend and configure cannot enable", async () => {

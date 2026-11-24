@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { GrowthTarget, GrowthWorkspace } from "./growth-types";
 import { growthPublicUrl, growthWordKey } from "./growth-workspace";
 import { isOwnedBrandKeyword } from "./keyword-market-policy";
+import { GROWTH_LIVE_PAGE_POLICY, growthLivePageReadiness, type GrowthLivePageCheck } from "./growth-live-page";
 import { nextSerpPeriodKey, serpPeriodFromKey } from "./serp-periods";
 
 export const GROWTH_COLLECTION_KIND = "growth-collection";
@@ -33,6 +34,7 @@ export type GrowthCollectionManifest = {
   reused: { targetId: string; checkedAt: string; rank: number | null; captureState: string; originalScope: string | null; originalPeriodKey: string | null; originalRunId: string | null }[];
   held: { targetId: string; reason: string }[]; queries: GrowthCollectionQuery[]; maxCostMicros: number;
   provider: "dataforseo_serp"; device: "desktop"; depth: 100; hash: string;
+  livePagePolicy?: typeof GROWTH_LIVE_PAGE_POLICY; pageLiveChecks?: GrowthLivePageCheck[]; pageLiveEvidenceComplete?: boolean;
 };
 export type GrowthCollectionState = { id: string; version: number; manifest: GrowthCollectionManifest; approval: { actor: "human"; approvedAt: string; manifestHash: string; maxCostMicros: number; reason: string } | null; runId: string | null };
 const id = z.string().min(1).max(200), hash = z.string().regex(/^[a-f0-9]{64}$/), version = z.number().int().nonnegative();
@@ -48,7 +50,7 @@ export function growthCollectionTargets(workspace: GrowthWorkspace) {
   return workspace.targets.filter(target => target.membership === "formal" && ids.has(target.id));
 }
 export function growthCollectionSourceHash(workspace: GrowthWorkspace) {
-  return collectionHash({ quarter: workspace.quarter ?? null, hotspotTargetIds: strings(workspace.hotspotTargetIds ?? []), targets: growthCollectionTargets(workspace).map(target => [target.id, target.keywordId, target.site, target.topicId, target.keyword, target.country, target.language, target.languageStatus, target.pageState, [...target.publishedUrls].sort()]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))) });
+  return collectionHash({ quarter: workspace.quarter ?? null, hotspotTargetIds: strings(workspace.hotspotTargetIds ?? []), pageLiveChecks: workspace.pageLiveChecks ?? [], pageLiveEvidenceComplete: workspace.pageLiveEvidenceComplete === true, targets: growthCollectionTargets(workspace).map(target => [target.id, target.keywordId, target.site, target.topicId, target.keyword, target.country, target.language, target.languageStatus, target.pageState, [...target.publishedUrls].sort()]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))) });
 }
 export function buildGrowthCollectionManifest(workspace: GrowthWorkspace, periodKey: string, configuration: { revision: number; connectionVersion: number }, now = new Date()): GrowthCollectionManifest {
   const period = serpPeriodFromKey(periodKey);
@@ -67,18 +69,21 @@ export function buildGrowthCollectionManifest(workspace: GrowthWorkspace, period
     const urls = target.publishedUrls.filter(url => growthPublicUrl(url, target.site));
     const reason = (marketsByWord.get(growthWordKey(target.keyword))?.size ?? 0) > 1 ? "同一原词存在多个主国家身份，须先核定一个已审主市场，不跨国重复收费" : !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(target.site) ? "本站不在付费排名或内容执行范围" : !target.topicId ? "正式话题归属未核实" : !market || market.language !== target.language ? "原市场/语言尚不支持，禁止回落其他国家" : target.languageStatus !== "match" ? target.languageReason : target.pageState !== "published" || !urls.length ? "没有真实已建页面证据，保留目标但不进入付费队列" : isOwnedBrandKeyword(target.keyword) ? "自有品牌词排除付费" : /(?:^|\s)(?:\w+):/u.test(target.keyword) ? "带搜索运算符，须单独核费" : !target.keywordId ? "缺少真实原关键词ID" : null;
     if (reason) { held.push({ targetId: target.id, reason }); continue; }
-    targets.push({ id: target.id, keywordId: target.keywordId, site: target.site, topicId: target.topicId, keyword: target.keyword, country: target.country, language: target.language, publishedUrls: strings(urls) });
     const checkedAt = target.checkedAt ? Date.parse(target.checkedAt) : NaN;
     if (target.observationEligible && target.checkedAt && target.rankSource === "serp" && checkedAt >= Date.parse(period.dueAt) && checkedAt < Date.parse(nextPeriod.dueAt) && checkedAt <= now.getTime() && now.getTime() - checkedAt <= 14 * 86400000) {
+      targets.push({ id: target.id, keywordId: target.keywordId, site: target.site, topicId: target.topicId, keyword: target.keyword, country: target.country, language: target.language, publishedUrls: strings(urls) });
       reused.push({ targetId: target.id, checkedAt: target.checkedAt, rank: target.rank, captureState: target.captureState, originalScope: target.captureScope ?? null, originalPeriodKey: target.capturePeriodKey ?? null, originalRunId: target.captureRunId ?? null }); continue;
     }
+    const live = growthLivePageReadiness(target, workspace.pageLiveChecks ?? [], now);
+    if (workspace.pageLiveEvidenceComplete !== true || !live.urls.length) { held.push({ targetId: target.id, reason: workspace.pageLiveEvidenceComplete !== true ? "逐页QA/反证来源未读齐；旧库存不授付费资格，沿原页面核验补证" : live.reason === "published_page_live_stale" ? "原页上线验收已超过24小时，沿原QA复核；不进入付费队列" : "原页缺少新24小时真实200/self-canonical核验或存在更新反证，沿原QA补证；旧库存不授费" }); continue; }
+    targets.push({ id: target.id, keywordId: target.keywordId, site: target.site, topicId: target.topicId, keyword: target.keyword, country: target.country, language: target.language, publishedUrls: strings(live.urls) });
     const key = `${target.country}:${target.language}:${growthWordKey(target.keyword)}`, existing = groups.get(key);
     if (existing) existing.targetIds.push(target.id);
     else groups.set(key, { key, keyword: target.keyword, country: target.country as GrowthCollectionCountry, language: target.language!, targetIds: [target.id], maxCostMicros: 6000 });
   }
   const queries = [...groups.values()].sort((a,b) => a.key.localeCompare(b.key));
   const content: Omit<GrowthCollectionManifest,"hash"> = { version: "growth-collection-v1", periodKey: period.key, periodLabel: period.label, periodDueAt: period.dueAt, preparedAt: now.toISOString(), expiresAt: new Date(now.getTime()+24*3600000).toISOString(),
-    sourceHash: growthCollectionSourceHash(workspace), configRevision: configuration.revision, connectionVersion: configuration.connectionVersion, targets, reused, held, queries, maxCostMicros: queries.length*6000, provider: "dataforseo_serp", device: "desktop", depth: 100 };
+    sourceHash: growthCollectionSourceHash(workspace), configRevision: configuration.revision, connectionVersion: configuration.connectionVersion, targets, reused, held, queries, maxCostMicros: queries.length*6000, provider: "dataforseo_serp", device: "desktop", depth: 100, livePagePolicy: GROWTH_LIVE_PAGE_POLICY, pageLiveChecks: workspace.pageLiveChecks ?? [], pageLiveEvidenceComplete: workspace.pageLiveEvidenceComplete === true };
   return { ...content, hash: collectionHash(content) };
 }
 /** UI and the payable manifest share the exact target, reuse and price rules. */
@@ -109,12 +114,23 @@ export function assertGrowthCollectionManifest(manifest: GrowthCollectionManifes
 export function approveGrowthCollection(state: GrowthCollectionState, command: Extract<GrowthCollectionCommand,{action:"approve"}>, actor: "human"|"collector", now = new Date()): GrowthCollectionState {
   if (actor!=="human") throw new GrowthCollectionError("human_required", "付费清单必须由已登录用户在同源页面确认",403);
   assertGrowthCollectionManifest(state.manifest);
+  assertGrowthCollectionLivePages(state.manifest, now);
   if (state.version!==command.expectedVersion || command.periodKey!==state.id || command.manifestHash!==state.manifest.hash || command.maxCostMicros!==state.manifest.maxCostMicros) throw new GrowthCollectionError("approval_mismatch", "须批准当前确切清单、版本和费用上限");
   if (Date.parse(state.manifest.expiresAt)<=now.getTime() || state.runId) throw new GrowthCollectionError("approval_expired", "清单已过期或已转入原采集账本，请核对原记录");
   return {...state,version:state.version+1,approval:{actor:"human",approvedAt:now.toISOString(),manifestHash:command.manifestHash,maxCostMicros:command.maxCostMicros,reason:command.reason}};
 }
-export function assertGrowthCollectionApproval(state: GrowthCollectionState, now=new Date()) {
+export function assertGrowthCollectionLivePages(manifest: GrowthCollectionManifest, now=new Date(), checks=manifest.pageLiveChecks ?? []) {
+  if (!manifest.queries.length) return;
+  if (manifest.livePagePolicy !== GROWTH_LIVE_PAGE_POLICY || manifest.pageLiveEvidenceComplete !== true) throw new GrowthCollectionError("live_page_evidence_required", "旧清单缺真实逐页上线核验；仅保留读取/已有回执，不得提交新费用",403);
+  const ids = new Set(manifest.queries.flatMap(query => query.targetIds));
+  for (const target of manifest.targets.filter(target => ids.has(target.id))) {
+    const live = growthLivePageReadiness(target, checks, now);
+    if (!live.urls.length || live.urls.length !== target.publishedUrls.length) throw new GrowthCollectionError("live_page_evidence_required", "付费目标页面的真实新24小时200/self-canonical证据未齐或有更新反证；沿原QA补证，不删季度词",403);
+  }
+}
+export function assertGrowthCollectionApproval(state: GrowthCollectionState, now=new Date(), options: { newSubmission?: boolean; pageLiveChecks?: GrowthLivePageCheck[] } = {}) {
   assertGrowthCollectionManifest(state.manifest);
+  if (options.newSubmission) assertGrowthCollectionLivePages(state.manifest, now, options.pageLiveChecks);
   // Expiry limits the initial reservation. A started single-use run continues
   // under its original frozen cap/IDs, including free retrieval after 24h.
   if (!state.approval || state.approval.actor!=="human" || state.approval.manifestHash!==state.manifest.hash || state.approval.maxCostMicros!==state.manifest.maxCostMicros || !state.runId && Date.parse(state.manifest.expiresAt)<=now.getTime()) throw new GrowthCollectionError("approval_required", "当前清单尚未获确切人工费用批准或已过期",403);
