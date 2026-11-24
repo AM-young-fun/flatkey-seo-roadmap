@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "batchId": "seo-recovery-20261124-v1",
+  "approvedWordListSha256": "7540d3427ac7c7c9a13d18f8b3426f58f6020661a8861ff4ca28219bb1fb5d54",
+  "runtimeRelativePath": ".local/seo-final-review-20261124/implementation-v9/automation-recovery-final-preparation-20261124/runtime-recovery-state.json",
+  "catchupSourceDate": "2026-11-24",
+  "catchupExecutionDate": "2026-11-25",
+  "catchupEntrypoints": [
+    "automation-2",
+    "flatkey-5",
+    "seo",
+    "seo-09-10-flatkey",
+    "seo-10-00",
+    "seo-16-00-ga4-search-console",
+    "seo-16-25",
+    "seo-17-30",
+    "seo-18-00"
+  ],
+  "dailyCaps": {
+    "blog": 5,
+    "modelfit_blog": 1,
+    "optimization": 2,
+    "cluster_landing": 2,
+    "refresh": 2
+  },
+  "landingBusinessWeekCap": 7,
+  "members": [
+    {
+      "taskIdSha256": "b976bb92618c9421823ff27c5c5ded703b72b5094a24690130c40f56f9fc45c4",
+      "identitySha256": "5f989997151c645e89d18b0129c1d4db9d101830523d864c19bbc9620060b437",
+      "proposedStartOrResume": "2026-11-25T10:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "97dbe134ab1de018093eaa6674158b4cc7fd1c61df2c66320c64597c8bf5e573",
+      "identitySha256": "7b42d4f908103a52597eeffbe2929de1cc36cb6805a678e16770ef2573f5e1a3",
+      "proposedStartOrResume": "2026-11-25T10:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "96a0c6b0fa480afd263a36f522736486ece3428c05da2ec926c37fe56a5cf640",
+      "identitySha256": "0d55da95bdc28028e70a384147a5fed891c3190c2e6ed7430c76c13adfb51921",
+      "proposedStartOrResume": "2026-11-25T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "2ffb049eabbc2514c839e32e8fcee1b62a80e527b7f4fbf69a1975fd50d153b3",
+      "identitySha256": "cc6e06c1161d58ab2afdcd676934bc5aa4f8b6f976002b299016bfe583ea9d6c",
+      "proposedStartOrResume": "2026-11-25T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "fec1640a2399a48eb377758e625eb2528bc409453c9d74eef6c24c2d250f7394",
+      "identitySha256": "433adfbb2e621fce66df8f687b756bb177d6cd084c916bfbfbe5d88d87caece7",
+      "proposedStartOrResume": "2026-11-25T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "2746cb2146c7b9b68650f3a1aa13a3e52349b505e4b34ac28a113ae3fc828c2f",
+      "identitySha256": "2cbd1a2c406dfb857596d9f8b1eddd6bdb8ff3a019132fffc020f86a19f57b57",
+      "proposedStartOrResume": "2026-11-25T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "3567e235c726d4e32d3017abe2570502ce1f81ea2ee16de7052a9c3f737e171e",
+      "identitySha256": "6d0ad987e347eab273d3cf22bd80a55f7811b387b5a01a3bc2a48757729ea9e6",
+      "proposedStartOrResume": "2026-11-25T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "4fc6769bed009900c4f9cae930211fa63594a8c3ade79c4d80949e0a1e963963",
+      "identitySha256": "c3ce8a7ffe41a0a35ec118d2a159de9eff16552199c2f516b3981ae7d0baae6e",
+      "proposedStartOrResume": "2026-11-25T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "7fcc3f8dd13285e24daae202839877f85d097167c2b9e2eb9046b29eddbdf21c",
+      "identitySha256": "0c60077b57fb07e64b10c177a6768ef520e91a2118d4d16e083de82eff448543",
+      "proposedStartOrResume": "2026-11-25T14:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "ff287ef912f5da7a1b2368ebeda60f479f72265fbf8a70650bfe7c6cf5e8aef8",
+      "identitySha256": "d20d9d9d5115c4f44066d60ec28dd44d121b8cf7fb618bd50ac1c4ecf0f50798",
+      "proposedStartOrResume": "2026-11-25T14:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "763e954d7f16ada1853c130ea209d8ee103c9f946ea35c1908b8a91d3bb44fd4",
+      "identitySha256": "aeb9527d276475392e26d4f56432dc9f3788d134932d0b4d8b924dfe01b9bf29",
+      "proposedStartOrResume": "2026-11-26T10:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "ecdc71467c0b856522e3ef4f112b557f0d106dde61841942754bcd30488d2c78",
+      "identitySha256": "e268943fb1c89dd7bc5557f7f38da5120175ed4673e90ee24ed40f394b413c27",
+      "proposedStartOrResume": "2026-11-26T10:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "073ad52b068fe500edba22c354ca890f27d6e55ecb3b98adf9ca23d47564e325",
+      "identitySha256": "fba5d9310cbe97a36d03f2449144fe660d67824947f26c541be98288596a6d78",
+      "proposedStartOrResume": "2026-11-26T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "19c2c7b08ddb810b05f6ce4b033f73bcf63dbd188e4f3c1cf83fb6fdaba61620",
+      "identitySha256": "f64fe87bcde0c77c6d6309e0fb734872e536af541b9938da9f6d14da674bac5c",
+      "proposedStartOrResume": "2026-11-26T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "057d831bf88e3fd1c83fe8d2451c84b020841b759f6604eda67ccc9e4a6b6c21",
+      "identitySha256": "69414d051aa9c129aafec6ca3c1105004eafee812d7c824cc9783df04d01a077",
+      "proposedStartOrResume": "2026-11-26T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "95525d5b2c0c2001f62fbfc9fb3d020a23d0c21c57d3406ab61206b383513809",
+      "identitySha256": "03c8081c3b3e7c34600a20ac92cafcb48682968cb804154d9519c0b7266ebeaa",
+      "proposedStartOrResume": "2026-11-26T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "b6fe238a0e3d6a79f7a7c323fa6a4e08037393564e31dd005913e41a69e84b77",
+      "identitySha256": "b38321749181717f966b192ced5919468fc43db8ce2bfff74e9354f8b727bc47",
+      "proposedStartOrResume": "2026-11-26T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "a98e01e3bf2ca9cba6c9200aea8d77c16590d24891a58dae4fbd7006141029a0",
+      "identitySha256": "e12dc7f73041639cb7ef5bba00aaa8c9ca9d8c3f6cd09606130611250ddc0658",
+      "proposedStartOrResume": "2026-11-26T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "f92c33f5cc4d0f895a347bd988cc00a4e2194ccd933aebd4a8bc6f3fcd684d36",
+      "identitySha256": "8b379ec7e0731509fb18b92724c842f329eb16a0521672ff3aefa347a4c6a376",
+      "proposedStartOrResume": "2026-11-26T14:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "4296eadb94cb7d310f3be86c605f0b5918d41e04085dfc0f56f12f42de11ee40",
+      "identitySha256": "d3af45c743488575ed8a8f6deb896c29d83fa831f04ae42c9d97b36a8c527bb6",
+      "proposedStartOrResume": "2026-11-26T14:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_IN_REMAINING_LAWFUL_WINDOW"
+    },
+    {
+      "taskIdSha256": "fac701a91af2058fd46167fbd2d0804914856c2fd0d2eff499a493a85f68f27d",
+      "identitySha256": "c23e2000d5f8f447e0e0d098bf046eb71d31ae90428c02008bcc643f70e4db46",
+      "proposedStartOrResume": "2026-11-27T10:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "c2c75349623498dc2c526a7742393fe5424df81bada1ebab3b7ea9566b1271aa",
+      "identitySha256": "bb575e3ee98e3ac429e2abd4f21e3f66f40ac992f6837fa842523e52d0c3e67f",
+      "proposedStartOrResume": "2026-11-27T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "68397d684fe279df91bb0e320f20e40a7d5f4d146acce5d85ac2ef4f6251b040",
+      "identitySha256": "7cf5251e9c3f09d465524d125fa27bfe2c6059beddf0954777ea2a989c14ad67",
+      "proposedStartOrResume": "2026-11-27T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "29b81208bd72f4f0a25d160aacb436d4242b886d8377595626068f602cbd6c4f",
+      "identitySha256": "57cc2d2a781f56e2ecf30a72dd721bc36d0510b92dda160ac48fe8570c1412eb",
+      "proposedStartOrResume": "2026-11-27T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "c40e6c19bb100fa12d1a5d9436680eaa17452e1acff1ab9ed553af1b400341f2",
+      "identitySha256": "bfd6ba515a7115566dd2742bb102cbc0df966c7e0867364f83801e85d5178b52",
+      "proposedStartOrResume": "2026-11-27T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "9f2710b2af0de53cf03872a39c62aebcb02d7fc6579ef9ad7e0b4d47e67ca434",
+      "identitySha256": "21b84217dc52d52a5b0b0055d52d91a3933c703adac087d064a1224fbd53a530",
+      "proposedStartOrResume": "2026-11-27T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "b2def8360161b1c7c91754710a5cd52f7883de9d053a8e94670e0e1ac7e48111",
+      "identitySha256": "e7b50f300873c3290d2b3f0dfbb642d2ab9c4c0c85a63fccc11fd217d53fbf88",
+      "proposedStartOrResume": "2026-11-27T11:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    },
+    {
+      "taskIdSha256": "fb6dc16ace5469c757ed9919f582525cf10275ac45315a6cea56d801ca8d8fe0",
+      "identitySha256": "cdd89ae69a8945ccc0ff8f9cfc4be9f728a8c68a2aba5a31125b87ec6c7f8d1b",
+      "proposedStartOrResume": "2026-11-27T14:15:00+08:00",
+      "disposition": "ORIGINAL_ROUTINE_CAPACITY_CONFLICT_RETAINED_FOR_NEXT_LAWFUL_RESUME"
+    }
+  ],
+  "dispatchStartsBJT": [
+    "10:15",
+    "11:15",
+    "14:15",
+    "15:15",
+    "16:15",
+    "17:15",
+    "18:15"
+  ],
+  "dispatchClaimWindowMinutes": 60
+}
