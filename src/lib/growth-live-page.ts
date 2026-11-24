@@ -17,7 +17,10 @@ function websiteUrl(value: string | null, site: string): string | null {
     let decoded = url.pathname;
     if (/%(?![a-f0-9]{2})/iu.test(decoded)) return null;
     for (let count = 0; count < 4 && /%[a-f0-9]{2}/iu.test(decoded); count++) decoded = decodeURIComponent(decoded);
-    if (/%[a-f0-9]{2}/iu.test(decoded) || decoded.normalize("NFKC").toLowerCase().replace(/\\/gu, "/").split("/").some(segment => privateSegments.has(segment))) return null;
+    // RackRate's exact /api route renders its public pricing API overview;
+    // /api/* remains a data endpoint, as do API paths on the other sites.
+    const publicApiOverview = site === "rackrate.org" && (url.pathname === "/api" || url.pathname === "/api/");
+    if (/%[a-f0-9]{2}/iu.test(decoded) || !publicApiOverview && decoded.normalize("NFKC").toLowerCase().replace(/\\/gu, "/").split("/").some(segment => privateSegments.has(segment))) return null;
     url.hostname = site; url.hash = "";
     if (url.pathname !== "/") url.pathname = url.pathname.replace(/\/+$/u, "");
     return url.href;

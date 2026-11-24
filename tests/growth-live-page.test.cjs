@@ -54,6 +54,22 @@ test("technical/product routes are excluded even when their path is case-folded,
  const page = "https://flatkey.ai/blog/api-costs";
  assert.deepEqual(live({ ...target, publishedUrls: [page] }, [check({ url: page, canonicalUrl: page })], now).urls, [page]);
 });
+test("RackRate's exact public API overview is eligible while API endpoints remain excluded", () => {
+ const site = "rackrate.org", page = "https://rackrate.org/api";
+ for (const candidate of [page, page + "/", "https://www.rackrate.org/api/#usage"]) {
+  assert.deepEqual(live({ site, keywordId: "kid", publishedUrls: [candidate] }, [check({ site, url: candidate, canonicalUrl: page })], now), { urls: [page], reason: null });
+ }
+ for (const path of ["/api/search", "/api/v1/prices/realtime", "/API", "/%61pi", "/ja/api", "/api//"]) {
+  const candidate = `https://${site}${path}`;
+  held([check({ site, url: candidate, canonicalUrl: candidate })], { site, keywordId: "kid", publishedUrls: [candidate] });
+ }
+ for (const otherSite of ["flatkey.ai", "modelfit.cc"]) {
+  const candidate = `https://${otherSite}/api`;
+  held([check({ site: otherSite, url: candidate, canonicalUrl: candidate })], { site: otherSite, keywordId: "kid", publishedUrls: [candidate] });
+ }
+ held([check({ site, url: page, canonicalUrl: "https://rackrate.org/" })], { site, keywordId: "kid", publishedUrls: [page] });
+ held([check({ site, url: page, canonicalUrl: page, httpStatus: 307, verified: false })], { site, keywordId: "kid", publishedUrls: [page] });
+});
 test("other keywords cannot lend positive proof or intent-only REVIEW, but actual HTTP/canonical failures are shared", () => {
  held([check({ keywordId: "other" })]);
  pass([check(), check({ keywordId: "other", verified: false, checkedAt: "2026-11-25T01:30:00Z" })]);
