@@ -2,7 +2,8 @@
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { z } = require("zod");
-const { workflowTaskSchema, workflowIssueSchema, workflowWeekSchema, taskNeedsChineseBrief, workflowTaskBriefProblems } = require("./seo-content-review-schema.cjs");
+const { GROWTH_COUNTRIES, GROWTH_LANGUAGES, GROWTH_MARKET_LANGUAGES, WORKFLOW_SITE_LANGUAGES,
+  workflowTaskSchema, workflowIssueSchema, workflowWeekSchema, taskNeedsChineseBrief, workflowTaskBriefProblems } = require("./seo-content-review-schema.cjs");
 
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === "object"
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stable(v)])) : value;
@@ -31,8 +32,8 @@ const sourceSchema = z.object({ id: z.string().trim().min(1).max(100), kind: z.e
 const decisionArtifactSchema = sourceSchema.pick({ artifact: true, sha256: true, observedAt: true });
 const findingSchema = z.object({ problemKey: z.string().regex(/^[a-z0-9][a-z0-9_.:-]{2,100}$/u),
   changeType: z.enum(["keyword_diagnosis", "content_refresh", "new_content", "technical_review", "measurement_review"]),
-  siteDomain: site, country: z.enum(["US", "JP", "BR", "ES"]).nullable(),
-  language: z.enum(["en", "ja", "pt-BR", "es-ES"]).nullable(), pageUrl: z.url().max(3000).nullable(),
+  siteDomain: site, country: z.enum(GROWTH_COUNTRIES).nullable(),
+  language: z.enum(GROWTH_LANGUAGES).nullable(), pageUrl: z.url().max(3000).nullable(),
   keyword: z.string().trim().min(1).max(300).nullable(), keywordId: z.string().min(1).max(160).nullable().default(null),
   title: chinese.max(500), business: z.enum(["API", "GPU", "CLUSTER"]),
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
@@ -65,7 +66,7 @@ function findingKey(finding) {
   return "seo-finding:" + hash([finding.siteDomain, finding.country, finding.language, anchor, finding.category, finding.changeType, finding.problemKey]);
 }
 const marker = key => `结论 ${key} `;
-const hasMarker = (record, key) => record.sourceRowId === key || (record.evidence ?? []).some(row => row.label.startsWith(marker(key)));
+const hasMarker = (record, key) => record.problemKey === key || record.sourceRowId === key || (record.evidence ?? []).some(row => row.label.startsWith(marker(key)));
 const clean = (kind, record) => (kind === "task" ? workflowTaskSchema : workflowIssueSchema).parse(Object.fromEntries(
   Object.entries(record).filter(([key]) => !["version", "recordedAt", "updatedAt"].includes(key))));
 const evidenceId = row => hash([/^结论 (seo-finding:[a-f0-9]{64}) /u.exec(row.label)?.[1] ?? row.label,
@@ -161,8 +162,9 @@ function assertFindingScope(finding) {
   if (finding.pageUrl) pageKey(finding.pageUrl, finding.siteDomain);
   if (finding.keywordId && !finding.keyword) throw Error("keyword_identity_missing_text");
   if ((finding.country === null) !== (finding.language === null)) throw Error("country_language_pair_incomplete");
-  const allowed = finding.siteDomain === "flatkey.ai" ? { US: "en", JP: "ja", BR: "pt-BR", ES: "es-ES" }[finding.country] : "en";
-  if (finding.language && finding.language !== allowed) throw Error("country_or_site_language_mismatch");
+  const languages = finding.siteDomain === "flatkey.ai"
+    ? [GROWTH_MARKET_LANGUAGES[finding.country]] : WORKFLOW_SITE_LANGUAGES[finding.siteDomain] ?? [];
+  if (finding.language && !languages.includes(finding.language)) throw Error("country_or_site_language_mismatch");
   if (finding.pageType === "blog" && finding.siteDomain === "rackrate.org") throw Error("rackrate_blog_outside_authorized_scope");
   if (finding.changeType === "new_content" && finding.siteDomain === "flatkey.ai" && finding.pageType !== "blog") throw Error("flatkey_new_landing_paused");
 }
@@ -226,13 +228,18 @@ function buildReviewPlan(raw, snapshot, options = {}) {
           kind: candidate.kind, country: finding.country, language: finding.language, business: finding.business, pageType: finding.pageType,
           keyword: finding.keyword, keywordId: finding.keywordId, pageUrl: finding.pageUrl, owner: candidate.owner, dueAt: candidate.dueAt,
           status: "planned", dependencies: [], evidence, nextAction: (finding.recommendation + identityNote).slice(0, 3000), contentVersion: null,
-          acceptanceCriteria: finding.acceptanceCriteria, research: null, approval: null, source: "automation", sourceRowId: key,
+          acceptanceCriteria: finding.acceptanceCriteria, research: null, approval: null, source: "automation", sourceRowId: key, problemKey: key,
           brief: { reason: finding.problem, problem: finding.problem, plan: finding.recommendation, actions: finding.actions, evidence },
         });
         const briefProblems = taskNeedsChineseBrief(task) ? workflowTaskBriefProblems(task) : [];
         if (briefProblems.length) throw Error("task_brief_incomplete:" + briefProblems.join("；"));
         tasks.push(task); created = true;
-      } else { task.evidence = appendEvidence(task.evidence, evidence); task.nextAction = appendAction(task.nextAction, finding); }
+      } else {
+        task.evidence = appendEvidence(task.evidence, evidence); task.nextAction = appendAction(task.nextAction, finding);
+        // Adopt only this tool's original stable identity; never reclassify an
+        // explicitly linked human task or overwrite its existing problem key.
+        if (!task.problemKey && task.sourceRowId === key) task.problemKey = key;
+      }
       queue("task", task);
       let issue = selected.issues[0];
       if (issue) {

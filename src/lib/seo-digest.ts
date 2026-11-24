@@ -33,6 +33,7 @@ const approvalsUrl = SEO_PLATFORM + executionViewRoutes.approvals;
 export const SEO_SITES = ["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org", "mochichatbot.com", "jev-llm.com"] as const;
 export const digestDateSchema = z.iso.date();
 export const digestKindSchema = z.enum(["daily", "weekly"]);
+export const DAILY_BUSINESS_DATE_SWITCH = "2026-11-24";
 export type DigestKind = z.infer<typeof digestKindSchema>;
 const shift = (day: string, n: number) => new Date(Date.parse(day + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 export const beijingDay = seoToday;
@@ -46,13 +47,14 @@ export type DigestObservation = {
   sessions?: number | null; registrations?: number | null; clicks?: number | null; impressions?: number | null; position?: number | null;
 };
 export type DigestPublication = { id: string; url: string; title: string; kind: "source" | "translation" | "backfill_translation" | "landing" | "cluster" | "prompt"; verifiedAt: string; recordedAt: string; publishedAt: string };
-export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string };
+export type DigestOptimization = { id: string; url: string; keyword: string; changes: string; verifiedAt: string; recordedAt: string; baselineId: string;
+  taskId?: string; publicationId?: string; workClass?: "content_refresh" | "internal_linking" | "technical_seo"; primaryDelivery?: boolean };
 export type DigestWorkPlan = {
   weekStart: string;
   periodStart?: string; periodEnd?: string; workdays?: string[];
   status: "draft" | "scheduled" | "reviewed" | "bootstrap";
-  targets?: { blogs: number; landing: number; optimizedPages: number; clusterLanding: number };
-  tasks: { id: string; weekStart?: string; siteDomain?: string; scheduled?: boolean; kind: "blog" | "landing" | "optimization" | "cluster_work" | "cluster_landing" | "research" | "other_work"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; owner?: string; dueAt: string; status: string; action: string }[];
+  targets?: { blogs: number; landing: number; optimizedPages: number; clusterLanding: number; contentRefreshPages?: number };
+  tasks: { id: string; weekStart?: string; siteDomain?: string; scheduled?: boolean; kind: "blog" | "landing" | "optimization" | "cluster_work" | "cluster_landing" | "research" | "other_work"; workClass?: "content_refresh" | "internal_linking" | "technical_seo"; title: string; pageUrl: string | null; keyword: string | null; country: string | null; language: string | null; owner?: string; dueAt: string; status: string; action: string }[];
 };
 
 export type DigestInput = {
@@ -83,16 +85,17 @@ export type DigestInput = {
   historicalImports?: { id: string; recordedAt: string; sourceRunId: string; originals: number; translations: number; liveVerified: number; artifactOnly: number; unknownFirstVerification: number; pendingEvidence: number; pendingRevisions: number }[];
 };
 
-export function digestWindow(date: string, kind: DigestKind = "daily") {
+export function digestWindow(date: string, kind: DigestKind = "daily", options: { legacyDailyExecution?: boolean } = {}) {
   digestDateSchema.parse(date);
   digestKindSchema.parse(kind);
   const weekly = kind === "weekly";
   const weekday = new Date(date + "T00:00:00Z").getUTCDay();
   if (!weekly && date >= SEO_REPORT_LA_SWITCH_DATE) {
     const sourceDay = shift(date, -1);
+    const businessDate = date >= DAILY_BUSINESS_DATE_SWITCH && !options.legacyDailyExecution ? date : sourceDay;
     return { kind, workStart: losAngelesDayStart(sourceDay), workEnd: losAngelesDayStart(date),
       workTimezone: "America/Los_Angeles" as const, readyAfter: reportTime(date, 2),
-      executionStart: sourceDay + "T00:00:00+08:00", executionEnd: date + "T00:00:00+08:00",
+      executionStart: businessDate + "T00:00:00+08:00", executionEnd: shift(businessDate, 1) + "T00:00:00+08:00",
       executionTimezone: "Asia/Shanghai" as const,
       trafficStart: sourceDay, trafficEnd: sourceDay };
   }
@@ -144,7 +147,8 @@ function completeMetricDays(observations: DigestObservation[], site: string, met
 export function comparableMetric(observations: DigestObservation[], site: string, metric: DigestMetric, date: string, country: GrowthAnalysisCountry = "all", kind: DigestKind = "daily") {
   const window = digestWindow(date, kind);
   const losAngelesWeek = window.kind === "weekly" && window.workTimezone === "America/Los_Angeles";
-  const latest = completeMetricDays(losAngelesWeek ? observations.filter(row => row.timezone === "America/Los_Angeles") : observations, site, metric, country);
+  const laSourceRequired = losAngelesWeek || kind === "daily" && date >= DAILY_BUSINESS_DATE_SWITCH;
+  const latest = completeMetricDays(laSourceRequired ? observations.filter(row => row.timezone === "America/Los_Angeles") : observations, site, metric, country);
   // A weekly distinct-user metric must be queried over the full interval, not summed from daily users.
   if (window.kind === "weekly" && metric === "registrations") return { current: null, previous: null, dates: [] as string[], previousDates: [] as string[], timezone: null, canCompare: false, reason: "周注册需区间去重数据，未用每日人数相加" };
   if (window.kind === "daily") {
@@ -407,7 +411,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
   pagePerformance, completed, optimizations, registrations, focus,
 }: {
   pagePerformance: ReturnType<typeof digestTopPages>;
-  completed: { blogs: BlogPageCounts; optimized: number; newPages: number; fixed: number | null };
+  completed: { blogs: BlogPageCounts; optimized: number; refreshed?: number; newPages: number; fixed: number | null };
   optimizations: DigestOptimization[];
   registrations: ReturnType<typeof registrationPeriodComparison>;
   focus: string[];
@@ -472,7 +476,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       lines.push("本窗口方向原因尚缺可比证据；先核验页面、国家、搜索来源、发布时间及竞争变化，未核实前不归因为AI内容或扩大投入。");
       for (const page of pageChanges) lines.push(`• ${link(pagePath(page.url), page.url)} · GSC点击 ${cardComparison(page.previous, page.value, pageCanCompare)}；这是页面贡献，尚未证明动作因果，沿原任务核实外部需求及本站改动。`);
     }
-    lines.push("", "**三、本周交付与页面效果**", `新增博客页面 ${completed.blogs.total} 页（源文${completed.blogs.originals}篇、译文${completed.blogs.translations}页、旧文补译${completed.blogs.backfillTranslations}页）；页面${completed.newPages}个；优化${completed.optimized}个。`);
+    lines.push("", "**三、本周交付与页面效果**", `新增博客页面 ${completed.blogs.total} 页（源文${completed.blogs.originals}篇、译文${completed.blogs.translations}页、旧文补译${completed.blogs.backfillTranslations}页）；页面${completed.newPages}个；优化${completed.optimized}个${completed.refreshed === undefined ? "" : `；内容刷新${completed.refreshed}个`}。`);
     const plan = input.currentWorkPlan;
     if (plan) {
       const done = plan.tasks.filter(task => ["verified", "observing"].includes(task.status)).length;
@@ -530,7 +534,7 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       : ["• 在已归档的 Google 搜索结果中还没有找到可核实的排名。"]));
     const technical = summarizeReportTechnical(dailyTechnicalLines(input.technicalQa));
     lines.push("", "**技术异常**", ...(technical.issues.length ? technical.issues.map(issue => "• " + issue) : ["• " + technical.message]));
-    lines.push("", "**4. 今日完成**", `• 新增博客页面 **${completed.blogs.total} 页**（源文 ${completed.blogs.originals} 篇、译文 ${completed.blogs.translations} 页、旧文补译 ${completed.blogs.backfillTranslations} 页），优化 **${completed.optimized} 个页面**，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
+    lines.push("", "**4. 今日完成**", `• 新增博客页面 **${completed.blogs.total} 页**（源文 ${completed.blogs.originals} 篇、译文 ${completed.blogs.translations} 页、旧文补译 ${completed.blogs.backfillTranslations} 页），优化 **${completed.optimized} 个页面**${completed.refreshed === undefined ? "" : `，内容刷新 **${completed.refreshed} 个页面**`}，制作并上线 **${completed.newPages} 个页面**，${completed.fixed === null ? "问题修复数待核验" : `修复 **${completed.fixed} 个问题**`}。`);
     const groups = input.pageGroups?.groups.filter(group => latestVerifiedDailyPoint(group.points, acquisitionEnd, point => point.date === window.trafficEnd && point.totalUsers !== null && point.pageViews !== null && !!point.funnel)).length ?? 0;
     lines.push("", `**数据状态** 统计日 ${window.trafficEnd} · GA4 会话 ${sessions.current === null ? "待补" : "已核验"} · GSC 点击 ${clicks.current === null ? "待补" : "已核验"} · 获客/注册 ${currentAcquisition?.date ?? "待补"} · 当日页面组 ${groups}/4 组`);
     return lines.join("  \n");
@@ -747,7 +751,11 @@ export function buildSeoDigest(input: DigestInput) {
   const originals = publications.filter(row => row.kind === "source"), translations = publications.filter(row => row.kind === "translation");
   const backfills = publications.filter(row => row.kind === "backfill_translation"), landingPages = publications.filter(row => row.kind === "landing"), clusterPages = publications.filter(row => row.kind === "cluster");
   const blogs = blogPageCounts({ originals: originals.length, translations: translations.length, backfillTranslations: backfills.length });
-  const optimizations = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url)).map(row => [row.url, row])).values()];
+  const optimizedDeliveries = [...new Map(input.optimizations.filter(row => row.baselineId && confirmedInWindow(row, start, end) && safeLink(row.url))
+    .sort((a, b) => a.verifiedAt.localeCompare(b.verifiedAt) || a.id.localeCompare(b.id)).map(row => [row.url, row])).values()];
+  const refreshEnabled = input.date >= DAILY_BUSINESS_DATE_SWITCH || optimizedDeliveries.some(row => row.workClass === "content_refresh");
+  const refreshedPages = optimizedDeliveries.filter(row => row.workClass === "content_refresh" && row.primaryDelivery === true && Boolean(row.taskId && row.publicationId));
+  const optimizations = optimizedDeliveries.filter(row => row.workClass !== "content_refresh");
   const amount = (value: number, coverage: DigestInput["publicationCoverage"], unit = "", recorded = false) => {
     const count = `${value}${unit ? " " + unit : ""}`;
     return coverage === "verified" ? count : value > 0 || recorded ? `已核实 ${count}` : "暂无上线回执";
@@ -763,9 +771,11 @@ export function buildSeoDigest(input: DigestInput) {
     ...(approvalOverdue ? [`审批逾期 ${approvalOverdue} 项`] : []),
     ...(friday && approvalDue ? [`本周仍有 ${approvalDue} 项待处理，含未齐测试材料`] : []),
   ];
+  const businessDate = window.kind === "daily" && input.date >= DAILY_BUSINESS_DATE_SWITCH ? input.date : undefined;
+  const sourceDay = businessDate ? window.trafficEnd : undefined;
   const title = window.kind === "weekly"
     ? `Flatkey SEO 周报｜${window.trafficStart}—${window.trafficEnd}`
-    : `Flatkey SEO 日报｜${window.trafficEnd}`;
+    : `Flatkey SEO 日报｜${businessDate ?? window.trafficEnd}`;
   const losAngelesWeek = window.kind === "weekly" && window.workTimezone === "America/Los_Angeles";
   const workPeriodLabel = window.executionStart
     ? window.kind === "daily" ? `${window.executionStart.slice(0, 10)}（北京时间，当天00:00—24:00）`
@@ -779,7 +789,7 @@ export function buildSeoDigest(input: DigestInput) {
     ...(review?.draftTickets ? [`另有未提交草稿 ${review.draftTickets} 张，关联 ${review.draftTasks} 项任务 / ${review.draftPages} 个页面版本，其中 ${review.draftMaterialCount} 项任务待补材料；不计入已提交待审。`, ""] : []),
     `新增博客页面 ${amount(blogs.total, input.publicationCoverage, "页", input.deliveryStates?.blogs)}（源文 ${originals.length} 篇、译文 ${translations.length} 页、旧文补译 ${backfills.length} 页）${input.publicationCoverage !== "verified" ? "（仅已核实回执，台账覆盖不全）" : ""}。`,
     `落地页/工具页 ${amount(landingPages.length, input.publicationCoverage, "", input.deliveryStates?.landing)}，集群交付 ${amount(clusterPages.length, input.publicationCoverage, "", input.deliveryStates?.cluster)}（仅统计已上线验收）。`,
-    `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面", input.deliveryStates?.optimizations)}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
+    `${window.kind === "weekly" ? "本周" : "今日"}优化 ${amount(optimizations.length, input.optimizationCoverage, "个页面", input.deliveryStates?.optimizations)}${refreshEnabled ? `，内容刷新 ${amount(refreshedPages.length, input.optimizationCoverage, "个页面", input.deliveryStates?.optimizations)}` : ""}${input.optimizationCoverage !== "verified" ? "，台账覆盖待补" : ""}。`];
   lines.push("", "待审批页面（截至报告生成，含往期未处理）");
   if (!review) lines.push("• 审批台账读取失败或尚未接通，待更新。");
   else if (!review.pages.length) lines.push("• 当前没有待审批页面。");
@@ -807,9 +817,9 @@ export function buildSeoDigest(input: DigestInput) {
   const verifiedDeliveries = [...originals, ...landingPages, ...clusterPages].slice(0, 10);
   if (window.kind === "daily" && verifiedDeliveries.length) lines.push("", "已核实新增页面", ...verifiedDeliveries.map(page => `• ${link(page.title, page.url)}`));
   if (originals.length > 10 && window.kind === "daily") lines.push(`其余 ${originals.length - 10} 篇见工作台交付记录。`);
-  if (optimizations.length) {
+  if (optimizedDeliveries.length) {
     lines.push("", "已上线优化");
-    for (const page of optimizations.slice(0, 5)) lines.push(`• ${link(page.url, page.url)} · ${escaped(page.changes)} · 目标词：${escaped(page.keyword)}；优化前基线已保存。`);
+    for (const page of optimizedDeliveries.slice(0, 5)) lines.push(`• ${link(page.url, page.url)} · ${page.workClass === "content_refresh" ? "内容刷新 · " : ""}${escaped(page.changes)} · 目标词：${escaped(page.keyword)}；优化前基线已保存。`);
   }
   const archives = (input.historicalImports ?? []).filter(row => Date.parse(row.recordedAt) >= start && Date.parse(row.recordedAt) < end);
   if (window.kind === "daily" && archives.length) {
@@ -934,18 +944,20 @@ export function buildSeoDigest(input: DigestInput) {
     pagePerformance, completed: {
       blogs,
       optimized: window.workTimezone === "America/Los_Angeles" ? optimizations.length : optimizations.filter(row => beijingDay(new Date(row.verifiedAt)) === input.date).length,
+      ...(refreshEnabled ? { refreshed: refreshedPages.length } : {}),
       newPages: window.workTimezone === "America/Los_Angeles" ? landingPages.length + clusterPages.length : [...landingPages, ...clusterPages].filter(row => beijingDay(new Date(row.publishedAt)) === input.date).length,
       fixed: input.resolvedIssues ?? null,
-    }, optimizations, registrations: organicRegistrations, focus: nextFocus,
+    }, optimizations: optimizedDeliveries, registrations: organicRegistrations, focus: nextFocus,
   }) : detailText;
   const hash = createHash("sha256").update(text).digest("hex");
-  return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
+  const executionWindow = { start: window.executionStart ?? window.workStart, end: window.executionEnd ?? window.workEnd, timezone: window.executionTimezone ?? window.workTimezone };
+  return { registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}), ...(businessDate ? { businessDate, sourceDay, executionWindow } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
+    ...(businessDate ? { businessDate, sourceDay } : {}),
     ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
     workWindow: { start: window.workStart, end: window.workEnd },
-    executionWindow: { start: window.executionStart ?? window.workStart, end: window.executionEnd ?? window.workEnd,
-      timezone: window.executionTimezone ?? window.workTimezone },
-    counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length },
+    executionWindow,
+    counts: { originals: originals.length, translations: translations.length, backfillTranslations: backfills.length, blogPages: blogs.total, landingPages: landingPages.length, clusterPages: clusterPages.length, optimizedPages: optimizations.length, ...(refreshEnabled ? { refreshedPages: refreshedPages.length } : {}) },
     pagePerformance,
     recentPages: input.recentPages,
     growthSnapshot: input.growthSnapshot,

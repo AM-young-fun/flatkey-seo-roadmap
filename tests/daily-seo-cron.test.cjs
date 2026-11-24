@@ -64,10 +64,7 @@ test("the single daily coordinator requires CRON_SECRET in all environments and 
   assert.deepEqual(ledgerReads.map(([kind]) => kind), ["config", "run", "run"]);
   assert.equal(ledgerReads[1][1].where.scope, "SCHEDULED", "the coordinator must not continue the separately authorized sample");
 });
-test("Vercel only invokes the coordinator from 10:10 Beijing time", () => {
+test("Vercel coordinator remains paused during the approved infrastructure acceptance", () => {
   const config = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
-  assert.deepEqual(config.crons, [
-    { path: "/api/cron/daily-rankings?window=opening", schedule: "10-59/5 2 * * *" },
-    { path: "/api/cron/daily-rankings", schedule: "*/5 3-15 * * *" },
-  ]);
+  assert.deepEqual(config.crons, []);
 });

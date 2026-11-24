@@ -10,10 +10,10 @@ import { weeklyReportRange } from "../seo-date-range";
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
-import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_TRAFFIC_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
+import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
 import type { GrowthWorkspace } from "../growth-types";
 import type { WorkflowTask, WorkflowSnapshot } from "../seo-workflow";
-import { growthExactTrafficSchema } from "../growth-exact-traffic";
+import { growthExactTrafficSchema, growthTrafficHasCompleteHostScope } from "../growth-exact-traffic";
 
 const key = `${GROWTH_STRATEGY_KIND}:${GROWTH_QUARTER_ID}`;
 type Reader = Pick<Prisma.TransactionClient, "seoWorkflowRecord">;
@@ -47,11 +47,11 @@ export async function loadGrowthStrategy(localPreview = false) {
 }
 export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collector", localPreview = false, now = new Date()) {
   const command = growthStrategyCommandSchema.parse(raw), requestHash = growthHash({ actor, command });
-  if (actor === "collector" && ["decide_direction", "freeze_baseline"].includes(command.action)) throw new GrowthStrategyError("human_required", "方向决定和季度基线须由已登录用户确认", 403);
+  if (actor === "collector" && ["decide_direction", "freeze_baseline", "resolve_baseline_identities"].includes(command.action)) throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
   const requestId = `growth:${command.requestId}`;
   // Evidence references are read from the real sources; caller-supplied target
   // identities, page versions or task IDs cannot become the source of truth.
-  const [workspace, workflow, sites] = await Promise.all([loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_TRAFFIC_SITES] } }, select: { domain: true, ga4PropertyId: true } })]);
+  const [workspace, workflow, sites] = await Promise.all([loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_EXECUTION_SITES] } }, select: { domain: true, ga4PropertyId: true } })]);
   const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[]) => ({ routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now), siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state) });
   const prepare = (state: GrowthStrategy) => growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks)));
   const directory = previewDirectory(localPreview);
@@ -96,7 +96,7 @@ function growthSourceTimezones(state: GrowthStrategy): Record<string, string | n
 }
 export async function loadGrowthTraffic(period: { start: string; end: string }, now = new Date(), state = emptyGrowthStrategy()): Promise<GrowthTrafficEvidence[]> {
   const [rows, weekly, sites] = await Promise.all([
-    prisma.seoAnalyticsDay.findMany({ where: { kind: { startsWith: "ga4-site" }, date: { gte: period.start, lte: period.end } }, select: { payload: true } }),
+    prisma.seoAnalyticsDay.findMany({ where: { kind: "ga4-site", date: { gte: period.start, lte: period.end } }, select: { payload: true } }),
     prisma.weeklyTraffic.findMany({ where: { siteDomain: { in: [...GROWTH_TRAFFIC_SITES] }, periodStart: new Date(period.start), periodEnd: new Date(period.end) }, select: { siteDomain: true, ga4PropertyId: true, analysis: true } }),
     prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_TRAFFIC_SITES] } }, select: { domain: true, ga4PropertyId: true } }),
   ]);
@@ -105,19 +105,17 @@ export async function loadGrowthTraffic(period: { start: string; end: string }, 
     const parsed = growthExactTrafficSchema.safeParse("exactOrganicSessions" in analysis ? analysis.exactOrganicSessions : null);
     return parsed.success && parsed.data.site === row.siteDomain && parsed.data.propertyId === row.ga4PropertyId ? [parsed.data] : [];
   });
-  const exact = [...state.trafficEvidence, ...imported].filter(row => row.start === period.start && row.end === period.end && Date.parse(row.observedAt) <= now.getTime() && sites.some(site => site.domain === row.site && site.ga4PropertyId === row.propertyId)).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
+  const exact = [...state.trafficEvidence, ...imported].filter(row => row.start === period.start && row.end === period.end && growthTrafficHasCompleteHostScope(row) && Date.parse(row.observedAt) <= now.getTime() && sites.some(site => site.domain === row.site && site.ga4PropertyId === row.propertyId)).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
   const parsed = rows.flatMap(({ payload }) => { const row = analyticsObservationSchema.safeParse(payload); return row.success ? scopedAnalytics([row.data]) : []; });
   const count = Math.round((Date.parse(period.end) - Date.parse(period.start)) / 86400000) + 1;
   return GROWTH_TRAFFIC_SITES.map(site => {
     const exactPeriod = exact.find(row => row.site === site);
     if (exactPeriod) return { site, ...period, timezone: "America/Los_Angeles", sessions: exactPeriod.sessions, complete: true, observedAt: exactPeriod.observedAt, reason: `真实属性${exactPeriod.propertyId}，原metadata ${exactPeriod.sourceTimezone}，${exactPeriod.method === "utc_hours" ? "完整UTC小时重聚" : "完整原生日桶"}；证据${exactPeriod.id}` };
-    const timezone = site === "flatkey.ai" ? "America/Los_Angeles" : CLUSTER_SITES.find(row => row.domain === site)?.ga4TimeZone;
     const days = new Map(parsed.filter(row => row.kind === "ga4-site" && !row.country && analyticsSiteForProperty(row.property) === site && Date.parse(row.observedAt) <= now.getTime()).sort((a, b) => a.observedAt.localeCompare(b.observedAt)).map(row => [row.date, row]));
     const values = [...days.values()].filter(row => row.kind === "ga4-site" && row.sessions !== null);
-    const complete = timezone === "America/Los_Angeles" && values.length === count && count === 7 && period.end < new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(now);
-    return { site, ...period, timezone: timezone ?? "unknown", sessions: complete ? values.reduce((sum, row) => sum + (row.kind === "ga4-site" ? row.sessions ?? 0 : 0), 0) : null, complete,
+    return { site, ...period, timezone: "unknown", sessions: null, complete: false,
       observedAt: values.map(row => row.observedAt).sort().at(-1) ?? null,
-      reason: !timezone ? `实际GA4属性${sites.find(row => row.domain === site)?.ga4PropertyId ?? "尚未配置"}；metadata时区、生产主机及完整窗口尚待核实` : timezone !== "America/Los_Angeles" ? `现有${timezone}日桶不能精确转换为同一洛杉矶周，须沿record_traffic保存真实metadata与完整UTC小时证据` : values.length !== count ? "完整周来源未齐，不填0" : "同一完整洛杉矶周，站点自然搜索会话" };
+      reason: values.length === count && count === 7 ? "已有7日日桶，但缺原metadata时区、完整官网/控制台范围及整周exact证据包；保留原档，不硬编码齐全" : "完整周exact来源未齐，不填0；须复用原metadata与完整日桶/小时证据包" };
   });
 }
 
@@ -133,7 +131,7 @@ export async function loadGrowthReportSnapshot(date: string, localPreview = fals
   ]).then(([workspace, traffic]) => ({ workspace, traffic })) : undefined;
   const goals = evaluateGrowthGoals(state, workspace, traffic, period, now, finalEvidence);
   return { version: "growth-v1.5", strategyVersion: state.version, sourceVersion: growthWorkspaceIdentity(workspace), generatedAt: now.toISOString(), period: { ...period, timezone: "America/Los_Angeles" }, goals,
-    directions: [...state.directions.filter(direction => direction.drivers.some(driver => driver.window.start === period.start && driver.window.end === period.end)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(direction => ({ id: direction.id, title: direction.title, experimentId: direction.experimentId, recommendation: direction.proposedAction, decision: direction.decision?.decision === "approve" ? "已由用户批准当前范围" : direction.decision?.decision === "reject" ? "用户未采纳" : "待用户判断方向", taskIds: direction.taskIds, drivers: direction.drivers.filter(driver => driver.window.start === period.start && driver.window.end === period.end) })), ...contributions],
+    directions: [...growthReportDirections(state, workspace, period, now), ...contributions],
     observations: state.observations.filter(row => row.windowEnd >= period.start && row.windowEnd <= period.end) };
 }
 export async function loadGrowthStrategyView(localPreview = false, now = new Date()) {
@@ -149,5 +147,5 @@ export async function loadGrowthStrategyView(localPreview = false, now = new Dat
     const dueDay = new Date(Date.parse(publishDay + "T00:00:00Z") + checkpoint * 86400000).toISOString().slice(0, 10);
     return dueDay < today && !state.observations.some(row => row.publicationId === publication.id && row.checkpoint === checkpoint && row.coverage?.indexing === "verified" && row.coverage.ranking === "verified" && row.coverage.traffic === "verified" && ["complete", "new_page"].includes(row.comparison?.status ?? "")) ? [{ publicationId: publication.id, taskId: publication.taskId, contentVersion: publication.contentVersion, pageUrl: publication.pageUrl, checkpoint, dueDay, timezone, reason: "沿原窗口分别补收录、原词原市场排名、等长前后完整日的页面自然流量比较" }] : [];
   }));
-  return { state, snapshot, sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), dueObservations: due };
+  return { state, snapshot, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), dueObservations: due };
 }

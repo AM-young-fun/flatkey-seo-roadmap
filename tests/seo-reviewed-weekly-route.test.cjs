@@ -67,7 +67,7 @@ test('save_reviewed uses the unchanged server-token authorization and rejects br
   assert.equal(writes, 0);
 });
 
-test('latest archive refreshes a read-only view while explicit IDs retain the exact reviewed snapshot', async () => {
+test('latest archive and explicit IDs retain the same complete reviewed snapshot without any live overlay', async () => {
   saved = new Map(); writes = 0; generated = 0; claims = 0; dynamicReads = 0;
   const response = await route.POST(request(command));
   assert.equal(response.status, 200);
@@ -80,8 +80,11 @@ test('latest archive refreshes a read-only view while explicit IDs retain the ex
   assert.equal(latest.status, 200);
   const latestPayload = await latest.json();
   assert.deepEqual(latestPayload.report, report);
-  assert.deepEqual(latestPayload.view, refreshedView);
-  assert.equal(dynamicReads, 3);
+  assert.equal(latestPayload.view, undefined);
+  assert.equal(latestPayload.report.id, report.id);
+  assert.equal(latestPayload.report.hash, command.textSha256);
+  assert.equal(latestPayload.report.text, text);
+  assert.equal(dynamicReads, 0);
   for (const query of [
     '?kind=weekly&date=2026-11-19&saved=1&reportId=' + encodeURIComponent(report.id),
     '?kind=weekly&date=2026-11-19&saved=1&archive=1&reportId=' + encodeURIComponent(report.id),
@@ -91,7 +94,7 @@ test('latest archive refreshes a read-only view while explicit IDs retain the ex
     const payload = await archive.json();
     assert.deepEqual(payload.report, report);
     assert.equal(payload.view, undefined);
-    assert.equal(dynamicReads, 3);
+    assert.equal(dynamicReads, 0);
   }
   assert.equal(JSON.stringify(saved.get(report.id).payload), frozen);
   assert.equal(writes, 1); assert.equal(generated, 0); assert.equal(claims, 0);

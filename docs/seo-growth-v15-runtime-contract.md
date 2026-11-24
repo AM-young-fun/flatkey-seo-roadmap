@@ -1,3 +1,5 @@
+> 历史执行契约：2026-11-24批准的新循环由[运行契约v3](seo-platform-runtime-v3.md)及[季度v3](seo-quarter-2026-closeout-v3.json)替代。旧四站3000、11/24自动开跑及旧Prompt保持启用等文案仅保留历史；当前所有原入口PAUSED，不据此恢复或补跑。
+
 # v1.5 已批准执行契约
 
 依据：`seo-growth-platform-requirements-review-20261123.md`；批准原文及SHA256见`seo-growth-v15-approval-20261123.json`。本文件连接现有任务，不新建定时任务。发生冲突时，用户后续明确授权、AGENTS.md最新条款优先；不得据此恢复撤回的任务、产品权限或付费开关。

@@ -15,9 +15,9 @@ const eslintConfig = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["tests/**/*.cjs", "scripts/**/*.cjs"],
+    files: ["tests/**/*.cjs", "scripts/**/*.cjs", "scripts/verify-seo-research-read.mjs", "src/lib/seo-daily-send-readiness.cjs"],
     languageOptions: { globals: globals.node },
-    rules: { "@typescript-eslint/no-require-imports": "off" }
+    rules: { "@typescript-eslint/no-require-imports": "off", "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }] }
   },
   {
     files: ["**/*.{ts,tsx}"],

@@ -9,15 +9,15 @@ const number = (value: number) => value.toLocaleString("zh-CN");
 const percent = (value: number | null) => value === null ? "暂无可计算排名" : `${(value * 100).toFixed(1)}%`;
 
 function CohortProgress({ cohort }: { cohort: GrowthCohortEvaluation }) {
-  const achieved = cohort.complete && cohort.targetCount > 0 && cohort.coverage !== null && cohort.coverage >= .6 && cohort.quality !== null && cohort.quality >= .8;
+  const achieved = (typeof cohort.identityPendingCount === "number" || cohort.complete) && cohort.targetCount > 0 && cohort.coverage !== null && cohort.coverage >= .6 && cohort.quality !== null && cohort.quality >= .8;
   return <article className={styles.card}>
     <header><div><h4>{cohort.label}</h4><span>独立截止日：{cohort.deadline}</span></div><span className={styles.status} data-achieved={achieved || undefined}>{achieved ? "已达标" : cohort.complete ? "待提升" : "证据未齐"}</span></header>
     <div className={styles.metrics}>
-      <div><span>正式目标组合</span><strong>{number(cohort.targetCount)}</strong><small>已核验 {number(cohort.verifiedCount)} / {number(cohort.targetCount)}</small></div>
+      <div><span>稳定正式目标 N</span><strong>{number(cohort.targetCount)}</strong><small>排名已核验 {number(cohort.verifiedCount)} / {number(cohort.targetCount)}{typeof cohort.identityPendingCount === "number" ? `；身份待核 ${cohort.identityPendingCount}` : ""}</small></div>
       <div><span>前100覆盖 · 目标60%</span><strong>{percent(cohort.coverage)}</strong><small>{number(cohort.rankedCount)} / {number(cohort.targetCount)} · 距目标差 {number(cohort.coverageGap)} 个</small><progress aria-label={`${cohort.label}前100覆盖，目标60%`} max={.6} value={Math.min(cohort.coverage ?? 0, .6)} /></div>
       <div><span>已有排名中前50 · 目标80%</span><strong>{percent(cohort.quality)}</strong><small>{number(cohort.top50Count)} / {number(cohort.rankedCount)}{cohort.qualityGap === null ? " · 待有效排名" : ` · 距目标差 ${number(cohort.qualityGap)} 个`}</small><progress aria-label={`${cohort.label}前50质量，目标80%`} max={.8} value={Math.min(cohort.quality ?? 0, .8)} /></div>
     </div>
-    <p>{cohort.latestRankAt ? `最新有效采样：${cohort.latestRankAt}。` : "尚无当前有效实查。"}{cohort.complete ? "" : "未知、缺采目标保留在分母；当前为已确认部分，暂不判定达标。"}</p>
+    <p>{cohort.latestRankAt ? `最新有效采样：${cohort.latestRankAt}。` : "尚无当前有效实查。"}{cohort.complete ? "" : "未知、缺采目标保留在分母且不计R；证据覆盖另行提示，排名目标按已证实R/N与F/R核算。"}</p>
   </article>;
 }
 

@@ -10,7 +10,7 @@ Module._load = function (name, parent, ...rest) {
 };
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
 const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
-const { SearchTraffic } = require("../src/components/SeoDigestReports.tsx");
+const { SearchTraffic, ReportWorkPlan } = require("../src/components/SeoDigestReports.tsx");
 const { parseReportComparisons } = require("../src/lib/seo-report-comparisons.ts");
 const dates = Array.from({ length: 7 }, (_, index) => `2026-11-${12 + index}`);
 function render({ completeWeekRequired = true, full = false, registrationComparable = false, delta } = {}) {
@@ -53,4 +53,12 @@ test("historical reports retain their original comparison rendering", () => {
   const html = render({ completeWeekRequired: false });
   assert.match(html, /\+100\.0%/);
   assert.match(html, /\+50\.0%/);
+});
+
+test("refresh stays in original work progress and is excluded from the ordinary optimization group", () => {
+  const task = { id: "refresh-original", weekStart: "2026-11-23", siteDomain: "modelfit.cc", kind: "optimization", workClass: "content_refresh", title: "原文翻新任务", pageUrl: "https://modelfit.cc/blog/gguf", country: "US", language: "en", keyword: "gguf", dueAt: "2026-11-24T14:00:00+08:00", status: "verified", scheduled: true, action: "原任务观察" };
+  const html = renderToStaticMarkup(React.createElement(ReportWorkPlan, { weekly: false, day: "2026-11-24", plan: { weekStart: "2026-11-23", status: "scheduled", targets: { optimizedPages: 10, contentRefreshPages: 10 }, tasks: [task] } }));
+  assert.match(html, /当日工作进度/); assert.match(html, /内容刷新/); assert.match(html, /已验收 1 \/ 1/);
+  assert.equal((html.match(/原文翻新任务/g) ?? []).length, 1);
+  assert.match(html, /rangeStart=2026-11-24/); assert.doesNotMatch(html, /rangeStart=2026-11-23/);
 });

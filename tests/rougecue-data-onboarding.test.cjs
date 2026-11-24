@@ -12,7 +12,9 @@ test("verified RougeCue property maps to its own source with LA timezone and unc
   assert.equal(analyticsStorageKind("ga4-site", "all", clusterDomainForProperty(source.ga4)), "ga4-site:rougecue.org");
   for (const domain of ["rackrate.org", "modelfit.cc"]) assert.equal(CLUSTER_SITES.find(site => site.domain === domain).ga4TimeZone, "Asia/Shanghai");
   const role = GROWTH_SITES.find(site => site.domain === "rougecue.org");
-  assert.equal(role.dataOnly, true); assert.equal(role.execution, false); assert.equal(role.keywordGoals, false); assert.equal(role.trafficGoal, true);
+  assert.equal(role.dataOnly, true); assert.equal(role.execution, false); assert.equal(role.keywordGoals, false); assert.equal(role.trafficGoal, false);
+  assert.deepEqual(GROWTH_SITES.filter(site => site.trafficGoal).map(site => site.domain), ["flatkey.ai"]);
+  assert.equal(source.googleCollectionDeferred, true, "source registration does not resume deferred RougeCue reads or make them a Flatkey goal dependency");
 });
 
 test("RougeCue observations preserve unknown registrations and reject unverified GSC or another site's page hosts", () => {

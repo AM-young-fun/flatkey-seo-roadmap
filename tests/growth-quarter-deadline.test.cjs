@@ -5,7 +5,7 @@ const target=(id,checkedAt,extra={})=>({id,keywordId:id,site:'flatkey.ai',topicI
 const workspace=targets=>({targets,topics:[{topicId:'topic',site:'flatkey.ai'}]});
 const baselineWorkspace=workspace(Array.from({length:10},(_,i)=>target('t'+i,'2026-11-22T12:00:00Z')));
 const frozen=()=>prepareGrowthStrategyMutation(emptyGrowthStrategy(),{requestId:'freeze-deadline-test',expectedVersion:0,action:'freeze_baseline',targetIds:baselineWorkspace.targets.map(t=>t.id),sourceVersion:growthWorkspaceIdentity(baselineWorkspace),reason:'Original approved full quarter list'},'human',baselineWorkspace,[],[],new Date('2026-11-23T12:00:00Z'));
-const traffic=(period,total=4000)=>['flatkey.ai','rackrate.org','modelfit.cc','rougecue.org'].map(site=>({site,...period,timezone:'America/Los_Angeles',sessions:total/4,complete:true,observedAt:'2027-02-11T12:00:00Z',reason:'Exact verified window'}));
+const traffic=(period,total=4000)=>['flatkey.ai','rackrate.org','modelfit.cc','rougecue.org'].map(site=>({site,...period,timezone:'America/Los_Angeles',sessions:site==='flatkey.ai'?total:999999,complete:true,observedAt:'2027-02-11T12:00:00Z',reason:'Exact verified window'}));
 test('a February 7 ranking and a favorable February 4–10 traffic week cannot repair the closed quarter',()=>{
   const now=new Date('2027-02-11T12:00:00Z'),current=workspace(Array.from({length:10},(_,i)=>target('t'+i,'2027-02-07T12:00:00Z'))),period={start:'2027-02-04',end:'2027-02-10'};
   const result=evaluateGrowthGoals(frozen(),current,traffic(period),period,now);

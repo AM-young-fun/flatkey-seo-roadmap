@@ -41,7 +41,7 @@ test('independent country counts retain approved separate targets; no best-count
 });
 test('RougeCue is data-only and never enters keyword production or paid monitoring',()=>{
  const result=buildGrowthWorkspace(input({memberships:[member({site:'rougecue.org'})],ranks:[evidence({site:'rougecue.org',url:'https://rougecue.org/blog/pricing'})]}));
- assert.equal(result.targets.length,0);const site=result.sites.find(s=>s.domain==='rougecue.org');assert.equal(site.trafficGoal,true);assert.equal(site.execution,false);assert.equal(site.keywordGoals,false);assert.equal(result.monitoringQuote.queryCount,0);
+ assert.equal(result.targets.length,0);const site=result.sites.find(s=>s.domain==='rougecue.org');assert.equal(site.trafficGoal,false);assert.equal(site.execution,false);assert.equal(site.keywordGoals,false);assert.equal(result.monitoringQuote.queryCount,0);
 });
 test('an identical approved word/market query is quoted once across independently planned sites and topic edges stay intact',()=>{
  const other='https://modelfit.cc/blog/pricing',data=input({memberships:[member({topicIds:['t2']}),member({site:'modelfit.cc',keywordId:'k2',targetUrls:[other]})],inventory:[{url,lastSeen:time},{url:other,lastSeen:time}],ranks:[],topics:[...input().topics,{id:'t2',text:'GPU comparisons',active:true,parentId:'t1',parentIds:['t1','another-parent'],sites:['flatkey.ai']}]});

@@ -34,3 +34,8 @@ export const growthExactTrafficSchema = z.object({
   }
 });
 export type GrowthExactTrafficEvidence = z.infer<typeof growthExactTrafficSchema>;
+/** The current Flatkey goal includes both website and console. A narrower
+ * historic host receipt stays stored, but cannot stand in for the whole goal. */
+export function growthTrafficHasCompleteHostScope(row: Pick<GrowthExactTrafficEvidence, "site" | "hostnames">): boolean {
+  return row.site !== "flatkey.ai" || JSON.stringify([...new Set(row.hostnames)].sort()) === JSON.stringify(["flatkey.ai", "www.flatkey.ai", "console.flatkey.ai"].sort());
+}

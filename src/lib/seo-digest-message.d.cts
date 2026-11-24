@@ -7,4 +7,5 @@ export function digestSnapshotId(report: {
   date: string; text: string; detailText?: string; pagePerformance?: unknown; recentPages?: unknown;
   deliveryStates?: unknown; organicRegistrations?: unknown; workPlan?: unknown;
   currentWorkPlan?: unknown; pageGroups?: unknown; rankingNotes?: unknown; growthSnapshot?: unknown;
+  businessDate?: string; sourceDay?: string; executionWindow?: unknown;
 }): string;

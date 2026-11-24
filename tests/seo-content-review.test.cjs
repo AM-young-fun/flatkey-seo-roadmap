@@ -29,7 +29,7 @@ const original = () => ({ id: "original-gpu-refresh", weekStart: "2026-11-16", t
   kind: "optimization", country: "US", language: "en", business: "GPU", pageType: "blog", keyword: "gpu cost", keywordId: "real-keyword",
   pageUrl: "https://flatkey.ai/blog/gpu-cost", owner: "原负责人", dueAt: "2026-11-20T10:00:00+08:00", status: "researching",
   dependencies: [], evidence: [evidence], nextAction: "沿原任务继续研究", contentVersion: "original-draft-v1", artifactUrl: null,
-  acceptanceCriteria: ["保留原人工验收条件"], research: null, approval: null, source: "human", sourceRowId: "original-row", fallbackReason: null, failureReason: null,
+  acceptanceCriteria: ["保留原人工验收条件"], research: null, approval: null, source: "human", sourceRowId: "original-row", problemKey: "original:gpu-cost:refresh", fallbackReason: null, failureReason: null,
   brief: { reason: "根据2026年11月18日的原查询证据核对目标页面的搜索意图。", problem: "原人工问题，不被新结论覆盖", plan: "核对原页面与搜索需求并保留原方案", actions: [{ target: "原页面", change: "核实目标查询", verify: "核对生产证据" }], evidence: [evidence] },
   progress: [{ id: "original-progress", sessionId: "existing-session", observedAt: "2026-11-18T10:00:00Z", summary: "原会话已保存检查点", nextAction: "继续核实", evidence: [evidence] }],
   version: 4, recordedAt: "2026-11-17T00:00:00Z", updatedAt: "2026-11-19T00:00:00Z" });
@@ -59,6 +59,7 @@ test("cross-week and keyword/report sources reuse the exact task and issue, neve
   const saved = await applyReviewPlan(first, api, applyOptions(manifest, first));
   assert.equal(saved.status, "verified"); assert.equal(api.posts, 2);
   const taskId = api.state.tasks[0].id, issueId = api.state.issues[0].id;
+  assert.equal(api.state.tasks[0].problemKey, findingKey(manifest.findings[0]));
   const next = structuredClone(manifest);
   next.period = { start: "2026-11-19", end: "2026-11-25", timezone: "America/Los_Angeles" };
   next.sources = [{ id: "keywords-next", kind: "keyword", artifact: "/tmp/keywords-next.json", sha256: "b".repeat(64), observedAt: "2026-11-22T11:00:00Z" }];
@@ -74,6 +75,88 @@ test("cross-week and keyword/report sources reuse the exact task and issue, neve
   assert.equal(api.state.tasks.length, 1); assert.equal(api.state.issues.length, 1);
   const replay = buildReviewPlan(next, api.state, options(next));
   assert.equal(replay.commands.length, 0);
+});
+
+test("the stored stable problem key reuses the original across weeks without source markers", () => {
+  const manifest = fixture(), state = snapshot();
+  const first = buildReviewPlan(manifest, state, options(manifest));
+  const original = first.commands.find(row => row.action === "save_task").record;
+  state.tasks.push({ ...original, sourceRowId: "original-other-source", evidence: [evidence],
+    brief: { ...original.brief, problem: "原有简写保留，本次说明不能改写原任务。" }, version: 3 });
+  const before = structuredClone(state.tasks[0]);
+  manifest.period = { start: "2026-11-19", end: "2026-11-25", timezone: "America/Los_Angeles" };
+  manifest.findings[0].candidate.weekStart = "2026-11-30";
+  manifest.findings[0].candidate.dueAt = "2026-12-01T10:00:00+08:00";
+  const plan = buildReviewPlan(manifest, state, options(manifest));
+  assert.equal(plan.canApply, true); assert.equal(plan.summary.newCandidates, 0);
+  const saved = plan.commands.find(row => row.action === "save_task").record;
+  for (const field of ["id", "weekStart", "dueAt", "status", "problemKey", "sourceRowId", "brief"]) assert.deepEqual(saved[field], before[field], field);
+});
+
+test("older feedback candidates adopt their own stable source identity without changing the original schedule", () => {
+  const manifest = fixture(), state = snapshot(), first = buildReviewPlan(manifest, state, options(manifest));
+  const legacy = structuredClone(first.commands.find(row => row.action === "save_task").record);
+  delete legacy.problemKey; state.tasks.push({ ...legacy, version: 2 });
+  manifest.findings[0].candidate.dueAt = "2026-11-24T10:00:00+08:00";
+  const plan = buildReviewPlan(manifest, state, options(manifest));
+  assert.equal(plan.canApply, true); assert.equal(plan.summary.newCandidates, 0);
+  const saved = plan.commands.find(row => row.action === "save_task").record;
+  assert.equal(saved.problemKey, legacy.sourceRowId);
+  for (const field of ["id", "weekStart", "dueAt", "status", "keyword", "keywordId", "country", "language", "pageUrl"]) assert.deepEqual(saved[field], legacy[field], field);
+});
+
+test("Flatkey feedback accepts the approved native market pairs and keeps the website scope", () => {
+  const { GROWTH_MARKET_LANGUAGES } = require("../scripts/lib/seo-content-review-schema.cjs");
+  for (const [country, language] of Object.entries(GROWTH_MARKET_LANGUAGES)) {
+    const manifest = fixture(); Object.assign(manifest.findings[0], { country, language });
+    const plan = buildReviewPlan(manifest, snapshot(), options(manifest));
+    assert.equal(plan.canApply, true, `${country}/${language}`);
+    assert.equal(plan.commands[0].record.country, country);
+    assert.equal(plan.commands[0].record.language, language);
+    assert.equal(plan.commands[0].record.problemKey, findingKey(manifest.findings[0]));
+  }
+  for (const [country, language] of [["SG", "en"], ["JP", "en"], ["FR", "ja"], ["US", "zh-CN"]]) {
+    const manifest = fixture(); Object.assign(manifest.findings[0], { country, language });
+    const plan = buildReviewPlan(manifest, snapshot(), options(manifest));
+    assert.equal(plan.canApply, false); assert.match(plan.decisions[0].reason, /country_or_site_language_mismatch/);
+  }
+  for (const siteDomain of ["jev-llm.com", "mochichatbot.com", "rougecue.org"]) {
+    const manifest = fixture(); manifest.findings[0].siteDomain = siteDomain;
+    assert.throws(() => buildReviewPlan(manifest, snapshot(), options(manifest)));
+  }
+});
+
+test("ModelFit and RackRate feedback retain their original English-only language support", () => {
+  for (const siteDomain of ["modelfit.cc", "rackrate.org"]) for (const language of ["en", "ja", "pt-BR", "zh-CN"]) {
+    const manifest = fixture(); Object.assign(manifest.findings[0], { siteDomain, country: "JP", language,
+      pageType: "comparison", pageUrl: `https://${siteDomain}/compare/gpu-cost` });
+    const plan = buildReviewPlan(manifest, snapshot(), options(manifest));
+    assert.equal(plan.canApply, language === "en", `${siteDomain}/${language}`);
+    if (language !== "en") assert.match(plan.decisions[0].reason, /country_or_site_language_mismatch/);
+  }
+});
+
+test("feedback preserves explicit maintenance classification and never labels research candidates as refresh delivery", () => {
+  const manifest = fixture(), state = snapshot(), task = original();
+  task.workClass = "content_refresh";
+  task.maintenance = { version: "seo-maintenance-v1", refresh: {
+    reason: "outdated_facts", baselineId: "original-page-baseline", originalPublishedAt: "2026-10-01T00:00:00Z", baseContentVersion: "original-v1",
+    changes: ["按原始价格证据修正已经过时的计算示例"], evidence: [{ observedAt: evidence.observedAt, source: "/tmp/official-pricing.json", finding: "官方价格说明与原文章计算示例存在明确差异" }],
+  } };
+  state.tasks.push(task);
+  Object.assign(manifest.findings[0], { existingTaskId: task.id, linkReason: "原任务已关联同一篇文章的实质翻新及基线。" });
+  const plan = buildReviewPlan(manifest, state, options(manifest));
+  assert.equal(plan.canApply, true); assert.equal(plan.summary.newCandidates, 0);
+  const saved = plan.commands.find(row => row.action === "save_task").record;
+  for (const field of ["id", "kind", "workClass", "maintenance", "status", "problemKey", "dueAt", "weekStart", "contentVersion", "approval"]) assert.deepEqual(saved[field], task[field], field);
+  const legacy = original(), legacyState = snapshot(); legacyState.tasks.push(legacy);
+  const retained = buildReviewPlan(manifest, legacyState, options(manifest)).commands.find(row => row.action === "save_task").record;
+  assert.equal(Object.hasOwn(retained, "workClass"), false);
+  const freshManifest = fixture(), fresh = buildReviewPlan(freshManifest, snapshot(), options(freshManifest));
+  const candidate = fresh.commands.find(row => row.action === "save_task").record;
+  assert.equal(candidate.kind, "research");
+  assert.equal(Object.hasOwn(candidate, "workClass"), false);
+  assert.equal(Object.hasOwn(candidate, "maintenance"), false);
 });
 
 test("explicit strong original links preserve every task field except appended evidence", () => {
@@ -314,13 +397,14 @@ test("workflow transport preserves only safe structured HTTP code and public mes
     && !JSON.stringify(error).includes("should-never-escape"));
 });
 
-test("CLI defaults to an offline preview, verifies the real file hash, and cannot apply that snapshot", async () => {
+test("standalone CLI accepts Singapore Chinese in an offline preview and cannot apply that snapshot", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "seo-content-review-test-"));
   try {
     const artifact = path.join(directory, "source.json"), input = path.join(directory, "manifest.json"), history = path.join(directory, "history.json");
     const content = JSON.stringify({ observedAt: "2026-11-19T10:00:00Z", note: "真实本地测试证据" });
     await fs.writeFile(artifact, content);
     const manifest = fixture(); manifest.sources[0].artifact = artifact;
+    Object.assign(manifest.findings[0], { country: "SG", language: "zh-CN", keyword: "模型接口费用", pageUrl: "https://flatkey.ai/zh/blog/gpu-cost" });
     manifest.sources[0].sha256 = crypto.createHash("sha256").update(content).digest("hex");
     assert.equal((await verifySources(manifest)).size, 1);
     await fs.writeFile(input, JSON.stringify(manifest)); await fs.writeFile(history, JSON.stringify(snapshot()));

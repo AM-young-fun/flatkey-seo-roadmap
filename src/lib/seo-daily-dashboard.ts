@@ -24,7 +24,7 @@ const shift = (day: string) => new Date(Date.parse(day + "T00:00:00Z") - 8640000
 
 /** Adds source evidence to another immutable daily version; it grants no delivery or approval authority. */
 export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now = new Date()): DailyDashboardSeoDigest {
-  const input = dailyDashboardCommandSchema.parse(raw), expected = digestWindow(input.date, "daily"), period = base.reportPeriod;
+  const input = dailyDashboardCommandSchema.parse(raw), expected = digestWindow(input.date, "daily", { legacyDailyExecution: !base.businessDate }), period = base.reportPeriod;
   if (base.id !== input.baseReportId || base.date !== input.date || base.kind !== "daily"
     || !base.id.startsWith(`seo-digest:${input.date}:`) || base.draftBody || base.reviewedBody) throw new ReviewedDigestError("须绑定同日日报的确切基础快照");
   if (base.hash !== input.baseReportHash || reviewedTextHash(base.text) !== base.hash) throw new ReviewedDigestError("基础日报哈希不匹配", 409);
@@ -41,7 +41,7 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
     dashboardComparisonGroups(rows, period, input.dashboardEvidence!.gscComparable).map(row => ({ ...row, metrics: row.metrics.map(metric => ({ ...metric,
       period: `${shift(period.start)}—${shift(period.end)} → ${period.start}—${period.end}`,
     })) }));
-  const dashboard = { detailText: base.detailText ?? base.text, attributionText: "", sourceEvidenceSha256: input.sourceEvidenceSha256,
+  const dashboard = { ...base.dashboard, detailText: base.dashboard?.detailText ?? base.detailText ?? base.text, attributionText: base.dashboard?.attributionText ?? "", sourceEvidenceSha256: input.sourceEvidenceSha256,
     moduleShares: input.moduleShares,
     ...(input.dashboardEvidence ? { traffic: { sites: comparisons(input.dashboardEvidence.sites), countries: comparisons(input.dashboardEvidence.countries),
       modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable } } : {}),

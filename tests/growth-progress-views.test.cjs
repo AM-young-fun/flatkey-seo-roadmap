@@ -23,9 +23,18 @@ test("each weekly batch retains its own deadline and 60/80 progress", () => {
   assert.match(html, /目标60%/); assert.match(html, /目标80%/); assert.match(html, /证据未齐/);
 });
 
-test("incomplete verification or zero ranked denominator cannot show achieved", () => {
+test("zero ranked denominator cannot show achieved; unknown targets stay N and cannot count R", () => {
   const html = render({ initialView: "platform", cohorts: [cohort("平台", "platform", { complete: false, rankedCount: 0, top50Count: 0, coverage: 0, quality: null, qualityGap: null })] });
-  assert.match(html, /暂无可计算排名/); assert.match(html, /暂不判定达标/); assert.doesNotMatch(html, /已达标/);
+  assert.match(html, /暂无可计算排名/); assert.match(html, /未知、缺采目标保留在分母且不计R/); assert.doesNotMatch(html, /已达标/);
   assert.match(render({ cohorts: [] }), /季度基线待核定/);
   assert.match(render({}), /历史快照尚未保存/);
+});
+
+test("versioned stable N can meet evidenced 60/80 goals with incomplete collection, while legacy snapshots retain their old gate", () => {
+  const current = cohort("稳定100", "quarter", { complete: false, verifiedCount: 60, identityCompleteCount: 60, identityPendingCount: 40 });
+  const html = render({ cohorts: [current] });
+  assert.match(html, /60 \/ 100/); assert.match(html, /身份待核 40/); assert.match(html, /已达标/);
+  assert.match(html, /证据覆盖另行提示/);
+  const legacy = render({ cohorts: [cohort("旧快照", "quarter", { complete: false, verifiedCount: 60 })] });
+  assert.match(legacy, /证据未齐/); assert.doesNotMatch(legacy, /已达标/);
 });

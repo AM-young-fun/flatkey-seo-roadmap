@@ -7,6 +7,7 @@ import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, i
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
+import { maintenanceTaskProblems, maintenancePublicationProblems } from "./seo-maintenance";
 
 export class WorkflowError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); }
@@ -21,7 +22,7 @@ export const workflowKey = (kind: WorkflowKind, id: string) => `${kind}:${id}`;
 export function isCompletedGrowthEvidenceAppend(task: WorkflowTask, previous: WorkflowTask | undefined) {
   const completed = new Set(["published", "verified", "observing"]);
   if (!previous || !completed.has(previous.status) || !completed.has(task.status)) return false;
-  return ["kind", "siteDomain", "topicId", "keywordId", "keyword", "country", "language", "pageUrl", "contentVersion", "artifactUrl", "dueAt", "weekStart", "directionId", "experimentId", "codeSource"].every(key => workflowHash(task[key as keyof WorkflowTask]) === workflowHash(previous[key as keyof WorkflowTask]));
+  return ["kind", "workClass", "maintenance", "siteDomain", "topicId", "keywordId", "keyword", "country", "language", "pageUrl", "contentVersion", "artifactUrl", "dueAt", "weekStart", "directionId", "experimentId", "codeSource"].every(key => workflowHash(task[key as keyof WorkflowTask]) === workflowHash(previous[key as keyof WorkflowTask]));
 }
 
 function reject(code: string, message: string): never { throw new WorkflowError(code, message); }
@@ -40,12 +41,21 @@ function tasksUsingBranch(all: WorkflowStoredRow[], task: WorkflowTask) {
   });
 }
 
-function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor) {
+function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor, now: Date) {
   const changingExecution = !previous || task.status !== previous.status;
   if (changingExecution && (task.channel === "product" || task.channel !== "github" && !GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain))) reject("task_scope_excluded", "该站点或产品渠道仅保留历史，不进入SEO执行队列");
   if (changingExecution && task.kind === "blog" && !GROWTH_BLOG_SITES.some(site => site === task.siteDomain)) reject("blog_scope_excluded", "博客制作仅限 Flatkey 和 ModelFit");
   if (task.capacityClass === "authorized_hotspot_extra" && previous?.capacityClass !== task.capacityClass && actor !== "human") reject("human_extra_work_required", "额外热点须由真实用户登记授权，不能由采集器扩大常规容量");
   if (previous && previous.kind !== task.kind) reject("task_kind_immutable", "原任务类型保持不变，研究与制作按依赖关联相应原任务，不转换类型绕过资格");
+  if (previous?.workClass && previous.workClass !== task.workClass || previous && !previous.workClass && task.workClass && !["planned", "researching"].includes(previous.status)) reject("maintenance_class_immutable", "保留原维护分类，不能将已排或在途交付改类重复占用额度");
+  if (previous?.maintenance && !same(previous.maintenance, task.maintenance) && ["published", "verified", "observing"].includes(previous.status)) reject("maintenance_plan_immutable", "已上线维护计划和基线不可覆盖");
+  const maintenanceProblems = maintenanceTaskProblems(task);
+  if (maintenanceProblems.length) reject("maintenance_incomplete", maintenanceProblems.join("；"));
+  if (task.workClass && productionStates.has(task.status) && task.maintenance?.refresh) {
+    const refresh = task.maintenance.refresh;
+    const baseline = all.find(row => row.kind === "optimization" && row.record.id === refresh.baselineId)?.record as WorkflowOptimization | undefined;
+    if (!baseline || baseline.taskId !== task.id || baseline.pageUrl !== task.pageUrl || baseline.siteDomain !== task.siteDomain || baseline.country !== task.country || baseline.language !== task.language || Date.parse(baseline.baseline.capturedAt) > Date.now()) reject("refresh_baseline_missing", "翻新开始前须保存同原任务、页面及市场的真实优化基线，缺数如实保留");
+  }
   if (previous?.workflowContract === "growth-v1.5") for (const key of ["siteDomain", "keywordId", "keyword", "country", "language", "topicId"] as const) {
     if (previous[key] != null && previous[key] !== task[key]) reject("growth_target_identity_immutable", "原词、国家语言、站点和话题身份保持不变，不能通过改任务迁移目标");
   }
@@ -69,6 +79,12 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   if (previous && (previous.channel === "product" || task.channel === "product") && previous.channel !== task.channel) reject("product_task_channel_immutable", "产品技术任务不能更换渠道；请新建独立任务");
   const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask).filter(task => !task.deletedAt);
   const lookup = new Map(tasks.map(row => [row.id, row])); lookup.set(task.id, task);
+  if (!previous && task.workClass === "content_refresh") {
+    const observed = tasks.filter(other => other.id !== task.id && other.pageUrl === task.pageUrl && other.siteDomain === task.siteDomain && ["published", "verified", "observing"].includes(other.status));
+    if (observed.some(other => other.problemKey && other.problemKey === task.problemKey)) reject("refresh_problem_already_delivered", "同一原问题已交付，继续原任务效果复查，不能跨周重建翻新");
+    const inWindow = observed.filter(other => all.some(row => row.kind === "publication" && (row.record as WorkflowPublication).taskId === other.id && ["published", "verified"].includes(row.record.status) && now.getTime() - Date.parse((row.record as WorkflowPublication).publishedAt) < 28 * 86400000));
+    if (inWindow.length && (!task.maintenance?.refresh?.previousTaskId || !inWindow.some(other => other.id === task.maintenance?.refresh?.previousTaskId) || !task.maintenance.refresh.evidence.length)) reject("refresh_observation_in_progress", "页面仍在28天观察期，新问题须保留原交付关联及独立新事实，不重复翻新凑数");
+  }
   if (task.keyword && contentKinds.has(task.kind)) {
     const word = (value: string | null) => value?.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
     if (tasks.some(other => other.id !== task.id && !["published", "verified", "observing"].includes(other.status) && other.weekStart === task.weekStart && other.kind === task.kind && other.siteDomain === task.siteDomain && other.country === task.country && other.language === task.language && other.pageUrl === task.pageUrl && word(other.keyword) === word(task.keyword))) reject("duplicate_content_task", "同周、同页面及国家的相同关键词已有任务；请续跑已有任务");
@@ -122,6 +138,7 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
 }
 
 function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[], now: Date) {
+  if (!previous && now >= new Date("2026-11-24T03:00:50.616894Z") && (!("maintenanceVersion" in plan.targets) || plan.targets.maintenanceVersion !== "seo-maintenance-v1")) reject("maintenance_plan_contract_required", "本轮新计划须带独立翻新目标及逐日真实缺口；历史原计划不迁移");
   if (!previous && now >= new Date("2026-11-23T00:00:00Z") && (!("cadence" in plan.targets) || plan.targets.cadence !== "growth")) reject("growth_plan_contract_required", "新计划须按完整业务周growth契约核算，历史原计划保持原身份");
   if (previous && previous.weekStart !== plan.weekStart) reject("identity_changed", "计划不能改变所属工作周");
   const tasks = plan.taskIds.map(id => all.find(row => row.kind === "task" && row.record.id === id)?.record as WorkflowTask | undefined);
@@ -334,6 +351,8 @@ export function checkWorkflowApproval(input: WorkflowApprovalCheck, all: Workflo
 function assertPublication(value: WorkflowPublication, previous: WorkflowPublication | undefined, all: WorkflowStoredRow[]) {
   const task = all.find(row => row.kind === "task" && row.record.id === value.taskId)?.record as WorkflowTask | undefined;
   if (!task || (task.deletedAt && !previous) || task.siteDomain !== value.siteDomain || task.weekStart !== value.weekStart) reject("publication_task_missing", "发布记录需要对应同站点工作任务");
+  const maintenanceProblems = maintenancePublicationProblems(task, value);
+  if (maintenanceProblems.length) reject("maintenance_qa_incomplete", maintenanceProblems.join("；"));
   const automatic = value.publicationPolicy;
   // A first-delivery CMS correction belongs to the original blog task. Keep
   // its initial source receipt immutable and record the correction as an
@@ -419,6 +438,7 @@ function assertPublication(value: WorkflowPublication, previous: WorkflowPublica
   }
   if (all.some(row => row.kind === "historical_import" && (row.record as WorkflowHistoricalImport).publications.some(item => item.pageUrl === value.pageUrl && item.contentVersion === value.contentVersion))) reject("duplicate_historical_publication", "该页面版本已有历史归档，不能作为本次新增发布重复计数");
   if (previous) {
+    if (previous.maintenanceQa && !same(previous.maintenanceQa, value.maintenanceQa)) reject("maintenance_qa_immutable", "实际维护验收证据不可撤写");
     for (const key of ["taskId", "approvalId", "approvalItemId", "publicationPolicy", "automaticWrite", "clusterRelease", "siteDomain", "pageUrl", "country", "language", "keyword", "contentVersion", "kind", "sourcePublicationId", "publishedAt"] as const) if (!same(previous[key], value[key])) reject("publication_identity_changed", "已有发布身份和真实发布时间不可覆盖");
     if (previous.status === "verified" && (!same(previous.liveCheck, value.liveCheck) || previous.verifiedAt !== value.verifiedAt || value.status !== "verified")) reject("verification_immutable", "已验收事实不可撤写；新增问题或新版本保留审计历史");
   }
@@ -453,7 +473,7 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
   const checkTimes = (value: unknown) => {
     if (!value || typeof value !== "object") return;
     for (const [key, entry] of Object.entries(value)) {
-      if (["publishedAt", "verifiedAt", "firstVerifiedAt", "observedAt", "checkedAt", "capturedAt", "preparedAt", "reviewedAt", "approvedAt", "startedAt", "completedAt", "sourceStartedAt", "sourceCompletedAt", "sourceSnapshotAt", "firstSeenAt", "resolvedAt", "changedAt", "submittedAt", "decidedAt"].includes(key) && typeof entry === "string" && Date.parse(entry) > now.getTime() + 300_000) reject("future_evidence", "事实或验收时间不能在未来");
+      if (["originalPublishedAt", "preservedPublishedAt", "modifiedAt", "publishedAt", "verifiedAt", "firstVerifiedAt", "observedAt", "checkedAt", "capturedAt", "preparedAt", "reviewedAt", "approvedAt", "startedAt", "completedAt", "sourceStartedAt", "sourceCompletedAt", "sourceSnapshotAt", "firstSeenAt", "resolvedAt", "changedAt", "submittedAt", "decidedAt"].includes(key) && typeof entry === "string" && Date.parse(entry) > now.getTime() + 300_000) reject("future_evidence", "事实或验收时间不能在未来");
       checkTimes(entry);
     }
   };
@@ -475,7 +495,9 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
     const oldTask = previous as WorkflowTask | undefined;
     // The server selects the new contract for new content; clients cannot opt out
     // by dropping the field. Original persisted records retain their old contract.
-    if (contentKinds.has(task.kind) && (!oldTask && now >= new Date("2026-11-23T00:00:00Z") || oldTask?.workflowContract === "growth-v1.5")) task.workflowContract = "growth-v1.5";
+    if ((contentKinds.has(task.kind) || task.workClass) && (!oldTask && now >= new Date("2026-11-23T00:00:00Z") || oldTask?.workflowContract === "growth-v1.5")) task.workflowContract = "growth-v1.5";
+    if (task.workClass === undefined && oldTask?.workClass) task.workClass = oldTask.workClass;
+    if (task.maintenance === undefined && oldTask?.maintenance) task.maintenance = oldTask.maintenance;
     // Older executors may omit the display-only Chinese brief on progress updates.
     if (!task.brief && oldTask?.brief) task.brief = oldTask.brief;
     if (task.progress?.length || oldTask?.progress?.length) {
@@ -488,10 +510,14 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
       task.progress = [...progress.values()]
         .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt) || a.id.localeCompare(b.id)).slice(-100);
     }
-    assertTask(task, oldTask, all, actor);
+    assertTask(task, oldTask, all, actor, now);
   }
   if (kind === "plan") assertPlan(record as WorkflowPlan, previous as WorkflowPlan | undefined, all, now);
-  if (kind === "publication") assertPublication(record as WorkflowPublication, previous as WorkflowPublication | undefined, all);
+  if (kind === "publication") {
+    const publication = record as WorkflowPublication;
+    if (publication.maintenanceQa === undefined && (previous as WorkflowPublication | undefined)?.maintenanceQa) publication.maintenanceQa = (previous as WorkflowPublication).maintenanceQa;
+    assertPublication(publication, previous as WorkflowPublication | undefined, all);
+  }
   if (kind === "optimization") assertOptimization(record as WorkflowOptimization, previous as WorkflowOptimization | undefined, all);
   if (kind === "run" && (previous as WorkflowRun | undefined)?.status === "completed") reject("run_completed", "已完成回执不可回退；修正请增加单独复核记录");
   if (kind === "run" && (record as WorkflowRun).stage === "CLUSTER_ROLLBACK") {
@@ -544,6 +570,7 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
   const runs = all.filter(row => row.kind === "run" && (options.pageUrl ? (row.record as WorkflowRun).taskIds.some(id => taskIds.has(id)) : belongs(row))).map(row => row.record as WorkflowRun).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const verified = publications.filter(row => row.status === "verified");
   const blogTaskIds = new Set(approvalTasks.filter(task => task.kind === "blog").map(task => task.id));
+  const refreshTaskIds = new Set(approvalTasks.filter(task => task.workClass === "content_refresh").map(task => task.id));
   const deliveryKey = (row: WorkflowPublication) => JSON.stringify([row.taskId, row.pageUrl]);
   const verifiedSources = new Set(verified.filter(row => row.kind === "source_blog").map(deliveryKey));
   const verifiedTranslations = new Set(verified.filter(row => ["translation", "backfill_translation"].includes(row.kind)).map(deliveryKey));
@@ -558,7 +585,8 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
     pendingApprovalItems: approvals.reduce((sum, row) => sum + row.items.filter(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready).length, 0),
     pendingApprovals: approvals.filter(row => row.items.some(item => workflowApprovalEffectiveItemStatus(row, item.id, allApprovals) === "pending" && approvalItemNeedsHuman(item, approvalTasks) && approvalReviewReadiness(item).ready)).length,
     verifiedSourceBlogs: verifiedSources.size, verifiedTranslations: verifiedTranslations.size,
-    verifiedLandingPages: verified.filter(row => row.kind === "landing").length, optimizedPages: new Set(verified.filter(row => row.kind === "optimization" && !blogTaskIds.has(row.taskId)).map(row => row.pageUrl)).size,
+    verifiedLandingPages: verified.filter(row => row.kind === "landing").length, optimizedPages: new Set(verified.filter(row => row.kind === "optimization" && !blogTaskIds.has(row.taskId) && !refreshTaskIds.has(row.taskId)).map(row => row.pageUrl)).size,
+    ...(refreshTaskIds.size ? { refreshedPages: new Set(verified.filter(row => row.kind === "optimization" && refreshTaskIds.has(row.taskId) && approvalTasks.some(task => task.id === row.taskId && task.pageUrl === row.pageUrl && task.country === row.country && task.language === row.language)).map(row => row.pageUrl)).size } : {}),
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,
   } };
   if (!options.operational) return snapshot;
