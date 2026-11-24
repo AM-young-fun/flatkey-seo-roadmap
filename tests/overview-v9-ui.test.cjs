@@ -13,8 +13,13 @@ Module._load = function(name, parent, ...rest) {
 for(const extension of [".ts",".tsx"]) require.extensions[extension]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,file);
 const { keywordCircleLayout } = require("../src/components/growth-network-layout.ts");
 const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
-const { ConversionCharts, OverviewGoalCharts } = require("../src/components/OverviewGrowthCharts.tsx");
+const { ConversionCharts, OverviewGoalCharts, TopicComparison } = require("../src/components/OverviewGrowthCharts.tsx");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
+test("a duplicated page with ambiguous topics is not plotted as an invented topic contribution",()=>{
+ const driver={title:'GPU page',url:'https://flatkey.ai/blog/gpu',module:'blog',topicId:'gpu',country:'US',language:'en',metric:'sessions',source:'GA4',previous:10,current:20,window:{start:'2026-11-12',end:'2026-11-18',previousStart:'2026-11-05',previousEnd:'2026-11-11',timezone:'America/Los_Angeles'}};
+ const snapshot={period:{start:'2026-11-12',end:'2026-11-18',timezone:'America/Los_Angeles'},directions:[{drivers:[driver]},{drivers:[{...driver,topicId:'api'}]}]};
+ const html=render(React.createElement(TopicComparison,{snapshot,workspace:null}));assert.match(html,/尚无同口径/);assert.doesNotMatch(html,/class="bar"/);
+});
 
 test("1600-word graph is complete, deterministic across reorder/rank updates, and bounded by one circle",()=>{
   const topics=Array.from({length:64},(_,i)=>({id:`topic:${i}`,site:"flatkey.ai",topicId:`t${i}`,name:`Topic ${i}`}));
