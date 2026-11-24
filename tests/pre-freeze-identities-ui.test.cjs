@@ -33,3 +33,13 @@ test('only verified source readback exposes separate draft refresh; an attempted
   assert.match(html, /身份与人审来源完整读回一致/); assert.match(html, /disabled=""[^>]*>保存此版待审季度方案/);
   assert.match(html, /核对原季度待审稿/); assert.match(html, /不自动批准或冻结/);
 });
+test('unknown historical metric times list original sources and require a separate unchecked human acknowledgement before confirmation', () => {
+  const unknownBundle = structuredClone(bundle); unknownBundle.review.assignments[0].demand.observedAt = null;
+  unknownBundle.review.assignments[0].demand.historicalTimeUnknown = { reason: 'Approved exact historical cache; original metric timestamp is unknown.' };
+  const unchecked = render([unknownBundle, preview, null, null, '', false, false]);
+  assert.match(unchecked, /本批 1 项历史指标采集时间未知/); assert.match(unchecked, /actual\/local.json/);
+  assert.match(unchecked, /确认本批历史指标时间未知例外/); assert.match(unchecked, /不是指标采集时间/);
+  assert.match(unchecked, /disabled=""[^>]*>确认本批缺失身份/);
+  const checked = render([unknownBundle, preview, null, null, '', false, false, null, false, false, true]);
+  assert.match(checked, /checked=""/); assert.doesNotMatch(checked, /disabled=""[^>]*>确认本批缺失身份/);
+});

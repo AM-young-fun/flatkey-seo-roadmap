@@ -12,19 +12,24 @@ export const PRE_FREEZE_IDENTITY_AUDIT = "PRE_FREEZE_IDENTITIES_APPLIED_V1";
 const sha = z.string().regex(/^[a-f0-9]{64}$/u), id = z.string().min(1).max(200);
 const evidence = z.object({ reference: z.string().min(1).max(3000), observedAt: z.iso.datetime({ offset: true }),
   content: z.string().min(1).max(16000), sha256: sha, quote: z.string().min(1).max(4000) }).strict();
+const historicalTimeUnknown = z.object({ acknowledgement: z.literal("historical-time-unknown"),
+  selectionSourceHash: sha, keyword: z.string().min(1).max(2000), country: z.enum(GROWTH_RESEARCH_COUNTRIES), language: z.enum(GROWTH_LANGUAGES),
+  sourceSha256: sha, reason: z.string().trim().min(12).max(2000) }).strict();
 const span = z.object({ text: z.string().min(1).max(500), start: z.number().int().min(0), end: z.number().int().positive() }).strict();
 export const preFreezeReviewSchema = z.object({ version: z.literal("pre-freeze-identities-v1"),
   selection: quarterMembershipSelectionSchema, selectionHash: sha,
   assignments: z.array(z.object({ siteDomain: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc"]), keywordId: id,
     keyword: z.string().min(1).max(2000), topicId: id, country: z.enum(GROWTH_RESEARCH_COUNTRIES), language: z.enum(GROWTH_LANGUAGES),
-    demand: evidence.extend({ exactKeyword: z.string().min(1).max(2000), country: z.enum(GROWTH_RESEARCH_COUNTRIES), language: z.enum(GROWTH_LANGUAGES),
+    demand: evidence.extend({ observedAt: z.iso.datetime({ offset: true }).nullable(), historicalTimeUnknown: historicalTimeUnknown.optional(),
+      exactKeyword: z.string().min(1).max(2000), country: z.enum(GROWTH_RESEARCH_COUNTRIES), language: z.enum(GROWTH_LANGUAGES),
       metric: z.enum(["monthly_searches", "clicks", "impressions"]), value: z.number().positive().finite() }).strict(),
     wordLanguage: evidence.extend({ language: z.enum(GROWTH_LANGUAGES), spans: z.array(span).min(1).max(12), reason: z.string().trim().min(12).max(4000) }).strict(),
   }).strict()).min(1).max(200),
 }).strict();
 export const preFreezeCommandSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("preview_identities"), requestId: id, review: preFreezeReviewSchema }).strict(),
-  z.object({ action: z.literal("apply_identities"), requestId: id, review: preFreezeReviewSchema, expectedStateHash: sha }).strict(),
+  z.object({ action: z.literal("apply_identities"), requestId: id, review: preFreezeReviewSchema, expectedStateHash: sha,
+    historicalTimeUnknownAcknowledged: z.literal(true).optional() }).strict(),
 ]);
 export type PreFreezeReview = z.infer<typeof preFreezeReviewSchema>;
 export type PreFreezeCommand = z.infer<typeof preFreezeCommandSchema>;
@@ -55,13 +60,19 @@ function rawSha(content: string) {
   // Artifact bytes use SHA256; state snapshots use stable canonical JSON.
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
-function validateEvidence(source: z.infer<typeof evidence>, now: Date) {
+function validateEvidence(source: Omit<z.infer<typeof evidence>, "observedAt"> & { observedAt: string | null }, now: Date, allowUnknownTime = false) {
   if (rawSha(source.content) !== source.sha256 || !source.content.includes(source.quote)
-    || Date.parse(source.observedAt) > now.getTime()) throw new PreFreezeIdentityError("evidence_changed", "来源字节SHA、原文摘录或真实时间不匹配", 422);
+    || (source.observedAt === null ? !allowUnknownTime : Date.parse(source.observedAt) > now.getTime())) throw new PreFreezeIdentityError("evidence_changed", "来源字节SHA、原文摘录或真实时间不匹配", 422);
 }
 const neutral = /^(?:gpu|cpu|api|ai|ia|llm|llms|ram|vram|cuda|gguf|ggml|moe|rag|ocr|vllm|lora|qlora|gpt|llama|qwen|claude|gemini|deepseek|mistral|llava|bloom|hunyuan|minimax|anthropic|openai|meta|google|nvidia|amd|intel|rtx|gtx|dgx|hbm|pcie|nvlink|nvl|tesla|geforce|quadro|blackwell|hopper|ampere|turing|volta|ada|lovelace|instruct|chat|base|vision|thinking|turbo|pro|ultra|mini|nano|flash|preview|fast)$/iu;
-function validateLanguage(item: PreFreezeReview["assignments"][number], now: Date, originalProof?: GrowthWordLanguageEvidence) {
-  validateEvidence(item.wordLanguage, now); validateEvidence(item.demand, now);
+function validateLanguage(item: PreFreezeReview["assignments"][number], selectionSourceHash: string, now: Date, originalProof?: GrowthWordLanguageEvidence) {
+  const exception = item.demand.historicalTimeUnknown;
+  if (item.demand.observedAt === null && (!exception || exception.selectionSourceHash !== selectionSourceHash || exception.keyword !== item.keyword
+    || exception.country !== item.country || exception.language !== item.language || exception.sourceSha256 !== item.demand.sha256)) {
+    throw new PreFreezeIdentityError("historical_time_exception_required", "历史指标时间未知须逐词明确确认例外，并绑定本清单、原词原国及来源SHA；不能伪造当前时间", 422);
+  }
+  if (item.demand.observedAt !== null && exception) throw new PreFreezeIdentityError("unexpected_time_exception", "来源已有确切时间，不应标成历史时间未知例外", 422);
+  validateEvidence(item.wordLanguage, now); validateEvidence(item.demand, now, item.demand.observedAt === null && Boolean(exception));
   if (item.demand.exactKeyword !== item.keyword || item.demand.country !== item.country || item.demand.language !== item.language
     || GROWTH_MARKET_LANGUAGES[item.country] !== item.language || item.wordLanguage.language !== item.language
     || !item.demand.quote.normalize("NFKC").toLowerCase().includes(item.keyword.normalize("NFKC").toLowerCase())) {
@@ -105,6 +116,10 @@ export function auditedHumanWordLanguages(sources: IdentitySourceRow[], audits: 
 export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFreezeIdentityState, now = new Date()) {
   if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new PreFreezeIdentityError("quarter_closed", "本季已截止，不能事后补初始身份改变原季度验收", 409);
   const review = command.review;
+  const unknownTimes = review.assignments.filter(item => item.demand.observedAt === null);
+  if (command.action === "apply_identities" && unknownTimes.length && !command.historicalTimeUnknownAcknowledged) {
+    throw new PreFreezeIdentityError("historical_time_ack_required", "须明确确认本批历史指标时间未知的逐词来源例外，再提交缺失身份", 422);
+  }
   if (review.selectionHash !== preFreezeHash({ ...review.selection, members: [...review.selection.members].sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId)) })) {
     throw new PreFreezeIdentityError("selection_changed", "确切1600原词清单SHA不匹配", 422);
   }
@@ -128,13 +143,16 @@ export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFre
   for (const item of review.assignments) {
     const key = memberKey(item.siteDomain, item.keywordId);
     if (seen.has(key) || !review.selection.members.some(member => member.siteDomain === item.siteDomain && member.keywordId === item.keywordId && member.keyword === item.keyword && member.topicId === item.topicId)) throw new PreFreezeIdentityError("outside_selection", "每条须来自同一确切季度清单，不能重复或带入其他原词", 422);
-    seen.add(key); validateLanguage(item, now, diagnosticLanguages.find(proof => proof.site === item.siteDomain && proof.keywordId === item.keywordId && proof.keyword.normalize("NFKC").toLowerCase() === item.keyword.normalize("NFKC").toLowerCase()));
+    seen.add(key); validateLanguage(item, review.selection.sourceHash, now, diagnosticLanguages.find(proof => proof.site === item.siteDomain && proof.keywordId === item.keywordId && proof.keyword.normalize("NFKC").toLowerCase() === item.keyword.normalize("NFKC").toLowerCase()));
     const marketIdentity = { siteDomain: item.siteDomain, sourceId: MARKET_ASSIGNMENT_SOURCE_ID, rowKey: rowKey(item.keywordId) }, oldMarket = existingSources.get(identitySourceKey(marketIdentity));
     const current = readKeywordMarketAssignment(oldMarket?.snapshot);
     if (oldMarket && (!current || current.primaryCountry !== item.country || current.language !== item.language)) throw new PreFreezeIdentityError("primary_market_conflict", `${item.keyword}：原市场${current ? `${current.primaryCountry}/${current.language}` : "记录无效"}，本次${item.country}/${item.language}；409保留原值，不迁移、不覆盖、不加副国`, 409);
     if (!oldMarket) {
+      const metricTime = item.demand.observedAt === null
+        ? `Historical metric time unknown; historical-time-unknown explicitly acknowledged; selectionSourceHash=${review.selection.sourceHash}; sourceSha256=${item.demand.sha256}; reason=${item.demand.historicalTimeUnknown!.reason.slice(0, 300)}; reviewedAt is this human review, not metric collection. `
+        : `Metric observedAt=${item.demand.observedAt}. `;
       const snapshot = keywordMarketAssignmentSchema.parse({ primaryCountry: item.country, language: item.language, secondaryMarkets: [],
-        evidence: `Human reviewed exact quarter word; ${item.demand.reference}#${item.demand.sha256}; ${item.wordLanguage.reference}#${item.wordLanguage.sha256}`.slice(0, 4000), reviewedAt: now.toISOString() });
+        evidence: `${metricTime}Human reviewed exact quarter word; ${item.demand.reference}#${item.demand.sha256}; ${item.wordLanguage.reference}#${item.wordLanguage.sha256}`.slice(0, 4000), reviewedAt: now.toISOString() });
       creates.push({ ...marketIdentity, snapshot, snapshotHash: preFreezeHash(snapshot), observedAt: now });
     }
     const proofIdentity = { siteDomain: item.siteDomain, sourceId: HUMAN_WORD_LANGUAGE_SOURCE_ID, rowKey: rowKey(item.keywordId) }, oldProof = existingSources.get(identitySourceKey(proofIdentity));
@@ -146,9 +164,11 @@ export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFre
       creates.push({ ...proofIdentity, snapshot, snapshotHash: preFreezeHash(snapshot), observedAt: now });
     }
     results.push({ siteDomain: item.siteDomain, keywordId: item.keywordId, keyword: item.keyword, topicId: item.topicId, country: item.country, language: item.language,
+      demandObservedAt: item.demand.observedAt, historicalTimeUnknown: item.demand.historicalTimeUnknown ?? null,
       previousCountry: current?.primaryCountry ?? null, previousLanguage: current?.language ?? null,
       market: oldMarket ? "reuse" as const : "create" as const, languageReview: oldProof ? "reuse" as const : "create" as const,
       targetIdAfter: growthTargetId(item.siteDomain, item.keyword, item.country, item.language) });
   }
-  return { stateHash, reviewHash: preFreezeHash(review), creates, results, selection: review.selection };
+  return { stateHash, reviewHash: preFreezeHash(review), creates, results, selection: review.selection,
+    historicalTimeUnknown: unknownTimes.map(item => ({ siteDomain: item.siteDomain, keywordId: item.keywordId, reference: item.demand.reference, observedAt: null, ...item.demand.historicalTimeUnknown! })) };
 }

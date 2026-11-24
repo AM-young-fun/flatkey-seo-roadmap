@@ -22,6 +22,10 @@
 
 `content`是实际来源的UTF8文本；`sha256`是其确切字节SHA256；`quote`必须是content中的原文片段。服务器复核字节和时间，不自动外查。需求必须来自同词/同国/同语种，`metric`为monthly_searches、clicks或impressions，value为真实正数且原文包含该数值，不能借种子量。人审仍必须核对实际来源行，哈希绑定不冒充供应商真实性证明。
 
+需求来源已明确列为人审历史时间未知例外时，仅`demand.observedAt`可保留`null`，不得用本次审核时间冒充指标采集时间。此时必须提供`demand.historicalTimeUnknown`：`acknowledgement:"historical-time-unknown"`、`selectionSourceHash`（精确等于selection.sourceHash）、`keyword/country/language`（当前原词原国原语种）、`sourceSha256`（该需求原文SHA）和不少于12字的`reason`。缺任一绑定或错贴其他行均拒绝；已有真实指标日期的行不使用该例外。
+
+界面在真实预览后单列未知数量、逐词来源SHA及原因，须另行勾选接受本批例外。应用命令也必须带`historicalTimeUnknownAcknowledged:true`；审计保留原`null`、逐词绑定及明确确认，新增市场evidence注明历史指标日期未知。`reviewedAt`仅指本次人审。`wordLanguage.observedAt`仍须真实ISO时间，正需求值、原词语种、主国冲突、排名新鲜度和效果观察时间规则均未放松。
+
 `spans`为原关键词的准确`{text,start,end}`，索引按JavaScript UTF16位置；语种来源摘录须包含该原词或全部申报span，不能错贴另一词的证据。不能用查询locale或页面译文推定语种。仅型号、品牌、共享缩写和型号版本不足以确认，和既有明确词语种证据冲突也拒绝。没有可核来源的项继续留缺口，不伪造证据。
 
 可选`quarterPlan`是原完整`quarter-planning-v2`方向/预算方案，不是简化身份表。没有这个字段时，界面复用当前已保存的完整草稿。

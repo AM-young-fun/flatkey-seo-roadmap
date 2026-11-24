@@ -4,7 +4,7 @@ import type { QuarterPlanningInput } from "./growth-quarter-planning";
 
 export type IdentityPreview = { status: "IDENTITIES_PREVIEW"; stateHash: string; readbackHash: string; reviewHash: string; selectionHash: string;
   createSourceRows: number; results: { siteDomain: string; keywordId: string; keyword: string; topicId: string; country: string; language: string; previousCountry?: string | null; previousLanguage?: string | null; market: "create" | "reuse"; languageReview: "create" | "reuse"; targetIdAfter: string }[] };
-export type IdentityApply = { action: "apply_identities"; requestId: string; expectedStateHash: string; review: PreFreezeReview };
+export type IdentityApply = { action: "apply_identities"; requestId: string; expectedStateHash: string; review: PreFreezeReview; historicalTimeUnknownAcknowledged?: true };
 export type IdentityReceipt = { requestId: string; actor: string; reviewHash: string; selectionHash: string; beforeHash: string; afterHash: string; results: IdentityPreview["results"]; createdSourceRows: number };
 export const identityApi = "/api/keywords/quarter-membership";
 export const canonicalIdentityClient = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)

@@ -130,6 +130,34 @@ test('the source planner cannot mark an incomplete list as1600 or initialize out
   assert.throws(() => planPreFreezeIdentities(outside, state, now), { code: 'outside_selection' });
   assert.equal(db.audits.size, 0);
 });
+test('historical unknown metric time is an exact human exception, stays null in audit and cannot relax language time, demand or market protection', async () => {
+  const value = review(), item = value.assignments[0];
+  item.demand.observedAt = null;
+  await assert.rejects(prepare(value), { code: 'historical_time_exception_required' }); assert.equal(writes.length, 0);
+  item.demand.historicalTimeUnknown = { acknowledgement: 'historical-time-unknown', selectionSourceHash: value.selection.sourceHash,
+    keyword: item.keyword, country: item.country, language: item.language, sourceSha256: item.demand.sha256,
+    reason: 'Explicitly reviewed historical positive demand cache; actual metric collection time remains unknown and is not this human review time.' };
+  const { command, result } = await prepare(value); assert.equal(result.historicalTimeUnknown[0].observedAt, null);
+  await assert.rejects(savePreFreezeIdentities(command, 'human', now), { code: 'historical_time_ack_required' }); assert.equal(writes.length, 0);
+  await assert.rejects(savePreFreezeIdentities({ ...command, historicalTimeUnknownAcknowledged: true }, 'collector', now), { status: 403 });
+  for (const change of [{ selectionSourceHash: '0'.repeat(64) }, { sourceSha256: '0'.repeat(64) }, { keyword: 'another original word' }, { country: 'JP' }, { language: 'ja' }]) {
+    const invalid = copy(value); Object.assign(invalid.assignments[0].demand.historicalTimeUnknown, change);
+    await assert.rejects(prepare(invalid), { code: 'historical_time_exception_required' }); assert.equal(writes.length, 0);
+  }
+  const noLanguageTime = copy(value); noLanguageTime.assignments[0].wordLanguage.observedAt = null;
+  await assert.rejects(prepare(noLanguageTime)); assert.equal(writes.length, 0);
+  const noDemand = copy(value); noDemand.assignments[0].demand.value = 0;
+  await assert.rejects(prepare(noDemand)); assert.equal(writes.length, 0);
+  const known = copy(value); known.assignments[0].demand.observedAt = '2026-11-23T10:00:00Z';
+  await assert.rejects(prepare(known), { code: 'unexpected_time_exception' }); assert.equal(writes.length, 0);
+  const applied = await savePreFreezeIdentities({ ...command, historicalTimeUnknownAcknowledged: true }, 'human', now);
+  assert.equal(applied.receipt.historicalTimeUnknownAcknowledged, true);
+  assert.equal(applied.receipt.historicalTimeUnknown[0].observedAt, null);
+  assert.deepEqual(applied.receipt.historicalTimeUnknown[0].selectionSourceHash, value.selection.sourceHash);
+  const market = db.sources.get('flatkey.ai:SEO_MARKET_ASSIGNMENT:keyword:keyword-0');
+  assert.equal(market.snapshot.reviewedAt, now.toISOString()); assert.match(market.snapshot.evidence, /Historical metric time unknown/);
+  assert.match(market.snapshot.evidence, /not metric collection/); assert.equal(applied.receipt.results[0].demandObservedAt, null);
+});
 test('null identity first-freeze closes only after source apply and explicit stable-ID plan refresh; no implicit freeze or old draft rewrite', async () => {
   const { buildGrowthWorkspace } = require('../src/lib/growth-workspace.ts');
   const { emptyGrowthStrategy, prepareGrowthStrategyMutation, growthWorkspaceIdentity } = require('../src/lib/growth-strategy.ts');

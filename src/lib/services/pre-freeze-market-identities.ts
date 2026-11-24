@@ -70,7 +70,7 @@ export async function savePreFreezeIdentities(raw: unknown, actor: WorkflowActor
     }
     const before = await readState(tx, command.review), plan = planPreFreezeIdentities(command, before, now);
     if (command.action === "preview_identities") return { status: "IDENTITIES_PREVIEW" as const, stored: false, stateHash: plan.stateHash, readbackHash: preFreezeHash(before),
-      reviewHash: plan.reviewHash, selectionHash: command.review.selectionHash, results: plan.results, createSourceRows: plan.creates.length };
+      reviewHash: plan.reviewHash, selectionHash: command.review.selectionHash, results: plan.results, createSourceRows: plan.creates.length, historicalTimeUnknown: plan.historicalTimeUnknown };
     for (const source of plan.creates) await tx.keywordSourceRow.create({ data: { ...source, snapshot: json(source.snapshot) } });
     // Own new proof audit does not exist yet. Verify all protected entities and
     // old source rows, then each exact new source before committing the audit.
@@ -86,6 +86,8 @@ export async function savePreFreezeIdentities(raw: unknown, actor: WorkflowActor
     const receipt = { version: "pre-freeze-identities-v1", actor: "human", requestId: command.requestId, requestHash: payloadHash,
       appliedAt: now.toISOString(), reviewHash: plan.reviewHash, selectionHash: command.review.selectionHash,
       beforeHash: preFreezeHash(before), afterHash: preFreezeHash(after), results: plan.results, createdSourceRows: plan.creates.length,
+      historicalTimeUnknown: plan.historicalTimeUnknown,
+      historicalTimeUnknownAcknowledged: plan.historicalTimeUnknown.length > 0 && command.historicalTimeUnknownAcknowledged === true,
       quarterPlanUnchanged: true, requiresNormalPlanRefresh: true };
     await tx.keywordCurationAudit.create({ data: { id: auditId, siteDomain: "flatkey.ai", status: PRE_FREEZE_IDENTITY_AUDIT, payloadHash,
       before: json(before), after: json(after), summary: json({ receipt, receiptHash: preFreezeHash(receipt), approvedLanguageSources }), appliedAt: now } });
