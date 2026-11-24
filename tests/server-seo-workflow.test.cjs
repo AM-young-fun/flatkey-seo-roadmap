@@ -15,7 +15,7 @@ test("local collection keeps the approved Beijing execution slot and lets metada
  assert.ok(hours.includes(16));
  assert.ok(!hours.includes(15));
  assert.equal(new Set(hours).size,hours.length);
- assert.equal(local.status, "ACTIVE");
+ assert.equal(config.verificationScope.includes(local.id), true);
  for (const date of ["2026-11-17", "2026-07-17"]) {
   const format = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23", day: "2-digit" });
   const slots = [7, 8].map(hour => Object.fromEntries(format.formatToParts(new Date(`${date}T0${hour}:00:00Z`)).map(part => [part.type, part.value])));

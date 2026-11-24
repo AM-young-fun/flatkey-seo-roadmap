@@ -1,11 +1,18 @@
 import { isSeoWorkday } from "./seo-workday";
 import { nextSerpPeriodDue, nextSerpPeriodKey, periodDue, serpPeriod, scheduledSerpDue } from "./serp-periods";
 import automationConfig from "./data/seo-automation-config.json";
+import deploymentConfig from "../../vercel.json";
 
 export const dailyAnalyticsCollectionTime = "16:00";
 import { seoScheduleOpensAt } from "./seo-schedule-window";
 
 export const schedulerCadence = "每日 10:10–23:55，每 5 分钟检查及续跑";
+
+/** An authentication secret also supports authorized manual callers. It does
+ * not prove that the deployed project has any hosted cron configured. */
+export function deployedSeoSchedulerConfigured(secret: string | undefined, crons: readonly { path: string; schedule: string }[] = deploymentConfig.crons): boolean {
+  return Boolean(secret?.trim()) && crons.some(cron => /^\/api\/cron\/daily-rankings(?:\?[^#]*)?$/u.test(cron.path) && cron.schedule.trim().length > 0);
+}
 
 export type OperationsStatus = {
   checkedAt: string;
@@ -84,7 +91,6 @@ const automationNotes: Record<string, string> = {
   "seo-16-00-ga4-search-console": "北京时间16:00起45分钟内，沿原Google只读授权采集五站自然搜索、页面和搜索词，写回并核对生产归档。北京时间09:00仅周一分别补采周末已闭合日；常规执行按北京时间原工作日门槛过滤，未发布留待补。",
   "flatkey-5": "统一接续研究、制作、优化、审批发布和7／14／28天效果复查。有效且研究合格热点P0优先，其余延期按原ID及原会话在下个实际工作日补齐。业务周为北京时间周五至周四，跨两Monday桶只核一次额度；不抢租约、不替换正式任务。Flatkey新落地页及其专属关键词挖掘已取消；博客和旧页优化继续。",
   "automation": "周四15:00开始定稿，16:00前完成下个周五至周四业务周的原任务排期及生产读回；跨两Monday桶只核一次额度。消费最新已完成复盘和有效热点P0证据，保留延期原ID、dueAt及在途任务；16:30新结论补原任务或后续候选。",
-  "seo-09-00-github-traffic": "北京时间工作日10:10，通过本机GitHub CLI采集两个提示词仓库的浏览和克隆，保留GitHub UTC日桶并核对生产读回。",
   "seo-09-10-flatkey": "北京时间16:15起45分钟内，同步Flatkey首次自然搜索获客的sign_up_success去重用户并读回；全渠道UTC账户注册来源独立保留。北京时间09:15仅周一补采；常规执行按北京时间原工作日门槛过滤，不将缺数填0。",
   "seo-10-00": "每日含周末发现近24小时新事件及近7天真实升温主题，核验官方事实与独立需求证据，扩当地关键词并完整去重。有效热点P0沿原任务补研究和最早合法空额，正式制作仍守实际工作日与原额度。Flatkey、RackRate、ModelFit原技术、GSC、404及PSI巡检继续。",
   "seo-14-00": "周三15:30准备下个周五至周四业务周的研究、意图去重与页面候选，供周四16:00前定稿。不开展Flatkey新落地页专属挖词；保留博客及旧页研究。复用原任务与有效热点P0证据，核跨两Monday桶的实际工作日及一次额度；缺项明确保留。",

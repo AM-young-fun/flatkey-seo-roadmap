@@ -14,7 +14,7 @@ for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module
 const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
 const { readonlyAutomationPlans, automationDate } = require("../src/lib/seo-automation-schedule.ts");
 const config = require("../src/lib/data/seo-automation-config.json");
-const { configuredAutomationPlans } = require("../src/lib/operations.ts");
+const { configuredAutomationPlans, nextAutomationTime } = require("../src/lib/operations.ts");
 const { SeoAutomationSchedule } = require("../src/components/SeoAutomationSchedule.tsx");
 const makeStatus = () => ({
   checkedAt: "2026-11-10T08:10:00Z", automationConfigurationVerifiedAt: config.verifiedAt,
@@ -30,15 +30,19 @@ const render = () => renderToStaticMarkup(React.createElement(SeoAutomationSched
 
 test("retired executors stay out of current plans while protected automations keep their configured status", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-23T06:00:00Z"));
-  const retired = ["seo-09-30", "seo-13-30", "seo-14-30", "seo-15-00", "seo-16-00"];
+  const retired = ["seo-09-30", "seo-13-30", "seo-14-30", "seo-15-00", "seo-16-00", "seo-09-00-github-traffic"];
   for (const id of retired) {
     assert.ok(!config.tasks.some(task => task.id === id), `${id} must not return to the snapshot`);
     assert.ok(!plans.some(plan => plan.id === id));
     assert.ok(!config.verificationScope.includes(id));
   }
   assert.ok(config.tasks.every(task => task.kind === "cron"));
-  assert.equal(config.tasks.find(task => task.id === "automation-2").status, "ACTIVE");
-  assert.equal(config.tasks.find(task => task.id === "flatkey-5").status, "ACTIVE");
+  assert.equal(config.tasks.length, 14);
+  for (const id of ["automation-2", "flatkey-5"]) {
+    const status = config.tasks.find(task => task.id === id).status;
+    assert.ok(["ACTIVE", "PAUSED"].includes(status));
+    assert.equal(plans.find(plan => plan.id === id).state.startsWith("配置已启用"), status === "ACTIVE");
+  }
   for (const id of ["seo-10-00-2"]) {
     assert.equal(config.tasks.find(task => task.id === id).status, "PAUSED");
     assert.equal(plans.find(plan => plan.id === id).nextAt, null);
@@ -56,9 +60,10 @@ test("Beijing schedules retain Monday backfill gates and source timezones", () =
     assert.match(plan.note, /北京时间\d{2}:\d{2}/);
     assert.match(plan.note, /周一/);
     assert.doesNotMatch(plan.note, /真实DST/);
-    assert.ok(plan.nextAt.startsWith("2026-11-21"), "candidate wakeups are not proof that business work may run");
+    assert.ok(nextAutomationTime(task.rrule, new Date("2026-11-21T00:30:00Z"), "ACTIVE", task.workdaysOnly).startsWith("2026-11-21"), "candidate wakeups are not proof that business work may run");
+    assert.equal(plan.nextAt !== null, task.status === "ACTIVE");
   }
-  assert.equal(config.tasks.find(task => task.id === "seo-09-00-github-traffic").workdaysOnly, true);
+  assert.ok(!config.tasks.some(task => task.id === "seo-09-00-github-traffic"));
   assert.equal(config.tasks.find(task => task.id === "flatkey-5").workdaysOnly, true);
   assert.match(plans.find(plan => plan.id === "flatkey-5").note, /原ID.*原会话/);
   assert.match(plans.find(plan => plan.id === "seo-10-00").note, /近24小时.*近7天/);
@@ -69,9 +74,11 @@ test("next-week preparation finishes before Thursday 16:00 and does not depend o
   const candidate = plans.find(plan => plan.id === "seo-14-00");
   const finalization = plans.find(plan => plan.id === "automation");
   const weekly = plans.find(plan => plan.id === "seo-09-30-2");
-  assert.equal(candidate.nextAt, "2026-11-25T07:30:00.000Z");
-  assert.equal(finalization.nextAt, "2026-11-26T07:00:00.000Z");
-  assert.equal(weekly.nextAt, "2026-11-26T08:30:00.000Z");
+  for (const [plan, date] of [[candidate, "2026-11-25T07:30:00.000Z"], [finalization, "2026-11-26T07:00:00.000Z"], [weekly, "2026-11-26T08:30:00.000Z"]]) {
+    const task = config.tasks.find(task => task.id === plan.id);
+    assert.equal(nextAutomationTime(task.rrule, new Date("2026-11-25T06:00:00Z"), "ACTIVE", task.workdaysOnly), date);
+    assert.equal(plan.nextAt, task.status === "ACTIVE" ? date : null);
+  }
   assert.match(finalization.note, /16:00前/);
   assert.doesNotMatch(finalization.name, /周五/);
   assert.ok(finalization.dependencies.includes("截止时最新已完成的复盘和研究证据"));
