@@ -19,6 +19,7 @@ Module._load = function (name, parent, ...args) {
   if (name === '@/lib/auth') return { AUTH_COOKIE_NAME: 'auth', isAuthEnabled: () => true, isValidAuthToken: async () => session };
   if (name === '@/lib/services/display-change') return { displayDataChanged: async () => {} };
   if (name === '@/lib/services/quarter-membership') return { saveQuarterMembership: async () => { routeReads++; return { status: 'PREVIEW' }; }, loadQuarterMembership: async () => { routeReads++; return {}; } };
+  if (name === '@/lib/services/pre-freeze-market-identities') return { savePreFreezeIdentities: async () => { routeReads++; return { status: 'IDENTITIES_PREVIEW', stored: false }; }, loadPreFreezeIdentityReceipt: async () => { routeReads++; return { replay: true }; } };
   if (name.startsWith('@/')) return load.call(this, path.join(root, 'src', name.slice(2)) + '.ts', parent, ...args);
   return load.call(this, name, parent, ...args);
 };
@@ -68,4 +69,14 @@ test('route rejects collectors, missing human login and foreign origin before an
   assert.equal((await GET(new Request(url))).status, 403); session = true;
   assert.equal((await post({ origin: 'https://other.test' })).status, 403); assert.equal(routeReads, 0);
   assert.equal((await post({ origin: 'https://seo.test' })).status, 200); assert.equal(routeReads, 1);
+});
+test('pre-freeze identity actions use the same real human origin gate and expose only normal original-receipt reads', async () => {
+  const url = 'https://seo.test/api/keywords/quarter-membership';
+  const post = headers => POST(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ action: 'preview_identities' }) }));
+  assert.equal((await post({ origin: 'https://seo.test' })).status, 403);
+  session = true; assert.equal((await post({ origin: 'https://seo.test', authorization: 'Bearer collector' })).status, 403);
+  assert.equal((await post({ origin: 'https://other.test' })).status, 403); assert.equal(routeReads, 0);
+  assert.equal((await post({ origin: 'https://seo.test' })).status, 200); assert.equal(routeReads, 1);
+  assert.equal((await GET(new Request(url + '?identityRequestId=human-original'))).status, 200); assert.equal(routeReads, 2);
+  assert.equal(writes.length, 0);
 });

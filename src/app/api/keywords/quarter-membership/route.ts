@@ -5,6 +5,8 @@ import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { QuarterMembershipError } from "@/lib/quarter-membership";
 import { loadQuarterMembership, saveQuarterMembership } from "@/lib/services/quarter-membership";
 import { displayDataChanged } from "@/lib/services/display-change";
+import { PreFreezeIdentityError } from "@/lib/pre-freeze-market-identities";
+import { savePreFreezeIdentities, loadPreFreezeIdentityReceipt } from "@/lib/services/pre-freeze-market-identities";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,14 +17,23 @@ async function authorize(request: Request, write = false) {
   if (write ? origin !== new URL(request.url).origin : origin && origin !== new URL(request.url).origin) throw new QuarterMembershipError("invalid_origin", "请求须来自当前平台同源页面", 403);
 }
 function failure(error: unknown) {
+  if (error instanceof PreFreezeIdentityError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers });
   if (error instanceof QuarterMembershipError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers });
   if (error instanceof ImportRequestError) return Response.json({ message: error.message }, { status: error.status, headers });
   if (error instanceof ZodError || error instanceof SyntaxError) return Response.json({ code: "invalid_record", message: "季度清单字段、原词数量或哈希无效" }, { status: 400, headers });
   return Response.json({ code: "storage_unavailable", message: "季度成员存储暂不可用；请保留确切请求并先读回，不重复改写" }, { status: 503, headers });
 }
 export async function GET(request: Request) {
-  try { await authorize(request); const value = new URL(request.url).searchParams.get("selectionHash"); const hash = value === null ? undefined : z.string().regex(/^[a-f0-9]{64}$/).parse(value); return Response.json(await loadQuarterMembership(hash), { headers }); } catch (error) { return failure(error); }
+  try { await authorize(request); const params = new URL(request.url).searchParams;
+    if (params.has("identityRequestId")) return Response.json(await loadPreFreezeIdentityReceipt(z.string().min(1).max(200).parse(params.get("identityRequestId")), "human"), { headers });
+    const value = params.get("selectionHash"); const hash = value === null ? undefined : z.string().regex(/^[a-f0-9]{64}$/).parse(value); return Response.json(await loadQuarterMembership(hash), { headers }); } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {
-  try { await authorize(request, true); const result = await saveQuarterMembership(await readImportJson(request)); if (result.status === "APPLIED" && "replay" in result && !result.replay) await displayDataChanged(); return Response.json(result, { headers }); } catch (error) { return failure(error); }
+  try { await authorize(request, true); const input = await readImportJson(request);
+    if (input && typeof input === "object" && "action" in input && ["preview_identities", "apply_identities"].includes(String(input.action))) {
+      const result = await savePreFreezeIdentities(input, "human");
+      if (result.status === "IDENTITIES_APPLIED" && !result.replay) await displayDataChanged();
+      return Response.json(result, { headers });
+    }
+    const result = await saveQuarterMembership(input); if (result.status === "APPLIED" && "replay" in result && !result.replay) await displayDataChanged(); return Response.json(result, { headers }); } catch (error) { return failure(error); }
 }

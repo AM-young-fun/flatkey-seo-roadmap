@@ -39,7 +39,7 @@ export type GrowthLanguageReview = { keyword: string; country: string; classific
 export function reviewGrowthLanguage(keyword: string, country: string | null, language: string | null, reviews: GrowthLanguageReview[] = languageReview.rows, wordProof?: GrowthWordLanguageEvidence): { status: GrowthLanguageStatus; reason: string } {
   if (!country || !language || !expectedLanguage(country)) return { status: "unknown", reason: wordProof ? `原词语种已有 ${wordProof.language} 证据；长期目标国家/语言尚待核定，诊断查询不授主国` : "原市场或原词语种尚未核实" };
   if (expectedLanguage(country) !== language) return { status: "mismatch", reason: "原市场与登记语言不匹配；未更换国家" };
-  if (wordProof && growthWordKey(wordProof.keyword) === growthWordKey(keyword)) return wordProof.language === language ? { status: "match", reason: `原诊断提案的明确原词语种证据；未据查询国家分配主国（${wordProof.source}）` } : { status: "mismatch", reason: `原词语种证据为 ${wordProof.language}，与当前市场语言不同；未迁移市场` };
+  if (wordProof && growthWordKey(wordProof.keyword) === growthWordKey(keyword)) return wordProof.language === language ? { status: "match", reason: wordProof.scope === "current-target-only" ? `用户已审核当前原词语种及来源；主国由独立市场记录确认（${wordProof.source}）` : `原诊断提案的明确原词语种证据；未据查询国家分配主国（${wordProof.source}）` } : { status: "mismatch", reason: `原词语种证据为 ${wordProof.language}，与当前市场语言不同；未迁移市场` };
   const existing = reviews.find(row => row.country === country && growthWordKey(row.keyword) === growthWordKey(keyword));
   if (existing?.classification === "CLEAR_MATCH") return { status: "match", reason: "已有原词语言逐词复核证据" };
   if (existing && /MISMATCH|WRONG|OTHER_LANGUAGE/.test(existing.classification)) return { status: "mismatch", reason: "已有原词语言复核判为不匹配" };
@@ -67,7 +67,7 @@ export type GrowthMembershipInput = { site: string; keywordId: string; keyword: 
 export type GrowthTaskInput = { id: string; siteDomain: string; keyword?: string | null; keywordId?: string | null; country?: string | null; language?: string | null; pageUrl?: string | null; status: string; deletedAt?: string; channel?: string; kind?: string };
 export type GrowthPublicationInput = { id?: string; taskId: string; siteDomain?: string; pageUrl: string; status: string; publishedAt?: string | null; country?: string | null; language?: string; keyword?: string | null; kind?: string };
 export type GrowthPlanInput = { id: string; status: string; taskIds: string[] };
-export type GrowthWordLanguageEvidence = { site: string; keywordId: string; keyword: string; language: string; source: string; evidence: {text:string;start:number;end:number}[] };
+export type GrowthWordLanguageEvidence = { site: string; keywordId: string; keyword: string; language: string; source: string; scope?: "current-target-only"; evidence: {text:string;start:number;end:number}[] };
 export type GrowthRankEvidence = { site: string; keywordId?: string | null; keyword: string; country: string; language: string | null; rank: number | null; url: string | null; source: "serp" | "database" | "gsc"; checkedAt: string | null; exact: boolean; complete: boolean; captureState?: "ranked" | "outside100" | "incomplete" | "failed"; evidenceId?: string;
   period?: { id: string; periodKey?: string; label: string; scope: string; cohortHash: string | null; originalTargetCount: number | null; originalQueryCount: number | null } };
 export type GrowthWorkspaceInput = { generatedAt: string; topics: GrowthTopicInput[]; memberships: GrowthMembershipInput[]; tasks: GrowthTaskInput[]; publications: GrowthPublicationInput[]; plans?: GrowthPlanInput[]; wordLanguageEvidence?: GrowthWordLanguageEvidence[]; inventory: { url: string; lastSeen: string }[]; ranks: GrowthRankEvidence[]; sources?: GrowthWorkspace["reconciliation"]["sources"]; languageReviews?: GrowthLanguageReview[] };
@@ -104,6 +104,7 @@ function assignedMarkets(value: unknown): { country: string; language: string }[
 /** Historical rows are reclassified in a versioned view, retaining each original
  * cohort denominator and run identity. Missing queries never become losses. */
 export function reviewGrowthHistoricalPeriods(ranks: GrowthRankEvidence[], reviews?: GrowthLanguageReview[], wordLanguages: GrowthWordLanguageEvidence[] = []): GrowthHistoricalPeriod[] {
+  wordLanguages = wordLanguages.filter(proof => proof.scope !== "current-target-only");
   const wordProofs=new Map(wordLanguages.map(proof=>[`${proof.site}\u0000${proof.keywordId}\u0000${growthWordKey(proof.keyword)}`,proof]));
   const groups = new Map<string, GrowthRankEvidence[]>();
   for (const rank of ranks) if (rank.source === "serp" && rank.period) groups.set(rank.period.id, [...(groups.get(rank.period.id) ?? []), rank]);
