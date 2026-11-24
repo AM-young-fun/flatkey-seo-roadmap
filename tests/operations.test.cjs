@@ -22,7 +22,9 @@ mock("src/lib/prisma.ts", { prisma: {
   collectorRun:{findMany:async()=>[]},
   seoWorkflowRecord:{findMany:async()=>[]},
 } });
-const { schedulerState, plannedRankingTime, operationStateLabels, configuredAutomationPlans, nextAutomationTime } = require("../src/lib/operations.ts");
+const { schedulerState, plannedRankingTime, operationStateLabels, configuredAutomationPlans, nextAutomationTime, deployedSeoSchedulerConfigured } = require("../src/lib/operations.ts");
+const automationConfig = require("../src/lib/data/seo-automation-config.json");
+const observedNext = (id, whenEnabled) => automationConfig.tasks.find(task => task.id === id).status === "ACTIVE" ? whenEnabled : null;
 const { loadOperationsStatus } = require("../src/lib/services/operations.ts");
 mock("src/lib/seo-analytics-access.ts", { analyticsLocalPreview: () => false });
 const { GET } = require("../src/app/api/operations/route.ts");
@@ -52,6 +54,7 @@ test("operational view reads metadata only and distinguishes online ranking from
   t.mock.method(globalThis, "fetch", async () => { throw new Error("opening plans must never call a provider"); });
   const status = await loadOperationsStatus(new Date("2026-10-19T08:00:00Z"));
   assert.equal(status.scheduler.state, "UNCONFIRMED");
+  assert.equal(status.scheduler.configured, false, "a deployed empty cron list remains paused even with API capabilities");
   assert.equal(status.plans[0].state, "自动付费未启用");
   assert.equal(status.plans[0].nextAt, "2026-10-20T02:30:00.000Z");
   const localCollection = status.plans.find(row => row.id === "seo-16-00-ga4-search-console");
@@ -70,19 +73,28 @@ test("actual Codex configuration keeps paused tasks unscheduled and first-weekda
   const rules = configuredAutomationPlans(new Date("2026-11-10T00:30:00Z"));
   assert.ok(!rules.some(row => row.id === "10-30-seo"));
   assert.ok(!rules.some(row => row.id === "seo-09-30"));
-  assert.equal(rules.find(row => row.id === "seo-09-10-flatkey").nextAt, "2026-11-10T01:15:00.000Z");
-  assert.equal(rules.find(row => row.id === "seo-16-25").nextAt, "2026-11-10T01:25:00.000Z");
-  assert.equal(rules.find(row => row.id === "seo-14-00").nextAt, "2026-11-11T07:30:00.000Z");
+  assert.equal(rules.find(row => row.id === "seo-09-10-flatkey").nextAt, observedNext("seo-09-10-flatkey", "2026-11-10T01:15:00.000Z"));
+  assert.equal(rules.find(row => row.id === "seo-16-25").nextAt, observedNext("seo-16-25", "2026-11-10T01:25:00.000Z"));
+  assert.equal(rules.find(row => row.id === "seo-14-00").nextAt, observedNext("seo-14-00", "2026-11-11T07:30:00.000Z"));
   assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=16;BYMINUTE=0", new Date("2026-09-18T09:00Z"), "ACTIVE", true), "2026-09-20T08:00:00.000Z");
   assert.ok(!rules.some(row => row.id === "seo-14-30"));
   const afterFriday = configuredAutomationPlans(new Date("2026-11-20T15:16:00Z"));
-  assert.equal(afterFriday.find(row => row.id === "flatkey-5").nextAt, "2026-11-23T02:15:00.000Z");
+  assert.equal(afterFriday.find(row => row.id === "flatkey-5").nextAt, observedNext("flatkey-5", "2026-11-23T02:15:00.000Z"));
   assert.equal(rules.find(row => row.id === "seo-10-00-2").nextAt, null);
   assert.ok(!rules.some(row => row.id === "seo-3"));
   for (const row of rules.filter(row => row.state === "配置已暂停")) assert.equal(row.nextAt, null);
   assert.equal(nextAutomationTime("FREQ=WEEKLY;BYDAY=FR;BYHOUR=16;BYMINUTE=30", new Date("2026-11-10T08:00:00Z"), "ACTIVE"), "2026-11-13T08:30:00.000Z");
   assert.equal(nextAutomationTime("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0", new Date("2026-10-31T08:00:00Z"), "ACTIVE"), "2026-11-02T07:00:00.000Z");
   assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=18;BYMINUTE=0", new Date(), "PAUSED"), null);
+});
+test("hosted cron display needs both a real deployed scheduler entry and its authentication capability", () => {
+  assert.equal(deployedSeoSchedulerConfigured("existing-auth-capability"), false);
+  const ordinary = [{ path: "/api/cron/daily-rankings", schedule: "*/5 3-15 * * *" }];
+  assert.equal(deployedSeoSchedulerConfigured("existing-auth-capability", ordinary), true);
+  assert.equal(deployedSeoSchedulerConfigured(undefined, ordinary), false);
+  assert.equal(deployedSeoSchedulerConfigured(" ", ordinary), false);
+  assert.equal(deployedSeoSchedulerConfigured("existing-auth-capability", [{ path: "/api/cron/daily-rankings?window=opening", schedule: "10-59/5 2 * * *" }]), true);
+  for (const entry of [{ path: "/api/other", schedule: "* * * * *" }, { path: "/api/cron/daily-rankings", schedule: " " }, { path: "https://external.test/api/cron/daily-rankings", schedule: "* * * * *" }]) assert.equal(deployedSeoSchedulerConfigured("existing-auth-capability", [entry]), false);
 });
 test("operations API needs a real session; denied reads never touch the database", async () => {
   calls = 0; session = false;

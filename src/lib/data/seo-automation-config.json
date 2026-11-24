@@ -1,16 +1,16 @@
 {
-  "verifiedAt": "2026-11-23T11:31:17.252356+00:00",
+  "verifiedAt": "2026-11-24T17:41:29.090105+00:00",
   "timezone": "Asia/Shanghai",
   "tasks": [
     {
       "id": "automation",
       "name": "SEO 周四15:00 下周计划定稿",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433353269,
+      "updated_at": 1795541535538,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -29,11 +29,11 @@
       "id": "automation-2",
       "name": "Prompt 10:30 素材核验与自动导入",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30",
       "model": "gpt-5.6-sol",
       "reasoning_effort": "high",
-      "updated_at": 1795423018139,
+      "updated_at": 1795490862876,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -52,11 +52,11 @@
       "id": "flatkey-5",
       "name": "Flatkey SEO 每小时统一执行",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=10,11,14,15,16,17,18;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433359867,
+      "updated_at": 1795541715073,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -75,11 +75,11 @@
       "id": "seo",
       "name": "SEO 周二推广研究与周四旧文轮查",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=15;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433364804,
+      "updated_at": 1795541708167,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -95,37 +95,14 @@
       "workdaysOnly": false
     },
     {
-      "id": "seo-09-00-github-traffic",
-      "name": "SEO 每天 10:10 GitHub Traffic 日采",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=10;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795432887372,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": true
-    },
-    {
       "id": "seo-09-10-flatkey",
       "name": "SEO 北京时间16:15 Flatkey 自然搜索注册转化日采",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=9,16;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "medium",
-      "updated_at": 1795433375969,
+      "updated_at": 1795541743027,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -144,11 +121,11 @@
       "id": "seo-09-30-2",
       "name": "SEO 周四16:30 周报整理与审核预览",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=16;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433394216,
+      "updated_at": 1795541752499,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -167,11 +144,11 @@
       "id": "seo-10-00",
       "name": "SEO 10:30 近期热点与三站巡检",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433342887,
+      "updated_at": 1795541775022,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -194,7 +171,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=11;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795422975896,
+      "updated_at": 1795490810115,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -213,11 +190,11 @@
       "id": "seo-14-00",
       "name": "SEO 周三15:30 下周关键词与页面候选",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=WEEKLY;BYDAY=WE;BYHOUR=15;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433347930,
+      "updated_at": 1795541788521,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -236,11 +213,11 @@
       "id": "seo-16-00-ga4-search-console",
       "name": "SEO 北京时间16:00 五站 GA4 与 Search Console 本机采集",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=9,16;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433370863,
+      "updated_at": 1795541805784,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -259,11 +236,11 @@
       "id": "seo-16-25",
       "name": "SEO 北京时间16:25 本机采集对照验收",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=9,16;BYMINUTE=25;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433381482,
+      "updated_at": 1795541825564,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -282,11 +259,11 @@
       "id": "seo-17-30",
       "name": "SEO 北京时间17:30 日报汇总预览",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=9,17;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433387000,
+      "updated_at": 1795541836821,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -305,11 +282,11 @@
       "id": "seo-18-00",
       "name": "SEO 北京时间18:00 钉钉日报",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=18;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433401600,
+      "updated_at": 1795541869030,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -328,11 +305,11 @@
       "id": "seo-2",
       "name": "SEO 月初业务与渠道投入复盘",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795433407191,
+      "updated_at": 1795541863572,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -353,7 +330,6 @@
     "automation-2",
     "flatkey-5",
     "seo",
-    "seo-09-00-github-traffic",
     "seo-09-10-flatkey",
     "seo-09-30-2",
     "seo-10-00",
