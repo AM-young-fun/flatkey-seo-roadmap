@@ -23,7 +23,7 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./useSeoCountry") return { useSeoCountry:()=>["all"] };
   if (name === "./RankingTrend") return { RankingTrend:()=>null };
   if (name === "./useSeoAnalytics") return { useSeoRead:(url,_options) => {
-    if (parent?.filename.endsWith("/TrafficRegistrationSummary.tsx")) lastTrafficUrl=url;
+    if (parent?.filename.endsWith("/TrafficRegistrationSummary.tsx") && !url?.startsWith("/api/seo/analytics?")) lastTrafficUrl=url;
     return { data:fixtures.get(url) ?? null, error:null, loading:false, retry() {}, ...(url?.includes("workList=1") ? listRead : overviewReads.get(url)) };
   }, useOverviewRead:url => ({ data:null, error:null, loading:false, retry() {}, ...overviewReads.get(url) }), numberText:String, shanghaiStamp:String, analyticsUrl:(range,urls,country) => `/api/seo/analytics?start=${range.start}&end=${range.end}${country!=="all"?`&country=${country}`:""}` };
   if (name.endsWith(".module.css")) return new Proxy({}, {get:(_,key)=>key === "__esModule"?false:String(key)});
@@ -90,6 +90,19 @@ test("the overview date refresh preserves the prior traffic view without making 
     for (const title of ["Flatkey 流量趋势","Flatkey 注册趋势","总会话","自然搜索会话","总注册","自然搜索注册"]) assert.ok(pending.includes(title));
     assert.doesNotMatch(pending,/话题与内容涨跌贡献对比|GPU 租赁业务承接|API 自然获客注册/);
     assert.doesNotMatch(pending,/本期 2026-11-19—2026-11-20/);
+    const newShareUrl=`/api/seo/analytics?view=overview-traffic&start=${activeRange.start}&end=${activeRange.end}`;
+    const shareData={range:overviewRange,modules:{sessions:{blog:40,models:60},complete:true}};
+    overviewReads.set(newShareUrl,{data:{range:activeRange,modules:{sessions:{blog:100},complete:true}},previousData:shareData});
+    const refreshing=render(React.createElement(SeoOverview));
+    assert.match(refreshing,/Flatkey 流量与注册[\s\S]*选择时间[\s\S]*Flatkey 流量趋势[\s\S]*Flatkey 注册趋势[\s\S]*页面模块入口会话占比/);
+    assert.match(refreshing,/博客[\s\S]*?40\.0%/);
+    assert.doesNotMatch(refreshing,/100\.0%/);
+    overviewReads.set(currentUrl,{data:{...previousData,...activeRange}});
+    overviewReads.set(newShareUrl,{data:{range:activeRange,modules:{sessions:{blog:35},complete:false}}});
+    const partial=render(React.createElement(SeoOverview));
+    assert.match(partial,/本期 2026-11-19—2026-11-20。按自然搜索会话/);
+    assert.match(partial,/所选日期有缺口，暂不计算占比/);
+    assert.doesNotMatch(partial,/40\.0%|100\.0%/);
     assert.equal(lastTrafficUrl,currentUrl);
   } finally {rangeReady=true;activeRange=overviewRange;overviewReads.clear();}
 });

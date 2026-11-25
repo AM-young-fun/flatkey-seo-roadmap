@@ -54,7 +54,11 @@ export type TrendPoint = {
 export type TrendModuleScope = { module: OverviewPageModule; basis: "current-registered-target-pages" };
 export type TrendResult = { schemaVersion: 3 | 4; points: TrendPoint[]; mode: "labs-snapshots" | "serp-checks"; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope };
 export type MarketTrend = { region: SearchRegionCode; status: "READY" | "ERROR"; points: TrendPoint[] | null };
-export type MultiRegionTrendResult = { schemaVersion: 5; mode: "serp-markets"; points: TrendPoint[] | null; markets: MarketTrend[]; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope };
+export const SERP_TRENDS_DISPLAY_VERSION = "native-word-fixed-capture-v2";
+type FixedCaptureCounts = { capturedKeywords: number; rankedKeywords: number; verifiedOutsideTop100: number; unresolvedKeywords: number };
+export type FixedCaptureTrendPoint = FixedCaptureCounts & { periodKey: string; periodLabel: string; latestCheckedAt: string;
+  countries: (FixedCaptureCounts & { country: string })[] };
+export type MultiRegionTrendResult = { schemaVersion: 5; mode: "serp-markets"; points: TrendPoint[] | null; markets: MarketTrend[]; start: string; end: string; snapshot: null; asOf: string; moduleScope?: TrendModuleScope; fixedCapture?: FixedCaptureTrendPoint };
 export type TrendModuleTarget = Pick<SerpTarget, "siteDomain" | "keywordId"> & { targetUrls?: string[] };
 
 /** Current registered target pages classify saved members; captured result URLs never do. */

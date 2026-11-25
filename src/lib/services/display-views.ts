@@ -1,11 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { activeReportPeriods, reportPeriods } from "@/lib/weekly-traffic";
-import { serpTrendRange } from "@/lib/ranking-trends";
+import { SERP_TRENDS_DISPLAY_VERSION, serpTrendRange } from "@/lib/ranking-trends";
 import { rebuildDisplaySnapshot, type DisplaySpec } from "./display-snapshots";
 import { overviewModule } from "@/lib/seo-overview-scope";
 const trafficDisplayVersion = "organic-search-weekly-v6";
 const dashboardDisplayVersion = "keyword-market-demand-targets-v3";
-const trendsDisplayVersion = "native-word-single-country-v1";
 
 export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   const view = params.get("view") ?? "dashboard", site = params.get("site") ?? "all";
@@ -50,7 +49,7 @@ export function displayViewSpec(params: URLSearchParams): DisplaySpec {
   if (view === "trends") {
     const range = serpTrendRange(params.get("start") ?? undefined,params.get("end") ?? undefined,new Date());
     const module = overviewModule(params.get("module"));
-    return {key:`display-v1:trends:${site}:${range.start}:${range.end}:${module}:${trendsDisplayVersion}`,build:async () => {
+    return {key:`display-v1:trends:${site}:${range.start}:${range.end}:${module}:${SERP_TRENDS_DISPLAY_VERSION}`,build:async () => {
       const { buildDisplayTrends } = await import("./display-trends");
       return { value: await buildDisplayTrends(site,range,new Date(),module) };
     }};
@@ -64,7 +63,7 @@ export async function refreshDisplayViews(deadline = Date.now()+50_000) {
   const rows = await prisma.$queryRaw<Array<{key:string}>>`SELECT key FROM "DisplaySnapshot" WHERE key LIKE 'display-v1:%'
     AND (key NOT LIKE 'display-v1:dashboard:%' OR key LIKE ${`display-v1:dashboard:%:${dashboardDisplayVersion}`})
     AND (key NOT LIKE 'display-v1:traffic:%' OR key LIKE ${`display-v1:traffic:%:${trafficDisplayVersion}`})
-    AND (key NOT LIKE 'display-v1:trends:%' OR key LIKE ${`display-v1:trends:%:${trendsDisplayVersion}`})
+    AND (key NOT LIKE 'display-v1:trends:%' OR key LIKE ${`display-v1:trends:%:${SERP_TRENDS_DISPLAY_VERSION}`})
     AND (body IS NULL OR revision > "builtRevision") ORDER BY "builtAt" NULLS FIRST LIMIT 20`;
   const specs = new Map(defaults.map(spec => [spec.key,spec]));
   for (const {key} of rows) {
