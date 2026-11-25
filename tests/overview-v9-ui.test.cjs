@@ -6,7 +6,7 @@ const fixtures = new Map();
 const overviewReads = new Map();
 const overviewRange = { start: "2026-11-17", end: "2026-11-23" };
 Module._load = function(name, parent, ...rest) {
-  if (name === "./AppLink") return { __esModule:true, default:({ children,...props }) => React.createElement("a",props,children) };
+  if (name === "./AppLink" || name === "@/components/AppLink") return { __esModule:true, default:({ children,...props }) => React.createElement("a",props,children) };
   if (name === "./PageHeader" || name === "./UiSelect" || name === "./FeedbackButton") return { PageHeader:()=>React.createElement("nav",{ "aria-label":"主导航" }), UiSelect:()=>null, FeedbackButton:()=>null };
   if (name === "./SeoDateControl") return { useSeoRange:()=>({ range:overviewRange, comparison:null }), SeoDateControl:()=>null };
   if (name === "./useSeoCountry") return { useSeoCountry:()=>["all"] };
@@ -21,6 +21,19 @@ const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
 const { ConversionCharts, OverviewGoalCharts, TopicComparison } = require("../src/components/OverviewGrowthCharts.tsx");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
+const { PageHeader } = require("../src/components/PageHeader.tsx");
+const { PreviewModeProvider } = require("../src/components/PreviewMode.tsx");
+
+test("credentials follow schedule in the main menu and logout is an independent sidebar action",()=>{
+  const html=render(React.createElement(PageHeader,{active:"credentials",marketControl:false}));
+  const nav=html.match(/<nav[^>]+aria-label="主导航"[^>]*>[\s\S]*?<\/nav>/)[0];
+  assert.match(nav,/定时任务[\s\S]*?aria-label="工具与设置"[\s\S]*?href="\/credentials"[\s\S]*?接入凭证/);
+  assert.doesNotMatch(nav,/退出登录/);
+  assert.match(html,/<form[^>]+action="\/api\/auth\/logout"[^>]*>[\s\S]*?退出登录/);
+  assert.doesNotMatch(html,/GA4 全渠道实时报告|数据基础|<details/);
+  const preview=render(React.createElement(PreviewModeProvider,{enabled:true},React.createElement(PageHeader,{active:"overview"})));
+  assert.doesNotMatch(preview,/退出登录/);
+});
 
 test("only the traffic read gates the page and growth failures have independent retry",()=> {
   const strategyUrl="/api/seo/growth/strategy?view=dashboard";

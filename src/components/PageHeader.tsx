@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "@/components/AppLink";
-import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ChartNoAxesCombined, Clock3, ChevronDown, CircleCheck, ExternalLink, KeyRound, LayoutDashboard, ListTodo, Search, Settings2, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChartNoAxesCombined, CircleCheck, Clock3, KeyRound, LayoutDashboard, ListTodo, LogOut, Search, TrendingUp } from "lucide-react";
 import { usePreviewMode } from "./PreviewMode";
 import { dashboardStore } from "@/lib/dashboard-client";
 import { clientReadCache } from "@/lib/client-read-cache";
@@ -10,8 +10,6 @@ import styles from "./PageHeader.module.css";
 import { UiSelect } from "./UiSelect";
 import { useSeoCountry } from "./useSeoCountry";
 import { REGIONS, REGION_CODES } from "@/lib/seo";
-import { SeoAnchor } from "@/components/SeoAnchor";
-
 
 const workspaceLinks = [
   ["overview", "/", "总览", LayoutDashboard],
@@ -21,8 +19,6 @@ const workspaceLinks = [
   ["optimization-effects", "/optimization-effects", "优化效果", TrendingUp],
   ["automations", "/automations", "定时任务", Clock3],
 ] as const;
-const GA4_REALTIME_URL = "https://analytics.google.com/analytics/web/#/a248149353p541304395/realtime/overview";
-
 export function PageHeader({ active, marketControl = true }: {
   active: "loading" | "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports" | "optimization-effects";
   marketControl?: boolean;
@@ -30,7 +26,6 @@ export function PageHeader({ active, marketControl = true }: {
   const preview = usePreviewMode();
   const [country, setCountry] = useSeoCountry();
   const [query, setQuery] = useState("");
-  const header = useRef<HTMLElement>(null);
   const activeWork = ["traffic", "records", "deliveries", "runs", "manage", "pages", "clusters", "optimizations", "issues", "approvals"].includes(active) ? "work"
     : ["keywords", "rankings"].includes(active) ? "opportunities"
     : active;
@@ -43,39 +38,26 @@ export function PageHeader({ active, marketControl = true }: {
       setQuery(next.size ? "?" + next.toString() : "");
     };
     read(); addEventListener("popstate", read);
-    const close = (event: PointerEvent) => {
-      header.current?.querySelectorAll("details").forEach(menu => { if (!menu.contains(event.target as Node)) menu.open = false; });
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") header.current?.querySelectorAll("details[open]").forEach(menu => { (menu as HTMLDetailsElement).open = false; menu.querySelector("summary")?.focus(); });
-    };
-    document.addEventListener("pointerdown", close); document.addEventListener("keydown", escape);
-    return () => {
-      removeEventListener("popstate", read);
-      document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape);
-    };
+    return () => removeEventListener("popstate", read);
   }, [active]);
 
   return <>
-    <header ref={header} data-seo-workspace className={styles.header}>
+    <header data-seo-workspace className={styles.header}>
       <Link href={"/" + query} className={styles.brand} aria-label="Flatkey SEO 总览"><span className={styles.brandIcon}><ChartNoAxesCombined size={19} strokeWidth={2.2} aria-hidden="true" /></span><span className={styles.brandName}>Flatkey <b>SEO</b></span></Link>
       <nav className={styles.nav} aria-label="主导航">
         {workspaceLinks.map(([key, path, label, Icon]) => <Link key={key} href={path + query} className={styles.navLink} aria-current={activeWork === key ? "page" : undefined}><Icon size={17} aria-hidden="true" /><span>{label}</span></Link>)}
+        <div role="group" aria-label="工具与设置">
+          <Link href="/credentials" className={styles.navLink} aria-current={active === "credentials" ? "page" : undefined}><KeyRound size={17} aria-hidden="true" /><span>接入凭证</span></Link>
+        </div>
       </nav>
       <div className={styles.utilities}>
         {marketControl && !["approvals", "issues", "credentials", "automations"].includes(activeWork) ? <div className={styles.countryControl}><span className={styles.controlLabel}>市场</span><UiSelect className={styles.countrySelect} aria-label="国家" value={country} onChange={setCountry}
           options={[{ value: "all", label: "全部国家" }, ...REGION_CODES.map(value => ({ value, label: REGIONS[value].label }))]} /></div> : null}
-        <details className={styles.tools}>
-          <summary className={styles.toolsButton} aria-label="工具与设置"><Settings2 size={16} aria-hidden="true" /><span>工具与设置</span><ChevronDown size={13} aria-hidden="true" /></summary>
-          <div className={styles.menu}>
-            <Link href="/credentials" aria-current={active === "credentials" ? "page" : undefined}>接入凭据 <KeyRound size={13} aria-hidden="true" /></Link>
-            <SeoAnchor href={GA4_REALTIME_URL} target="_blank" rel="noreferrer">GA4 全渠道实时报告 <ExternalLink size={13} aria-hidden="true" /></SeoAnchor>
-            {!preview ? <form action="/api/auth/logout" method="post" onSubmit={() => { dashboardStore.clear(); clientReadCache.clear(); }}><button type="submit">退出登录</button></form> : null}
-          </div>
-        </details>
-        <SeoAnchor className={styles.foundation} href="https://alidocs.dingtalk.com/i/nodes/jb9Y4gmKWrQa6B4mHrdNPxke8GXn6lpz" target="_blank" rel="noreferrer">数据基础 <ArrowUpRight size={13} aria-hidden="true" /></SeoAnchor>
         {preview ? <span className={styles.preview}><CircleCheck size={12} aria-hidden="true" />本地预览</span> : null}
       </div>
+      {!preview ? <form className={styles.logout} action="/api/auth/logout" method="post" onSubmit={() => { dashboardStore.clear(); clientReadCache.clear(); }}>
+        <button className={styles.navLink} type="submit"><LogOut size={17} aria-hidden="true" /><span>退出登录</span></button>
+      </form> : null}
     </header>
   </>;
 }
