@@ -15,6 +15,7 @@ import { REGIONS } from "@/lib/seo";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
 import { UiSelect } from "./UiSelect";
 import { PageLoading } from "./PageLoading";
+import { TrafficRegistrationSummary } from "./TrafficRegistrationSummary";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
@@ -44,9 +45,10 @@ export function SeoOverview() {
   return <main className={workspace.shell}>
     <PageHeader active="overview" />
     <div className={styles.content} aria-busy={loading} inert={loading}>
-      <div className={styles.scopeHeading}><h1 className={styles.title}>自然搜索总览</h1>
+      <div className={styles.scopeHeading}><h1 className={styles.title}>流量与 SEO 总览</h1>
         <UiSelect aria-label="总览页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} />
       </div>
+      <TrafficRegistrationSummary />
       <OverviewGrowthCharts strategy={strategy} growth={growth} conversion={conversion} />
       <GrowthRankingCoverage read={growth} />
       <div className={styles.trends}>

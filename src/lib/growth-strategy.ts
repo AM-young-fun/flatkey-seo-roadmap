@@ -159,8 +159,11 @@ function nextQuarterTargets(plan: z.infer<typeof quarterPlanningInputSchema>, wo
   const rowsById = new Map(workspace.targets.map(row => [row.id, row]));
   if (new Set(targets.map(row => originalWord(row.keyword))).size !== targets.length || targets.some(row => {
     const live = rowsById.get(row.id)!;
+    // Pool promotion labels even a taskless formal keyword as "planned".
+    // Only a linked task or real execution state reserves the word.
     return !row.keywordId || live.pageState !== "unmapped" || live.publishedUrls.length || live.plannedUrls.length
-      || live.maintenancePublishedUrls?.length || ["planned", "scheduled", "in_progress", "completed"].includes(live.workState);
+      || live.maintenancePublishedUrls?.length || live.taskIds?.length
+      || ["scheduled", "in_progress", "completed"].includes(live.workState);
   })) throw new GrowthStrategyError("quarter_new_word_scope", "季度只收全局唯一、真实身份且尚无已有页面及规划承接的新词");
   const error = quarterCalendarProblem(plan.calendar!, targets, now, context.originalCommitments);
   if (error) throw new GrowthStrategyError("quarter_calendar_invalid", error, 422);

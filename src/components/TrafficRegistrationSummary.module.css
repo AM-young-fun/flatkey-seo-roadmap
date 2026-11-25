@@ -1,0 +1,13 @@
+.controls { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+.controls input { margin-inline-start: .4rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: .75rem; }
+.cards > div { border: 1px solid var(--border, #dee4ec); border-radius: .6rem; padding: .8rem; }
+.cards dt { font-size: .88rem; }
+.cards dd { margin: .25rem 0 0; font-size: 1.65rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cards dd small, .cards .comparison { font-size: .79rem; font-weight: 400; }
+.scroll { overflow-x: auto; }
+.scroll table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.scroll caption { text-align: left; font-weight: 600; padding: .35rem 0 .55rem; }
+.scroll th, .scroll td { padding: .52rem .65rem; text-align: right; border-bottom: 1px solid var(--border, #dee4ec); white-space: nowrap; }
+.scroll th:first-child { text-align: left; }
+.note { margin-bottom: 0; font-size: .83rem; color: var(--muted, #536582); }
