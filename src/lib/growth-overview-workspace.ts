@@ -21,3 +21,19 @@ export function growthOverviewWorkspace(workspace: GrowthWorkspace): GrowthWorks
     monitoringQuote: workspace.monitoringQuote,
   };
 }
+
+/** Detail evidence stays on the keyword page. Keep the market/rank identity,
+ * topic edges, and overview progress in the visual read. */
+export function growthDashboardProjection(workspace: GrowthWorkspace): GrowthWorkspace {
+  const overview = growthOverviewWorkspace(workspace);
+  return { ...overview, targets: overview.targets.map(target => ({
+    id: target.id, keywordId: target.keywordId, site: target.site, topicId: target.topicId, topicName: target.topicName,
+    keyword: target.keyword, country: target.country, language: target.language, wordLanguage: target.wordLanguage,
+    relatedTopicIds: target.relatedTopicIds, membership: target.membership, pageState: target.pageState,
+    publishedUrls: target.publishedUrls, plannedUrls: target.plannedUrls, workState: target.workState,
+    rank: target.rank, rankUrl: target.rankUrl, rankSource: target.rankSource, checkedAt: target.checkedAt,
+    languageStatus: target.languageStatus, languageReason: target.languageReason, captureState: target.captureState,
+    rankEligible: target.rankEligible, observationEligible: target.observationEligible,
+    monitoringEligible: target.monitoringEligible, taskIds: target.taskIds, reason: target.reason,
+  })) };
+}

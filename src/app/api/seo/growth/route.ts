@@ -2,7 +2,7 @@ import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders 
 import { authorizeSavedRankingCoverage } from "@/lib/services/ranking-coverage-access";
 import { loadGrowthDashboardWorkspace, loadGrowthWorkspace } from "@/lib/services/growth-workspace";
 import { GROWTH_SITES } from "@/lib/growth-workspace";
-import { growthOverviewWorkspace } from "@/lib/growth-overview-workspace";
+import { growthDashboardProjection, growthOverviewWorkspace } from "@/lib/growth-overview-workspace";
 import { growthQuarterPage } from "@/lib/growth-quarter-page";
 import { readGrowthScope } from "@/components/growth-topic-view";
 
@@ -35,7 +35,13 @@ export async function GET(request: Request) {
       return Response.json({ message: "站点参数无效" }, { status: 400, headers: privateAnalyticsHeaders });
     }
     const local = analyticsLocalPreview(request);
-    if (view === "dashboard") return Response.json(growthOverviewWorkspace(await loadGrowthDashboardWorkspace(local, new Date(), site)), { headers: privateAnalyticsHeaders });
+    if (view === "dashboard") {
+      const started = performance.now();
+      const data = growthDashboardProjection(await loadGrowthDashboardWorkspace(local, new Date(), site));
+      const headers = new Headers(privateAnalyticsHeaders);
+      headers.set("server-timing", `growth-dashboard;dur=${Math.round(performance.now() - started)}`);
+      return Response.json(data, { headers });
+    }
     if (view === "quarter") {
       const data = await loadPageSnapshot(local);
       return Response.json(growthQuarterPage(data, { scope: readGrowthScope(params), page,

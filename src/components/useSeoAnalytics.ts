@@ -98,8 +98,8 @@ export function useSeoRead<T>(url: string | null, { showFeedback = true, timeout
 
 export type SeoReadState<T> = ReturnType<typeof useSeoRead<T>>;
 
-export function useOverviewRead<T>(url: string | null) {
-  return useSeoRead<T>(url, { showFeedback: false, timeoutMs: 45_000 });
+export function useOverviewRead<T>(url: string | null, timeoutMs = 45_000) {
+  return useSeoRead<T>(url, { showFeedback: false, timeoutMs });
 }
 
 export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all", site?: string): string {
