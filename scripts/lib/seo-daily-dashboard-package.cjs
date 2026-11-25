@@ -81,7 +81,7 @@ function assembleDailyDashboardPackage({baseReport,analyticsRows,scalarEvidence,
  });
  const observedAt=[moduleShares.observedAt,...facts.map(row=>row.observedAt)].sort().at(-1);
  const dashboardEvidence={scope:"website-console",timezone:"America/Los_Angeles",observedAt,gscComparable:sites.some(row=>row.clicks.previous!==null&&row.clicks.current!==null),sites,countries,modules:moduleValues,moduleShares};
- const currentTemplate=Number.isInteger(base.reportTemplateVersion)&&base.reportTemplateVersion>=9;
+ const currentTemplate=Number.isInteger(base.reportTemplateVersion)&&base.reportTemplateVersion>=9&&base.businessDate===base.date;
  const revisedFields=currentTemplate?["text","detailText","hash"]:[];
  const preservedFields=["text","detailText","hash","title","reportPeriod","workWindow","executionWindow","businessDate","sourceDay","workPlan","currentWorkPlan","pageGroups","rankingNotes","growthSnapshot","conversionSnapshot","reportTemplateVersion"].filter(field=>!revisedFields.includes(field)).map(field=>({field,sha256:hash(base[field]??null)}));
  for(const field of ["detailText","attributionText","technicalText"].filter(field=>!currentTemplate||field!=="detailText"))preservedFields.push({field:"dashboard."+field,sha256:hash(base.dashboard?.[field]??null)});
