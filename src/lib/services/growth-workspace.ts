@@ -12,7 +12,7 @@ import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "
 import { serpPeriod } from "@/lib/serp-periods";
 import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
-import { HUMAN_WORD_LANGUAGE_SOURCE_ID, PRE_FREEZE_IDENTITY_AUDIT, auditedHumanWordLanguages, type IdentitySourceRow } from "@/lib/pre-freeze-market-identities";
+import { HUMAN_WORD_LANGUAGE_SOURCE_ID, PRE_FREEZE_IDENTITY_AUDIT, auditedHumanWordLanguages, type IdentityAudit, type IdentitySourceRow } from "@/lib/pre-freeze-market-identities";
 import { projectAppliedQuarterManifestTopics } from "@/lib/applied-quarter-manifest";
 import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
 import { growthPageAuditChecks, growthPublicationPageChecks } from "@/lib/growth-live-page-evidence";
@@ -206,6 +206,27 @@ export function loadGrowthWorkspace(localPreview = false, now = new Date(), sele
   return readGrowthWorkspace(localPreview, now, selectedSite, { transaction });
 }
 
+async function savedHumanWordLanguages(db: Prisma.TransactionClient, sites: string[]) {
+  // The serverless pool serves one database request at a time. Read the source
+  // snapshots and their distinct audit receipts together.
+  const [data] = await db.$queryRaw<{ sources: IdentitySourceRow[]; audits: IdentityAudit[] }[]>(Prisma.sql`
+    WITH sources AS (
+      SELECT "siteDomain", "sourceId", "rowKey", "snapshotHash", snapshot
+      FROM "KeywordSourceRow"
+      WHERE "siteDomain" IN (${Prisma.join(sites)}) AND "sourceId" = ${HUMAN_WORD_LANGUAGE_SOURCE_ID}
+    ), audits AS (
+      SELECT id, status, summary, "payloadHash"
+      FROM "KeywordCurationAudit"
+      WHERE status = ${PRE_FREEZE_IDENTITY_AUDIT}
+        AND id IN (SELECT snapshot->>'auditId' FROM sources WHERE jsonb_typeof(snapshot->'auditId') = 'string')
+    )
+    SELECT
+      COALESCE((SELECT jsonb_agg(to_jsonb(sources)) FROM sources), '[]'::jsonb) AS sources,
+      COALESCE((SELECT jsonb_agg(to_jsonb(audits)) FROM audits), '[]'::jsonb) AS audits
+  `);
+  return auditedHumanWordLanguages(data.sources, data.audits);
+}
+
 async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSite: string | undefined, { view = "full", transaction }: { view?: "dashboard" | "catalog" | "full"; transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot } }): Promise<GrowthWorkspace> {
   if (!process.env.DATABASE_URL) throw new Error("GROWTH_DATABASE_UNAVAILABLE");
   const db = transaction?.db ?? prisma;
@@ -226,12 +247,7 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
     Promise.allSettled([timedRead("saved-serp", () => savedSerpEvidence(db, dashboard ? now : undefined)),
       dashboard ? Promise.resolve([]) : timedRead("saved-discovery", () => view === "catalog" ? projectedDiscoveryEvidence(goalSites) : savedDiscoveryEvidence(db)),
       dashboard ? Promise.resolve([]) : timedRead("saved-page-observations", () => db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true } }))]),
-    timedRead("word-identity", async () => {
-      const rows = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: HUMAN_WORD_LANGUAGE_SOURCE_ID }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } });
-      const auditIds = [...new Set(rows.flatMap(row => typeof object(row.snapshot).auditId === "string" ? [String(object(row.snapshot).auditId)] : []))];
-      const audits = auditIds.length ? await db.keywordCurationAudit.findMany({ where: { id: { in: auditIds }, status: PRE_FREEZE_IDENTITY_AUDIT }, select: { id: true, status: true, summary: true, payloadHash: true } }) : [];
-      return auditedHumanWordLanguages(rows as IdentitySourceRow[], audits);
-    }),
+    timedRead("word-identity", () => savedHumanWordLanguages(db, goalSites)),
   ]);
   const sources: GrowthWorkspace["reconciliation"]["sources"] = [{ name: "TopicMap／站点成员／真实页面库存／跨周原任务", available: true, reason: null }];
   const plans=planRows.flatMap(row=>{const plan=object(row.payload);return plan.id===row.recordId&&plan.status===row.status&&Array.isArray(plan.taskIds)&&plan.taskIds.every(id=>typeof id==="string")?[{id:row.recordId,status:row.status,taskIds:plan.taskIds as string[]}]:[];});

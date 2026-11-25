@@ -14,6 +14,11 @@ let catalog = false;
 
 const prisma = {
   $queryRaw: async query => {
+    if (query.sql.includes('FROM "KeywordSourceRow"')) {
+      assert.match(query.sql, /FROM "KeywordCurationAudit"/);
+      assert.deepEqual(query.values, ['flatkey.ai', 'rackrate.org', 'modelfit.cc', 'SEO_HUMAN_WORD_LANGUAGE_REVIEW', 'PRE_FREEZE_IDENTITIES_APPLIED_V1']);
+      return [{ sources: [], audits: [] }];
+    }
     if (query.sql.includes('FROM "DataForSeoRun"')) {
       assert.ok(historicalEvidence || catalog, 'dashboard must not scan saved discovery');
       assert.deepEqual(query.values, catalog ? ['flatkey.ai', 'rackrate.org', 'modelfit.cc'] : [keyword, site]);
