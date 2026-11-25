@@ -155,13 +155,11 @@ test("daily chart preserves missing-day gaps rather than joining through or fill
 });
 const missing=(unit)=>({value:null,unit,status:"unavailable",reason:"尚无可靠来源",sourceRefs:[]});
 const projection=()=>({version:1,generatedAt:"2026-11-24T00:00:00Z",scope:{site:"flatkey.ai",start:"2026-11-12",end:"2026-11-18",timezone:"America/Los_Angeles",country:"all"},api:{registration:{eligibleVisitors:missing("users"),firstRegistrations:missing("users"),rate:missing("ratio")},firstPayment30d:{registeredUsers:missing("users"),confirmedFirstPayers:missing("users"),rate:missing("ratio"),cohorts:[]}},gpu:{inquiries:missing("inquiries"),quotes:missing("quotes"),deals:missing("deals")},readiness:{status:"unavailable",reasons:["支付身份关联缺失"]}});
-test("registration and payment use user denominators; immature or missing cohorts are never drawn as zero",()=>{
+test("the overview preserves the eligible registration denominator and omits payment metrics",()=>{
  const data=projection();data.ga4OrganicRegistrants={ users:81,observedAt:"2026-11-25T02:00:00Z" };data.api.firstPayment30d.cohorts=[{id:"not-mature",registrationStart:"2026-11-20",registrationEnd:"2026-11-21",registeredUsers:8,matureRegisteredUsers:0,confirmedFirstPayers:0,rate:0,maturity:"immature",status:"partial",reasons:["尚未满30天"]}];
   const html=render(React.createElement(ConversionCharts,{projection:data}));
- assert.doesNotMatch(html,/GA4 自然获客注册 <strong>81 人|会话趋势另列|单位：询盘 \/ 报价 \/ 成交/);assert.match(html,/合资格访客/);assert.match(html,/30 天首次付费率/);assert.match(html,/未成熟批次/);
+ assert.doesNotMatch(html,/GA4 自然获客注册 <strong>81 人|会话趋势另列|单位：询盘 \/ 报价 \/ 成交|付费率|未成熟批次/);assert.match(html,/合资格访客/);
  assert.doesNotMatch(html,/class="bar"/);assert.match(html,/尚无可靠的自然搜索询盘、报价或成交来源/);
-  const mature=projection();mature.api.firstPayment30d.cohorts=[{...data.api.firstPayment30d.cohorts[0],maturity:"mature",status:"ready",matureRegisteredUsers:8}];
-  const verified=render(React.createElement(ConversionCharts,{projection:mature}));assert.match(verified,/class="bar"/);assert.match(verified,/0 \/ 8 人/);
 });
 test("hotspot topics open the saved original terms, evidence and task links without the quarter review editor",()=>{
   const base={version:"growth-hotspots-v9",generatedAt:"2026-11-24T00:00:00Z",businessWeek:{start:"2026-11-20",end:"2026-11-26"}};

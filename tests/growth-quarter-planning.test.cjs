@@ -25,7 +25,7 @@ test('the 1000-word calendar replaces the active cohort only after exact validat
  const { growthStrategyStoredSchema, evaluateGrowthGoals } = require('../src/lib/growth-strategy.ts');
  const countries = [['US','en'],['JP','ja'],['ES','es-ES'],['SG','zh-CN'],['BR','pt-BR']];
  const targets = countries.flatMap(([country,language]) => Array.from({length:200},(_,index)=>({
-  ...target,id:`new-${country}-${index}`,keywordId:`keyword-${country}-${index}`,keyword:`raw word ${country} ${index}`,country,language,languageStatus:'match',workState:'unknown',
+  ...target,id:`new-${country}-${index}`,keywordId:`keyword-${country}-${index}`,keyword:`raw word ${country} ${index}`,country,language,languageStatus:'match',workState:'planned',taskIds:[],
  })));
  const source = {...ws,targets};
  const proposal = {...plan(),version:QUARTER_NEW_WORD_VERSION,targetUnit:'normalized_original_word',sourceVersion:growthWorkspaceIdentity(source),
@@ -46,6 +46,8 @@ test('the 1000-word calendar replaces the active cohort only after exact validat
  const researchDraft = mutate(legacy,'save_quarter_plan',{plan:research});
  assert.equal(researchDraft.quarterPlanning.plan.calendar.length,1000);
  assert.deepEqual(researchDraft.baseline,legacy.baseline);
+ const assigned = {...source,targets:[{...source.targets[0],taskIds:['original-task']},...source.targets.slice(1)]};
+ assert.throws(()=>mutate(legacy,'save_quarter_plan',{plan:research},assigned),{code:'quarter_new_word_scope'});
  assert.throws(()=>mutate(researchDraft,'approve_quarter_plan',{hash:researchDraft.quarterPlanning.hash,
   sourceVersion:research.sourceVersion,reason:'用户核对已排研究日期及原季度历史'}),{code:'quarter_delivery_pending'});
  const forged = structuredClone(research);

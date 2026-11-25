@@ -86,8 +86,7 @@ export function TopicComparison({ snapshot, workspace }: { snapshot: GrowthRepor
 export type OverviewConversion = ConversionProjection & { ga4OrganicRegistrants?: { users: number; observedAt: string } | null };
 
 export function ConversionCharts({ projection }: { projection: OverviewConversion | null }) {
-  const registration = projection?.api.registration, payment = projection?.api.firstPayment30d;
-  const cohorts = payment?.cohorts ?? [];
+  const registration = projection?.api.registration;
   const readyRate = (value: { value: number | null; status: string } | undefined) => value?.status === "ready" && value.value !== null ? value.value * 100 : null;
   const registrationRate = readyRate(registration?.rate);
   const gpuRows = projection ? [[ "询盘", projection.gpu.inquiries ], [ "报价", projection.gpu.quotes ], [ "成交", projection.gpu.deals ]].map(([label, raw]) => {
@@ -95,16 +94,10 @@ export function ConversionCharts({ projection }: { projection: OverviewConversio
     return { label: label as string, value: metric.status === "ready" ? metric.value : null };
   }) : [];
   return <div className={styles.two}>
-    <ChartPanel title="API 自然获客注册与30天首次付费">
+    <ChartPanel title="API 自然获客注册">
       <h3 className={styles.subheading}>自然获客注册率</h3>
       {registrationRate === null ? <p className={styles.note}>待接入可核验的首次账户身份及合资格访客。</p>
         : <BarPlot rows={[{ label: "合资格首注 / 访客", value: registrationRate, suffix: `${chartNumber(registration?.eligibleFirstRegistrations?.value)} / ${chartNumber(registration?.eligibleVisitors.value)} 人` }]} unit="%" denominator="同批合资格自然访客，排除已注册回访用户" />}
-      <div className={styles.sectionSpace}><h3 className={styles.subheading}>30 天首次付费率</h3>
-        {cohorts.some(row => row.maturity === "mature" && row.status === "ready" && row.rate !== null)
-          ? <BarPlot rows={cohorts.map(row => ({ label: `${row.registrationStart}—${row.registrationEnd}`, value: row.maturity === "mature" && row.status === "ready" && row.rate !== null ? row.rate * 100 : null, suffix: row.maturity === "mature" ? `${chartNumber(row.confirmedFirstPayers)} / ${chartNumber(row.matureRegisteredUsers)} 人` : "观察窗口未满 / 来源待齐" }))} unit="%" denominator="每批注册后30天首次付费人数 / 同批成熟注册人数" />
-          : <p className={styles.note}>未成熟批次或缺完整的首付记录，暂不可计算。</p>}
-      </div>
-      {cohorts.some(row => row.maturity !== "mature" || row.status !== "ready") ? <p className={styles.note}>未成熟、混合窗口或缺源批次不绘制付费率为0；真实0仅在完整成熟证据成立时展示。</p> : null}
     </ChartPanel>
     <ChartPanel title="GPU 租赁业务承接">
       {gpuRows.some(row => row.value !== null) ? <BarPlot rows={gpuRows} unit="件" denominator="仅有可靠来源与自然获客关联的业务记录" />
