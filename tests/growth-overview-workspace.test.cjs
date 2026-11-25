@@ -13,7 +13,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 
-const { growthOverviewWorkspace } = require('../src/lib/growth-overview-workspace.ts');
+const { growthDashboardProjection, growthOverviewWorkspace } = require('../src/lib/growth-overview-workspace.ts');
 const { defaultGrowthScope, growthLink, growthRankingEvidence, quarterTargetWorkspace, selectGrowthTargets } = require('../src/components/growth-topic-view.ts');
 const { keywordCircleLayout } = require('../src/components/growth-network-layout.ts');
 
@@ -27,7 +27,7 @@ const target = (id, patch = {}) => ({
 
 test('overview preserves ranking, frozen graph and links while omitting unrepresented inventory', () => {
   const targets = [
-    target('frozen-ranked'),
+    target('frozen-ranked', { taskRelations: [{ taskId: 'original-task' }], relatedObservations: [{ country: 'JP', rank: 80 }], workState: 'completed' }),
     target('frozen-unknown', { keyword: 'GPU server', rank: null, rankSource: null, rankEligible: false, captureState: 'unqueried' }),
     target('same-word', { membership: 'opportunity', rank: 12 }),
     target('ja-observed', { membership: 'review', keyword: 'GPUレンタル', country: 'JP', language: 'ja', wordLanguage: 'ja', rank: 56 }),
@@ -74,4 +74,16 @@ test('overview preserves ranking, frozen graph and links while omitting unrepres
   assert.equal(graph(overview).length, 2);
   const search = { ...defaultGrowthScope, search: 'Hardware' };
   assert.deepEqual(selectGrowthTargets(quarterTargetWorkspace(overview), search), selectGrowthTargets(quarterTargetWorkspace(workspace), search));
+  const dashboard = growthDashboardProjection(workspace);
+  assert.deepEqual(graph(dashboard), graph(overview));
+  assert.equal(dashboard.targets[0].keywordId, overview.targets[0].keywordId);
+  assert.equal(dashboard.targets[0].workState, 'completed');
+  assert.deepEqual(dashboard.targets[0].taskIds, ['original-task']);
+  assert.equal(dashboard.targets[0].taskRelations, undefined);
+  assert.equal(dashboard.targets[0].relatedObservations, undefined);
+  const rankedCounts = data => {
+    const summary = growthRankingEvidence(data, defaultGrowthScope, 'all').summary;
+    return { total: summary.total, top50: summary.top50, countries: summary.countries, bands: summary.bands };
+  };
+  assert.deepEqual(rankedCounts(dashboard), rankedCounts(overview));
 });
