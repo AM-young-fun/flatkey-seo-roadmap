@@ -12,6 +12,8 @@ import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash,
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 import { quarterAllocationProblems } from "@/lib/growth-quarter-planning";
 import { quarterContentMutationTasks, quarterContentProblems } from "@/lib/seo-quarter-content";
+import { publishedMaintenanceMutationTasks } from "@/lib/seo-published-maintenance";
+import { assertPublishedMaintenanceTasks } from "./seo-published-maintenance";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { timedRead } from "@/lib/read-profile";
 
@@ -154,6 +156,8 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     const rows = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } } });
     const all = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
     const prepared = prepareWorkflowMutation(request, all, actor);
+    const newMaintenance = publishedMaintenanceMutationTasks(prepared.kind, prepared.record, all);
+    await assertPublishedMaintenanceTasks(tx, newMaintenance, all, new Date(prepared.record.updatedAt));
     const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, all);
     if (contentTasks.length) {
       const { readGrowthStrategy } = await import("./growth-strategy");
