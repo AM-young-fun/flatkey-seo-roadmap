@@ -88,6 +88,8 @@ test('dashboard bounds saved SERP by the exact eligibility window and omits hist
     assert.equal(workflowQueries.length, 1);
     assert.match(workflowQueries[0].sql, /SELECT kind, CASE WHEN kind = 'task' THEN jsonb_build_object/);
     assert.match(serpQueries[0].sql, /t\."checkedAt" BETWEEN \? AND \?/);
+    assert.match(serpQueries[0].sql, /jsonb_agg\(jsonb_build_object\('url', item->'url', 'rankGroup', item->'rankGroup'\)\)/);
+    assert.match(serpQueries[0].sql, /'language_code', t\."requestJson"->'language_code'\) AS "requestJson"/);
     assert.deepEqual(serpQueries[0].values.map(value => value.toISOString()), ['2026-11-11T04:00:00.000Z', now.toISOString()]);
     const target = workspace.targets.find(row => row.id === targetId);
     assert.equal(target.rankEligible, true);
