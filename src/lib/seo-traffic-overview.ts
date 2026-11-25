@@ -1,7 +1,7 @@
 import { analyticsSiteForProperty, landingTrafficDays, rangeDays, type AnalyticsObservation } from "./seo-analytics";
-import { shiftDay, type DateRange } from "./seo-date-range";
+import { previousRange, shiftDay, type DateRange } from "./seo-date-range";
 import { landingModuleSessions } from "./seo-overview-analytics";
-import { TRAFFIC_SUMMARY_SITE_METRICS, trafficSummaryTrendDay, type TrafficSummaryDay } from "./seo-traffic-summary";
+import { TRAFFIC_SUMMARY_SITE_METRICS, trafficSummaryTrendDay, type TrafficSummaryDay, type TrafficSummaryPeriod } from "./seo-traffic-summary";
 
 export function trafficOverview(scan: DateRange, requested: DateRange | null, summaryDays: TrafficSummaryDay[], observations: AnalyticsObservation[]) {
   const source = observations.filter(row => analyticsSiteForProperty(row.property) === "flatkey.ai" && (row.country ?? "all") === "all");
@@ -22,4 +22,15 @@ export function trafficOverview(scan: DateRange, requested: DateRange | null, su
   return { ...range, automatic: !requested, completeWeekEnd, daily: site.filter(inRange), modules, moduleDays };
 }
 
-export type TrafficOverview = ReturnType<typeof trafficOverview>;
+export function trafficPeriodComparison(range: DateRange, periods: TrafficSummaryPeriod[]) {
+  const previous = previousRange(range);
+  const exact = (window: DateRange) => periods.find(row => row.start === window.start && row.end === window.end);
+  const current = exact(range), prior = exact(previous);
+  const totals = (key: typeof TRAFFIC_SUMMARY_SITE_METRICS[number]) => ({
+    current: current?.[key]?.value ?? null, previous: prior?.[key]?.value ?? null,
+  });
+  return { previous, totalSessions: totals("totalSessions"), organicSessions: totals("organicSessions"),
+    totalRegistrations: totals("totalRegistrations"), organicRegistrations: totals("organicRegistrations") };
+}
+
+export type TrafficOverview = ReturnType<typeof trafficOverview> & { comparison: ReturnType<typeof trafficPeriodComparison> | null };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import styles from "./OverviewCharts.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
 
@@ -40,18 +40,80 @@ export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数�
 }
 export type LineDatum = { label: string; value: number | null; prior?: number | null };
 /** Gaps remain gaps. Previous observations align by ordinal day and retain their own dates in labels. */
-export function LinePlot({ rows, unit, priorLabel, series }: { rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string, string] }) {
+export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit }: {
+  rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string, string]; detailUnit?: string;
+}) {
+  const [selected, select] = useState<number | null>(null);
   const values = rows.flatMap(row => [row.value, row.prior]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) return <EmptyPlot reason="所选周期暂无已归档的有效数据，缺口未记为0" />;
-  const max = Math.max(1, ...values) * 1.12, x = (i: number) => 42 + i / Math.max(1, rows.length - 1) * 516, y = (v: number) => 182 - v / max * 150;
+  const max = Math.max(1, ...values) * 1.12;
+  const x = (index: number) => rows.length === 1 ? 300 : 42 + index / (rows.length - 1) * 516;
+  const y = (value: number) => 182 - value / max * 150;
+  const active = selected === null ? undefined : rows[selected];
+  const activeX = active && selected !== null ? x(selected) : null;
+  const onNavigate = (event: KeyboardEvent<HTMLDivElement>) => {
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowLeft":
+        select(index => Math.max(0, Math.min(rows.length - 1, (index ?? 0) + (event.key === "ArrowRight" ? 1 : -1))));
+        break;
+      case "Home": select(0); break;
+      case "End": select(rows.length - 1); break;
+      case "Escape": select(null); break;
+      default: return;
+    }
+    event.preventDefault();
+  };
   const path = (key: "value" | "prior") => rows.map((row, i) => row[key] == null ? "" : `${i && rows[i - 1][key] != null ? "L" : "M"}${x(i)},${y(row[key]!)}`).join(" ");
   const secondary = series ? "#087e76" : "#b7c8e0";
-  return <figure className={styles.line}><div className={styles.axis}>{series ? <span className={styles.lineLegend}><span><i />{series[0]}</span><span><i />{series[1]}</span><span>单位：{unit}</span></span>
-    : <>单位：{unit} · 深色：本期{priorLabel ? ` 浅色虚线：${priorLabel}` : ""}</>}</div><svg viewBox="0 0 580 222" role="img" aria-label={`${series ? series.join("、") + " · " : ""}${unit}逐日趋势，缺失日期保留断点`}>
-    {[0, .5, 1].map(ratio => <g key={ratio}><path d={`M42 ${y(max * ratio)}H558`} stroke="#e6ebf2" strokeDasharray="3 4" /><text x="35" y={y(max * ratio) + 4} textAnchor="end" fill="#718096" fontSize="11">{chartNumber(max * ratio)}</text></g>)}
-    <path d={path("prior")} fill="none" stroke={secondary} strokeWidth="2" strokeDasharray="5 4" /><path d={path("value")} fill="none" stroke="#3478ca" strokeWidth="2.5" />
-    {rows.map((row, i) => row.value == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.value)} r="3" fill="#3478ca"><title>{`${row.label}：${series ? series[0] + " " : ""}${chartNumber(row.value)} ${unit}${!series && row.prior != null ? `；对比日 ${chartNumber(row.prior)} ${unit}` : ""}`}</title></circle>)}
-    {series ? rows.map((row, i) => row.prior == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.prior)} r="3" fill={secondary}><title>{`${row.label}：${series[1]} ${chartNumber(row.prior)} ${unit}`}</title></circle>) : null}
-    {rows.map((row, i) => i === 0 || i === rows.length - 1 || i === Math.floor(rows.length / 2) ? <text key={row.label} x={x(i)} y="210" textAnchor={i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle"} fill="#718096" fontSize="11">{row.label}</text> : null)}
-  </svg></figure>;
+  return <figure className={styles.line}>
+    <div className={styles.axis}>
+      {series ? <span className={styles.lineLegend}><span><i />{series[0]}</span><span><i />{series[1]}</span><span>单位：{unit}</span></span>
+        : <>单位：{unit} · 深色：本期{priorLabel ? ` 浅色虚线：${priorLabel}` : ""}</>}
+    </div>
+    <div className={styles.lineCanvas} role={series ? "group" : undefined} tabIndex={series ? 0 : undefined}
+      aria-label={series ? `${series.join("与")}每日明细，使用左右方向键切换日期` : undefined}
+      onFocus={series ? () => select(index => index ?? 0) : undefined}
+      onBlur={series ? () => select(null) : undefined} onKeyDown={series ? onNavigate : undefined}>
+      <svg viewBox="0 0 580 222" role="img" aria-label={`${series ? series.join("、") + " · " : ""}${unit}逐日趋势，缺失日期保留断点`}>
+        {[0, .5, 1].map(ratio => <g key={ratio}>
+          <path d={`M42 ${y(max * ratio)}H558`} stroke="#e6ebf2" strokeDasharray="3 4" />
+          <text x="35" y={y(max * ratio) + 4} textAnchor="end" fill="#718096" fontSize="11">{chartNumber(max * ratio)}</text>
+        </g>)}
+        {series && activeX !== null ? <line x1={activeX} x2={activeX} y1="24" y2="182" stroke="#a5b6cc" strokeDasharray="3 3" /> : null}
+        <path d={path("prior")} fill="none" stroke={secondary} strokeWidth="2" strokeDasharray="5 4" />
+        <path d={path("value")} fill="none" stroke="#3478ca" strokeWidth="2.5" />
+        {rows.map((row, i) => row.value == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.value)} r="3" fill="#3478ca">
+          <title>{`${row.label}：${series ? series[0] + " " : ""}${chartNumber(row.value)} ${unit}${!series && row.prior != null ? `；对比日 ${chartNumber(row.prior)} ${unit}` : ""}`}</title>
+        </circle>)}
+        {series ? rows.map((row, i) => row.prior == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.prior)} r="3" fill={secondary}>
+          <title>{`${row.label}：${series[1]} ${chartNumber(row.prior)} ${unit}`}</title>
+        </circle>) : null}
+        {rows.map((row, i) => i === 0 || i === rows.length - 1 || i === Math.floor(rows.length / 2)
+          ? <text key={row.label} x={x(i)} y="210" textAnchor={rows.length === 1 ? "middle" : i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle"}
+            fill="#718096" fontSize="11">{row.label}</text> : null)}
+        {series ? <g aria-hidden="true" onPointerLeave={event => { if (event.pointerType !== "touch") select(null); }}>
+          {rows.map((row, index) => {
+            const start = index === 0 ? 35 : (x(index - 1) + x(index)) / 2;
+            const end = index === rows.length - 1 ? 565 : (x(index) + x(index + 1)) / 2;
+            return <rect key={row.label} data-chart-date={row.label} x={start} y="24" width={end - start} height="174" fill="transparent"
+              onPointerEnter={() => select(index)} onPointerDown={() => select(index)} />;
+          })}
+        </g> : null}
+      </svg>
+      {series ? <div role="status" className={styles.lineStatus}>
+        {active && activeX !== null ? <div className={styles.lineTooltip}
+          style={{ left: `clamp(6px, calc(${activeX / 580 * 100}% - 96px), calc(100% - 206px))` }}>
+          <strong>{active.label}</strong>
+          <dl>{series.map((label, index) => {
+            const value = index === 0 ? active.value : active.prior;
+            return <div className={styles.lineTooltipMetric} key={label} data-secondary={index === 1 || undefined}>
+              <dt><i aria-hidden="true" />{label}</dt>
+              <dd>{value == null ? "暂无数据" : `${chartNumber(value)} ${detailUnit}`}</dd>
+            </div>;
+          })}</dl>
+        </div> : null}
+      </div> : null}
+    </div>
+  </figure>;
 }

@@ -14,12 +14,34 @@ export function useTrafficSummaryTrend({ range, ready, isDefault }: ReturnType<t
     { showFeedback: false, keepPreviousData: true });
 }
 
+function PeriodTotal({ label, unit, current, previous, range }: {
+  label: string; unit: string; current?: number | null; previous?: number | null;
+  range?: { start: string; end: string };
+}) {
+  const difference = current != null && previous != null ? current - previous : null;
+  const rate = difference !== null && previous ? difference / previous : null;
+  const direction = difference === null || difference === 0 ? undefined : difference > 0 ? "up" : "down";
+  const rateLabel = rate === null ? null : rate.toLocaleString("zh-CN", {
+    style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero",
+  });
+  const differenceLabel = difference === null ? null : difference.toLocaleString("zh-CN", { signDisplay: "exceptZero" });
+  return <div className={styles.periodTotal} aria-label={label}>
+    <div className={styles.periodNumbers}>
+      <span>{label} <strong>{chartNumber(current)}</strong> {unit}</span>
+      <span className={styles.periodChange} data-direction={direction}>环比 {rateLabel ?? "—"}</span>
+    </div>
+    <p>{range ? `上期 ${range.start}—${range.end}` : "上期"} · {previous == null ? "待归档" : `${chartNumber(previous)} ${unit}`}
+      {differenceLabel === null ? "" : ` · 较上期 ${differenceLabel} ${unit}`}</p>
+  </div>;
+}
+
 export function TrafficRegistrationSummary({ dates, read }: {
   dates: ReturnType<typeof useSeoRange>; read: ReturnType<typeof useTrafficSummaryTrend>;
 }) {
   const data = read.data ?? read.previousData;
   const period = data ? `${data.start}—${data.end}` : "";
   const modules = data?.modules;
+  const comparison = data?.comparison;
   const moduleTotal = modules?.complete ? Object.values(modules.sessions).reduce((sum, value) => sum + value, 0) : 0;
   const dailyDetail = (days: { date: string; sessions: number | null }[]) => days.length <= 7 ? <dl>
     {days.map(day => <Fragment key={day.date}><dt>{day.date}</dt><dd>{chartNumber(day.sessions)} 次</dd></Fragment>)}
@@ -34,18 +56,6 @@ export function TrafficRegistrationSummary({ dates, read }: {
       {dailyDetail(data.moduleDays.map(day => ({ date: day.date, sessions: day.sessions[key] ?? 0 })))}
     </> }];
   }) : [];
-  const organicDays = data?.daily.map(day => ({ date: day.date, sessions: day.site.organicSessions })) ?? [];
-  const organicTotal = organicDays.length && organicDays.every(day => day.sessions !== null)
-    ? organicDays.reduce((sum, day) => sum + day.sessions!, 0) : null;
-  const brandRows = [
-    { label: "品牌词会话", value: null, tooltip: <><b>品牌词会话 · {period}</b><div>GA4 暂无可归因到品牌词的外部搜索词维度。</div></> },
-    { label: "非品牌词会话", value: null, tooltip: <><b>非品牌词会话 · {period}</b><div>GA4 暂无可归因到非品牌词的外部搜索词维度。</div></> },
-    { label: "搜索词未归因", value: organicTotal, suffix: organicTotal ? "100%" : undefined, tooltip: <>
-      <b>未归因的自然搜索会话 · {period}</b>
-      <div>全站自然搜索会话 {chartNumber(organicTotal)} 次</div>
-      {dailyDetail(organicDays)}
-    </> },
-  ];
   const traffic = data?.daily.map(day => ({ label: day.date, value: day.site.totalSessions, prior: day.site.organicSessions })) ?? [];
   const registrations = data?.daily.map(day => ({ label: day.date, value: day.site.totalRegistrations, prior: day.site.organicRegistrations })) ?? [];
   const displayDates = data ? { ...dates, range: { start: data.start, end: data.end }, isDefault: data.automatic } : dates;
@@ -60,24 +70,27 @@ export function TrafficRegistrationSummary({ dates, read }: {
         <div className={styles.header}>
           <div><h3 id="flatkey-traffic-trend">Flatkey 流量趋势</h3><p>全部国家</p></div>
         </div>
-        {data ? <><LinePlot rows={traffic} unit="次会话" series={["总会话", "自然搜索会话"]} />
+        {data ? <><div className={styles.periodGrid}>
+          <PeriodTotal label="本期总会话" unit="次" current={comparison?.totalSessions.current}
+            previous={comparison?.totalSessions.previous} range={comparison?.previous} />
+          <PeriodTotal label="自然搜索会话" unit="次" current={comparison?.organicSessions.current}
+            previous={comparison?.organicSessions.previous} range={comparison?.previous} />
+          </div><LinePlot rows={traffic} unit="次会话" detailUnit="次" series={["总会话", "自然搜索会话"]} />
           <p className={styles.note}>本期 {period}。GA4 会话含正式官网和 Console。</p></> : null}
       </section>
       <section className={styles.panel} aria-labelledby="flatkey-registration-trend">
         <div className={styles.header}>
           <div><h3 id="flatkey-registration-trend">Flatkey 注册趋势</h3><p>全站</p></div>
         </div>
-        {data ? <><LinePlot rows={registrations} unit="人" series={["总注册", "自然搜索注册"]} />
-          <p className={styles.note}>本期 {period}。注册按日去重，自然搜索注册按首次获客渠道归因。</p></> : null}
+        {data ? <><div className={styles.periodGrid}>
+          <PeriodTotal label="本期总注册" unit="人" current={comparison?.totalRegistrations.current}
+            previous={comparison?.totalRegistrations.previous} range={comparison?.previous} />
+          <PeriodTotal label="自然搜索注册" unit="人" current={comparison?.organicRegistrations.current}
+            previous={comparison?.organicRegistrations.previous} range={comparison?.previous} />
+          </div><LinePlot rows={registrations} unit="人" series={["总注册", "自然搜索注册"]} />
+          <p className={styles.note}>本期 {period}。总量按整段去重，折线按日去重。自然搜索注册按首次获客渠道归因。</p></> : null}
       </section>
     </div>
-    <section className={styles.shares} aria-labelledby="flatkey-brand-traffic">
-      <h3 id="flatkey-brand-traffic">品牌词与非品牌词自然搜索会话</h3>
-      {data ? <>
-        <BarPlot rows={brandRows} unit="次会话" showAxis={false} empty="所选日期的自然搜索会话尚未归档齐全" />
-        <p className={styles.note}>本期 {period}。GA4 统计全站自然搜索会话，当前属性没有可用于这两类的会话级搜索词归因。</p>
-      </> : null}
-    </section>
     <section className={styles.shares} aria-labelledby="flatkey-module-shares">
       <h3 id="flatkey-module-shares">页面模块入口会话占比</h3>
       {data ? <><BarPlot rows={shareRows} unit="次会话"

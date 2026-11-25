@@ -10,11 +10,11 @@ import { publishedKeywordRankLabels } from "@/lib/published-keyword-rank";
 import { GROWTH_EXECUTION_SITES } from "@/lib/seo-growth-markets";
 import { loadGrowthDashboardWorkspace } from "@/lib/services/growth-workspace";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
-import { propertyToday, seoToday, shiftDay, validRange } from "@/lib/seo-date-range";
+import { previousRange, propertyToday, seoToday, shiftDay, validRange } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
 import { flatkeyBrandTraffic } from "@/lib/seo-brand-traffic";
-import { trafficOverview } from "@/lib/seo-traffic-overview";
-import { closedTrafficSummaryDay, TRAFFIC_SUMMARY_KIND, trafficSummaryDaySchema } from "@/lib/seo-traffic-summary";
+import { trafficOverview, trafficPeriodComparison } from "@/lib/seo-traffic-overview";
+import { closedTrafficSummaryDay, TRAFFIC_SUMMARY_KIND, trafficSummaryDaySchema, trafficSummaryPeriodKind, trafficSummaryPeriodSchema } from "@/lib/seo-traffic-summary";
 import { overviewModuleAnalytics, overviewTrafficAnalytics } from "@/lib/seo-overview-analytics";
 
 export const dynamic = "force-dynamic";
@@ -176,8 +176,21 @@ async function readTrafficOverview(request: Request, search: URLSearchParams, ra
       const result = analyticsObservationSchema.safeParse(row.payload);
       return result.success && result.data.date === row.date && result.data.kind === row.kind ? [result.data] : [];
     });
-    return Response.json(trafficOverview(scan, requested, summaries, [...sources, ...localAnalytics]), { headers });
+    const overview = trafficOverview(scan, requested, summaries, [...sources, ...localAnalytics]);
+    const comparison = await readTrafficPeriodComparison(overview).catch(() => null);
+    return Response.json({ ...overview, comparison }, { headers });
   } catch {
     return Response.json({ message: "暂时无法读取流量与注册数据。" }, { status: 503, headers });
   }
+}
+
+
+async function readTrafficPeriodComparison(range: { start: string; end: string }) {
+  const rows = await prisma.seoAnalyticsDay.findMany({ where: { kind: { in: [trafficSummaryPeriodKind(range)] },
+    date: { in: [previousRange(range).end, range.end] } }, select: { date: true, payload: true } });
+  const periods = rows.flatMap(row => {
+    const result = trafficSummaryPeriodSchema.safeParse(row.payload);
+    return result.success && result.data.end === row.date ? [result.data] : [];
+  });
+  return trafficPeriodComparison(range, periods);
 }

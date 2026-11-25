@@ -7,7 +7,7 @@ import { PageHeader } from "./PageHeader";
 import { useSeoRange } from "./SeoDateControl";
 import { RankingTrend } from "./RankingTrend";
 import { GrowthRankingCoverage, GrowthTopicNetwork } from "./GrowthTopicWorkspace";
-import { OverviewGrowthCharts } from "./OverviewGrowthCharts";
+import { OverviewContentSection, OverviewGoalSection } from "./OverviewGrowthCharts";
 import { useOverviewRead } from "./useSeoAnalytics";
 import { useSeoCountry } from "./useSeoCountry";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
@@ -42,8 +42,9 @@ export function SeoOverview() {
       <div className={styles.scopeHeading}><h1 className={styles.title}>流量与 SEO 总览</h1>
         <UiSelect aria-label="排名页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} />
       </div>
+      <OverviewGoalSection strategy={strategy} growth={growth} />
       <TrafficRegistrationSummary dates={context} read={traffic} />
-      <OverviewGrowthCharts strategy={strategy} growth={growth} />
+      <OverviewContentSection growth={growth} />
       <GrowthRankingCoverage read={growth} />
       <div className={styles.rankings}>
         <RankingTrend region={country} module={module} historicalScope chartsOnly />

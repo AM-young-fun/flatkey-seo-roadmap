@@ -72,7 +72,7 @@ test("only the traffic read gates the page and growth failures have independent 
   }
 });
 
-test("the shared date control and all four charts always use the same returned range",()=>{
+test("the trends and the module chart follow their shared date control",()=>{
   rangeReady=false;
   try {
     const initial=render(React.createElement(SeoOverview));
@@ -89,7 +89,7 @@ test("the shared date control and all four charts always use the same returned r
     const pending=render(React.createElement(SeoOverview));
     assert.doesNotMatch(pending,/data-page-loading|\sinert=/);
     assert.match(pending,/aria-label="选择时间" aria-busy="true">2026-11-17 — 2026-11-23/);
-    assert.equal((pending.match(/本期 2026-11-17—2026-11-23/g)||[]).length,4);
+    assert.equal((pending.match(/本期 2026-11-17—2026-11-23/g)||[]).length,3);
     for (const title of ["Flatkey 流量趋势","Flatkey 注册趋势","总会话","自然搜索会话","总注册","自然搜索注册"]) assert.ok(pending.includes(title));
     assert.match(pending,/博客[\s\S]*?40\.0%/);
     assert.doesNotMatch(pending,/100\.0%|2026-11-19—2026-11-20/);
@@ -97,8 +97,8 @@ test("the shared date control and all four charts always use the same returned r
       daily:[{date:"2026-11-19",site:{totalSessions:null,organicSessions:null,totalRegistrations:null,organicRegistrations:null}}],
       modules:{sessions:{blog:35},complete:false},moduleDays:[]}});
     const partial=render(React.createElement(SeoOverview));
-    assert.equal((partial.match(/本期 2026-11-19—2026-11-20/g)||[]).length,4);
-    assert.match(partial,/自然搜索会话尚未归档齐全/);
+    assert.equal((partial.match(/本期 2026-11-19—2026-11-20/g)||[]).length,3);
+    assert.match(partial,/所选周期暂无已归档的有效数据/);
     assert.match(partial,/页面入口数据尚未归档齐全/);
     assert.doesNotMatch(partial,/40\.0%|100\.0%/);
     assert.equal(lastTrafficUrl,currentUrl);
@@ -169,21 +169,28 @@ test("hotspot topics open the saved original terms, evidence and task links with
   } finally { fixtures.clear(); }
 });
 
-test("search traffic and its breakdown show session counts and daily details with unsupported keyword attribution", () => {
+test("both traffic charts have focusable date detail targets and the unsupported attribution panel is gone", () => {
   const trafficUrl="/api/seo/analytics?view=traffic-overview";
   const daily=[
-    {date:"2026-11-17",site:{organicSessions:9}},
-    {date:"2026-11-18",site:{organicSessions:0}},
-    {date:"2026-11-19",site:{organicSessions:5}},
+    {date:"2026-11-17",site:{totalSessions:11,organicSessions:9,totalRegistrations:4,organicRegistrations:1}},
+    {date:"2026-11-18",site:{totalSessions:0,organicSessions:0,totalRegistrations:0,organicRegistrations:0}},
+    {date:"2026-11-19",site:{totalSessions:8,organicSessions:5,totalRegistrations:2,organicRegistrations:null}},
   ];
   overviewReads.set(trafficUrl,{data:{...overviewRange,automatic:true,completeWeekEnd:overviewRange.end,
-    daily,modules:{sessions:{blog:9},complete:true},moduleDays:[{date:"2026-11-17",sessions:{blog:9}}]}});
+    daily,modules:{sessions:{blog:9},complete:true},moduleDays:[{date:"2026-11-17",sessions:{blog:9}}],
+    comparison:{previous:{start:"2026-11-10",end:"2026-11-16"},totalSessions:{current:19,previous:20},organicSessions:{current:14,previous:10},totalRegistrations:{current:5,previous:4},organicRegistrations:{current:2,previous:3}}}});
   try {
     const html=render(React.createElement(SeoOverview));
-    assert.match(html,/品牌词与非品牌词自然搜索会话[\s\S]*?品牌词会话[\s\S]*?<strong>—<\/strong>/);
-    assert.match(html,/搜索词未归因[\s\S]*?<strong>14<small>100%/);
-    assert.match(html,/aria-describedby="[^"]+"[\s\S]*role="tooltip"[^>]*>[\s\S]*2026-11-17<\/dt><dd>9 次/);
+    assert.match(html,/tabindex="0" aria-label="总会话与自然搜索会话每日明细/);
+    assert.match(html,/tabindex="0" aria-label="总注册与自然搜索注册每日明细/);
+    for (const { date } of daily) assert.equal(html.split(`data-chart-date="${date}"`).length - 1, 2);
     assert.match(html,/博客 · 2026-11-17—2026-11-23/);
-    assert.doesNotMatch(html,/点击|新用户|流量板块/);
+    assert.match(html,/本期总会话 <strong>19<\/strong> 次[\s\S]*?环比 -5\.0%/);
+    assert.match(html,/自然搜索会话 <strong>14<\/strong> 次[\s\S]*?环比 \+40\.0%/);
+    assert.match(html,/自然搜索注册 <strong>2<\/strong> 人[\s\S]*?环比 -33\.3%/);
+    assert.match(html,/本期总注册 <strong>5<\/strong> 人[\s\S]*?环比 \+25\.0%/);
+    assert.match(html,/上期 2026-11-10—2026-11-16 · 4 人/);
+    assert.ok(html.indexOf("2026 收官季目标进度") < html.indexOf("Flatkey 流量与注册"));
+    assert.doesNotMatch(html,/品牌词与非品牌词自然搜索会话|搜索词未归因|点击|新用户|流量板块/);
   } finally { overviewReads.clear(); }
 });
