@@ -23,7 +23,7 @@ export function GrowthQuarterCalendarWorkspace({ plan }: { plan: QuarterCalendar
   return <section className={styles.panel} aria-label="季度新词排期">
     <div className={styles.sectionHeading}><div>
       <h2>季度关键词 · {count(plan.total)} 词</h2>
-      <p>北京时间 {plan.start} 至 {plan.end} · {count(plan.days.length)} 个研究日</p>
+      <p>北京时间 {plan.days[0] ?? plan.start} 至 {plan.days.at(-1) ?? plan.end} · {count(plan.days.length)} 个研究日</p>
     </div></div>
     <p className={styles.note}>{plan.frozen ? "季度方案已冻结。" : "研究排期已保存，方案待正式启用。"}{plan.deliveryPending ? ` ${count(plan.deliveryPending)} 词的页面交付日期待核验。` : null}</p>
     <div className={styles.filters}>
