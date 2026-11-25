@@ -116,7 +116,7 @@ export function growthRankText(target: GrowthTarget): string {
   return ({ outside100: "已查未进前100", incomplete: "结果未齐", failed: "查询失败", unqueried: "尚未查询", ranked: "排名待核定" })[target.captureState];
 }
 
-export function growthMarketLabel(data: GrowthWorkspace, country: string | null, language: string | null): string {
+export function growthMarketLabel(data: Pick<GrowthWorkspace, "markets">, country: string | null, language: string | null): string {
   const market = data.markets.find(item => item.country === country && item.language === language);
   return market?.label || `${country || "国家待核"} · ${language || "语言待核"}`;
 }

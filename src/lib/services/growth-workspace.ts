@@ -1,11 +1,11 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { buildGrowthWorkspace, GROWTH_MARKETS, GROWTH_SITES, growthPublicUrl, growthWordKey, type GrowthRankEvidence, type GrowthWorkspaceInput } from "@/lib/growth-workspace";
+import { applyGrowthRankEvidence, applyRelatedGrowthRanks, buildGrowthWorkspace, GROWTH_MARKETS, GROWTH_SITES, growthPublicUrl, growthTargetId, growthWordKey, reviewGrowthLanguage, type GrowthRankEvidence, type GrowthWorkspaceInput } from "@/lib/growth-workspace";
 import { MARKET_ASSIGNMENT_SOURCE_ID } from "@/lib/keyword-market-policy";
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import type { WorkflowSnapshot } from "@/lib/seo-workflow";
-import type { GrowthWorkspace } from "@/lib/growth-types";
+import type { GrowthTarget, GrowthTargetRankDetails, GrowthWorkspace } from "@/lib/growth-types";
 import { approvedDiagnosticWordLanguages } from "@/lib/growth-word-language-evidence";
 import { siteSourceReadiness } from "@/lib/seo-cluster-sites";
 import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "@/lib/growth-collection";
@@ -33,7 +33,8 @@ const providerMarkets: Record<string, { location: number; language: string[] }> 
 /** Read saved normalized results from every original run scope. Historical
  * views keep the full archive; the dashboard bounds the same evidence by its
  * eligibility window. Trim competitors before transferring the results. */
-async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = prisma, asOf?: Date): Promise<GrowthRankEvidence[]> {
+async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = prisma, asOf?: Date, taskIds?: string[]): Promise<GrowthRankEvidence[]> {
+  if (taskIds?.length === 0) return [];
   const cutoff = asOf && new Date(asOf.getTime() - 14 * 86_400_000);
   const tasks = await db.$queryRaw<SavedTask[]>(Prisma.sql`
     SELECT t.id, t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."requestJson",
@@ -47,6 +48,7 @@ async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = 
         ) item WHERE item->>'domain' IN ('flatkey.ai', 'www.flatkey.ai', 'rackrate.org', 'www.rackrate.org', 'modelfit.cc', 'www.modelfit.cc')), '[]'::jsonb)) AS "normalizedJson"
     FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId" WHERE t."checkedAt" IS NOT NULL
       ${cutoff ? Prisma.sql`AND t."checkedAt" BETWEEN ${cutoff} AND ${asOf}` : Prisma.empty}
+      ${taskIds ? Prisma.sql`AND t.id IN (${Prisma.join(taskIds)})` : Prisma.empty}
     ORDER BY t."checkedAt" DESC, t.id
   `);
   return tasks.flatMap(task => {
@@ -79,6 +81,10 @@ async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = 
 
 async function savedDiscoveryEvidence(db: Prisma.TransactionClient | typeof prisma = prisma): Promise<GrowthRankEvidence[]> {
   const runs = await db.dataForSeoRun.findMany({ where: { status: "COMPLETED", OR:[{requestId:{startsWith:"discovery-"}},{requestId:{startsWith:"gd-"}}] }, select: { requestId: true, siteDomain: true, normalized: true, collectedAt: true } });
+  return discoveryRankRows(runs);
+}
+
+function discoveryRankRows(runs: { requestId: string; siteDomain: string; normalized: unknown }[]): GrowthRankEvidence[] {
   return runs.flatMap(run => {
     const snapshot = object(run.normalized), country = typeof snapshot.region === "string" ? snapshot.region : null;
     if (snapshot.datasetType !== "provider_ranked_keywords_snapshot" || !country || snapshot.targetDomain !== run.siteDomain) return [];
@@ -89,6 +95,70 @@ async function savedDiscoveryEvidence(db: Prisma.TransactionClient | typeof pris
         checkedAt: typeof row.sourceSerpUpdatedAt === "string" ? row.sourceSerpUpdatedAt : null, exact: true, complete: false, evidenceId: run.requestId }] : [];
     });
   });
+}
+
+async function quarterSerpEvidence(words: Set<string>) {
+  // Select only the receipt identity and raw word before loading the matching
+  // normalized evidence. Use the canonical JS word key for every script.
+  const index = await prisma.serpMonitorTask.findMany({ where: { checkedAt: { not: null } }, select: { id: true, keyword: true } });
+  return savedSerpEvidence(prisma, undefined, index.filter(row => words.has(growthWordKey(row.keyword))).map(row => row.id));
+}
+
+async function quarterDiscoveryEvidence(words: Set<string>, sites: string[]) {
+  // Transfer only the saved columns used by evidence selection. The canonical
+  // JS word comparison below keeps aliases and Unicode handling consistent.
+  const runs = await prisma.$queryRaw<{ requestId: string; siteDomain: string; normalized: unknown }[]>(Prisma.sql`
+    SELECT r."requestId", r."siteDomain", jsonb_build_object(
+      'datasetType', r.normalized->>'datasetType', 'region', r.normalized->>'region', 'targetDomain', r.normalized->>'targetDomain',
+      'rows', (SELECT jsonb_agg(jsonb_build_object('rawKeyword', entry->'rawKeyword', 'keyword', entry->'keyword',
+        'url', entry->'url', 'region', entry->'region', 'rank_group', entry->'rank_group', 'sourceSerpUpdatedAt', entry->'sourceSerpUpdatedAt'))
+        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.normalized->'rows') = 'array' THEN r.normalized->'rows' ELSE '[]'::jsonb END) entry
+        CROSS JOIN LATERAL (SELECT normalize(CASE WHEN jsonb_typeof(entry->'rawKeyword') = 'string' THEN entry->>'rawKeyword' ELSE entry->>'keyword' END, NFKC) AS value) word
+        WHERE word.value COLLATE "C" ~ '[^ -~]'
+          OR translate(btrim(regexp_replace(word.value, ' +', ' ', 'g')), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') IN (${Prisma.join([...words])})
+      )
+      ) AS normalized
+    FROM "DataForSeoRun" r
+    WHERE r."siteDomain" IN (${Prisma.join(sites)}) AND r.status = 'COMPLETED'
+      AND (r."requestId" LIKE 'discovery-%' OR r."requestId" LIKE 'gd-%')
+      AND r.normalized->>'datasetType' = 'provider_ranked_keywords_snapshot'
+  `);
+  return discoveryRankRows(runs).filter(row => words.has(growthWordKey(row.keyword)));
+}
+
+/** Expand saved rank evidence only for the currently displayed quarter rows.
+ * List totals continue to come from the complete current eligibility window. */
+export async function loadGrowthQuarterRankEvidence(targets: GrowthTarget[], asOf: string): Promise<{ targets: GrowthTargetRankDetails[]; partial: boolean }> {
+  if (!targets.length) return { targets, partial: false };
+  const sites = [...new Set(targets.map(row => row.site))];
+  const words = new Set(targets.map(row => growthWordKey(row.keyword)));
+  const members = [...new Set(targets.flatMap(row => row.keywordId ? [row.keywordId] : []))];
+  const results = await Promise.allSettled([
+    quarterSerpEvidence(words), quarterDiscoveryEvidence(words, sites),
+    prisma.keywordPageObservation.findMany({ where: { siteDomain: { in: sites }, keywordId: { in: members }, rank: { gte: 1, lte: 100 } },
+      select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true } })
+      .then(rows => rows.flatMap<GrowthRankEvidence>(row => row.siteDomain && growthPublicUrl(row.url, row.siteDomain) ? [{ site: row.siteDomain,
+        keywordId: row.keywordId, keyword: row.keyword.text, country: row.region, language: languageFor(row.region), rank: row.rank, url: row.url,
+        source: /gsc|google_search_console/i.test(row.source) ? "gsc" : "database", checkedAt: date(row.dataUpdatedAt), exact: true, complete: false }] : [])),
+  ]);
+  const ranks = results.flatMap(result => result.status === "fulfilled" ? result.value : []), now = Date.parse(asOf);
+  const serpComplete = results[0].status === "fulfilled";
+  return { partial: results.some(result => result.status === "rejected"), targets: targets.map(row => {
+    const target = { ...row };
+    const candidates = ranks.filter(rank => rank.site === target.site && growthWordKey(rank.keyword) === growthWordKey(target.keyword));
+    // A temporary history failure must not overwrite a verified current rank
+    // or substitute a background estimate for a potentially newer SERP miss.
+    if (serpComplete) applyGrowthRankEvidence(target,
+      candidates.filter(rank => growthTargetId(rank.site, rank.keyword, rank.country, rank.language) === target.id), now);
+    if ((!target.country || !target.language) && target.keywordId) applyRelatedGrowthRanks(target,
+      candidates.filter(rank => rank.keywordId === target.keywordId), now,
+      rank => target.wordLanguage && rank.language ? (target.wordLanguage === rank.language ? "match" : "mismatch")
+        : reviewGrowthLanguage(rank.keyword, rank.country, rank.language).status);
+    const { id, rank, rankUrl, rankSource, checkedAt, captureScope, capturePeriodKey, captureRunId, captureState,
+      rankEligible, observationEligible, relatedObservationCount, relatedObservations } = target;
+    return { id, rank, rankUrl, rankSource, checkedAt, captureScope, capturePeriodKey, captureRunId, captureState,
+      rankEligible, observationEligible, relatedObservationCount, relatedObservations };
+  }) };
 }
 
 type DashboardHistory = Pick<WorkflowSnapshot, "tasks" | "publications">;

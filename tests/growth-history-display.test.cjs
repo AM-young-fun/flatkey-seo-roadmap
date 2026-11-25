@@ -6,7 +6,10 @@ let response = { data: null };
 let expectedUrl = "/api/seo/growth";
 Module._load = function(name, ...rest) {
   if (name === "@/lib/seo") return { REGIONS: { US: { label: "美国" }, JP: { label: "日本" }, BR: { label: "巴西" }, ES: { label: "西班牙" } } };
-  if (name === "./useSeoAnalytics") return { useSeoRead: url => { assert.equal(url, expectedUrl); return response; } };
+  if (name === "./useSeoAnalytics") {
+    const read = url => { assert.equal(url, expectedUrl); return response; };
+    return { useSeoRead: read, useOverviewRead: read };
+  }
   if (name === "./AppLink") return { __esModule: true, default: ({ children, ...props }) => React.createElement("a", props, children) };
   if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, property) => property === "__esModule" ? false : String(property) });
   return originalLoad.call(this, name, ...rest);
@@ -33,9 +36,9 @@ test("overview uses the corrected period words and exclusive countries rather th
 });
 
 test("topic direction uses the same stored strategy scope, real drivers and exact human-review deep link", () => {
-  expectedUrl = "/api/seo/growth/strategy";
+  expectedUrl = "/api/seo/growth/strategy?view=topic-directions&site=flatkey.ai&topic=gpu";
   const direction = { id: "gpu/方向", title: "GPU比较方向", revision: 3, updatedAt: "2026-11-23T00:00:00Z", scope: [{ site: "flatkey.ai", topicId: "gpu", country: "US", language: "en" }], decision: null, hypothesis: "比较页更能承接价格需求", proposedAction: "补充成本实验", taskIds: ["existing-task"], experiment: { primaryMetric: "自然搜索会话", successCondition: "同窗提升", adjustmentCondition: "下降则补原页", reviewAt: "2026-12-01T00:00:00Z" }, drivers: [{ topicId: "gpu", title: "真实比较文章", url: "https://flatkey.ai/blog/gpu-compare", country: "US", language: "en", source: "GA4", metric: "sessions", previous: 10, current: 20, explanation: "旧页优化后的相关增长", limitation: "尚不能证明因果", nextAction: "核验转化", taskIds: ["existing-task"] }, { topicId: "other", title: "其他话题", country: "US", language: "en", taskIds: [] }] };
-  response = { data: { state: { directions: [direction, { ...direction, id: "excluded", title: "其他站方向", scope: [{ site: "rackrate.org", topicId: "gpu", country: "US", language: "en" }] }] } } };
+  response = { data: { directions: [direction, { ...direction, id: "excluded", title: "其他站方向", scope: [{ site: "rackrate.org", topicId: "gpu", country: "US", language: "en" }] }] } };
   const html = renderToStaticMarkup(React.createElement(GrowthTopicDirections, { site: "flatkey.ai", topicId: "gpu", country: "US", language: "en" }));
   assert.match(html, /10 → 20（\+10）/); assert.match(html, /尚不能证明因果/); assert.match(html, /核验转化/);
   assert.match(html, /href="https:\/\/flatkey.ai\/blog\/gpu-compare"/); assert.match(html, /href="\/work\/existing-task"/);

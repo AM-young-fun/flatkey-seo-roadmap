@@ -33,6 +33,8 @@ export type GrowthTarget = {
   /** A fresh exact SERP + original word language match. Database/GSC evidence is shown separately. */
   rankEligible: boolean; observationEligible: boolean; monitoringEligible: boolean; taskIds: string[]; reason: string;
 };
+export type GrowthTargetRankDetails = Pick<GrowthTarget, "id" | "rank" | "rankUrl" | "rankSource" | "checkedAt" | "captureScope"
+  | "capturePeriodKey" | "captureRunId" | "captureState" | "rankEligible" | "observationEligible" | "relatedObservationCount" | "relatedObservations">;
 export type GrowthTopicMarket = { country: string | null; language: string | null; formalCount: number; publishedCount: number; rankedCount: number; top50Count: number };
 export type GrowthTopic = {
   id: string; topicId: string; site: string; name: string; parentIds: string[]; targetIds: string[];

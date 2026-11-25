@@ -89,6 +89,38 @@ export type GrowthRankEvidence = { site: string; keywordId?: string | null; keyw
   period?: { id: string; periodKey?: string; label: string; scope: string; cohortHash: string | null; originalTargetCount: number | null; originalQueryCount: number | null } };
 export type GrowthWorkspaceInput = { generatedAt: string; topics: GrowthTopicInput[]; memberships: GrowthMembershipInput[]; tasks: GrowthTaskInput[]; publications: GrowthPublicationInput[]; plans?: GrowthPlanInput[]; wordLanguageEvidence?: GrowthWordLanguageEvidence[]; inventory: { url: string; lastSeen: string }[]; ranks: GrowthRankEvidence[]; sources?: GrowthWorkspace["reconciliation"]["sources"]; languageReviews?: GrowthLanguageReview[] };
 
+export function applyGrowthRankEvidence(target: GrowthTarget, rows: GrowthRankEvidence[], now: number) {
+  const evidence = rows.filter(row => (!row.keywordId || !target.keywordId || row.keywordId === target.keywordId)
+    && (!row.url || growthPublicUrl(row.url, target.site)) && (!row.checkedAt || stamp(row.checkedAt) <= now));
+  const exact = evidence.filter(row => row.source === "serp" && row.exact && row.checkedAt).sort((a, b) => stamp(b.checkedAt) - stamp(a.checkedAt));
+  // A newer incomplete receipt cannot turn an older positive into a fresh result.
+  const latestTime = exact[0]?.checkedAt, latest = exact.filter(row => row.checkedAt === latestTime);
+  const precise = latest.filter(row => row.complete), positives = precise.filter(row => row.rank !== null && row.rank >= 1 && row.rank <= 100).sort((a, b) => a.rank! - b.rank!);
+  const fallback = evidence.filter(row => row.source !== "serp" && row.rank !== null && row.rank >= 1 && row.rank <= 100).sort((a, b) => stamp(b.checkedAt) - stamp(a.checkedAt) || a.rank! - b.rank!)[0];
+  const chosen = positives[0] ?? (latest.length ? precise[0] ?? latest[0] : fallback);
+  if (!chosen) return;
+  target.rank = positives[0]?.rank ?? (latest.length ? null : fallback?.rank ?? null);
+  target.rankUrl = target.rank !== null ? chosen.url : null;
+  target.rankSource = chosen.source; target.checkedAt = chosen.checkedAt;
+  target.captureScope = chosen.period?.scope ?? null; target.capturePeriodKey = chosen.period?.periodKey ?? null; target.captureRunId = chosen.period?.id ?? null;
+  target.captureState = latest.length ? positives.length ? "ranked" : precise.length ? "outside100" : chosen.captureState ?? "incomplete" : "ranked";
+  const qualifies = target.languageStatus === "match" && now - stamp(chosen.checkedAt) <= 14 * 86400000;
+  target.rankEligible = Boolean(positives.length && qualifies);
+  target.observationEligible = Boolean(precise.length && qualifies);
+}
+
+export function applyRelatedGrowthRanks(target: GrowthTarget, rows: GrowthRankEvidence[], now: number,
+  languageStatus: (row: GrowthRankEvidence) => GrowthLanguageStatus) {
+  const related = rows.filter(row => row.rank !== null && row.rank >= 1 && row.rank <= 100 && row.url && growthPublicUrl(row.url, target.site)
+    && stamp(row.checkedAt) > 0 && stamp(row.checkedAt) <= now && (row.source !== "serp" || row.exact && row.complete))
+    .sort((a, b) => stamp(b.checkedAt) - stamp(a.checkedAt) || a.rank! - b.rank!);
+  const observations = [...new Map(related.map(row => [`${row.country}:${row.language}:${row.source}:${row.url}:${row.checkedAt}`, {
+    country: row.country, language: row.language, rank: row.rank!, url: row.url!, source: row.source, checkedAt: row.checkedAt, languageStatus: languageStatus(row),
+  }])).values()];
+  target.relatedObservationCount = observations.length;
+  target.relatedObservations = observations.slice(0, 10);
+}
+
 /** Input order must not let an inactive merged alias replace an active goal.
  * Aliases remain provenance, not authority to move a different keyword's rank. */
 function mergeGrowthTargets(a: GrowthTarget | undefined, b: GrowthTarget): GrowthTarget {
@@ -237,26 +269,11 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
       languageStatus: language.status, languageReason: language.reason, captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: [], reason: "已存排名或诊断词；尚无该站点／原词／市场／语言的正式目标分配" });
   }
   for (const target of targets.values()) {
-    const evidence = (rankIndex.get(target.id) ?? []).filter(row => (!row.keywordId||!target.keywordId||row.keywordId===target.keywordId) && (!row.url || growthPublicUrl(row.url, target.site)) && (!row.checkedAt || stamp(row.checkedAt) <= now));
-    const exact = evidence.filter(row => row.source === "serp" && row.exact && row.checkedAt).sort((a, b) => stamp(b.checkedAt) - stamp(a.checkedAt));
-    // A newer incomplete receipt is visible and cannot turn an old positive into a fresh result.
-    const latestTime = exact[0]?.checkedAt, latest = exact.filter(row => row.checkedAt === latestTime);
-    const precise = latest.filter(row => row.complete), positives = precise.filter(row => row.rank !== null && row.rank >= 1 && row.rank <= 100).sort((a, b) => a.rank! - b.rank!);
-    const fallback = evidence.filter(row => row.source !== "serp" && row.rank !== null && row.rank >= 1 && row.rank <= 100).sort((a, b) => stamp(b.checkedAt) - stamp(a.checkedAt) || a.rank! - b.rank!)[0];
-    const chosen = positives[0] ?? (latest.length ? precise[0] ?? latest[0] : fallback);
-    if (chosen) {
-      target.rank = positives[0]?.rank ?? (latest.length ? null : fallback?.rank ?? null); target.rankUrl = target.rank !== null ? chosen.url : null;
-      target.rankSource = chosen.source; target.checkedAt = chosen.checkedAt;
-      target.captureScope = chosen.period?.scope ?? null; target.capturePeriodKey = chosen.period?.periodKey ?? null; target.captureRunId = chosen.period?.id ?? null;
-      target.captureState = latest.length ? positives.length ? "ranked" : precise.length ? "outside100" : chosen.captureState ?? "incomplete" : "ranked";
-      target.rankEligible = Boolean(positives.length && target.languageStatus === "match" && stamp(chosen.checkedAt) <= now && now - stamp(chosen.checkedAt) <= 14 * 86400000);
-      target.observationEligible = Boolean(precise.length && target.languageStatus === "match" && stamp(chosen.checkedAt) <= now && now - stamp(chosen.checkedAt) <= 14 * 86400000);
-    }
+    applyGrowthRankEvidence(target, rankIndex.get(target.id) ?? [], now);
     target.monitoringEligible = target.membership === "formal" && target.pageState === "published" && target.languageStatus === "match" && Boolean(target.country && target.language && target.keywordId) && target.country !== "CN" && target.country !== "RU" && !isOwnedBrandKeyword(target.keyword) && !/(?:^|\s)\w+:/u.test(target.keyword);
     if(target.membership==="formal"&&(!target.country||!target.language)){
-      const related=(ranksByMember.get(`${target.site}\u0000${target.keywordId}\u0000${growthWordKey(target.keyword)}`)??[]).filter(row=>row.rank!==null&&row.rank>=1&&row.rank<=100&&row.url&&growthPublicUrl(row.url,target.site)&&stamp(row.checkedAt)>0&&stamp(row.checkedAt)<=now&&(row.source!=="serp"||row.exact&&row.complete)).sort((a,b)=>stamp(b.checkedAt)-stamp(a.checkedAt)||a.rank!-b.rank!);
-      const observations=[...new Map(related.map(row=>[`${row.country}:${row.language}:${row.source}:${row.url}:${row.checkedAt}`,{country:row.country,language:row.language,rank:row.rank!,url:row.url!,source:row.source,checkedAt:row.checkedAt,languageStatus:reviewGrowthLanguage(row.keyword,row.country,row.language,input.languageReviews,wordProof(row.site,row.keywordId,row.keyword)).status}])).values()];
-      target.relatedObservationCount=observations.length;target.relatedObservations=observations.slice(0,10);
+      applyRelatedGrowthRanks(target, ranksByMember.get(`${target.site}\u0000${target.keywordId}\u0000${growthWordKey(target.keyword)}`) ?? [], now,
+        row => reviewGrowthLanguage(row.keyword, row.country, row.language, input.languageReviews, wordProof(row.site, row.keywordId, row.keyword)).status);
     }
   }
   const all = [...targets.values()].filter(target => !selectedSite || target.site === selectedSite).sort((a, b) => a.site.localeCompare(b.site) || (a.topicName ?? "~").localeCompare(b.topicName ?? "~") || a.keyword.localeCompare(b.keyword) || (a.country ?? "").localeCompare(b.country ?? ""));

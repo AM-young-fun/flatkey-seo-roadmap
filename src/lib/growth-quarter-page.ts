@@ -34,11 +34,12 @@ export function growthQuarterPage(full: GrowthWorkspace, query: QuarterQuery) {
   const topicIds = new Set(currentTargets.map(target => `${target.site}:${target.topicId}`));
   return {
     data: {
-      ...data, quarter: undefined, targets: currentTargets,
+      sites: data.sites, markets: data.markets, generatedAt: data.generatedAt, targets: currentTargets,
       topics: data.topics.filter(item => topicIds.has(`${item.site}:${item.topicId}`)),
     },
     frozen: Boolean(data.quarter), scope, topic: topic ?? null, markets, topicRows: currentTopics,
     stats: growthCounts(targets), relatedTotal: related.length, showRelated,
+    rankAvailable: !(data.reconciliation?.sources ?? []).some(source => source.name === "最近14天的已存SERP" && !source.available),
     ownTotal: topic ? targets.filter(target => growthTopicContains(topic, target)).length : 0,
     pagination: query.topicId ? targetPagination : topicPagination,
   };
