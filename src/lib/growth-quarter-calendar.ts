@@ -48,6 +48,7 @@ export function quarterCalendarProblem(calendar: CalendarRow[], targets: Calenda
     if (sourceRows.has(sourceRow)) return "同一Ahrefs原始证据行不可复用给不同季度词";
     sourceRows.add(sourceRow);
     if (row.kind === "blog" ? !["flatkey.ai", "modelfit.cc"].includes(target.site) : !["rackrate.org", "modelfit.cc"].includes(target.site)) return "制作类型超出原站点权限";
+    if (row.kind === "blog" && target.site === "modelfit.cc" && target.country !== "US") return "ModelFit 源博客仅安排美国英语原词";
     const country = row.ahrefs.country;
     const group = otherMarkets.has(country) ? "other" : country as Exclude<keyof typeof shares, "other">;
     shares[group]++;

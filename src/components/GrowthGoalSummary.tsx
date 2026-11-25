@@ -8,7 +8,7 @@ import { FeedbackButton } from "./FeedbackButton";
 import { GrowthProgressViews } from "./GrowthProgressViews";
 import { SeoAnchor } from "@/components/SeoAnchor";
 import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
-import { QuarterMembershipReview } from "./QuarterMembershipReview";
+import { QuarterMembershipReview, QuarterResearchImport } from "./QuarterMembershipReview";
 import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
 import { reportDay } from "@/lib/seo-report-time.cjs";
 import { QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "@/lib/growth-quarter-calendar";
@@ -120,6 +120,7 @@ export function GrowthQuarterReview() {
   const formalTargets = view.formalTargets.filter(row => ["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(row.site) && (!quarterIds || quarterIds.has(row.id)));
   const recentDirections = [...view.state.directions].sort((a, b) => Number(Boolean(a.decision)) - Number(Boolean(b.decision)) || b.updatedAt.localeCompare(a.updatedAt));
   const quarter = view.state.quarterPlanning;
+  const legacyQuarter = view.state.baseline?.targets.length === 1600;
   const nextQuarter = quarter?.plan.version === QUARTER_NEW_WORD_VERSION;
   const selectedIds = new Set(quarter?.plan.targetIds);
   const selected = view.formalTargets.filter(row => selectedIds.has(row.id));
@@ -144,7 +145,8 @@ export function GrowthQuarterReview() {
     <section className={styles.panel}><details><summary>季度关键词与方向决定</summary>
       {!view.state.baseline?.planHash ? <label>导入新版季度日历 <input type="file" accept="application/json,.json" disabled={busy} onChange={event => void uploadQuarter(event.target.files?.[0])} /></label> : null}
       {quarter?.plan.calendar ? <QuarterCalendarByDay calendar={quarter.plan.calendar} /> : null}
-      {!view.state.baseline ? <><QuarterMembershipReview onChanged={load} /><PreFreezeIdentityReview onChanged={load} /></> : null}
+      {legacyQuarter ? <QuarterResearchImport onChanged={load} /> : null}
+      {!view.state.baseline || legacyQuarter ? <><QuarterMembershipReview onChanged={load} newQuarterOnly={legacyQuarter} /><PreFreezeIdentityReview onChanged={load} newQuarterOnly={legacyQuarter} /></> : null}
       <p>冻结目标 {view.state.baseline?.targets.length ?? "尚未核定"}；新批次 {view.state.batches.length}；原任务待补效果 {view.dueObservations.length}；历史来源待核 {view.historicalDueObservations?.length ?? 0}。新增批次不会改变季度原始分母。</p>
       {!view.state.baseline ? <details><summary>审阅候选底账（{formalTargets.length}，不是季度规划完成量）</summary><div className={styles.scroll}><table><thead><tr><th>话题</th><th>目标关键词</th><th>站点 / 国家 / 语言</th><th>页面</th></tr></thead><tbody>{formalTargets.map(row => <tr key={row.id}><td>{row.topicName ?? "未归类"}</td><td>{row.keyword}</td><td>{row.site} · {row.country ?? "未知"} / {row.language ?? "未知"}</td><td>{row.pageState === "published" ? "已建页面" : row.pageState === "planned" ? "规划中" : "未关联"}</td></tr>)}</tbody></table></div><p>候选底账仅说明现有来源。完整季度方案须明确主攻话题、本地研究预算、实际投入和缺口；待核身份仍留N、不计R。</p>{!quarter ? <p>尚未保存完整季度方案，不能直接把候选底账冻结为季度目标。</p> : null}</details> : null}
       {quarter ? <article className={styles.decision}><h4>{quarter.plan.title} · 季度方案 v{quarter.revision}</h4><p>执行测算窗口：{quarter.plan.executionStart} — {quarter.plan.executionEnd}；冻结候选 {quarter.plan.targetIds.length} 项。原任务保留 {quarter.plan.reservedOriginalTaskIds.length} 项，未来可用工作包 {quarter.plan.deliveryBudget.total}。</p><p>本地关键词研究名额（不是已验证新词或付费授权）：{marketBudgetText}。</p><p>未来常规投入：{Object.entries(quarter.plan.deliveryBudget.counts).map(([key, value]) => `${({ gpu: "GPU租赁", api: "API调用", other: "其他", primary: "历史主攻", foundation: "历史基础", experiment: "历史试验" } as Record<string, string>)[key] ?? key} ${value}`).join(" / ")}。</p>{quarter.plan.workstreams.map(stream => <div key={stream.id}><strong>{stream.title} · {stream.bucket}</strong><p>{stream.rationale}</p><p>验证：{stream.verification}</p></div>)}<ul>{quarter.plan.limitations.map(line => <li key={line}>{line}</li>)}</ul><details><summary>查看与哈希绑定的完整方案、原话题／任务及来源</summary><p>完整成员在上方候选表逐项展示；下面包含原目标ID、全部话题／任务引用、原任务预留、预算、源版本、审核包路径和字节哈希。批准仅针对该确切方案，不授权新付费或自动发送。</p><pre className={styles.json}>{JSON.stringify(quarter.plan, null, 2)}</pre></details><p>方案哈希：{quarter.hash}；当前状态：{quarter.approval ? "已由用户批准该确切方案" : "待审核"}。</p><FeedbackButton disabled={!canFreeze || Boolean(quarter.approval)} pending={busy} pendingLabel="正在保存…" onClick={() => void mutate({ action: "approve_quarter_plan", hash: quarter.hash, sourceVersion: view.sourceVersion, reason: nextQuarter ? "用户已授权实施新版1000词季度日历；历史基线和已有任务保留" : "用户批准该季度投入方案及其原有成员" })}>{nextQuarter ? "启用新版季度词表及日历" : view.state.baseline ? "批准此版季度投入方案" : "批准完整季度方案并锁定成员"}</FeedbackButton></article> : null}

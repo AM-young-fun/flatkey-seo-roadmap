@@ -8,7 +8,43 @@ import styles from "./GrowthGoalSummary.module.css";
 
 const storageKey = "seo-quarter-membership:2026-close";
 type Pending = { command: MembershipApply; original: MembershipPreview };
-export function QuarterMembershipReview({ onChanged }: { onChanged: () => Promise<void> }) {
+export function QuarterResearchImport({ onChanged }: { onChanged: () => void | Promise<void> }) {
+  const [batch, setBatch] = useState<{ action: "stage_new_words"; requestId: string; rows: unknown[] } | null>(null);
+  const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  async function readBatch(file?: File) {
+    if (!file) return;
+    setBatch(null);
+    setMessage("");
+    try {
+      if (file.size > 1_900_000) throw Error("研究候选文件须小于1.9MB");
+      const value = JSON.parse(await file.text());
+      if (value?.action !== "stage_new_words" || typeof value.requestId !== "string" || !Array.isArray(value.rows) || !value.rows.length || value.rows.length > 150) throw Error("请选择带原请求编号及 Ahrefs 原始行的研究候选文件");
+      setBatch(value);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "无法读取研究候选文件"); }
+  }
+  async function saveBatch() {
+    if (!batch || busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch(identityApi, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(batch), signal: AbortSignal.timeout(65_000) });
+      const result = await response.json();
+      if (!response.ok || result.status !== "STAGED" || !Array.isArray(result.receipt) || result.receipt.length !== batch.rows.length) throw Error(result.message ?? "未读回完整的原批次");
+      setMessage(`已读回 ${result.receipt.length} 个研究词 · ${result.auditId}`);
+      setBatch(null);
+      await onChanged();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "保留原文件和请求编号后重试"); }
+    finally { setBusy(false); }
+  }
+  return <details><summary>导入 Ahrefs 季度研究候选</summary>
+    <label>候选文件 <input aria-label="Ahrefs 季度候选文件" type="file" accept="application/json,.json" disabled={busy} onChange={event => void readBatch(event.target.files?.[0])} /></label>
+    {batch ? <p>{batch.rows.length} 个候选 · {batch.requestId}</p> : null}
+    <FeedbackButton pending={busy} disabled={!batch || busy} onClick={() => void saveBatch()}>保存研究候选</FeedbackButton>
+    {message ? <p role="status">{message}</p> : null}
+  </details>;
+}
+
+export function QuarterMembershipReview({ onChanged, newQuarterOnly = false }: { onChanged: () => Promise<void>; newQuarterOnly?: boolean }) {
   const [selection, setSelection] = useState<QuarterMembershipSelection | null>(null), [preview, setPreview] = useState<MembershipPreview | null>(null);
   const [pending, setPending] = useState<Pending | null>(null), [receipt, setReceipt] = useState<MembershipReceipt | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -23,6 +59,7 @@ export function QuarterMembershipReview({ onChanged }: { onChanged: () => Promis
     const raw = JSON.parse(await file.text()), value = raw.review?.selection ?? raw.selection ?? raw;
     if (!["quarter-membership-v1", "quarter-membership-v2"].includes(value?.version) || typeof value.sourceHash !== "string" || !Array.isArray(value.members)
       || value.members.some((row: QuarterMembershipSelection["members"][number]) => !row || [row.siteDomain, row.keywordId, row.keyword, row.topicId].some(field => typeof field !== "string"))) throw Error("请选择完整季度成员名单，或包含同一名单的身份核验文件");
+    if (newQuarterOnly && value.version !== "quarter-membership-v2") throw Error("请选择新季度的完整1000词成员名单");
     setSelection(value); setPreview(null); setReceipt(null); requestId.current = "human-membership:" + crypto.randomUUID();
   });
   const readPreview = () => run(async () => {

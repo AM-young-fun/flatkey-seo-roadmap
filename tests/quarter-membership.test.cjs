@@ -150,3 +150,22 @@ test('a new 1000-word membership uses separate proof and leaves the frozen 1600 
   const reuse = { ...sel, members: [old.members[0], ...sel.members.slice(1)] };
   await assert.rejects(saveQuarterMembership({ action: 'preview', requestId: 'reuse-old', selection: reuse }), { code: 'new_quarter_reuses_old_word' });
 });
+
+test('the Ahrefs staging contract binds the original exported CSV row, market, language, and local demand', () => {
+  const { quarterWordResearchProblem, quarterWordResearchSchema } = require('../src/lib/quarter-word-research.ts');
+  const row = {
+    siteDomain: 'flatkey.ai', topicId: topic.id, keyword: '大模型微调', country: 'SG', language: 'zh-CN', volume: 50,
+    sourceUrl: 'https://app.ahrefs.com/keywords-explorer/list/new/example/google/sg/ideas/matchingTerms',
+    sourceFile: 'google_sg_example.csv', sourceSha256: 'a'.repeat(64), sourceRow: 56, observedAt: '2026-11-25T14:55:16+08:00',
+    excerpt: '#,Keyword,Country,Volume,Languages\n56,大模型微调,sg,50,Chinese',
+  };
+  const time = new Date('2026-11-25T12:00:00Z');
+  assert.equal(quarterWordResearchSchema.safeParse({ action: 'stage_new_words', requestId: 'exact', rows: [row] }).success, true);
+  assert.equal(quarterWordResearchProblem(row, time), null);
+  for (const patch of [{ language: 'en' }, { sourceRow: 55 }, { volume: 55 }, { keyword: '微调大模型' },
+    { excerpt: row.excerpt + '\n57,另一词,sg,100,Chinese' },
+    { sourceUrl: row.sourceUrl.replace('app.ahrefs.com', 'ahrefs.example') },
+    { sourceUrl: row.sourceUrl.replace('/google/sg/', '/google/us/') }]) {
+    assert.ok(quarterWordResearchProblem({ ...row, ...patch }, time));
+  }
+});

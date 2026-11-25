@@ -10,7 +10,7 @@ const pendingKey = "seo-prefreeze-identities:2026-close";
 const clearSession = (key: string) => { try { sessionStorage.removeItem(key); } catch { /* Keeping the original ID permits safe readback after reload. */ } };
 type Package = { review: PreFreezeReview; quarterPlan?: QuarterPlanningInput };
 type Pending = { command: IdentityApply; original: IdentityPreview; package: Package };
-export function PreFreezeIdentityReview({ onChanged }: { onChanged: () => Promise<void> }) {
+export function PreFreezeIdentityReview({ onChanged, newQuarterOnly = false }: { onChanged: () => Promise<void>; newQuarterOnly?: boolean }) {
   const [bundle, setBundle] = useState<Package | null>(null), [preview, setPreview] = useState<IdentityPreview | null>(null);
   const [pending, setPending] = useState<Pending | null>(null), [receipt, setReceipt] = useState<IdentityReceipt | null>(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [verified, setVerified] = useState(false);
@@ -41,6 +41,7 @@ export function PreFreezeIdentityReview({ onChanged }: { onChanged: () => Promis
           || row.demand.observedAt !== null && typeof row.demand.observedAt !== "string"
           || row.demand.observedAt === null && (!row.demand.historicalTimeUnknown || row.demand.historicalTimeUnknown.acknowledgement !== "historical-time-unknown" || typeof row.demand.historicalTimeUnknown.reason !== "string")
           || typeof row.demand.value !== "number" || !Array.isArray(row.wordLanguage.spans) || row.wordLanguage.spans.some(part => !part || typeof part.text !== "string"))) throw Error("不是完整季度身份审核包");
+      if (newQuarterOnly && value.review.selection.version !== "quarter-membership-v2") throw Error("请选择新季度1000词的同一名单及本批身份来源");
       setBundle(value); setPreview(null); setReceipt(null); setVerified(false); setPlanPreview(null); setPlanSaved(false); setHistoricalTimeAcknowledged(false); requestId.current = "human-identities:" + crypto.randomUUID();
     });
   };
