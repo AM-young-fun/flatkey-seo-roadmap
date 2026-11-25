@@ -44,7 +44,7 @@ mockFile("src/lib/services/serp-results.ts", {
 });
 const { GET } = require("../src/app/api/seo/trends/route.ts");
 const { combinedSerpTrendPoints, multiRegionTrendPeriods, marketTrendCount, marketTrendLineSegments, marketTrendComparison, serpCheckTrendFrames, scopeTrendCohorts, trendModuleTargets } = require("../src/lib/ranking-trends.ts");
-const { rankingTrendDisplayPeriods } = require("../src/components/ranking-trend-display.ts");
+const { rankingTrendDisplayPeriods, rankingTrendDisplaySegments } = require("../src/components/ranking-trend-display.ts");
 const { REGION_CODES } = require("../src/lib/seo.ts");
 const request = extra => new Request(`https://flatkey.test/api/seo/trends?region=all&start=2026-10-08&end=2026-10-16&refresh=1${extra ?? ""}`);
 beforeEach(t => { calls = []; failMarket = null; failCohort = false; scopedHistory = false; currentTargets = frozenTargets; t.mock.method(globalThis, "fetch", async () => { throw new Error("no provider requests from a trend read"); }); });
@@ -90,6 +90,35 @@ test("an incompletely covered zero leaves a chart gap and keeps all four histori
   const measuredZero = { ...point("2026-11-16", 0, 4, 4, 0), outside: 4 };
   assert.equal(rankingTrendDisplayPeriods([measuredZero])[0].chartValue, 0);
   assert.equal(rankingTrendDisplayPeriods([{ ...measuredZero, sampleOnly: true }])[0].chartValue, null);
+});
+
+test("historical trend draws dashed segments between reported counts and keeps the partial capture off the number axis", () => {
+  const history = [
+    { date: "2026-10-01", ranked: 9, captured: 30, total: 1596, pending: 1587, sampleOnly: true },
+    { date: "2026-10-16", ranked: 230, captured: 957, total: 1486, pending: 1238 },
+    { date: "2026-11-01", ranked: 223, captured: 960, total: 1490, pending: 1265 },
+    { date: "2026-11-16", ranked: 0, captured: 0, total: 1499, pending: 1499,
+      languageProjection: { rawCaptured: 1, unknownLanguageWords: 454, excludedBrandWords: 26 } },
+  ];
+  const periods = rankingTrendDisplayPeriods(history);
+  assert.deepEqual(periods.map(row => row.chartValue), [9, 230, 223, null]);
+  assert.deepEqual(periods[3].status, { rawCaptured: 1, label: "待语种核验" });
+  assert.deepEqual(rankingTrendDisplaySegments(periods, false), []);
+  assert.deepEqual(rankingTrendDisplaySegments(periods, true), [
+    { comparable: false, data: [9, 230, null, null] },
+    { comparable: false, data: [null, 230, 223, null] },
+  ]);
+  assert.deepEqual(rankingTrendDisplaySegments([periods[2], periods[3], periods[0]], true), []);
+  assert.equal(rankingTrendDisplayPeriods([{ ...history[3], languageProjection: { rawCaptured: 0, unknownLanguageWords: 454 } }])[0].status, null);
+});
+
+test("completed identical cohorts retain solid segments and a confirmed zero can remain numeric", () => {
+  const first = { date: "2026-11-01", ranked: 0, captured: 4, total: 4, outside: 4, pending: 0,
+    comparable: true, cohortHash: "same", sites: ["flatkey.ai"], sources: ["dataforseo_serp"] };
+  const second = { ...first, date: "2026-11-16", ranked: 1, outside: 3 };
+  const periods = rankingTrendDisplayPeriods([first, second]);
+  assert.deepEqual(rankingTrendDisplaySegments(periods, true), [{ comparable: true, data: [0, 1] }]);
+  assert.deepEqual(periods.map(row => row.status), [null, null]);
 });
 
 test("one four-market read shares the immutable cohort and keeps failed, missing and measured-zero countries distinct", async () => {
