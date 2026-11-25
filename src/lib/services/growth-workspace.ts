@@ -229,15 +229,51 @@ async function savedHumanWordLanguages(db: Prisma.TransactionClient, sites: stri
   return auditedHumanWordLanguages(data.sources, data.audits);
 }
 
+type GrowthCoreRows = {
+  topics: { id: string; text: string; active: boolean; parentId: string | null; childEdges: { parentId: string }[]; sites: { siteDomain: string }[] }[];
+  members: { siteDomain: string; keywordId: string; active: boolean; topicId: string | null; pool: string; origin: string; targetUrls: string[]; mappingStatus: string; sourceUrl: string | null;
+    topicAssignments: { topicId: string }[]; keyword: { text: string; active: boolean } }[];
+};
+
+async function readGrowthCore(db: Prisma.TransactionClient, sites: string[]): Promise<GrowthCoreRows> {
+  // Prisma's separate nested relation reads otherwise queue on the same
+  // serverless connection. Return both sets with their existing relationships.
+  const [rows] = await db.$queryRaw<GrowthCoreRows[]>(Prisma.sql`
+    WITH topics AS (
+      SELECT t.id, t.text, t.active, t."parentId",
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('parentId', r."parentId"))
+          FROM "TopicRelation" r WHERE r."childId" = t.id), '[]'::jsonb) AS "childEdges",
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('siteDomain', s."siteDomain"))
+          FROM "SiteTopic" s WHERE s."topicId" = t.id), '[]'::jsonb) AS sites
+      FROM "Topic" t
+    ), members AS (
+      SELECT m."siteDomain", m."keywordId", m.active, m."topicId", m.pool, m.origin, m."targetUrls", m."mappingStatus", m."sourceUrl",
+        jsonb_build_object('text', k.text, 'active', k.active) AS keyword,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('topicId', a."topicId"))
+          FROM "SiteKeywordTopic" a WHERE a."siteDomain" = m."siteDomain" AND a."keywordId" = m."keywordId"), '[]'::jsonb) AS "topicAssignments"
+      FROM "SiteKeyword" m JOIN "Keyword" k ON k.id = m."keywordId"
+      WHERE m."siteDomain" IN (${Prisma.join(sites)})
+    )
+    SELECT COALESCE((SELECT jsonb_agg(to_jsonb(topics)) FROM topics), '[]'::jsonb) AS topics,
+      COALESCE((SELECT jsonb_agg(to_jsonb(members)) FROM members), '[]'::jsonb) AS members
+  `);
+  return rows;
+}
+
 async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSite: string | undefined, { view = "full", transaction }: { view?: "dashboard" | "catalog" | "full"; transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot } }): Promise<GrowthWorkspace> {
   if (!process.env.DATABASE_URL) throw new Error("GROWTH_DATABASE_UNAVAILABLE");
   const db = transaction?.db ?? prisma;
   const goalSites = GROWTH_SITES.filter(site => site.keywordGoals).map(site => site.domain);
   const dashboard = view === "dashboard";
-  const [topics, members, assignments, inventory, workflow, savedSites, planRows, quarterRow, membershipAudit, optional, humanLanguages] = await Promise.all([
-    db.topic.findMany({ select: { id: true, text: true, active: true, parentId: true, childEdges: { select: { parentId: true } }, sites: { select: { siteDomain: true } } } }),
-    db.siteKeyword.findMany({ where: { siteDomain: { in: goalSites } }, select: { siteDomain: true, keywordId: true, active: true, topicId: true, pool: true, origin: true, targetUrls: true, mappingStatus: true, sourceUrl: true,
-      topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }),
+  const keywordCore = view === "full"
+    ? Promise.all([
+        db.topic.findMany({ select: { id: true, text: true, active: true, parentId: true, childEdges: { select: { parentId: true } }, sites: { select: { siteDomain: true } } } }),
+        db.siteKeyword.findMany({ where: { siteDomain: { in: goalSites } }, select: { siteDomain: true, keywordId: true, active: true, topicId: true, pool: true, origin: true, targetUrls: true, mappingStatus: true, sourceUrl: true,
+          topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }),
+      ]).then(([topics, members]) => ({ topics, members }))
+    : timedRead("keyword-core", () => readGrowthCore(db, goalSites));
+  const [{ topics, members }, assignments, inventory, workflow, savedSites, planRows, quarterRow, membershipAudit, optional, humanLanguages] = await Promise.all([
+    keywordCore,
     db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: MARKET_ASSIGNMENT_SOURCE_ID }, select: { siteDomain: true, rowKey: true, snapshot: true } }),
     db.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
     transaction?.workflow ?? timedRead("workflow", () => view === "full" ? loadWorkflowSnapshot({ allHistory: true }, localPreview) : loadGrowthDashboardHistory(localPreview)),

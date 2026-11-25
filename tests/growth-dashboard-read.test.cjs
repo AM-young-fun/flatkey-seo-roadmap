@@ -14,6 +14,15 @@ let catalog = false;
 
 const prisma = {
   $queryRaw: async query => {
+    if (query.sql.includes('FROM "Topic"')) {
+      assert.match(query.sql, /FROM "SiteKeyword" m JOIN "Keyword" k/);
+      assert.match(query.sql, /FROM "SiteKeywordTopic" a/);
+      assert.deepEqual(query.values, ['flatkey.ai', 'rackrate.org', 'modelfit.cc']);
+      return [{
+        topics: [{ id: 'gpu', text: 'GPU rental', active: true, parentId: null, childEdges: [], sites: [{ siteDomain: site }] }],
+        members: [{ siteDomain: site, keywordId, active: true, topicId: 'gpu', pool: 'FORMAL', targetUrls: [url], topicAssignments: [], keyword: { text: keyword, active: true } }],
+      }];
+    }
     if (query.sql.includes('FROM "KeywordSourceRow"')) {
       assert.match(query.sql, /FROM "KeywordCurationAudit"/);
       assert.deepEqual(query.values, ['flatkey.ai', 'rackrate.org', 'modelfit.cc', 'SEO_HUMAN_WORD_LANGUAGE_REVIEW', 'PRE_FREEZE_IDENTITIES_APPLIED_V1']);
@@ -59,8 +68,6 @@ const prisma = {
     if (catalog) return [{ keywordId: 'old-source', keyword: { text: 'saved keyword' }, siteDomain: site, region: 'US', source: 'gsc', rank: 12, url, dataUpdatedAt: new Date('2026-10-12T00:00:00Z') }];
     return [];
   } },
-  topic: { findMany: async () => [{ id: 'gpu', text: 'GPU rental', active: true, parentId: null, childEdges: [], sites: [{ siteDomain: site }] }] },
-  siteKeyword: { findMany: async () => [{ siteDomain: site, keywordId, active: true, topicId: 'gpu', pool: 'FORMAL', targetUrls: [url], topicAssignments: [], keyword: { text: keyword, active: true } }] },
   keywordSourceRow: { findMany: async query => { assert.equal(query.where.rowKey, undefined, 'no paid live-page audit'); return []; } },
   seoPageInventory: { findMany: async () => [] },
   seoSite: { findMany: async () => [] },
