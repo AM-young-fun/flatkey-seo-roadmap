@@ -10,21 +10,25 @@ import { SeoAnchor } from "@/components/SeoAnchor";
 import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
 import { QuarterMembershipReview } from "./QuarterMembershipReview";
 import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
+import { reportDay } from "@/lib/seo-report-time.cjs";
 
 
-export function GrowthReportSummary({ snapshot }: { snapshot: GrowthReportSnapshot }) {
+export function GrowthReportSummary({ snapshot, current = false }: { snapshot: GrowthReportSnapshot; current?: boolean }) {
   const g = snapshot.goals;
-  return <section className={styles.panel} aria-label="季度目标与方向复盘">
-    <header><h3>2026 收官季</h3><span>截至 {g.deadline} · 距截止 {g.daysRemaining} 天</span></header>
+  const observationDates = [g.weeklySessions !== null && g.trafficScope ? `流量截至 ${g.trafficPeriod.end}` : null,
+    g.latestRankAt ? `排名截至 ${reportDay(new Date(g.latestRankAt))}` : null].filter(Boolean);
+  const currentLabel = observationDates.length ? `当前季度 · ${observationDates.join(" · ")}（洛杉矶）` : "当前季度 · 来源待齐";
+  return <section className={styles.panel} aria-label={current ? "当前季度进度" : "季度目标与方向复盘"}>
+    <header><h3>2026 收官季</h3><span>{current ? currentLabel : `截至 ${g.deadline} · 距截止 ${g.daysRemaining} 天`}</span></header>
     <div className={styles.metrics}>
       <div><span>{g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 最新完整滚动7日自然会话" : g.trafficScope?.label ?? "四站完整周自然会话（历史口径）"} / 3000</span><strong>{g.weeklySessions === null ? "数据待齐" : g.weeklySessions.toLocaleString()}</strong><small>{g.trafficComplete ? `还差 ${g.trafficGap} 次` : g.knownSessions === null ? "尚无核实的同窗口来源" : `同窗口已核实部分 ${g.knownSessions.toLocaleString()} 次`}</small></div>
-      <div><span>季度前 100 覆盖 / 60%</span><strong>{g.baselineCount === null ? "基线待核定" : `${((g.coverage ?? 0) * 100).toFixed(1)}%`}</strong><small>{g.baselineCount === null ? "不使用词库总数代替冻结目标" : `${g.rankedCount} / ${g.baselineCount} 目标，还差 ${g.coverageGap} 词`}</small></div>
+      <div><span>季度前 100 覆盖 / 60%</span><strong>{g.baselineCount === null ? "基线待核定" : g.coverage === null ? "排名待齐" : `${(g.coverage * 100).toFixed(1)}%`}</strong><small>{g.baselineCount === null ? "不使用词库总数代替冻结目标" : g.rankedCount === null ? `冻结目标 ${g.baselineCount} 词` : `${g.rankedCount} / ${g.baselineCount} 目标，还差 ${g.coverageGap} 词`}</small></div>
       <div><span>已有排名中前 50 / 80%</span><strong>{g.quality === null ? "待有效排名" : `${(g.quality * 100).toFixed(1)}%`}</strong><small>{g.quality === null ? "暂无可计算的本轮实测" : `${g.top50Count} / ${g.rankedCount} 词，还差 ${g.qualityGap} 词`}</small></div>
     </div>
     <GrowthProgressViews cohorts={g.cohorts} />
     {g.evaluationMode === "final" ? <p className={styles.note}>季末验收：{g.finalAcceptance.status === "achieved" ? "已达标" : g.finalAcceptance.status === "not_achieved" ? "未达标" : "截止前证据待补"}。{g.finalAcceptance.reason}最近滚动周 {g.rolling.period.start} — {g.rolling.period.end} 会话 {g.rolling.weeklySessions === null ? "数据未齐" : g.rolling.weeklySessions.toLocaleString()}，另作日常观察。</p> : null}
     {!g.trafficComplete ? <details><summary>{g.trafficScope ? "查看 Flatkey 来源" : "查看四站来源（历史口径）"}</summary><ul>{g.traffic.map(row => <li key={row.site}>{row.site}：{row.complete && row.sessions !== null ? `${row.sessions.toLocaleString()} 次` : row.reason}（{row.timezone}）</li>)}</ul></details> : null}
-    {snapshot.directions.length ? <div className={styles.directions}><h4>流量归因与方向决定</h4>{snapshot.directions.slice(0, 3).map(direction => <article key={direction.id}>
+    {!current ? snapshot.directions.length ? <div className={styles.directions}><h4>流量归因与方向决定</h4>{snapshot.directions.slice(0, 3).map(direction => <article key={direction.id}>
       <h4>{direction.title}</h4>
       {!direction.drivers.length ? <p className={styles.note}>{direction.recommendation} · {direction.decision}</p> : <ul className={styles.driverList}>
         {direction.drivers.map((driver, index) => {
@@ -38,7 +42,7 @@ export function GrowthReportSummary({ snapshot }: { snapshot: GrowthReportSnapsh
         })}
       </ul>}
       {direction.taskIds.length ? <div className={styles.taskLinks}>{direction.taskIds.map((id, index) => <SeoAnchor key={id} href={`/work/${encodeURIComponent(id)}`}>{direction.taskIds.length === 1 ? "查看关联任务" : `关联任务 ${index + 1}`}</SeoAnchor>)}</div> : null}
-    </article>)}</div> : <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p>}
+    </article>)}</div> : <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p> : null}
   </section>;
 }
 
