@@ -42,6 +42,18 @@ test('the 1000-word calendar replaces the active cohort only after exact validat
  const legacy = {...emptyGrowthStrategy(),baseline:{frozenAt:'2026-11-20T00:00:00.000Z',actor:'human',sourceVersion:'old',targets:[frozenTarget],reason:'原季度版本历史回执'}};
  const mutate = (state, action, command, workspace = source, context = {}) => prepareGrowthStrategyMutation(
   state,{requestId:'quarter-calendar-migration',expectedVersion:state.version,action,...command},'human',workspace,[],['original-task'],now,context);
+ const research = {...proposal,calendar:proposal.calendar.map(({targetId,researchDate,ahrefs})=>({targetId,researchDate,ahrefs,stage:'research_only'}))};
+ const researchDraft = mutate(legacy,'save_quarter_plan',{plan:research});
+ assert.equal(researchDraft.quarterPlanning.plan.calendar.length,1000);
+ assert.deepEqual(researchDraft.baseline,legacy.baseline);
+ assert.throws(()=>mutate(researchDraft,'approve_quarter_plan',{hash:researchDraft.quarterPlanning.hash,
+  sourceVersion:research.sourceVersion,reason:'用户核对已排研究日期及原季度历史'}),{code:'quarter_delivery_pending'});
+ const forged = structuredClone(research);
+ forged.calendar[0].deliveryDate = '2026-11-30';
+ assert.equal(quarterPlanningInputSchema.safeParse(forged).success,false);
+ const staggered = structuredClone(proposal);
+ staggered.calendar[1].researchDate = '2026-11-30';
+ assert.equal(mutate(legacy,'save_quarter_plan',{plan:staggered}).quarterPlanning.plan.calendar[1].researchDate,'2026-11-30');
  assert.throws(()=>mutate(legacy,'save_quarter_plan',{plan:proposal},source,
   {originalCommitments:[{site:'flatkey.ai',kind:'blog',deliveryDate:'2026-11-30'}]}),/日产能/);
  const wrong = structuredClone(proposal);
