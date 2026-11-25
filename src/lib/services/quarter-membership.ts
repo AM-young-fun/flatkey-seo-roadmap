@@ -1,10 +1,10 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { canonicalQuarterSelection, planQuarterMembership, quarterMembershipCommandSchema, quarterMembershipHash, QUARTER_MEMBERSHIP_STATUS, QuarterMembershipError, type QuarterMembershipSelection, type QuarterMembershipRow, type QuarterMembershipTopic } from "../quarter-membership";
+import { canonicalQuarterSelection, planQuarterMembership, quarterMembershipCommandSchema, quarterMembershipHash, quarterMembershipStatus, quarterWordKey, QUARTER_MEMBERSHIP_STATUS, QUARTER_NEW_MEMBERSHIP_STATUS, QUARTER_NEW_MEMBERSHIP_VERSION, QuarterMembershipError, type QuarterMembershipSelection, type QuarterMembershipRow, type QuarterMembershipTopic } from "../quarter-membership";
 import { readAppliedQuarterManifestAudit } from "../applied-quarter-manifest";
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-type AuditSummary = { version: "quarter-membership-v1"; requestId: string; selectionHash: string; sourceHash: string; expectedStateHash: string; afterHash: string; selection: QuarterMembershipSelection; changed: number; uniqueWords: number; membershipCount: number; actor: "human" };
+type AuditSummary = { version: QuarterMembershipSelection["version"]; requestId: string; selectionHash: string; sourceHash: string; expectedStateHash: string; afterHash: string; selection: QuarterMembershipSelection; changed: number; uniqueWords: number; membershipCount: number; actor: "human" };
 
 async function readMembers(db: Prisma.TransactionClient, selection: QuarterMembershipSelection) {
   const sites = [...new Set(selection.members.map(row => row.siteDomain))].sort();
@@ -16,7 +16,7 @@ async function readTopics(db: Prisma.TransactionClient, selection: QuarterMember
   return topics.map(topic => ({ ...topic, sites: [...topic.sites].sort((a, b) => a.siteDomain.localeCompare(b.siteDomain)) })) as unknown as QuarterMembershipTopic[];
 }
 export async function loadQuarterMembership(selectionHash?: string) {
-  const row = await prisma.keywordCurationAudit.findFirst({ where: { status: QUARTER_MEMBERSHIP_STATUS, ...(selectionHash ? { summary: { path: ["selectionHash"], equals: selectionHash } } : {}) }, orderBy: { appliedAt: "desc" } });
+  const row = await prisma.keywordCurationAudit.findFirst({ where: selectionHash ? { status: { in: [QUARTER_MEMBERSHIP_STATUS, QUARTER_NEW_MEMBERSHIP_STATUS] }, summary: { path: ["selectionHash"], equals: selectionHash } } : { status: QUARTER_MEMBERSHIP_STATUS }, orderBy: { appliedAt: "desc" } });
   if (!row) return { initialized: false, manifest: null };
   const summary = row.summary as unknown as AuditSummary;
   return { initialized: true, auditId: row.id, appliedAt: row.appliedAt.toISOString(), ...summary, manifest: summary.selection };
@@ -45,16 +45,24 @@ export async function loadQuarterMembershipReceipt(requestId: string) {
 export async function saveQuarterMembership(raw: unknown) {
   const command = quarterMembershipCommandSchema.parse(raw), selection = canonicalQuarterSelection(command.selection);
   const selectionHash = quarterMembershipHash(selection), auditId = `quarter-membership:2026-close:${command.requestId}`;
-  const payloadHash = quarterMembershipHash(command);
+  const payloadHash = quarterMembershipHash(command), auditStatus = quarterMembershipStatus(selection.version);
   return prisma.$transaction(async tx => {
+    if (selection.version === QUARTER_NEW_MEMBERSHIP_VERSION) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('flatkey-seo-workflow-v1'))`;
     for (const site of [...new Set(selection.members.map(row => row.siteDomain))].sort()) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${site}`}))`;
     const audit = command.action === "apply" ? await tx.keywordCurationAudit.findUnique({ where: { id: auditId } }) : null;
     if (audit) {
-      if (audit.status !== QUARTER_MEMBERSHIP_STATUS || audit.payloadHash !== payloadHash) throw new QuarterMembershipError("idempotency_conflict", "同一请求编号已用于其他季度清单或版本");
+      if (audit.status !== auditStatus || audit.payloadHash !== payloadHash) throw new QuarterMembershipError("idempotency_conflict", "同一请求编号已用于其他季度清单或版本");
       const summary = audit.summary as unknown as AuditSummary;
       const rows = await readMembers(tx, selection);
       if (quarterMembershipHash(rows) !== summary.afterHash) throw new QuarterMembershipError("readback_changed", "原审批已应用，但成员此后已变化；保留原审计，不覆盖后续修改");
       return { status: "APPLIED", replay: true, auditId, ...summary, manifest: summary.selection, readbackVerified: true };
+    }
+    if (selection.version === QUARTER_NEW_MEMBERSHIP_VERSION) {
+      const { readGrowthStrategy } = await import("./growth-strategy");
+      const strategy = await readGrowthStrategy(tx);
+      if (!strategy.baseline?.frozenAt || strategy.baseline.targets.length !== 1600) throw new QuarterMembershipError("new_quarter_requires_legacy_baseline", "新版名单须在现有1600词基线保留期间独立筹备，正式冻结后沿原回执查证");
+      const oldWords = new Set(strategy.baseline.targets.map(target => quarterWordKey(target.keyword)));
+      if (selection.members.some(member => oldWords.has(quarterWordKey(member.keyword)))) throw new QuarterMembershipError("new_quarter_reuses_old_word", "旧季度原词继续保留在原档，本次新季度名单只收真实新词");
     }
     const [rows, topics] = await Promise.all([readMembers(tx, selection), readTopics(tx, selection)]);
     const plan = planQuarterMembership(command, rows, topics);
@@ -75,8 +83,8 @@ export async function saveQuarterMembership(raw: unknown) {
     const after = await readMembers(tx, selection);
     const expected = rows.map(row => ({ ...row, pool: "FORMAL" }));
     if (quarterMembershipHash(after) !== quarterMembershipHash(expected)) throw new QuarterMembershipError("readback_failed", "季度成员完整读回与预期不一致，事务已取消");
-    const summary: AuditSummary = { version: "quarter-membership-v1", requestId: command.requestId, selectionHash, sourceHash: selection.sourceHash, expectedStateHash: command.expectedStateHash, afterHash: quarterMembershipHash(after), selection, changed: plan.changes.length, uniqueWords: 1600, membershipCount: selection.members.length, actor: "human" };
-    await tx.keywordCurationAudit.create({ data: { id: auditId, siteDomain: "flatkey.ai", payloadHash, status: QUARTER_MEMBERSHIP_STATUS, before: json({ members: rows, topics }), after: json({ members: after, topics }), summary: json(summary) } });
+    const summary: AuditSummary = { version: selection.version, requestId: command.requestId, selectionHash, sourceHash: selection.sourceHash, expectedStateHash: command.expectedStateHash, afterHash: quarterMembershipHash(after), selection, changed: plan.changes.length, uniqueWords: plan.uniqueWords, membershipCount: selection.members.length, actor: "human" };
+    await tx.keywordCurationAudit.create({ data: { id: auditId, siteDomain: "flatkey.ai", payloadHash, status: auditStatus, before: json({ members: rows, topics }), after: json({ members: after, topics }), summary: json(summary) } });
     const readback = await tx.keywordCurationAudit.findUnique({ where: { id: auditId } });
     if (!readback || readback.payloadHash !== payloadHash || quarterMembershipHash(readback.after) !== quarterMembershipHash(json({ members: after, topics }))) throw new QuarterMembershipError("audit_readback_failed", "季度审计存储读回不一致，事务已取消");
     return { status: "APPLIED", replay: false, auditId, ...summary, manifest: selection, readbackVerified: true };

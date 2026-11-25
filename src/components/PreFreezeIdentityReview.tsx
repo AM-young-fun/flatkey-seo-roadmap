@@ -33,7 +33,7 @@ export function PreFreezeIdentityReview({ onChanged }: { onChanged: () => Promis
   const loadFile = async (file?: File) => {
     if (!file || pending || planSubmitted) return;
     await run(async () => {
-      if (file.size > 1_900_000) throw Error("审核包须小于1.9MB；每批最多200项，完整1600原ID名单保持相同");
+      if (file.size > 1_900_000) throw Error("审核包须小于1.9MB；每批最多200项，完整原ID名单保持相同");
       const raw = JSON.parse(await file.text()), value = raw.review ? raw as Package : { review: raw };
       if (value.review?.version !== "pre-freeze-identities-v1" || !Array.isArray(value.review.assignments) || !Array.isArray(value.review.selection?.members)
         || !value.review.assignments.length || value.review.assignments.some((row: PreFreezeReview["assignments"][number]) => !row || [row.keyword, row.keywordId, row.siteDomain, row.topicId, row.country, row.language].some(field => typeof field !== "string")
@@ -97,7 +97,7 @@ export function PreFreezeIdentityReview({ onChanged }: { onChanged: () => Promis
   const unknownTimes = bundle?.review.assignments.filter(row => row.demand.observedAt === null) ?? [];
   const dayTimes = bundle?.review.assignments.filter(row => row.demand.timePrecision === "day") ?? [];
   return <details><summary>冻结前核定原词市场身份</summary>
-    <p>只补缺失市场及独立人审语种证据；已有主国原样保留。纯型号、查询locale和种子词的量不能代替原词证据。每批最多200项，均绑定同一完整1600原ID名单；不会升池或把研究标为ready。</p>
+    <p>只补缺失市场及独立人审语种证据；已有主国原样保留。纯型号、查询locale和种子词的量不能代替原词证据。每批最多200项，均绑定同一完整原ID名单；不会升池或把研究标为ready。</p>
     <label>确切名单与来源审核包 <input aria-label="季度身份审核包" type="file" accept="application/json,.json" disabled={busy || Boolean(pending) || planSubmitted} onChange={event => void loadFile(event.target.files?.[0])} /></label>
     {bundle ? <><p>本批 {bundle.review.assignments.length} 项；完整名单 {bundle.review.selection.members.length} 条站点原成员。</p>
       {dayTimes.length ? <p>本批 {dayTimes.length} 项来源只有真实日期，按日精度及原值保留；未补00:00或时区，不计入历史时间未知例外。</p> : null}
@@ -110,7 +110,8 @@ export function PreFreezeIdentityReview({ onChanged }: { onChanged: () => Promis
     </> : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
     {verified && receipt ? <p role="status">本批身份与人审来源完整读回一致；新增源 {receipt.createdSourceRows} 条。原主父、成员、正式池、任务与旧历史保持原样。</p> : null}
-    {verified ? <><p>身份补齐改变当前targetId和源版本。下一步只按同一1600原ID清单重读待审方案，不自动批准或冻结。</p><FeedbackButton pending={busy} disabled={Boolean(pending) || planSaved || planSubmitted} onClick={() => void preparePlan()}>重读同一原词清单的季度待审方案</FeedbackButton></> : null}
+    {verified && bundle?.review.selection.version === "quarter-membership-v2" ? <p>此批身份已读回。继续补齐同一名单的余下原词，全部核定后从季度日历入口导入。</p> : null}
+    {verified && bundle?.review.selection.version !== "quarter-membership-v2" ? <><p>身份补齐改变当前targetId和源版本。下一步只按同一原ID清单重读待审方案，不自动批准或冻结。</p><FeedbackButton pending={busy} disabled={Boolean(pending) || planSaved || planSubmitted} onClick={() => void preparePlan()}>重读同一原词清单的季度待审方案</FeedbackButton></> : null}
     {planPreview ? <details open><summary>本次待保存的完整方案</summary><pre className={styles.json}>{JSON.stringify(planPreview.plan, null, 2)}</pre><FeedbackButton pending={busy} disabled={planSaved || Boolean(pending) || planSubmitted} onClick={() => void savePlan()}>保存此版待审季度方案</FeedbackButton>{planSubmitted && !planSaved ? <FeedbackButton pending={busy} onClick={() => void readPlan()}>核对原季度待审稿</FeedbackButton> : null}</details> : null}
     {planSaved ? <p role="status">待审方案已按同一1600原词重新保存并读回；尚未批准或冻结。</p> : null}
   </details>;

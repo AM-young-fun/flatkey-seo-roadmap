@@ -1,5 +1,5 @@
 import { canonicalQuarterSelection, planQuarterMembership, quarterMembershipCommandSchema, quarterMembershipHash,
-  quarterMembershipSelectionSchema, quarterWordKey, QUARTER_MEMBERSHIP_STATUS,
+  quarterMembershipSelectionSchema, quarterWordKey, quarterMembershipStatus,
   type QuarterMembershipRow, type QuarterMembershipSelection, type QuarterMembershipTopic } from "./quarter-membership";
 import { isGrowthTopicPlaceholder } from "./seo-growth-markets";
 import type { GrowthWorkspaceInput } from "./growth-workspace";
@@ -10,7 +10,7 @@ const memberKey = (site: string, keywordId: string) => `${site}\u0000${keywordId
 export type AppliedQuarterManifest = {
   auditId: string; selection: QuarterMembershipSelection; selectionHash: string; requestId: string;
   afterHash: string; sourceHash: string; expectedStateHash: string; changed: number;
-  uniqueWords: 1600; membershipCount: number; actor: "human"; appliedAt: string;
+  uniqueWords: number; membershipCount: number; actor: "human"; appliedAt: string;
   afterMembers: QuarterMembershipRow[];
 };
 
@@ -19,17 +19,18 @@ export type AppliedQuarterManifest = {
 export function readAppliedQuarterManifestAudit(raw: unknown): AppliedQuarterManifest | null {
   try {
     const audit = object(raw), summary = object(audit.summary), before = object(audit.before), after = object(audit.after);
-    if (audit.status !== QUARTER_MEMBERSHIP_STATUS || audit.siteDomain !== "flatkey.ai" || audit.restoredAt != null
-      || summary.version !== "quarter-membership-v1" || summary.actor !== "human" || typeof summary.requestId !== "string"
+    if (audit.siteDomain !== "flatkey.ai" || audit.restoredAt != null
+      || summary.actor !== "human" || typeof summary.requestId !== "string"
       || audit.id !== `quarter-membership:2026-close:${summary.requestId}` || !sha(audit.payloadHash)
       || !sha(summary.selectionHash) || !sha(summary.sourceHash) || !sha(summary.expectedStateHash) || !sha(summary.afterHash)
-      || summary.uniqueWords !== 1600 || !Number.isInteger(summary.changed) || Number(summary.changed) < 0
+      || !Number.isInteger(summary.changed) || Number(summary.changed) < 0
       || !Array.isArray(before.members) || !Array.isArray(before.topics) || !Array.isArray(after.members) || !Array.isArray(after.topics)
       || Object.keys(before).sort().join() !== "members,topics" || Object.keys(after).sort().join() !== "members,topics") return null;
     const appliedAt = audit.appliedAt instanceof Date ? audit.appliedAt.toISOString() : audit.appliedAt;
     if (typeof appliedAt !== "string" || !Number.isFinite(Date.parse(appliedAt))) return null;
     const selection = canonicalQuarterSelection(quarterMembershipSelectionSchema.parse(summary.selection));
-    if (quarterMembershipHash(selection) !== summary.selectionHash || selection.sourceHash !== summary.sourceHash
+    if (audit.status !== quarterMembershipStatus(selection.version) || summary.version !== selection.version
+      || quarterMembershipHash(selection) !== summary.selectionHash || selection.sourceHash !== summary.sourceHash
       || summary.membershipCount !== selection.members.length) return null;
     const command = quarterMembershipCommandSchema.parse({ action: "apply", requestId: summary.requestId,
       selection, selectionHash: summary.selectionHash, expectedStateHash: summary.expectedStateHash });
@@ -44,12 +45,12 @@ export function readAppliedQuarterManifestAudit(raw: unknown): AppliedQuarterMan
       || topics.length !== topicIds.size || new Set(topics.map(row => row.id)).size !== topicIds.size || topics.some(row => !topicIds.has(row.id))) return null;
     const plan = planQuarterMembership(command, members, topics);
     const expectedMembers = plan.before.map(row => ({ ...row, pool: "FORMAL" }));
-    if (summary.changed !== plan.changes.length || quarterMembershipHash(before) !== quarterMembershipHash({ members: plan.before, topics: plan.topics })
+    if (summary.uniqueWords !== plan.uniqueWords || summary.changed !== plan.changes.length || quarterMembershipHash(before) !== quarterMembershipHash({ members: plan.before, topics: plan.topics })
       || quarterMembershipHash(after) !== quarterMembershipHash({ members: expectedMembers, topics: plan.topics })
       || quarterMembershipHash(after.members) !== summary.afterHash) return null;
     return { auditId: String(audit.id), selection, selectionHash: summary.selectionHash, requestId: summary.requestId,
       afterHash: summary.afterHash, sourceHash: summary.sourceHash, expectedStateHash: summary.expectedStateHash,
-      changed: Number(summary.changed), uniqueWords: 1600, membershipCount: selection.members.length, actor: "human", appliedAt,
+      changed: Number(summary.changed), uniqueWords: plan.uniqueWords, membershipCount: selection.members.length, actor: "human", appliedAt,
       afterMembers: after.members as QuarterMembershipRow[] };
   } catch { return null; }
 }

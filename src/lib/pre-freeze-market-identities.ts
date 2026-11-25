@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import { quarterMembershipSelectionSchema, quarterMembershipHash, type QuarterMembershipRow, type QuarterMembershipTopic } from "./quarter-membership";
+import { quarterMembershipSelectionSchema, quarterMembershipHash, quarterWordKey, QUARTER_NEW_MEMBERSHIP_VERSION, type QuarterMembershipRow, type QuarterMembershipTopic } from "./quarter-membership";
 import { GROWTH_RESEARCH_COUNTRIES, GROWTH_LANGUAGES, GROWTH_MARKET_LANGUAGES, isGrowthTopicPlaceholder } from "./seo-growth-markets";
 import { keywordMarketAssignmentSchema, MARKET_ASSIGNMENT_SOURCE_ID, readKeywordMarketAssignment } from "./keyword-market-policy";
 import { reviewGrowthLanguage, growthTargetId, type GrowthWordLanguageEvidence } from "./growth-workspace";
@@ -143,12 +143,22 @@ export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFre
     throw new PreFreezeIdentityError("historical_time_ack_required", "须明确确认本批历史指标时间未知的逐词来源例外，再提交缺失身份", 422);
   }
   if (review.selectionHash !== preFreezeHash({ ...review.selection, members: [...review.selection.members].sort((a, b) => a.siteDomain.localeCompare(b.siteDomain) || a.keywordId.localeCompare(b.keywordId)) })) {
-    throw new PreFreezeIdentityError("selection_changed", "确切1600原词清单SHA不匹配", 422);
+    throw new PreFreezeIdentityError("selection_changed", "确切季度原词清单SHA不匹配", 422);
   }
   const stateHash = preFreezeStateHash(state, review);
   if (command.action === "apply_identities" && command.expectedStateHash !== stateHash) throw new PreFreezeIdentityError("state_changed", "预览后原词、成员、话题、市场源或季度状态已变化；未提交", 409);
   const quarter = object(state.quarter), quarterPayload = object(quarter.payload);
-  if (quarterPayload.baseline || object(quarterPayload.quarterPlanning).approval || quarter.status === "frozen") throw new PreFreezeIdentityError("baseline_frozen", "本入口仅用于首冻之前；原季度已冻结或已有批准时沿原身份补充流程", 409);
+  const isNewQuarter = review.selection.version === QUARTER_NEW_MEMBERSHIP_VERSION;
+  const baseline = object(quarterPayload.baseline);
+  if (isNewQuarter ? !baseline.frozenAt || !Array.isArray(baseline.targets) || baseline.targets.length !== 1600
+    : quarterPayload.baseline || object(quarterPayload.quarterPlanning).approval || quarter.status === "frozen") throw new PreFreezeIdentityError("baseline_frozen", "本入口仅用于首冻之前；原季度已冻结或已有批准时沿原身份补充流程", 409);
+  if (isNewQuarter && Array.isArray(baseline.targets)) {
+    const oldWords = new Set(baseline.targets.flatMap(row => {
+      const target = object(row);
+      return typeof target.keyword === "string" ? [quarterWordKey(target.keyword)] : [];
+    }));
+    if (review.selection.members.some(member => oldWords.has(quarterWordKey(member.keyword)))) throw new PreFreezeIdentityError("new_quarter_reuses_old_word", "新版身份核验只补真实季度新词，保留旧季度原词及市场", 422);
+  }
   const members = new Map(state.members.map(member => [memberKey(member.siteDomain, member.keywordId), member]));
   for (const selected of review.selection.members) {
     const member = members.get(memberKey(selected.siteDomain, selected.keywordId)), topic = state.topics.find(row => row.id === selected.topicId);
@@ -165,6 +175,11 @@ export function planPreFreezeIdentities(command: PreFreezeCommand, state: PreFre
   for (const item of review.assignments) {
     const key = memberKey(item.siteDomain, item.keywordId);
     if (seen.has(key) || !review.selection.members.some(member => member.siteDomain === item.siteDomain && member.keywordId === item.keywordId && member.keyword === item.keyword && member.topicId === item.topicId)) throw new PreFreezeIdentityError("outside_selection", "每条须来自同一确切季度清单，不能重复或带入其他原词", 422);
+    if (isNewQuarter && (item.demand.metric !== "monthly_searches" || item.demand.value < 10
+      || !item.demand.reference.startsWith("https://app.ahrefs.com/keywords-explorer/") || !item.demand.observedAt
+      || !item.demand.reference.includes(`/google/${item.country.toLowerCase()}/`))) {
+      throw new PreFreezeIdentityError("ahrefs_exact_source_required", "新版季度词须有原市场 Ahrefs 网页数据、确切原词、月量至少10和真实取证时间", 422);
+    }
     seen.add(key); validateLanguage(item, review.selection.sourceHash, now, diagnosticLanguages.find(proof => proof.site === item.siteDomain && proof.keywordId === item.keywordId && proof.keyword.normalize("NFKC").toLowerCase() === item.keyword.normalize("NFKC").toLowerCase()));
     const marketIdentity = { siteDomain: item.siteDomain, sourceId: MARKET_ASSIGNMENT_SOURCE_ID, rowKey: rowKey(item.keywordId) }, oldMarket = existingSources.get(identitySourceKey(marketIdentity));
     const current = readKeywordMarketAssignment(oldMarket?.snapshot);
