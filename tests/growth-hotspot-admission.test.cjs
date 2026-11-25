@@ -67,3 +67,18 @@ test("research/native market/TopicMap/exact revision gates leave original record
 test("running original/unknown leases block new admission; unrelated known runs and existing planned task are preserved",async()=>{const context=fixture();context.workflow.runs=[{id:"run",status:"running",taskIds:["blog"]}];assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/运行/);context.workflow.runs=[];context.leases=[{runId:"unknown",status:"running",leaseUntil:"2026-11-24T08:00:00Z"}];assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/租约/);assert.equal(hotspotLeaseConflict(["blog"],[{id:"other",status:"running",taskIds:["unrelated"]}],[{runId:"other",status:"running",leaseUntil:"2026-11-24T08:00:00Z"}],now),null);context.plans[0].taskIds.push("blog");const db=store(context);assert.equal((await runGrowthHotspotAdmission(command,"human",db,now)).items[0].status,"reused");assert.equal(db.writes.length,0);});
 test("ambiguous/missing plans, a different business week and duplicate intent do not create or reschedule",()=>{const context=fixture();context.plans=[];assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/尚无/);context.plans=[plan(),{...plan(),id:"second-plan"}];assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/多个/);context.plans=[plan()];context.workflow.tasks[1].dueAt="2026-11-27T06:00:00Z";assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/不擅挪下周/);context.workflow.tasks[1].dueAt="2026-11-25T06:00:00Z";context.workflow.tasks.push(task("other-blog",{weekStart:"2026-11-16",dueAt:"2026-11-20T06:00:00Z"}));assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/同意图/);});
 test("mutation operation IDs bind exact versions, preserving CAS rather than overwriting concurrent edits",()=>{const context=fixture(),taskRequest=hotspotTaskMutation(context.workflow.tasks[1],command),planRequest=hotspotPlanMutation(context.plans[0],"blog",command);assert.equal(taskRequest.expectedVersion,3);assert.equal(planRequest.expectedVersion,5);assert.equal(taskRequest.record.source,"automation");assert.equal(taskRequest.requestId,hotspotTaskMutation(context.workflow.tasks[1],command).requestId);assert.notEqual(taskRequest.requestId,hotspotTaskMutation({...context.workflow.tasks[1],version:4},command).requestId);const dbRows=context.workflow.tasks.map(record=>({kind:"task",record}));context.workflow.tasks[1].version++;assert.throws(()=>prepareWorkflowMutation(taskRequest,dbRows,"human",now),{code:"version_conflict"});});
+
+test("hotspot delivery checks the event timestamp in addition to the business-week date",()=>{
+  const context=fixture(), blog=context.workflow.tasks.find(row=>row.id==="blog");
+  const event="2026-11-19T02:30:00Z";
+  for(const item of context.workflow.tasks.filter(row=>["blog","research"].includes(row.id))){
+    item.evidence=item.evidence.map(row=>({...row,label:row.label.replace("2026-11-23T00:00:00Z",event)}));
+    item.research.evidence=item.evidence;
+  }
+  blog.dueAt="2026-11-26T02:30:00.001Z";
+  assert.match(prepareHotspotAdmission(context,command,"blog",now).reason,/7 天内/);
+  blog.dueAt="2026-11-26T02:30:00.000Z";
+  assert.equal(prepareHotspotAdmission(context,command,"blog",now).status,"admit");
+  blog.dueAt="2026-11-18T23:30:00Z";
+  assert.equal(prepareHotspotAdmission(context,command,"blog",now).status,"pending");
+});
