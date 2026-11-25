@@ -6,12 +6,13 @@ let readData = null;
 Module._load = function(name, parent, ...rest) {
   if (name === "./AppLink") return { __esModule: true, default: ({ children, ...props }) => React.createElement("a", props, children) };
   if (name === "./PageHeader") return { PageHeader: () => null };
-  if (name === "./UiSelect") return { UiSelect: () => null };
+  if (name === "./UiSelect") return { UiSelect: props => React.createElement("select", { "aria-label": props["aria-label"], defaultValue: props.value },
+    props.options.map(option => React.createElement("option", { key: option.value, value: option.value }, option.label))) };
   if (name === "./FeedbackButton") return { FeedbackButton: () => null };
   if (name === "./useSeoAnalytics") return {
     useSeoRead: url => {
       if (!readData || !url?.includes("view=published")) return { data: readData };
-      return { data: require("../src/lib/growth-keyword-inventory.ts").growthKeywordInventoryPage(readData, defaultGrowthScope, 1, "published") };
+      return { data: require("../src/lib/growth-keyword-inventory.ts").publishedKeywordWords(readData, [], defaultGrowthScope, 1, "all") };
     },
     useOverviewRead: url => ({ data: readData && url?.includes("view=quarter")
       ? require("../src/lib/growth-quarter-page.ts").growthQuarterPage(readData, { scope: defaultGrowthScope, page: 1, related: false }) : null })
@@ -143,16 +144,14 @@ test("all current ranking observations cross the three pools once and keep backg
 test("overview counts original words once and uses the same denominator for both charts", () => {
   readData = coverageData();
   const html = renderToStaticMarkup(React.createElement(GrowthRankingCoverage));
-  assert.match(html, /aria-pressed="true">全部有效实测/); assert.match(html, /已获排名关键词/); assert.match(html, /2<\/strong>/);
-  assert.match(html, /其中前50关键词/); assert.match(html, /其中正式目标词/);
-  assert.match(html, /同一关键词只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);
+  assert.match(html, /已获排名关键词/); assert.match(html, /2<\/strong>/);
+  assert.match(html, /其中前50关键词/);
+  assert.match(html, /同一个词只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);
   assert.doesNotMatch(html, /汇总时点|个当前有效原词，|统计采用 14 天/);
   assert.doesNotMatch(html, /去重关键词最佳排名|原始有效实测来源|背景证据：/);
-  assert.match(html, /aria-label="排名统计范围"[\s\S]*?已获排名关键词/);
+  assert.doesNotMatch(html, /排名统计范围|其中正式目标词|正式目标实测/);
   assert.doesNotMatch(html, /查看话题与关键词/);
   assert.doesNotMatch(html, /目标关键词<\/span>|当前正式目标记录 R\/N/);
-  const formal = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { initialView: "formal" }));
-  assert.match(formal, /aria-pressed="true">正式目标实测/); assert.match(formal, /当前正式目标记录 R\/N：1 \/ 1（100\.0%）/);
   readData = null;
 });
 
@@ -224,9 +223,40 @@ test("existing-content inventory preserves exact pages and prioritizes verified 
   try {
     const html = renderToStaticMarkup(React.createElement(GrowthTopicWorkspace, { initialTab: "published" }));
     assert.match(html, /全部关键词[\s\S]*季度关键词[\s\S]*近期热点词[\s\S]*已有内容与排名/);
-    assert.match(html, /已核实未进前100[\s\S]*已有有效排名[\s\S]*排名待核/);
+    assert.match(html, /<select aria-label="排名"[\s\S]*已有有效排名[\s\S]*已核实未进前100[\s\S]*排名待核/);
     assert.match(html, /先核验原词与已上线页面的搜索意图/);
     assert.match(html, /https:\/\/flatkey.ai\/gpu/);
-    assert.match(html, /\/work\/original-task/);
+    assert.doesNotMatch(html, /已有内容与排名视图|11 月第 2 期实测|\/work\/original-task/);
   } finally { readData = null; }
+});
+
+test("catalog overview counts exactly the three visible groups and groups linked pages once per original word", () => {
+  const { catalogWorkspace, growthKeywordCatalog } = require("../src/lib/growth-keyword-catalog.ts");
+  const { publishedKeywordWords } = require("../src/lib/growth-keyword-inventory.ts");
+  const absent = { pageState: "unmapped", publishedUrls: [], rank: null, rankEligible: false, workState: "planned" };
+  const quarter = target("quarter", { ...absent, keyword: "planned quarter term" });
+  const published = target("published", { keyword: "GPU rental", wordLanguage: "en" });
+  const alias = target("alias", { ...absent, keyword: "ＧＰＵ rental", country: "JP", language: "ja",
+    pageState: "published", publishedUrls: ["https://flatkey.ai/ja/gpu"] });
+  const candidate = target("unused", { ...absent, keyword: "unused candidate", membership: "review" });
+  const hotspot = { keyword: "new GPU launch", site: "flatkey.ai", country: "US", language: "en", topicId: "topic/1", stage: "scheduled", taskIds: [] };
+  const capture = [
+    { keyword: "gpu rental", country: "US", language: "en", bestRank: 10, checkedAt: "2026-11-21T00:00:00Z", pages: [{ rank: 10, url: "https://flatkey.ai/gpus" }] },
+    { keyword: "old published keyword", country: "US", language: "en", bestRank: 63, checkedAt: "2026-11-21T00:00:00Z", pages: [{ rank: 63, url: "https://flatkey.ai/blog/older" }] },
+  ];
+  const workspace = data([quarter, published, alias, candidate]);
+  workspace.quarter.targetIds = [quarter.id];
+  const overview = catalogWorkspace(workspace, [hotspot], capture);
+  const rows = growthKeywordCatalog({ rows: [quarter] }, [hotspot], workspace, capture, "", 1).rows;
+  assert.deepEqual(new Set(overview.targets.map(row => row.keyword.normalize("NFKC").toLowerCase())), new Set(rows.map(row => row.keyword.toLowerCase())));
+  const list = publishedKeywordWords(workspace, capture, defaultGrowthScope, 1, "all");
+  assert.equal(list.pagination.total, 2);
+  assert.deepEqual(list.rows[0].urls, ["https://flatkey.ai/gpu", "https://flatkey.ai/gpus", "https://flatkey.ai/ja/gpu"]);
+  assert.equal(list.rows[0].best.position, 22);
+  assert.equal(list.rows[1].best.historical, true);
+  assert.equal(publishedKeywordWords(workspace, capture, defaultGrowthScope, 1, "top100").pagination.total, 1);
+  assert.equal(publishedKeywordWords(workspace, capture, { ...defaultGrowthScope, country: "JP" }, 1, "pending").pagination.total, 1);
+  const html = renderToStaticMarkup(React.createElement(GrowthTopicClusters, { data: overview, scope: defaultGrowthScope, targets: overview.targets }));
+  assert.match(html, /4 个关键词/);
+  assert.match(html, /data-kind="top100"/);
 });

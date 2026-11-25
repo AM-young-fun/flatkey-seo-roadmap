@@ -24,5 +24,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const hotspots = tab === "hotspots";
   const hotspotTopic = hotspots && typeof params.hotspotTopic === "string" ? params.hotspotTopic : undefined;
   const hotspotPage = typeof params.hotspotPage === "string" && /^[1-9]\d*$/.test(params.hotspotPage) ? Number(params.hotspotPage) : 1;
-  return <GrowthTopicWorkspace initialTab={tab} initialPublishedCapture={tab === "published" && params.publishedView === "november-ranks"} hotspotTopic={hotspotTopic} hotspotPage={Number.isSafeInteger(hotspotPage) ? hotspotPage : 1} />;
+  return <GrowthTopicWorkspace initialTab={tab} hotspotTopic={hotspotTopic} hotspotPage={Number.isSafeInteger(hotspotPage) ? hotspotPage : 1} />;
 }

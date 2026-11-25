@@ -132,16 +132,19 @@ test("unknown goal values never become zero progress or inherit the historical f
   const html=render(React.createElement(GoalPlot,{label:"流量",value:null,goal:3000,unit:"次",denominator:"来源未齐",note:"未知"}));
   assert.match(html,/暂缺有效数值/);assert.doesNotMatch(html,/fill="#4285dc"/);
   const historical=render(React.createElement(OverviewGoalCharts,{snapshot:{period:{start:"2026-11-12",end:"2026-11-18"},goals:{deadline:"2027-02-05",daysRemaining:70,trafficPeriod:{start:"2026-11-12",end:"2026-11-18"},weeklySessions:2000,trafficComplete:true,baselineCount:null,rankedCount:null,top50Count:null,coverage:null,quality:null,latestRankAt:null}}}));
-  assert.doesNotMatch(historical,/2,000|2，000/);assert.match(historical,/暂缺有效数值/);assert.match(historical,/清单尚未核定/);
+  assert.doesNotMatch(historical,/2,000|2，000/);assert.match(historical,/暂缺有效数值/);assert.match(historical,/等待全部关键词数据/);
 });
 test("the daily goal displays concise observation dates in LA without changing snapshot data",()=>{
  const {unavailableGrowthReportSnapshot}=require('../src/lib/growth-strategy.ts');
  const snapshot=unavailableGrowthReportSnapshot({start:'2026-11-12',end:'2026-11-18'},new Date('2026-11-25T01:00:00Z'));
  Object.assign(snapshot.goals,{trafficWindowKind:'rolling7day-v1',trafficPeriod:{start:'2026-11-17',end:'2026-11-23',timezone:'America/Los_Angeles'},weeklySessions:1558,trafficGap:1442,trafficComplete:true,dailyTrafficObservation:{version:'rolling7day-v1',asOf:'2026-11-25T01:00:00Z',period:{start:'2026-11-17',end:'2026-11-23'},previousPeriod:{start:'2026-11-16',end:'2026-11-22'},sessions:1558,previousSessions:1485,difference:73,complete:true,previousComplete:true}});
  Object.assign(snapshot.goals,{trafficScope:'flatkey_website_console',latestRankAt:'2026-11-23T01:00:00Z'});
- const before=JSON.stringify(snapshot),html=render(React.createElement(OverviewGoalCharts,{snapshot}));assert.match(html,/最新滚动7日/);assert.match(html,/流量截至 11月23日 · 排名截至 11月22日/);assert.match(html,/1,558/);assert.doesNotMatch(html,/1485|1,442|R \/ N|控制台生产域名|2026-11-23T/);assert.equal(JSON.stringify(snapshot),before);
- snapshot.goals.latestRankAt='2026-11-23T10:00:00Z';
- assert.match(render(React.createElement(OverviewGoalCharts,{snapshot})),/数据截至 11月23日/);
+ const ranked={id:"ranked",keyword:"gpu rental",site:"flatkey.ai",country:"US",language:"en",wordLanguage:"en",rank:35,rankEligible:true,languageStatus:"match",rankSource:"serp",captureState:"ranked",rankUrl:"https://flatkey.ai/gpu",checkedAt:"2026-11-23T01:00:00Z"};
+ const workspace={generatedAt:"2026-11-25T01:00:00Z",targets:[ranked,{keyword:"another term"}],reconciliation:{sources:[]}};
+ const before=JSON.stringify(snapshot),html=render(React.createElement(OverviewGoalCharts,{snapshot,workspace}));assert.match(html,/最新滚动7日/);assert.match(html,/流量截至 11月23日 · 排名截至 11月22日/);assert.match(html,/1,558/);assert.doesNotMatch(html,/1485|1,442|R \/ N|控制台生产域名|2026-11-23T/);assert.equal(JSON.stringify(snapshot),before);
+ assert.match(html,/全部关键词前100覆盖/);assert.match(html,/1 \/ 2 词/);
+ ranked.checkedAt='2026-11-23T10:00:00Z';
+ assert.match(render(React.createElement(OverviewGoalCharts,{snapshot,workspace})),/数据截至 11月23日/);
 });
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
@@ -166,4 +169,17 @@ test("hotspot topics open the saved original terms, evidence and task links with
     assert.match(detail,/href="\/work\/original-id"/);assert.match(detail,/原交付日.*2026-11-25/);
     assert.doesNotMatch(detail,/查看季度审核与方向决定|业务词库关系图|规划外机会/);
   } finally { fixtures.clear(); }
+});
+
+test("brand traffic shows only the click counts and ratio from covered dates as bars", () => {
+  const brandUrl=`/api/seo/analytics?view=brand-traffic&start=${overviewRange.start}&end=${overviewRange.end}`;
+  overviewReads.set(brandUrl,{data:{...overviewRange,daily:[
+    {date:"2026-11-17",branded:9,nonBranded:3},{date:"2026-11-18",branded:null,nonBranded:null},
+    {date:"2026-11-19",branded:3,nonBranded:5},
+  ]}});
+  try {
+    const html=render(React.createElement(SeoOverview));
+    assert.match(html,/品牌词与非品牌词搜索点击[\s\S]*?12<small>60\.0%[\s\S]*?8<small>40\.0%/);
+    assert.match(html,/已覆盖 2\/3 天/); assert.doesNotMatch(html,/流量板块/);
+  } finally { overviewReads.clear(); }
 });

@@ -1,19 +1,15 @@
 "use client";
 
-import { useState } from "react";
 import type { FlatkeyBrandTraffic } from "@/lib/seo-brand-traffic";
 import type { DateRange } from "@/lib/seo-date-range";
 import type { OverviewTrafficAnalytics } from "@/lib/seo-overview-analytics";
 import { OVERVIEW_PAGE_MODULES } from "@/lib/seo-overview-scope";
-import { TRAFFIC_SUMMARY_MODULES, type TrafficSummaryTrend } from "@/lib/seo-traffic-summary";
+import type { TrafficSummaryTrend } from "@/lib/seo-traffic-summary";
 import { BarPlot, chartNumber, LinePlot } from "./OverviewCharts";
 import { SeoDateControl, type useSeoRange } from "./SeoDateControl";
-import { UiSelect } from "./UiSelect";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./TrafficRegistrationSummary.module.css";
 
-const scopes = [["all", "全站"], ...TRAFFIC_SUMMARY_MODULES] as const;
-type Scope = typeof scopes[number][0];
 
 export function useTrafficSummaryTrend(range: DateRange, ready: boolean) {
   return useSeoRead<TrafficSummaryTrend>(ready ? "/api/seo/traffic-summary?" + new URLSearchParams(range) : null,
@@ -23,7 +19,6 @@ export function useTrafficSummaryTrend(range: DateRange, ready: boolean) {
 export function TrafficRegistrationSummary({ dates, read }: {
   dates: ReturnType<typeof useSeoRange>; read: ReturnType<typeof useTrafficSummaryTrend>;
 }) {
-  const [scope, setScope] = useState<Scope>("all");
   const range = dates.range;
   const shares = useSeoRead<Pick<OverviewTrafficAnalytics, "range" | "modules">>(
     dates.ready ? "/api/seo/analytics?" + new URLSearchParams({ view: "overview-traffic", ...range }) : null,
@@ -46,10 +41,14 @@ export function TrafficRegistrationSummary({ dates, read }: {
     const value = modules.sessions[key] ?? (modules.complete ? 0 : null);
     return [{ label, value, suffix: modules.complete && value !== null && denominator > 0 ? `${(value / denominator * 100).toFixed(1)}%` : undefined }];
   }) : [];
-  const traffic = data?.daily.map(day => {
-    const metric = scope === "all" ? day.site : day.modules[scope];
-    return { label: day.date, value: metric.totalSessions, prior: metric.organicSessions };
-  }) ?? [];
+  const traffic = data?.daily.map(day => ({ label: day.date, value: day.site.totalSessions, prior: day.site.organicSessions })) ?? [];
+  const brandDays = brandData?.daily.filter(day => day.branded !== null && day.nonBranded !== null) ?? [];
+  const branded = brandDays.reduce((sum, day) => sum + day.branded!, 0);
+  const nonBranded = brandDays.reduce((sum, day) => sum + day.nonBranded!, 0);
+  const visibleClicks = branded + nonBranded;
+  const brandRows = brandDays.length ? ([{ label: "品牌词", value: branded }, { label: "非品牌词", value: nonBranded }]).map(row => ({
+    ...row, suffix: visibleClicks ? `${(row.value / visibleClicks * 100).toFixed(1)}%` : undefined,
+  })) : [];
   const registrations = data?.daily.map(day => ({ label: day.date, value: day.site.totalRegistrations, prior: day.site.organicRegistrations })) ?? [];
   const period = data ? `${data.start}—${data.end}` : "";
   return <section className={styles.group} aria-labelledby="flatkey-traffic-registration">
@@ -61,13 +60,9 @@ export function TrafficRegistrationSummary({ dates, read }: {
       <section className={styles.panel} aria-labelledby="flatkey-traffic-trend">
         <div className={styles.header}>
           <div><h3 id="flatkey-traffic-trend">Flatkey 流量趋势</h3><p>全部国家</p></div>
-          <div className={styles.controls}>
-            <UiSelect aria-label="流量板块" value={scope} options={scopes.map(([value, label]) => ({ value, label }))}
-              onChange={value => setScope(scopes.find(([key]) => key === value)?.[0] ?? "all")} />
-          </div>
         </div>
         {data ? <><LinePlot rows={traffic} unit="次会话" series={["总会话", "自然搜索会话"]} />
-          <p className={styles.note}>本期 {period}。{scope === "all" ? "含正式官网和 Console。" : "按官网着陆页统计板块流量。"}</p></> : null}
+          <p className={styles.note}>本期 {period}。含正式官网和 Console。</p></> : null}
       </section>
       <section className={styles.panel} aria-labelledby="flatkey-registration-trend">
         <div className={styles.header}>
@@ -79,9 +74,10 @@ export function TrafficRegistrationSummary({ dates, read }: {
     </div>
     <section className={styles.shares} aria-labelledby="flatkey-brand-traffic" aria-busy={brand.pending || undefined}>
       <h3 id="flatkey-brand-traffic">品牌词与非品牌词搜索点击</h3>
-      {brandData ? <LinePlot rows={brandData.daily.map(day => ({ label: day.date, value: day.branded, prior: day.nonBranded }))}
-        unit="次点击" series={["品牌词", "非品牌词"]} /> : brand.error ? null : <p className={styles.note} role="status">正在读取搜索查询…</p>}
-      <p className={styles.note}>统计 Search Console 中可见查询词带来的 Flatkey 官网 Google 自然搜索点击。匿名查询不计入；来源未完成的日期保留断点。</p>
+      {brandData ? <>
+        <BarPlot rows={brandRows} unit="次点击" showAxis={false} empty="所选日期暂无可核实的查询点击数据" />
+        <p className={styles.note}>本期 {brandData.start}—{brandData.end}。Search Console 可见查询点击。{brandDays.length < brandData.daily.length ? ` 已覆盖 ${brandDays.length}/${brandData.daily.length} 天。` : ""}</p>
+      </> : brand.error ? null : <p className={styles.note} role="status">正在读取搜索查询…</p>}
       {brand.error ? <div className="loadError" role="alert"><span>{brand.error}</span><button type="button" onClick={brand.retry}>重新加载搜索点击</button></div> : null}
     </section>
     <section className={styles.shares} aria-labelledby="flatkey-module-shares" aria-busy={shares.pending || undefined}>

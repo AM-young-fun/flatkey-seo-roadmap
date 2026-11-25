@@ -1,3 +1,5 @@
+import type { ApprovedCaptureRankedWord } from "./approved-weekly-keyword-capture";
+import { publishedRankFilters, type PublishedRankFilter } from "./published-keyword-rank";
 import { selectGrowthTargets, type GrowthScope } from "../components/growth-topic-view";
 import { isCurrentNativeRanking } from "./current-ranking-summary";
 import type { PublishedKeywordRank } from "./published-keyword-rank";
@@ -65,3 +67,53 @@ export function growthKeywordInventoryPage(workspace: GrowthWorkspace, scope: Gr
 }
 
 export type GrowthKeywordInventoryPage = ReturnType<typeof growthKeywordInventoryPage>;
+
+
+export function publishedKeywordWords(workspace: GrowthWorkspace, capture: ApprovedCaptureRankedWord[], scope: GrowthScope, page: number, filter: PublishedRankFilter) {
+  type Rank = { position: number; country: string | null; language: string | null; checkedAt: string | null; historical: boolean };
+  type Word = { keyword: string; urls: Set<string>; best: Rank | null; outsideOnly: boolean };
+  const words = new Map<string, Word>();
+  const add = (keyword: string, urls: string[], rank: Rank | null, outside: boolean) => {
+    const key = growthWordKey(keyword);
+    if (!key || !urls.length) return;
+    const row = words.get(key) ?? { keyword, urls: new Set<string>(), best: null, outsideOnly: true };
+    for (const url of urls) row.urls.add(url);
+    row.outsideOnly &&= outside;
+    if (rank && (!row.best || Number(rank.historical) < Number(row.best.historical)
+      || rank.historical === row.best.historical && (rank.position < row.best.position
+      || rank.position === row.best.position && (rank.checkedAt ?? "") > (row.best.checkedAt ?? "")))) row.best = rank;
+    words.set(key, row);
+  };
+  const candidates = selectGrowthTargets(workspace, scope, undefined, true);
+  for (const row of candidates) {
+    const current = isCurrentNativeRanking(row, workspace.generatedAt);
+    add(row.keyword, linkedPublishedKeywordUrls(row, workspace.generatedAt), current ? {
+      position: row.rank!, country: row.country, language: row.language, checkedAt: row.checkedAt, historical: false,
+    } : null, publishedKeywordRank(row, workspace.generatedAt) === "outside100");
+  }
+  if (scope.site === "all" || scope.site === "flatkey.ai") {
+    const query = growthWordKey(scope.search);
+    const matches = new Set(candidates.filter(row => row.site === "flatkey.ai").map(row => growthWordKey(row.keyword)));
+    for (const row of capture) {
+      const key = growthWordKey(row.keyword);
+      if (scope.country !== "all" && scope.country !== row.country || scope.language !== "all" && scope.language !== row.language
+        || query && !key.includes(query) && !matches.has(key)) continue;
+      add(row.keyword, row.pages.map(result => result.url).filter(url => publishedPageKey(url, "flatkey.ai") !== null), {
+        position: row.bestRank, country: row.country, language: row.language, checkedAt: row.checkedAt, historical: true,
+      }, false);
+    }
+  }
+  const rows = [...words.values()].map(({ urls, outsideOnly, ...word }) => ({ ...word, urls: [...urls].sort(),
+    status: (word.best ? "ranked" : outsideOnly ? "outside100" : "pending") as PublishedKeywordRank }));
+  const matchesFilter = (row: typeof rows[number], key: PublishedRankFilter) => {
+    if (key === "all") return true;
+    const definition = publishedRankFilters.find(option => option.value === key);
+    if (definition && "min" in definition) return Boolean(row.best && row.best.position >= definition.min && row.best.position <= definition.max);
+    return row.status === key;
+  };
+  const counts = Object.fromEntries(publishedRankFilters.map(({ value }) => [value, rows.filter(row => matchesFilter(row, value)).length]));
+  const { rows: visible, ...pagination } = seoTablePage(rows.filter(row => matchesFilter(row, filter))
+    .sort((a, b) => a.keyword.localeCompare(b.keyword, "zh-CN")), page);
+  return { rows: visible, pagination, counts, markets: workspace.markets, sites: workspace.sites };
+}
+export type PublishedKeywordWords = ReturnType<typeof publishedKeywordWords>;
