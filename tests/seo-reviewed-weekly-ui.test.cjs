@@ -9,7 +9,8 @@ const report = { id: "seo-digest:2026-11-19:0123456789abcdef", date: "2026-11-19
   organicRegistrations: { current: 999123 }, registrationCoverageNote: "stale registration coverage", registrationCorrection: true };
 let selectedReport = report;
 let selectedKind = "weekly";
-let archivePage = 1, selectedId, quarterSnapshot, archiveHasNext = false;
+let archivePage = 1, selectedId, archiveHasNext = false;
+let quarterReads = 0;
 const indexingReceipt = { collectedDate: "2026-11-25", reportDate: "2026-11-19", observedAt: "2026-11-25T02:30:00.000Z", total: 3280, change: 13, validation: "处理中" };
 Module._load = function (name, parent, ...rest) {
   // Match Next's App Router compiler alias and exercise its real lazy/Suspense
@@ -18,7 +19,7 @@ Module._load = function (name, parent, ...rest) {
   if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams({period:selectedKind,date:"2026-11-19",archivePage:String(archivePage),...(selectedId ? {reportId:selectedId} : {})}) };
   if (name === "next/link") return { __esModule: true, useLinkStatus: () => ({ pending: false }), default: props => React.createElement("a", { href: props.href }, props.children) };
   if (name === "./useSeoAnalytics") return { numberText: String, shanghaiStamp: () => "2026-11-25 10:30:00", useSeoRead: url => ({ data: !url ? null : url.includes("/growth/strategy")
-    ? {snapshot:quarterSnapshot} : url === "/api/seo/indexing-404" ? {observations:[indexingReceipt]} : {report:selectedReport,dates:[selectedReport.date],archiveHasNext}, retry() {} }) };
+    ? (++quarterReads, {}) : url === "/api/seo/indexing-404" ? {observations:[indexingReceipt]} : {report:selectedReport,dates:[selectedReport.date],archiveHasNext}, retry() {} }) };
   if (name === "@/components/PageHeader" || name === "@/components/SeoAutomationSchedule") return { PageHeader: () => null, SeoAutomationSchedule: () => null };
   if (name === "./ReportTrafficPanels") return { ReportPageGroupTraffic: () => React.createElement("section", null, "四个页面组流量"), ReportModuleShares: () => React.createElement("section", null, "模块流量") };
   if (name === "./UiSelect") return { UiSelect: () => null };
@@ -83,7 +84,7 @@ test("a pending weekly review preserves other modules with concise plans and the
   growthSnapshot.directions = [growthDirection(" duplicate structured attribution ", week)];
   selectedReport = { ...report, reviewedBody: undefined, draftBody: { pendingReview: true }, conversionSnapshot, growthSnapshot,
     reportPeriod: {start:"2026-11-12",end:"2026-11-18",timezone:"America/Los_Angeles"},
-    pagePerformance: [], recentPages: [optimized("Small gain",1,2),optimized("Large gain",10,30)], rankingNotes: [],
+    pagePerformance: [], recentPages: [optimized("Small gain",1,2),optimized("Large gain",10,30)], rankingNotes: ["本期关键词排名回执"],
     githubSection:["GitHub 提示词渠道","• [Prompt repo](https://github.com/example/prompts)","  Stars 1；Forks 0"],
     businessSection:["GA4 行为与转化","• 自然搜索归因：2026-11-12—2026-11-18","  注册成功：80 → 81"],
     dashboard: {detailText:"周报\n\n关键词实测\n旧期关键词不应占位\n\n数据与执行情况\n旧工作记录不应重现",attributionText:"本周主要贡献：\n\n- **上涨文章**：[Gemini](https://flatkey.ai/zh/blog/gemini-api-pricing)点击25→85（+60）。\n- **下降文章**：[Free LLM](https://flatkey.ai/blog/free-llm-apis-2026)点击146→62（−84）；[vLLM](https://flatkey.ai/blog/vllm-expert-parallel-deployment)点击31→2。",technicalText:"技术检查：本批99项检查完成。覆盖范围尚不包含完整孤立页。",sourceEvidenceSha256:"a".repeat(64)},
@@ -94,9 +95,10 @@ test("a pending weekly review preserves other modules with concise plans and the
   };
   try {
     const html=await renderReport();
-    for(const title of ["2026 收官季","新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","SEO 技术质检","暂无问题","本周计划进度","下周工作计划","已排任务","博客关键词 1","2026-11-16","2026-11-23","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
+    for(const title of ["新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","SEO 技术质检","暂无问题","本周计划进度","下周工作计划","已排任务","博客关键词 1","2026-11-16","2026-11-23","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
     assert.match(html,/<dl[^>]+aria-label="本周进度与下周计划"/);
-    assert.match(html,/id="seo-indexing-404"[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?<section[^>]+aria-label="季度目标"[\s\S]*?<h3>2026 收官季<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>/);
+    assert.match(html,/<h3>自然搜索<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?<h3>近一个月优化效果 · 前 10<\/h3>[\s\S]*?<h3>关键词排名明细<\/h3>[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?id="seo-indexing-404"[\s\S]*?<h3>任务安排<\/h3>/);
+    assert.doesNotMatch(html,/2026 收官季|季度目标/);
     assert.match(html,/<h5>上涨文章<\/h5>[\s\S]*?gemini-api-pricing[\s\S]*?点击25→85/);
     assert.match(html,/<h5>下降文章<\/h5>[\s\S]*?free-llm-apis-2026[\s\S]*?146→62[\s\S]*?<li><a[^>]+vllm-expert-parallel-deployment/);
     assert.doesNotMatch(html,/duplicate structured attribution|流量归因与方向决定|GPU业务承接|API自然获客|30天批次/);
@@ -108,19 +110,15 @@ test("a pending weekly review preserves other modules with concise plans and the
   } finally {selectedReport=report;}
 });
 
-test("older weekly dashboard clearly dates current quarter metrics when the archived report lacks a quarter snapshot", () => {
-  const snapshot=unavailableGrowthReportSnapshot({start:'2026-11-12',end:'2026-11-18'},new Date('2026-11-25T01:00:00Z'));
-  Object.assign(snapshot.goals,{trafficScope:{label:'Flatkey'},trafficPeriod:{start:'2026-11-17',end:'2026-11-23'},weeklySessions:1558,trafficComplete:true,trafficGap:1442,latestRankAt:'2026-11-23T02:00:00Z',baselineCount:1600,coverage:null,rankedCount:null});
-  snapshot.directions=[{id:'future',title:'当前方向不混入历史周报',drivers:[],taskIds:[]}];
-  quarterSnapshot=snapshot;
+test("an older weekly dashboard shows a scoped attribution state without reading current quarter data", () => {
+  quarterReads = 0;
   selectedReport={...report,reviewedBody:undefined,dashboard:{detailText:"周报"},pagePerformance:[],recentPages:[]};
   try {
     const html=renderToStaticMarkup(React.createElement(SeoDigestReports));
-    assert.match(html,/2026 收官季[\s\S]*?当前季度 · 流量截至 2026-11-23 · 排名截至 2026-11-22/);
-    assert.match(html,/1,558/);
-    assert.match(html,/排名待齐/);
-    assert.doesNotMatch(html,/当前方向不混入历史周报|<strong>0\.0%/);
-  } finally {selectedReport=report;quarterSnapshot=undefined;}
+    assert.match(html,/<h4>流量上涨与下跌原因<\/h4>[\s\S]*?本周暂无可核验的流量涨跌原因/);
+    assert.doesNotMatch(html,/2026 收官季|当前季度进度/);
+    assert.equal(quarterReads, 0);
+  } finally {selectedReport=report;}
 });
 
 test("weekly structured attribution fallback includes only drivers and task links backed by the selected period", () => {
@@ -129,8 +127,8 @@ test("weekly structured attribution fallback includes only drivers and task link
   selectedReport = {...report, reviewedBody:undefined, dashboard:{detailText:"周报"}, growthSnapshot, reportPeriod:week, pagePerformance:[], recentPages:[]};
   try {
     const html = renderToStaticMarkup(React.createElement(SeoDigestReports));
-    assert.match(html, /<h3>2026 收官季<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?当期结构化贡献[\s\S]*?href="\/work\/matching-original-task"/);
-    assert.doesNotMatch(html, /其他周贡献|\/work\/unmatched-original-task/);
+    assert.match(html, /<h4>流量上涨与下跌原因<\/h4>[\s\S]*?当期结构化贡献[\s\S]*?href="\/work\/matching-original-task"/);
+    assert.doesNotMatch(html, /2026 收官季|其他周贡献|\/work\/unmatched-original-task/);
   } finally {selectedReport=report;}
 });
 
@@ -138,6 +136,6 @@ test("daily report presents only its day in progress and optimization metrics",a
  selectedKind="daily";
  const task=(title,day)=>({id:title,kind:"blog",title,siteDomain:"flatkey.ai",scheduled:true,status:"ready",dueAt:day+"T10:00:00+08:00",country:"US",language:"en",pageUrl:null,action:""});
  const day={start:"2026-11-18",end:"2026-11-18",timezone:"America/Los_Angeles"};
- selectedReport={...report,kind:"daily",reviewedBody:undefined,reportPeriod:day,conversionSnapshot,growthSnapshot:unavailableGrowthReportSnapshot(day),counts:{originals:0,landingPages:0,optimizedPages:0},recentPages:[],pagePerformance:[],dashboard:{detailText:"日报\n\nSEO 技术质检\n\n暂无问题"},workPlan:{weekStart:"2026-11-16",periodStart:"2026-11-13",periodEnd:"2026-11-19",status:"scheduled",tasks:[task("当天任务","2026-11-18"),task("其他日期任务","2026-11-17")]}};
- try {const html=await renderReport();assert.match(html,/当日优化效果|当日任务/);assert.match(html,/博客关键词 0 \/ 1/);assert.match(html,/rangeStart=2026-11-18/);assert.match(html,/<h3>SEO 技术质检<\/h3>[\s\S]*?<h3>2026 收官季<\/h3>/);assert.doesNotMatch(html,/当天任务|其他日期任务|明日优先关注|当日工作进度|近一个月优化效果|GA4 行为与转化|四个页面组流量|模块流量占比|GPU业务承接|API自然获客|30天批次/);}finally{selectedKind="weekly";selectedReport=report;}
+ selectedReport={...report,kind:"daily",reviewedBody:undefined,reportPeriod:day,conversionSnapshot,growthSnapshot:unavailableGrowthReportSnapshot(day),counts:{originals:0,landingPages:0,optimizedPages:0},recentPages:[],pagePerformance:[],dashboard:{detailText:"日报\n\nSEO 技术质检\n\n暂无问题",attributionText:"本日页面贡献"},workPlan:{weekStart:"2026-11-16",periodStart:"2026-11-13",periodEnd:"2026-11-19",status:"scheduled",tasks:[task("当天任务","2026-11-18"),task("其他日期任务","2026-11-17")]}};
+ try {const html=await renderReport();assert.match(html,/当日优化效果|当日任务/);assert.match(html,/博客关键词 0 \/ 1/);assert.match(html,/rangeStart=2026-11-18/);assert.match(html,/<h3>自然搜索<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?本日页面贡献[\s\S]*?<h3>当日优化效果 · 前 10<\/h3>[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?id="seo-indexing-404"[\s\S]*?<h3>任务安排<\/h3>/);assert.doesNotMatch(html,/2026 收官季|当天任务|其他日期任务|明日优先关注|当日工作进度|近一个月优化效果|GA4 行为与转化|四个页面组流量|模块流量占比|GPU业务承接|API自然获客|30天批次/);}finally{selectedKind="weekly";selectedReport=report;}
 });

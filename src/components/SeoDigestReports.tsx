@@ -1,7 +1,7 @@
 "use client";
 
 import { FeedbackButton } from "./FeedbackButton";
-import { GrowthReportDirections, GrowthReportSummary } from "./GrowthGoalSummary";
+import { GrowthReportDirections } from "./GrowthGoalSummary";
 import Link from "@/components/AppLink";
 import { useEffect, useRef, useState } from "react";
 import { useReportReadyTiming } from "./useReportReadyTiming";
@@ -161,7 +161,7 @@ function RecentPageTraffic({ pages, day }: { pages: SeoDigest["recentPages"]; da
       </small></>;
   };
   return <section className={reportStyles.section}>
-    <div className={reportStyles.sectionHeading}><h3>{label} · 前 10</h3><Link className={styles.secondary} href="/optimization-effects">查看全部优化效果 ↗</Link></div>
+    <div className={reportStyles.sectionHeading}><h3>{`${label} · 前 10`}</h3><Link className={styles.secondary} href="/optimization-effects">查看全部优化效果 ↗</Link></div>
     <p className={reportStyles.note}>{day ? `${day}，与前一日对比。` : ""}按 Google 点击增量、曝光增量排序；仅展示有前后对比且取得提升的页面。</p>
     {!best.length ? <p className={reportStyles.note}>{!pages ? "优化效果数据待更新。" : `${day ? "当日" : "近一个月"}暂无有完整对比且取得提升的页面。`}</p> : <div className={reportStyles.tableScroll}>
       <table className={`${reportStyles.comparison} ${reportStyles.recentComparison}`} aria-label={label + "前十"}>
@@ -262,30 +262,31 @@ export function ReportWorkPlan({ plan: sourcePlan, weekly, day }: { plan?: SeoDi
   </div>;
 }
 
-function ReportAttribution({ text, weekly }: { text: string; weekly: boolean }) {
-  // Format the dashboard's display copy. The archived body and hash are never rewritten.
-  const content = weekly ? text
-    .replace(/^[ \t]*[-•][ \t]+\*\*([^*\n]+)\*\*[：:][ \t]*/gm, "\n\n##### $1\n\n- ")
-    .replace(/([。；])(?=\s*\[[^\]\n]+\]\(https:\/\/)/gu, "$1\n- ") : text;
-  return <ReviewedReportBody text={`${weekly ? "####" : "###"} 流量上涨与下跌原因\n\n${content}`} label="流量上涨与下跌原因" embedded={weekly} />;
-}
+const attributionTitle = "流量上涨与下跌原因";
 
-function WeeklyQuarterSummary({ snapshot, period, attribution }: { snapshot?: GrowthReportSnapshot; period: SeoDigest["reportPeriod"]; attribution?: string }) {
-  const read = useSeoRead<{ snapshot: GrowthReportSnapshot }>(snapshot ? null : "/api/seo/growth/strategy?view=dashboard", { showFeedback: false });
-  const quarter = snapshot ?? read.data?.snapshot;
-  const archivedAttribution = attribution?.trim();
-  const directions = !archivedAttribution && period ? snapshot?.directions.flatMap(direction => {
+function ReportAttribution({ text, weekly, snapshot, period }: {
+  text?: string;
+  weekly: boolean;
+  snapshot?: GrowthReportSnapshot;
+  period?: SeoDigest["reportPeriod"];
+}) {
+  const archivedAttribution = text?.trim();
+  if (archivedAttribution) {
+    const content = weekly ? archivedAttribution
+      .replace(/^[ \t]*[-•][ \t]+\*\*([^*\n]+)\*\*[：:][ \t]*/gm, "\n\n##### $1\n\n- ")
+      .replace(/([。；])(?=\s*\[[^\]\n]+\]\(https:\/\/)/gu, "$1\n- ") : archivedAttribution;
+    return <ReviewedReportBody text={`#### ${attributionTitle}\n\n${content}`} label={attributionTitle} />;
+  }
+  if (!weekly) return null;
+
+  const directions = period ? snapshot?.directions.flatMap(direction => {
     const drivers = direction.drivers.filter(({ window }) => window.start === period.start && window.end === period.end && window.timezone === period.timezone);
     return drivers.length ? [{ ...direction, drivers, taskIds: [...new Set(drivers.flatMap(driver => driver.taskIds))] }] : [];
-  }) : null;
-  const contribution = archivedAttribution ? <ReportAttribution text={archivedAttribution} weekly />
-    : directions?.length ? <GrowthReportDirections directions={directions} title="流量上涨与下跌原因" /> : null;
-  return quarter ? <GrowthReportSummary snapshot={quarter} current={!snapshot} showDirections={false}>{contribution}</GrowthReportSummary>
-    : <section className={reportStyles.section} aria-label="当前季度进度"><h3>2026 收官季</h3>
-      <p className={reportStyles.note}>{read.error ? "当前季度数据暂不可用。" : "正在读取当前季度进度…"}</p>
-      {read.error ? <FeedbackButton type="button" className={styles.secondary} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…">重试</FeedbackButton> : null}
-      {contribution}
-    </section>;
+  }) : undefined;
+  return <section className={reportStyles.section} aria-label={attributionTitle}>
+    {directions?.length ? <GrowthReportDirections directions={directions} title={attributionTitle} />
+      : <><h4>{attributionTitle}</h4><p className={reportStyles.note}>本周暂无可核验的流量涨跌原因。</p></>}
+  </section>;
 }
 
 function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, reportTemplateVersion, growthSnapshot }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; reportTemplateVersion?: number; growthSnapshot?: GrowthReportSnapshot }) {
@@ -315,21 +316,19 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={dashboard?.traffic?.sites ?? (sites ? parseReportComparisons(sites.lines) : null)} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations}
       completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} />
-    {!weekly && dashboard?.attributionText ? <ReportAttribution text={dashboard.attributionText} weekly={false} /> : null}
-    {github ? <section className={reportStyles.section}>
-      <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
-    </section> : null}
-    <SeoIndexing404 />
-    {dashboard?.technicalText || technical || !weekly ? <section className={reportStyles.section}>
-      <h3>SEO 技术质检</h3>
-      <TechnicalIssues text={dashboard?.technicalText || technical?.lines} />
-    </section> : null}
-    {weekly ? <WeeklyQuarterSummary snapshot={growthSnapshot} period={reportPeriod} attribution={dashboard?.attributionText} />
-      : growthSnapshot ? <GrowthReportSummary snapshot={growthSnapshot} /> : null}
+    <ReportAttribution text={dashboard?.attributionText} weekly={weekly} snapshot={growthSnapshot} period={reportPeriod} />
     <RecentPageTraffic pages={recentPages} day={weekly ? undefined : reportPeriod?.start} />
     {rankingNotes?.length ? <section className={reportStyles.section}>
       <h3>关键词排名明细</h3>
       <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul>
+    </section> : null}
+    {dashboard?.technicalText || technical || !weekly ? <section className={reportStyles.section}>
+      <h3>SEO 技术质检</h3>
+      <TechnicalIssues text={dashboard?.technicalText || technical?.lines} />
+    </section> : null}
+    <SeoIndexing404 />
+    {github ? <section className={reportStyles.section}>
+      <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
     </section> : null}
   </div>;
 }
@@ -429,22 +428,26 @@ export function SeoDigestReports() {
         </div> : null}
         {showArchivedBody ? <ReviewedReportBody text={report.text} label={report.draftBody ? "待审周报完整正文" : report.reviewedBody ? undefined : "已保存周报原文"} /> : <>
         <dl className={reportStyles.metrics}>
+          <div><dt>SEO 注册人数 · GA4</dt><dd>{report.organicRegistrations?.current == null ? "待更新" : numberText(report.organicRegistrations.current)}</dd>
+            <small>首次自然获客 · 区间去重</small></div>
           <div><dt>新增博客页面</dt><dd>{deliveryCount(blogPageCounts(report.counts).total, report.coverage?.publications)}
             <small>源文 {numberText(report.counts.originals)} · 译文 {numberText(report.counts.translations ?? 0)} · 旧文补译 {numberText(report.counts.backfillTranslations ?? 0)}</small></dd></div>
           <div><dt>新增落地页</dt><dd>{deliveryCount(report.counts.landingPages, report.coverage?.publications)}</dd></div>
           <div><dt>已上线优化</dt><dd>{deliveryCount(report.counts.optimizedPages, report.coverage?.optimizations)}</dd>{report.counts.refreshedPages === undefined ? null : <small>内容刷新 {deliveryCount(report.counts.refreshedPages, report.coverage?.optimizations)}</small>}</div>
           <div><dt>待审页面版本</dt><dd><Link className={reportStyles.approvalButton} href={executionViewRoutes.approvals}
             aria-label={`查看待审批页面版本：${numberText(report.approvalQueue?.pages)}`}>{numberText(report.approvalQueue?.pages)} <span aria-hidden="true">↗</span></Link></dd></div>
-          <div><dt>SEO 注册人数 · GA4</dt><dd>{report.organicRegistrations?.current == null ? "待更新" : numberText(report.organicRegistrations.current)}</dd>
-            <small>首次自然获客 · 区间去重</small></div>
-          {kind === "daily" ? <ReportWorkPlan plan={report.workPlan} weekly={false} day={report.businessDate ?? report.reportPeriod?.start} /> : null}
         </dl>
-        {kind === "weekly" && (report.currentWorkPlan || report.workPlan) ? <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`} aria-label="本周进度与下周计划">
-          <ReportWorkPlan plan={report.currentWorkPlan} weekly={false} />
-          <ReportWorkPlan plan={report.workPlan} weekly />
-        </dl> : null}
         <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} growthSnapshot={report.growthSnapshot}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} />
+        {(report.workPlan || (kind === "weekly" && report.currentWorkPlan)) ? <section className={reportStyles.section}>
+          <h3>任务安排</h3>
+          {kind === "weekly" ? <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`} aria-label="本周进度与下周计划">
+            <ReportWorkPlan plan={report.currentWorkPlan} weekly={false} />
+            <ReportWorkPlan plan={report.workPlan} weekly />
+          </dl> : <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`}>
+            <ReportWorkPlan plan={report.workPlan} weekly={false} day={report.businessDate ?? report.reportPeriod?.start} />
+          </dl>}
+        </section> : null}
         </>}
         {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}
       </article>}

@@ -1,40 +1,18 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { GrowthReportSnapshot, GrowthStrategy, GrowthBaselineIdentityReview } from "@/lib/growth-strategy";
 import { GROWTH_COUNTRIES, GROWTH_COUNTRY_LABELS, GROWTH_MARKET_LANGUAGES, type GrowthCountry } from "@/lib/seo-growth-markets";
 import type { GrowthTarget } from "@/lib/growth-types";
 import styles from "./GrowthGoalSummary.module.css";
 import { FeedbackButton } from "./FeedbackButton";
-import { GrowthProgressViews } from "./GrowthProgressViews";
 import { SeoAnchor } from "@/components/SeoAnchor";
 import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
 import { QuarterMembershipReview, QuarterResearchImport } from "./QuarterMembershipReview";
 import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
-import { reportDay } from "@/lib/seo-report-time.cjs";
 import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "@/lib/growth-quarter-calendar";
 
 
-export function GrowthReportSummary({ snapshot, current = false, showDirections = !current, children }: { snapshot: GrowthReportSnapshot; current?: boolean; showDirections?: boolean; children?: ReactNode }) {
-  const g = snapshot.goals;
-  const observationDates = [g.weeklySessions !== null && g.trafficScope ? `流量截至 ${g.trafficPeriod.end}` : null,
-    g.latestRankAt ? `排名截至 ${reportDay(new Date(g.latestRankAt))}` : null].filter(Boolean);
-  const currentLabel = observationDates.length ? `当前季度 · ${observationDates.join(" · ")}（洛杉矶）` : "当前季度 · 来源待齐";
-  return <section className={`${styles.panel} ${styles.reportPanel}`} aria-label={current ? "当前季度进度" : showDirections ? "季度目标与方向复盘" : "季度目标"}>
-    <header><h3>2026 收官季</h3><span>{current ? currentLabel : `截至 ${g.deadline} · 距截止 ${g.daysRemaining} 天`}</span></header>
-    <div className={styles.metrics}>
-      <div><span>{g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 最新完整滚动7日自然会话" : g.trafficScope?.label ?? "四站完整周自然会话（历史口径）"} / 3000</span><strong>{g.weeklySessions === null ? "数据待齐" : g.weeklySessions.toLocaleString()}</strong><small>{g.trafficComplete ? `还差 ${g.trafficGap} 次` : g.knownSessions === null ? "尚无核实的同窗口来源" : `同窗口已核实部分 ${g.knownSessions.toLocaleString()} 次`}</small></div>
-      <div><span>季度前 100 覆盖 / 60%</span><strong>{g.baselineCount === null ? "基线待核定" : g.coverage === null ? "排名待齐" : `${(g.coverage * 100).toFixed(1)}%`}</strong><small>{g.baselineCount === null ? "不使用词库总数代替冻结目标" : g.rankedCount === null ? `冻结目标 ${g.baselineCount} 词` : `${g.rankedCount} / ${g.baselineCount} 目标，还差 ${g.coverageGap} 词`}</small></div>
-      <div><span>已有排名中前 50 / 80%</span><strong>{g.quality === null ? "待有效排名" : `${(g.quality * 100).toFixed(1)}%`}</strong><small>{g.quality === null ? "暂无可计算的本轮实测" : `${g.top50Count} / ${g.rankedCount} 词，还差 ${g.qualityGap} 词`}</small></div>
-    </div>
-    <GrowthProgressViews cohorts={g.cohorts} />
-    {g.evaluationMode === "final" ? <p className={styles.note}>季末验收：{g.finalAcceptance.status === "achieved" ? "已达标" : g.finalAcceptance.status === "not_achieved" ? "未达标" : "截止前证据待补"}。{g.finalAcceptance.reason}最近滚动周 {g.rolling.period.start} — {g.rolling.period.end} 会话 {g.rolling.weeklySessions === null ? "数据未齐" : g.rolling.weeklySessions.toLocaleString()}，另作日常观察。</p> : null}
-    {!g.trafficComplete ? <details><summary>{g.trafficScope ? "查看 Flatkey 来源" : "查看四站来源（历史口径）"}</summary><ul>{g.traffic.map(row => <li key={row.site}>{row.site}：{row.complete && row.sessions !== null ? `${row.sessions.toLocaleString()} 次` : row.reason}（{row.timezone}）</li>)}</ul></details> : null}
-    {showDirections ? <GrowthReportDirections directions={snapshot.directions} /> : null}
-    {children}
-  </section>;
-}
-
-export function GrowthReportDirections({ directions, title = "流量归因与方向决定" }: { directions: GrowthReportSnapshot["directions"]; title?: string }) {
+export function GrowthReportDirections({ directions, title }: { directions: GrowthReportSnapshot["directions"]; title?: string }) {
   if (!directions.length) return <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p>;
   return <div className={styles.directions}><h4>{title}</h4>{directions.slice(0, 3).map(direction => <article key={direction.id}>
       <h5>{direction.title}</h5>
@@ -80,14 +58,19 @@ function QuarterCalendarByDay({ calendar }: { calendar: QuarterCalendar }) {
   </details>;
 }
 /** Uses authenticated strategy records; rendering this component never approves a direction or freezes the cohort. */
-export function GrowthQuarterReview() {
+export function GrowthQuarterReview({ allowManualOpen = false }: { allowManualOpen?: boolean }) {
   const [view, setView] = useState<StrategyView | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
+  const [hasDirectionLink, setHasDirectionLink] = useState(false);
   const [admissionMessage, setAdmissionMessage] = useState("");
   const [identityChoices, setIdentityChoices] = useState<Record<string, GrowthCountry | "">>({});
   const load = useCallback(async () => { setReading(true); try { const response = await fetch("/api/seo/growth/strategy?view=quarter-review", { cache: "no-store", signal: AbortSignal.timeout(60_000) }); const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "目标读取失败"); setView(data); setError(""); } catch (error) { setError(error instanceof Error ? error.message : "目标读取失败"); } finally { setReading(false); } }, []);
   useEffect(() => {
-    const openFromHash = () => { if (window.location.hash.startsWith("#growth-direction-")) void load(); };
+    const openFromHash = () => {
+      const linked = window.location.hash.startsWith("#growth-direction-");
+      setHasDirectionLink(linked);
+      if (linked) void load();
+    };
     openFromHash(); window.addEventListener("hashchange", openFromHash);
     return () => window.removeEventListener("hashchange", openFromHash);
   }, [load]);
@@ -113,9 +96,12 @@ export function GrowthQuarterReview() {
       await load(); dispatchEvent(new Event("seo-growth-updated")); }
     catch (error) { setError(error instanceof Error ? error.message : "保存失败"); } finally { setBusy(false); }
   };
+  if (!allowManualOpen && !hasDirectionLink) return null;
   if (!view) return <section className={styles.panel}>
-    <FeedbackButton pending={reading} pendingLabel="正在加载审核数据…" onClick={() => void load()}>查看季度审核与方向决定</FeedbackButton>
     {error ? <p role="alert">{error}</p> : null}
+    {allowManualOpen || error ? <FeedbackButton pending={reading} pendingLabel="正在加载审核数据…" onClick={() => void load()}>
+      {error ? "重新加载审核数据" : "打开季度审核"}
+    </FeedbackButton> : <p role="status">正在加载方向记录…</p>}
   </section>;
   const quarterIds = view.state.baseline ? new Set(view.state.baseline.targets.map(row => row.id)) : null;
   const formalTargets = view.formalTargets.filter(row => ["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(row.site) && (!quarterIds || quarterIds.has(row.id)));

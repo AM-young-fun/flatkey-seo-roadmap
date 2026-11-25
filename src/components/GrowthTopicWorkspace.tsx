@@ -241,7 +241,7 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
       : !topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
       : !topicId && tab === "keywords" ? <GrowthKeywordCatalog />
       : published ? <KeywordInventory scope={scope} change={change} page={page} setPage={setPage} /> : <>
-    {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p><GrowthQuarterReview /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
+    {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p><GrowthQuarterReview allowManualOpen /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
         <GrowthFilters data={data} scope={effectiveScope} change={change} fixedSite={Boolean(topic)} />
         <p className={styles.note}>季度冻结清单 {count(result.frozenTotal ?? 0)} 词。当前筛选有 {count(result.stats.total)} 个待新增关键词。已关联上线原页的词可在 <Link href="/opportunities?tab=published" className={styles.textLink}>已有内容与排名</Link> 查看。</p>

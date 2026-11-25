@@ -8,7 +8,7 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./PageHeader") return { PageHeader: () => null };
   if (name === "./UiSelect") return { UiSelect: props => React.createElement("select", { "aria-label": props["aria-label"], defaultValue: props.value },
     props.options.map(option => React.createElement("option", { key: option.value, value: option.value }, option.label))) };
-  if (name === "./FeedbackButton") return { FeedbackButton: () => null };
+  if (name === "./FeedbackButton") return { FeedbackButton: ({ children }) => React.createElement("button", null, children) };
   if (name === "./useSeoAnalytics") return {
     useSeoRead: url => {
       if (!readData || !url?.includes("view=published")) return { data: readData };
@@ -163,7 +163,7 @@ test("quarter execution contains the exact approved TopicMap list and never disp
  assert.deepEqual(selected.targets.map(row=>row.id),["quarter-a"]);assert.equal(JSON.stringify(workspace),before);
  readData=workspace;
  const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
- assert.match(html,/GPU计算/);assert.doesNotMatch(html,/规划外机会|待核归属|关键词规划归属|个话题簇/);assert.doesNotMatch(html,/discovered phrase|unconfirmed phrase/);
+ assert.match(html,/GPU计算/);assert.doesNotMatch(html,/规划外机会|待核归属|关键词规划归属|个话题簇/);assert.doesNotMatch(html,/discovered phrase|unconfirmed phrase|查看季度审核与方向决定|打开季度审核/);
  assert.equal((html.match(/<h2>业务词库关系图<\/h2>/g)||[]).length,0);
 });
 
@@ -173,7 +173,7 @@ test("an unfrozen quarter never falls back to the formal inventory or labels it 
  assert.deepEqual(quarterTargetWorkspace(workspace).targets,[]);
  readData=workspace;
  const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
- assert.match(html,/季度词目标尚未冻结/); assert.doesNotMatch(html,/当前筛选没有季度话题/);
+ assert.match(html,/季度词目标尚未冻结/); assert.match(html,/打开季度审核/); assert.doesNotMatch(html,/当前筛选没有季度话题/);
  readData=null;
 });
 
