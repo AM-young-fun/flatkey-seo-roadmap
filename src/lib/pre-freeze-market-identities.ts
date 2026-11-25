@@ -114,12 +114,20 @@ const humanProofSchema = z.object({ version: z.literal("human-word-language-v1")
   demandReference: z.string(), demandSha256: sha, reason: z.string().min(12) }).strict();
 /** Only exact source snapshots authorized by a human audit can affect current targets. */
 export function auditedHumanWordLanguages(sources: IdentitySourceRow[], audits: IdentityAudit[]): GrowthWordLanguageEvidence[] {
+  const verifiedAuthority = new Map<IdentityAudit, boolean>();
   return sources.flatMap(row => {
     if (row.sourceId !== HUMAN_WORD_LANGUAGE_SOURCE_ID || preFreezeHash(row.snapshot) !== row.snapshotHash) return [];
     const parsed = humanProofSchema.safeParse(row.snapshot); if (!parsed.success) return [];
     const proof = parsed.data, audit = audits.find(item => item.id === proof.auditId && item.status === PRE_FREEZE_IDENTITY_AUDIT);
-    const approved = object(audit?.summary).approvedLanguageSources;
-    if (!audit || !(audit.authorityVerified === true || hasHumanIdentityAudit(audit)) || row.siteDomain !== proof.siteDomain || row.rowKey !== rowKey(proof.keywordId) || !Array.isArray(approved)
+    if (!audit || row.siteDomain !== proof.siteDomain || row.rowKey !== rowKey(proof.keywordId)) return [];
+    // Every source in a batch shares the same receipt. Verify it once per read.
+    let authorized = verifiedAuthority.get(audit);
+    if (authorized === undefined) {
+      authorized = audit.authorityVerified === true || hasHumanIdentityAudit(audit);
+      verifiedAuthority.set(audit, authorized);
+    }
+    const approved = object(audit.summary).approvedLanguageSources;
+    if (!authorized || !Array.isArray(approved)
       || !approved.some(item => { const record = object(item); return record.siteDomain === row.siteDomain && record.rowKey === row.rowKey && record.snapshotHash === row.snapshotHash; })
       || proof.spans.some(part => proof.keyword.slice(part.start, part.end) !== part.text)) return [];
     return [{ site: proof.siteDomain, keywordId: proof.keywordId, keyword: proof.keyword, language: proof.language,
