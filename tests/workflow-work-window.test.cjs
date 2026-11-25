@@ -18,6 +18,23 @@ function scheduled(...tasks) {
 }
 const read = (rows, now, workList = false) => workflowSnapshot(rows, { operational: true, workList }, "database", new Date(now));
 
+test("unadmitted hotspot drafts stay visible without blocking the production queue", () => {
+  const hot = (id, patch = {}) => task(`seo-hotspot:${id}:blog:modelfit-cc`, "2026-11-23", "2026-11-24",
+    { kind: "blog", source: "human", ...patch });
+  const unadmitted = hot("unadmitted", { status: "planned", research: { evidence: [] } });
+  const registered = hot("registered", { capacityClass: "authorized_hotspot_extra" });
+  const approved = hot("approved", { capacityClass: "authorized_hotspot_extra" });
+  const onlyInOldPlan = hot("old-plan");
+  const inFlight = hot("in-flight", { status: "drafting" });
+  const routine = task("routine", "2026-11-23", "2026-11-24", { kind: "blog" });
+  const rows = [unadmitted, registered, inFlight, ...scheduled(approved, onlyInOldPlan, routine)];
+  const before = structuredClone(rows), at = "2026-11-25T07:00:00Z";
+  assert.deepEqual(read(rows, at).tasks.map(row => row.id).sort(), [approved.record.id, inFlight.record.id, routine.record.id].sort());
+  assert.deepEqual(read(rows, at, true).tasks.map(row => row.id).sort(),
+    [unadmitted, registered, approved, onlyInOldPlan, inFlight, routine].map(row => row.record.id).sort());
+  assert.deepEqual(rows, before);
+});
+
 test("Friday business window reads both Monday plans and excludes the following Friday", () => {
   const rows = scheduled(task("friday", "2026-11-16", "2026-11-20"),
     task("monday", "2026-11-23", "2026-11-23"), task("thursday", "2026-11-23", "2026-11-26"),

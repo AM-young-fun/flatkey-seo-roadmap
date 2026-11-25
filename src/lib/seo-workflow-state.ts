@@ -689,6 +689,11 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
   const activeTasks = scheduledTasks.filter(task => {
     if (dueDay(task) > range.end || isCodexTrackedTask(task)) return false;
+    // Legacy hotspot drafts can be visible in the work list before admission.
+    // Only the registered original plan can make a new hotspot deliverable.
+    if (task.kind === "blog" && (task.id.startsWith("seo-hotspot:") || task.capacityClass === "authorized_hotspot_extra")
+      && ["planned", "researching", "ready"].includes(task.status)
+      && (task.status !== "ready" || task.capacityClass !== "authorized_hotspot_extra" || !plans.some(plan => executablePlanIncludesTask(plan, task)))) return false;
     const version = JSON.stringify([task.id, task.contentVersion]);
     return pendingRollbacks.has(task.id) || tasksWithPendingPostReview.has(version) ||
       !["verified", "observing"].includes(task.status) && !verifiedTasks.has(version);
