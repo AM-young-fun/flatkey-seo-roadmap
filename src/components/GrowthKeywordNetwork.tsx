@@ -86,7 +86,7 @@ export function GrowthKeywordNetwork({ data, scope, targets }: { data: GrowthWor
               if (event.key === "Enter" || event.key === " ") { event.preventDefault(); focus(cluster); }
             }}><circle className={styles.cluster} cx={cluster.x} cy={cluster.y} r={cluster.radius} vectorEffect="non-scaling-stroke" />
             {focused ? null : <>
-              <text className={styles.clusterLabel} x={cluster.x} y={cluster.y - cluster.radius - 3} textAnchor="middle">{clusterName(cluster)}</text>
+              <text className={styles.clusterLabel} x={cluster.x} y={cluster.y - cluster.radius - 3} textAnchor="middle" pointerEvents="none">{clusterName(cluster)}</text>
               {pointsByCluster.get(cluster.id)?.map(pointDot)}
             </>}
           </g>)}

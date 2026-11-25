@@ -124,3 +124,10 @@ test('an overview dot is part of its cluster activation target and only the focu
   assert.equal(dotLink.props.href, '/topics/beta?site=flatkey.ai&target=beta%2Fen');
   assert.ok(by(dotLink, 'data-keyword-id', 'beta/en'));
 });
+
+test('topic labels cannot intercept pointer hits on nearby clusters', () => {
+  harness = { slots: [], cursor: 0 };
+  const labels = flatten(render()).filter(node => node.type === 'text');
+  assert.equal(labels.length, topics.length);
+  assert.ok(labels.every(label => label.props.pointerEvents === 'none'));
+});
