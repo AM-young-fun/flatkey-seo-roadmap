@@ -6,6 +6,7 @@ import { PagePriorityWorkspace } from "@/components/PagePriorityWorkspace";
 import workspace from "@/components/SeoWorkspace.module.css";
 import { KeywordGoals } from "@/components/KeywordGoals";
 import { GrowthTopicWorkspace } from "@/components/GrowthTopicWorkspace";
+import { parseGrowthKeywordTab } from "@/components/growth-topic-view";
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
@@ -19,8 +20,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   if (params.view === "legacy" || params.keyword || params.status || params.crossLanguage || params.business) return <KeywordDetails initialBusiness={params.business === "FLATKEY_API" || params.business === "CLOUD_GPU" ? params.business : "all"}
     initialSearch={typeof params.keyword === "string" ? params.keyword : ""} initiallyOptimized={params.status === "optimized"}
     initialCrossLanguage={params.crossLanguage === "1"} />;
-  const hotspots = params.tab === "hotspots";
+  const tab = parseGrowthKeywordTab(params.tab);
+  const hotspots = tab === "hotspots";
   const hotspotTopic = hotspots && typeof params.hotspotTopic === "string" ? params.hotspotTopic : undefined;
   const hotspotPage = typeof params.hotspotPage === "string" && /^[1-9]\d*$/.test(params.hotspotPage) ? Number(params.hotspotPage) : 1;
-  return <GrowthTopicWorkspace initialTab={hotspots ? "hotspots" : "quarter"} hotspotTopic={hotspotTopic} hotspotPage={Number.isSafeInteger(hotspotPage) ? hotspotPage : 1} />;
+  return <GrowthTopicWorkspace initialTab={tab} hotspotTopic={hotspotTopic} hotspotPage={Number.isSafeInteger(hotspotPage) ? hotspotPage : 1} />;
 }

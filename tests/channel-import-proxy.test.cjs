@@ -97,3 +97,18 @@ test('quarter collection and deferred rank views retain private authorization an
  assert.match(evidence.headers.get('server-timing'), /quarter-evidence;dur=/);
  assert.deepEqual(await evidence.json(), { targets: [], partial: false });
 });
+
+test('keyword inventory views read saved data through the existing authorization and strict read parameters', async () => {
+ const endpoint = 'https://flatkey.test/api/seo/growth';
+ const { GET } = require('../src/app/api/seo/growth/route.ts');
+ const headers = { authorization: 'Bearer fixture' };
+ assert.equal((await GET(new Request(`${endpoint}?view=published`))).status, 401);
+ for (const query of ['view=keywords&page=1', 'view=published&rank=outside100', 'view=quarter&new=1']) {
+   const response = await GET(new Request(`${endpoint}?${query}`, { headers }));
+   assert.equal(response.status, 200);
+   assert.equal(response.headers.get('cache-control'), 'private, no-store');
+ }
+ for (const query of ['view=published&rank=missing', 'view=keywords&rank=all', 'view=published&page=0', 'view=quarter&new=0']) {
+   assert.equal((await GET(new Request(`${endpoint}?${query}`, { headers }))).status, 400);
+ }
+});
