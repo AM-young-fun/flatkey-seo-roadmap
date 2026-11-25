@@ -35,7 +35,7 @@ Module._load = function (name, ...args) {
     query = input;
     const rows = data.filter(row => (input.where.OR ?? [input.where]).some(where => where.kind.in.includes([row.kind, row.country, row.property === "558899190" || row.property === "https://rackrate.org/" ? "rackrate.org" : null].filter(Boolean).join(":"))
       && row.date >= where.date.gte && row.date <= where.date.lte))
-      .map(payload => ({ payload }));
+      .map(payload => ({ payload, kind: payload.kind, date: payload.date }));
     returnedBytes = Buffer.byteLength(JSON.stringify(rows));
     return rows;
   } } } };
@@ -193,4 +193,17 @@ test("brand traffic uses final visible queries on the official Flatkey site only
     assert.deepEqual(query.where.kind.in, ["gsc-page-queries"]);
     assert.equal((await GET(request("&view=brand-traffic&country=US"))).status, 400);
   } finally { data = fixtures; }
+});
+
+test("the traffic overview reads only session sources and retains the exact requested period", async () => {
+  const payload = await read("&view=traffic-overview");
+  assert.deepEqual(query.where.kind.in, ["flatkey-traffic-summary-v1", "ga4-pages"]);
+  assert.equal(payload.start, range.start);
+  assert.equal(payload.end, range.end);
+  assert.equal(payload.automatic, false);
+  assert.equal(payload.modules.complete, false);
+  assert.equal(payload.moduleDays[0].sessions.models, 500500);
+  assert.ok(payload.daily.every(row => row.site.organicSessions === null));
+  assert.equal((await GET(new Request("https://workspace.invalid/api/seo/analytics?view=traffic-overview&start=2026-10-04"))).status, 400);
+  assert.equal((await GET(request("&view=traffic-overview&country=JP"))).status, 400);
 });

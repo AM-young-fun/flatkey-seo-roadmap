@@ -13,6 +13,7 @@ export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
   const [range, setRange] = useState(() => initialRange(today));
   const [comparison, setComparison] = useState<DateRange | null>(() => previousRange(initialRange(today)));
   const [ready, setReady] = useState(false);
+  const [isDefault, setDefault] = useState(true);
   useEffect(() => {
     const read = () => {
       const params = new URLSearchParams(location.search), fallback = initialRange(today);
@@ -20,6 +21,7 @@ export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
       const next = validRange(requested) ? requested : fallback;
       const compare = { start: params.get("compareStart") ?? "", end: params.get("compareEnd") ?? "" };
       setRange(next);
+      setDefault(!params.has("start") && !params.has("end"));
       setComparison(params.get("compare") === "none" ? null : validRange(compare) ? compare : previousRange(next));
       setReady(true);
     };
@@ -36,10 +38,16 @@ export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
     if (url !== location.pathname + location.search + location.hash) history.pushState(null, "", url);
     setRange(next); setComparison(compare); dispatchEvent(new PopStateEvent("popstate"));
   };
-  return { range, comparison, update, today, timeZone, ready };
+  const reset = () => {
+    const params = new URLSearchParams(location.search);
+    for (const key of ["start", "end", "compareStart", "compareEnd", "compare"]) params.delete(key);
+    history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
+    dispatchEvent(new PopStateEvent("popstate"));
+  };
+  return { range, comparison, update, reset, today, timeZone, ready, isDefault };
 }
 
-export function SeoDateControl({ value, showComparison = true, pending = false }: { value: ReturnType<typeof useSeoRange>; showComparison?: boolean; pending?: boolean }) {
+export function SeoDateControl({ value, showComparison = true, pending = false, completeWeek = false }: { value: ReturnType<typeof useSeoRange>; showComparison?: boolean; pending?: boolean; completeWeek?: boolean }) {
   const { range, comparison, update, today, timeZone } = value;
   const [open, setOpen] = useState(false), root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const [start, setStart] = useState(range.start), [end, setEnd] = useState(range.end);
@@ -75,13 +83,16 @@ export function SeoDateControl({ value, showComparison = true, pending = false }
     update(next, compare); setOpen(false); trigger.current?.focus();
   };
   const latest = shiftDay(today, -1);
-  const recent = (days: number) => apply({ start: shiftDay(latest, 1-days), end: latest });
+  const recent = (days: number) => {
+    if (completeWeek && days === 7) { value.reset(); setOpen(false); trigger.current?.focus(); return; }
+    apply({ start: shiftDay(latest, 1 - days), end: latest });
+  };
   const days = (Date.parse(range.end) - Date.parse(range.start)) / 86400000 + 1;
-  const recentLabel = range.end === latest && [7,30,90].includes(days) ? `近 ${days} 天 · ` : "";
+  const recentLabel = completeWeek && value.isDefault && days === 7 ? "近 7 天 · " : range.end === latest && [7,30,90].includes(days) ? `近 ${days} 天 · ` : "";
   return <div className={styles.root} ref={root}>
     <button ref={trigger} type="button" className={styles.trigger} aria-label="选择时间" aria-busy={pending || undefined} aria-expanded={open} onClick={() => setOpen(!open)}>{recentLabel}{range.start} — {range.end}{pending ? <LoaderCircle size={14} className="feedback-spinner" aria-hidden="true" /> : <span aria-hidden="true">⌄</span>}</button>
     {open ? <section className={styles.menu} aria-label="时间选择">
-      <div className={styles.quick}>{[7,30,90].map(days => <button type="button" key={days} onClick={() => recent(days)}>近 {days} 天</button>)}
+      <div className={styles.quick}>{[7,30,90].map(days => <button type="button" key={days} onClick={() => recent(days)}>{completeWeek && days === 7 ? "最近完整 7 天" : `近 ${days} 天`}</button>)}
         {([['yesterday','昨天'],['week','本周'],['lastWeek','上周'],['month','本月']] as const).map(([key,label]) => <button type="button" key={key} onClick={() => { const next = closedPreset(key, today); if (next) apply(next); else setError("该周期尚无已结束日"); }}>{label}</button>)}
       </div>
       <div className={styles.dates}><label>开始日期<input type="date" aria-label="开始日期" value={start} max={latest} onInput={e => setStart(e.currentTarget.value)} onChange={e => setStart(e.target.value)} /></label><label>结束日期<input type="date" aria-label="结束日期" value={end} max={latest} onInput={e => setEnd(e.currentTarget.value)} onChange={e => setEnd(e.target.value)} /></label></div>

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import styles from "./OverviewCharts.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
 
@@ -22,17 +22,20 @@ export function GoalPlot({ label, value, goal, unit, denominator, note, empty = 
       <text x="4" y="56" fill="#738197" fontSize="11">0 {unit}</text><text x="356" y="56" textAnchor="end" fill="#526680" fontSize="11">目标 {goal.toLocaleString()} {unit}</text>
     </svg>{denominator ? <p>{denominator}</p> : null}{note ? <small>{note}</small> : null}</figure>;
 }
-export type BarDatum = { id?: string; label: string; value: number | null; prior?: number | null; color?: string; href?: string; suffix?: string; context?: string; details?: ReactNode };
+export type BarDatum = { id?: string; label: string; value: number | null; prior?: number | null; color?: string; href?: string; suffix?: string; context?: string; details?: ReactNode; tooltip?: ReactNode };
 export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数据", signed = false, showAxis = true }: { rows: BarDatum[]; unit: string; denominator?: string; empty?: string; signed?: boolean; showAxis?: boolean }) {
+  const tooltipPrefix = useId();
   const known = rows.filter(row => row.value !== null || typeof row.prior === "number");
   const maximum = unit === "%" ? 100 : Math.max(1, ...known.flatMap(row => [Math.abs(row.value ?? 0), Math.abs(row.prior ?? 0)]));
   return <figure className={styles.bars}>{showAxis ? <div className={styles.axis}>单位：{unit} · {known.length ? `刻度0—${chartNumber(maximum)}` : "暂无有效数值"}{denominator ? ` · ${denominator}` : null}{rows.some(row => row.prior !== undefined) ? <span>浅色：上期 深色：本期</span> : null}</div> : null}
     {!known.length ? <EmptyPlot reason={empty} /> : null}
-    {rows.map((row, index) => <div className={styles.barRow} key={row.id ?? `${row.label}:${index}`}><span title={row.label} className={row.context ? styles.barCaption : undefined}>{row.href ? <SeoAnchor href={row.href}>{row.label}</SeoAnchor> : row.label}{row.context ? <small>{row.context}</small> : null}</span><div className={styles.barTrack} data-signed={signed || undefined}>
+    {rows.map((row, index) => <div className={styles.barRow} key={row.id ?? `${row.label}:${index}`}><span title={row.label} className={row.context ? styles.barCaption : undefined}>{row.href ? <SeoAnchor href={row.href}>{row.label}</SeoAnchor> : row.label}{row.context ? <small>{row.context}</small> : null}</span><div className={styles.barTrack} data-signed={signed || undefined}
+      tabIndex={row.tooltip ? 0 : undefined} aria-label={row.tooltip ? row.label : undefined}
+      aria-describedby={row.tooltip ? `${tooltipPrefix}-${index}` : undefined}>
       {signed ? <i className={styles.zero} /> : null}
       {row.prior != null ? <i className={styles.prior} style={{ width: `${Math.abs(row.prior) / maximum * 100}%` }} /> : null}
       {row.value !== null ? <i className={styles.bar} style={{ width: `${Math.abs(row.value) / maximum * (signed ? 50 : 100)}%`, ...(signed ? { left: row.value < 0 ? `${50 - Math.abs(row.value) / maximum * 50}%` : "50%" } : {}), background: row.color ?? (row.value < 0 ? "#d16e6b" : "#4b87d5") }} /> : null}
-    </div><strong>{row.value === null ? "—" : `${signed && row.value > 0 ? "+" : ""}${chartNumber(row.value)}`}{row.suffix ? <small>{row.suffix}</small> : null}</strong>{row.details ? <div className={styles.barDetails}>{row.details}</div> : null}</div>)}
+    </div><strong>{row.value === null ? "—" : `${signed && row.value > 0 ? "+" : ""}${chartNumber(row.value)}`}{row.suffix ? <small>{row.suffix}</small> : null}</strong>{row.tooltip ? <div role="tooltip" id={`${tooltipPrefix}-${index}`} className={styles.barTooltip}>{row.tooltip}</div> : null}{row.details ? <div className={styles.barDetails}>{row.details}</div> : null}</div>)}
   </figure>;
 }
 export type LineDatum = { label: string; value: number | null; prior?: number | null };

@@ -45,16 +45,20 @@ export function overviewMetricSummary(data: ModuleAnalytics | null, metric: "ses
     measured: metric === "sessions" ? measured.length : measured.filter(day => day.searchComplete).length, days: daily.length };
 }
 
-export function overviewTrafficAnalytics(range: DateRange, comparison: DateRange | null, module: OverviewPageModule, country: SeoCountry, rows: AnalyticsObservation[]) {
-  const landing = landingTrafficDays(range, rows);
-  const sessionsByModule: Partial<Record<Exclude<OverviewPageModule, "all">, number>> = {};
+export function landingModuleSessions(landing: ReturnType<typeof landingTrafficDays>) {
+  const sessions: Partial<Record<Exclude<OverviewPageModule, "all">, number>> = {};
   for (const { paths } of landing) for (const [url, count] of paths ?? []) {
     const key = overviewPageModule(url);
-    if (key && count !== null) sessionsByModule[key] = (sessionsByModule[key] ?? 0) + count;
+    if (key && count !== null) sessions[key] = (sessions[key] ?? 0) + count;
   }
+  return { sessions, complete: landing.every(day => day.paths?.every(([, count]) => count !== null)) };
+}
+
+export function overviewTrafficAnalytics(range: DateRange, comparison: DateRange | null, module: OverviewPageModule, country: SeoCountry, rows: AnalyticsObservation[]) {
+  const landing = landingTrafficDays(range, rows);
   const daily = (period: DateRange, landingDays?: typeof landing) => module === "all" ? analyticsView(period, [], rows).daily : overviewModuleAnalytics(period, module, rows, landingDays).daily;
   return { range, comparison, module, country, current: daily(range, landing), previous: comparison ? daily(comparison) : null,
-    modules: { sessions: sessionsByModule, complete: landing.every(day => day.paths?.every(([, count]) => count !== null)) } };
+    modules: landingModuleSessions(landing) };
 }
 
 export type OverviewTrafficAnalytics = ReturnType<typeof overviewTrafficAnalytics>;
