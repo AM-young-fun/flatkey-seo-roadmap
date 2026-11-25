@@ -4,7 +4,7 @@ import { ReportLoading } from "./ReportLoading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type * as echarts from "echarts";
 import { REGION_CODES, REGIONS, type SearchRegionCode } from "@/lib/seo";
-import { marketTrendComparabilityNote, serpTrendRange, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
+import { marketTrendComparabilityNote, SERP_TRENDS_DISPLAY_VERSION, serpTrendRange, type MultiRegionTrendResult, type TrendPoint } from "@/lib/ranking-trends";
 import { DISPLAY_BUCKETS } from "@/lib/rank-display";
 import { dashboardSession } from "@/lib/dashboard-session";
 import { dashboardStore } from "@/lib/dashboard-client";
@@ -20,6 +20,7 @@ const SERIES = "进入前 100 的关键词";
 const rankBuckets = DISPLAY_BUCKETS.slice(0, 4);
 const periodLabel = (point: TrendPoint) => point.periodLabel ?? point.date;
 const CAPTURE_STATUS = "采集状态";
+const FIXED_CAPTURE_SERIES = "Flatkey 固定词库实测";
 const captureTime = (point?: TrendPoint) => {
   if (!point) return "本期未采集";
   const format = (value: string) => new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
@@ -34,7 +35,7 @@ function isTrendResult(data: MultiRegionTrendResult) {
 
 export function RankingTrend({region = "all", module = "all", historicalScope = false, chartsOnly = false}:{region?:"all" | SearchRegionCode; module?: OverviewPageModule; historicalScope?: boolean; chartsOnly?: boolean}) {
   const [range, setRange] = useState(() => serpTrendRange());
-  const key = `serp-markets-v5:native-word-single-country-v1:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
+  const key = `serp-markets-v5:${SERP_TRENDS_DISPLAY_VERSION}:${module}:${dashboardStore.revision()}:${range.start}:${range.end}`;
   const moduleLabel = OVERVIEW_PAGE_MODULES.find(([value]) => value === module)?.[1];
   const [result, setResult] = useState<(MultiRegionTrendResult & { key: string }) | null>(() => {
     const saved = trendResults.get(key);
@@ -48,8 +49,11 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
   const periods = useMemo(() => rankingTrendDisplayPeriods(points ?? []), [points]);
   const latest = periods.at(-1);
   const failed = markets?.filter(market => market.status === "ERROR" && (region === "all" || market.region === region)) ?? [];
-  const hasCaptureStatus = historicalScope && periods.some(period => period.status !== null);
-  const hasPoints = hasCaptureStatus || periods.some(period => period.chartValue !== null);
+  const fixedCapture = historicalScope && result?.key === key ? result.fixedCapture : undefined;
+  const fixedCounts = region === "all" ? fixedCapture : fixedCapture?.countries.find(row => row.country === region);
+  const fixedPeriod = fixedCounts ? fixedCapture : undefined;
+  const hasCaptureStatus = historicalScope && periods.some(period => period.status !== null && period.key !== fixedPeriod?.periodKey);
+  const hasPoints = Boolean(fixedPeriod) || hasCaptureStatus || periods.some(period => period.chartValue !== null);
   const segments = useMemo(() => rankingTrendDisplaySegments(periods, historicalScope), [periods, historicalScope]);
   useEffect(() => {
     const controller = new AbortController();
@@ -106,11 +110,12 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
     let chart: echarts.ECharts | undefined;
     let observer: ResizeObserver | undefined;
     const byPeriod = new Map(periods.map(period => [period.key, period]));
-    const dates = periods.map(period => period.key);
+    const dates = [...new Set([...byPeriod.keys(), ...(fixedPeriod ? [fixedPeriod.periodKey] : [])])].sort();
+    const periodIndexes = new Map(periods.map((period, index) => [period.key, index]));
     const xAxis: echarts.XAXisComponentOption = { type: "category", data: dates, boundaryGap: true, axisTick: { show: false },
       axisLabel: { hideOverlap: true, formatter: (value: string) => {
         const period = byPeriod.get(value);
-        const label = period ? periodLabel(period.point) : value;
+        const label = period ? periodLabel(period.point) : fixedPeriod?.periodKey === value ? fixedPeriod.periodLabel : value;
         return dates.every(key => key.slice(0, 4) === dates[0].slice(0, 4)) ? label.replace(/^\d{4}年/, "") : label;
       }, color: "#64748b" }, axisLine: { lineStyle: { color: "#e2e8f0" } } };
     const yAxis: echarts.YAXisComponentOption = { type: "value", name: "词", min: 0, minInterval: 1, splitNumber: 4, axisLabel: { color: "#64748b" },
@@ -118,11 +123,14 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
     const series: echarts.SeriesOption[] = [
       { name: SERIES, type: "scatter", symbol: "emptyCircle", symbolSize: 8, itemStyle: { color: "#3473bd" },
         label: { show: dates.length <= 4, position: "top", color: "#334155", fontWeight: 600 }, labelLayout: { hideOverlap: true },
-        data: periods.map(period => period.chartValue), z: 3 },
+        data: dates.map(key => byPeriod.get(key)?.chartValue ?? null), z: 3 },
       ...segments.map<echarts.SeriesOption>(({ comparable, data }) => ({ name: comparable ? "可比区间" : "口径不同的观察值", type: "line",
         lineStyle: { width: 2.5, color: comparable ? "#3473bd" : "#647fa5", type: comparable ? "solid" : "dashed" },
-        connectNulls: false, showSymbol: false, data, z: 2 })),
+        connectNulls: false, showSymbol: false, data: dates.map(key => data[periodIndexes.get(key) ?? -1] ?? null), z: 2 })),
     ];
+    if (fixedPeriod && fixedCounts) series.push({ name: FIXED_CAPTURE_SERIES, type: "scatter", symbol: "rect", symbolSize: 9,
+      itemStyle: { color: "#087e76" }, label: { show: true, position: "top", color: "#087e76", fontWeight: 600 },
+      data: dates.map(key => key === fixedPeriod.periodKey ? fixedCounts.rankedKeywords : null), z: 4 });
     if (hasCaptureStatus) series.push({ name: CAPTURE_STATUS, type: "scatter", xAxisIndex: 1, yAxisIndex: 1, symbol: "diamond", symbolSize: 11,
       itemStyle: { color: "#a96514" },
       label: { show: true, position: "bottom", color: "#88510e", fontSize: 11, lineHeight: 14,
@@ -135,12 +143,19 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
         return [periodLabel(period.point), `已开始采集 / ${period.status.label}`, `原始有效采集 ${period.status.rawCaptured} 词 · 语种核验匹配 ${period.captured} 词`,
           ...(unknown === undefined ? [] : [`当期清单语种待核 ${unknown} 词`]), `实际采集：${captureTime(period.point)}`].join("\n");
       } },
-      data: periods.flatMap(period => period.status ? [[period.key, CAPTURE_STATUS]] : []),
+      data: periods.flatMap(period => period.status && period.key !== fixedPeriod?.periodKey ? [[period.key, CAPTURE_STATUS]] : []),
     });
     const option: echarts.EChartsOption = { animation: false, color: ["#3473bd"],
       tooltip: { trigger: "axis", renderMode: "richText", confine: true, formatter: (raw: unknown) => {
         const values = raw as { axisValue: string }[];
-        const period = byPeriod.get(String(values[0]?.axisValue));
+        const key = String(values[0]?.axisValue);
+        if (fixedPeriod && fixedCounts && key === fixedPeriod.periodKey) return [
+          fixedPeriod.periodLabel, FIXED_CAPTURE_SERIES,
+          `已采集 ${fixedCounts.capturedKeywords.toLocaleString()} 词 · 已确认前100 ${fixedCounts.rankedKeywords.toLocaleString()} 词`,
+          `已核实前100外 ${fixedCounts.verifiedOutsideTop100.toLocaleString()} 词 · 排名未确认 ${fixedCounts.unresolvedKeywords.toLocaleString()} 词`,
+          `采集截至 ${new Date(fixedPeriod.latestCheckedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}`,
+        ].join("\n");
+        const period = byPeriod.get(key);
         if (!period) return "暂无SERP实测记录";
         const { point, captured, chartValue } = period;
         return [periodLabel(point), `当期非品牌原词：${point.total} 词 · 语种匹配有效采集 ${captured} 词`,
@@ -163,7 +178,7 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
       observer = new ResizeObserver(() => chart?.resize()); observer.observe(target);
     });
     return () => { disposed = true; observer?.disconnect(); chart?.dispose(); };
-  }, [periods, segments, hasCaptureStatus, hasPoints]);
+  }, [periods, segments, fixedPeriod, fixedCounts, hasCaptureStatus, hasPoints]);
   return <section className="dailyPanel trendPanel">
     <div className="dailyHeading"><div><h2>{historicalScope ? "历史目标词监控趋势" : "上榜关键词数趋势"}</h2><p className="chartNote">{region === "all" ? "原词语种匹配 · 同词只计一次" : REGIONS[region].label} · {moduleLabel}{historicalScope ? " · 原监控快照 · 全站合并总数见上方" : ""}</p></div></div>
     {module !== "all" ? <p className="chartNote">按当前登记目标页筛选历史实测；不代表当时的模块归属。</p> : null}
@@ -189,19 +204,11 @@ export function RankingTrend({region = "all", module = "all", historicalScope = 
     {historicalScope && hasPoints ? <div className={styles.legend} aria-label="趋势图图例">
       {segments.some(segment => segment.comparable) ? <span><i aria-hidden="true" />同口径折线</span> : null}
       {segments.some(segment => !segment.comparable) ? <span><i className={styles.dashed} aria-hidden="true" />不同口径的已确认词数</span> : null}
+      {fixedPeriod && fixedCounts ? <span><i className={styles.fixed} aria-hidden="true" />{fixedPeriod.periodLabel} · {FIXED_CAPTURE_SERIES} · 前100 {fixedCounts.rankedKeywords.toLocaleString()} 词</span> : null}
       {hasCaptureStatus ? <span><i className={styles.marker} aria-hidden="true" />已开始采集</span> : null}
     </div> : null}
     {!markets ? error ? null : <ReportLoading label="正在读取排名趋势" compact /> : !hasPoints ? <p className="muted">{failed.length ? "部分国家数据暂时无法读取，请重试。" : periods.length ? "已有历史采集记录，上榜证据待齐。" : "暂无有效排名采集记录。"}</p> : <div ref={element} className="rankingTrend" role="img" aria-label={`${region === "all" ? "原词语种匹配 · 同词只计一次" : REGIONS[region].label}历史排名折线图${hasCaptureStatus ? "，待核验采集状态单独标记" : ""}`} />}
-    {historicalScope && periods.length ? <>
-      <p className="chartNote"><strong>{periods.length} 期历史采集记录</strong></p>
-      <ul className="chartNote" aria-label="历史采集记录">
-        {periods.map(({ key, point, captured, chartValue, status }) => <li key={key}>
-          <span title={captureTime(point)}>{periodLabel(point)}{point.sampleOnly ? "（抽样）" : ""}</span> · {status ? `已开始采集 / ${status.label} · 原始有效采集 ${status.rawCaptured.toLocaleString()} 词` : chartValue === null ? "上榜证据待齐" : `已确认前100 ${chartValue.toLocaleString()} 词`} · 语种匹配已查 {captured.toLocaleString()} / {point.total.toLocaleString()} 词
-        </li>)}
-      </ul>
-    </> : null}
-    <p className="chartNote">{historicalScope ? "实线表示相邻两期范围一致、采集完整。虚线连接不同口径的已确认词数，仅供观察。菱形标记采集状态，位置不代表上榜词数。" : "每个点是当期已确认的上榜词数，同词跨国家、跨站只计一次。相邻两期经核定目标范围一致且均采集完整后才连线。"}</p>
-    {latest?.point.languageProjection ? <p className="chartNote">最近一期原有效采集（含待核语种）{latest.point.languageProjection.rawCaptured} 词 · 语种待核 {latest.point.languageProjection.unknownLanguageWords} 词 · 排除自有品牌 {latest.point.languageProjection.excludedBrandWords} 词。{region === "all" && latest.chartValue !== null ? latest.point.languageProjection.countryCounts.map(row => `${REGIONS[row.country].label} ${row.count}`).join(" · ") : ""}</p> : null}
+    {!historicalScope ? <p className="chartNote">每个点是当期已确认的上榜词数，同词跨国家、跨站只计一次。相邻两期经核定目标范围一致且均采集完整后才连线。</p> : null}
     {!chartsOnly ? <GrowthHistoricalReview points={points ?? []} /> : null}
   </section>;
 }

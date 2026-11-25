@@ -148,7 +148,8 @@ test("overview counts original words once and uses the same denominator for both
   assert.match(html, /同一关键词只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);
   assert.doesNotMatch(html, /汇总时点|个当前有效原词，|统计采用 14 天/);
   assert.doesNotMatch(html, /去重关键词最佳排名|原始有效实测来源|背景证据：/);
-  assert.match(html, /aria-label="排名统计范围"[\s\S]*?查看话题与关键词[\s\S]*?已获排名关键词/);
+  assert.match(html, /aria-label="排名统计范围"[\s\S]*?已获排名关键词/);
+  assert.doesNotMatch(html, /查看话题与关键词/);
   assert.doesNotMatch(html, /目标关键词<\/span>|当前正式目标记录 R\/N/);
   const formal = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { initialView: "formal" }));
   assert.match(formal, /aria-pressed="true">正式目标实测/); assert.match(formal, /当前正式目标记录 R\/N：1 \/ 1（100\.0%）/);

@@ -146,9 +146,7 @@ export function GrowthTopicNetwork({ read }: { read: SeoReadState<GrowthWorkspac
   if (!data) return <section className={styles.panel}><p role="status">正在读取话题与目标关键词…</p></section>;
   if (!data.quarter) return <section className={styles.panel}><p role="status">季度词清单尚未冻结。</p></section>;
   const targets = selectGrowthTargets(data, scope);
-  return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} />
-    <p className={styles.note}>{data.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available) ? "近期SERP暂时无法读取。" : "关系图使用最近14天的SERP。"}历史排名与其他来源可在关键词详情查看。</p>
-    <Link className={styles.textLink} href={growthLink(scope)}>打开话题与关键词目标 →</Link></section>;
+  return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} /></section>;
 }
 
 export function GrowthRankingCoverage({ initialView = "all", read }: { initialView?: GrowthRankingView; read?: SeoReadState<GrowthWorkspace> } = {}) {
@@ -161,7 +159,6 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
   if (data.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available)) {
     return <section className={styles.panel}><h2 className={styles.panelTitle}>当前有效关键词排名</h2><p role="alert">近期SERP暂时无法读取。</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
   }
-  const formalScope = { ...scope, membership: "formal" as const, search: "" };
   const { targets, ranked, summary } = growthRankingEvidence(view === "formal" ? quarterTargetWorkspace(data) : data, scope, view);
   const stats = growthCounts(targets);
   const markets = summary.countries.map(market => ({ ...market, label: growthMarketLabel(data, market.country, market.language) }));
@@ -173,7 +170,6 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
           <button type="button" aria-pressed={view === "all"} onClick={() => setView("all")}>全部有效实测</button>
           <button type="button" aria-pressed={view === "formal"} onClick={() => setView("formal")}>正式目标实测</button>
         </div>
-        <Link className={styles.textLink} href={growthLink(formalScope)}>查看话题与关键词 <span aria-hidden="true">→</span></Link>
       </div>
     </div>
     <BarPlot rows={view === "formal" ? [{ label: "当前季度成员 N", value: stats.total }, { label: "已证实前100 R", value: ranked.length }, { label: "其中前50 F", value: stats.top50 }] : [{ label: "已获排名关键词", value: summary.total }, { label: "其中前50关键词", value: summary.top50 }, { label: "其中正式目标词", value: summary.formalWords }]} unit="个原词" showAxis={false} />

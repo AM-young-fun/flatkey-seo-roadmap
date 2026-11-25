@@ -3,3 +3,5 @@
 .legend i { width:18px; border-top:2px solid #3473bd; }
 .legend .dashed { border-top:2px dashed #647fa5; }
 .legend .marker { width:8px; height:8px; border:0; background:#a96514; transform:rotate(45deg); }
+
+.legend .fixed { width: 9px; height: 9px; border: 0; background: #087e76; }
