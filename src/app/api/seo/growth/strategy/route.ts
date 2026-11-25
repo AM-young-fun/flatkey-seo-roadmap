@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 }
 export async function POST(request: Request) {
   try {
-    const auth = await authorizeWorkflow(request, true), command = await readWorkflowBody(request);
+    const auth = await authorizeWorkflow(request, true), command = await readWorkflowBody(request, auth.actor === "human" ? 2 * 1024 * 1024 : undefined);
     const saved = await saveGrowthStrategy(command, auth.actor, auth.localPreview);
     let hotspotAdmission: unknown;
     if (auth.actor === "human" && command && typeof command === "object" && "action" in command && command.action === "decide_direction" && "decision" in command && command.decision === "approve" && "directionId" in command && typeof command.directionId === "string" && "revision" in command && typeof command.revision === "number") {

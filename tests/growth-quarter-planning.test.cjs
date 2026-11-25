@@ -18,6 +18,49 @@ test('v9 GPU/API/other is one 70/25/5 budget while legacy receipts retain their 
  assert.equal(planStrategyAllocationSchema.safeParse({...receipt,gaps:[{bucket:'primary',count:1,reason:'旧主攻分类不能混进新GPU业务预算中'}]}).success,false);
 });
 const run=(state,command,actor='collector')=>prepareGrowthStrategyMutation(state,{requestId:'quarter-plan-test',expectedVersion:state.version,...command},actor,ws,[],['original-task'],now);
+
+test('the 1000-word calendar replaces the active cohort only after exact validation and retains the historical baseline', () => {
+ const { BUSINESS_DELIVERY_WEIGHTS } = require('../src/lib/growth-quarter-planning.ts');
+ const { QUARTER_NEW_WORD_VERSION, QUARTER_NEW_MARKET_SHARES } = require('../src/lib/growth-quarter-calendar.ts');
+ const { growthStrategyStoredSchema, evaluateGrowthGoals } = require('../src/lib/growth-strategy.ts');
+ const countries = [['US','en'],['JP','ja'],['ES','es-ES'],['SG','zh-CN'],['BR','pt-BR']];
+ const targets = countries.flatMap(([country,language]) => Array.from({length:200},(_,index)=>({
+  ...target,id:`new-${country}-${index}`,keywordId:`keyword-${country}-${index}`,keyword:`raw word ${country} ${index}`,country,language,languageStatus:'match',workState:'unknown',
+ })));
+ const source = {...ws,targets};
+ const proposal = {...plan(),version:QUARTER_NEW_WORD_VERSION,targetUnit:'normalized_original_word',sourceVersion:growthWorkspaceIdentity(source),
+  targetIds:targets.map(row=>row.id),executionStart:'2026-11-27',
+  researchBudget:{total:1000,counts:allocateIntegerBudget(1000,QUARTER_NEW_MARKET_SHARES)},
+  deliveryBudget:{total:10,counts:allocateIntegerBudget(10,BUSINESS_DELIVERY_WEIGHTS)},
+  workstreams:plan().workstreams.map((row,index)=>({...row,bucket:index?'api':'gpu'})),
+  calendar:targets.map((row,index)=>({targetId:row.id,intentId:row.country,primary:index%200===0,kind:'blog',
+   researchDate:'2026-11-27',deliveryDate:'2026-11-30',ahrefs:{keyword:row.keyword,country:row.country,source:'ahrefs_web',
+    sourceReference:'ahrefs-export.csv',sourceSha256:'b'.repeat(64),sourceRow:index+1,observedAt:now.toISOString(),volume:20}})),
+ };
+ const { membership, ...frozenTarget } = target;
+ assert.equal(membership,'formal');
+ const legacy = {...emptyGrowthStrategy(),baseline:{frozenAt:'2026-11-20T00:00:00.000Z',actor:'human',sourceVersion:'old',targets:[frozenTarget],reason:'原季度版本历史回执'}};
+ const mutate = (state, action, command, workspace = source, context = {}) => prepareGrowthStrategyMutation(
+  state,{requestId:'quarter-calendar-migration',expectedVersion:state.version,action,...command},'human',workspace,[],['original-task'],now,context);
+ assert.throws(()=>mutate(legacy,'save_quarter_plan',{plan:proposal},source,
+  {originalCommitments:[{site:'flatkey.ai',kind:'blog',deliveryDate:'2026-11-30'}]}),/日产能/);
+ const wrong = structuredClone(proposal);
+ wrong.calendar[0].ahrefs.country='JP';
+ assert.throws(()=>mutate(legacy,'save_quarter_plan',{plan:wrong}),/Ahrefs原词/);
+ const weekend = structuredClone(proposal);
+ weekend.calendar[0].deliveryDate='2026-11-29';
+ assert.equal(quarterPlanningInputSchema.safeParse(weekend).success,false);
+ const draft = mutate(legacy,'save_quarter_plan',{plan:proposal});
+ assert.deepEqual(draft.baseline,legacy.baseline);
+ const approved = mutate(draft,'approve_quarter_plan',{hash:draft.quarterPlanning.hash,sourceVersion:proposal.sourceVersion,reason:'用户已授权直接应用这份新版季度日历'});
+ assert.equal(approved.baseline.targets.length,1000);
+ assert.equal(approved.baseline.planHash,draft.quarterPlanning.hash);
+ assert.deepEqual(approved.baselineHistory,[legacy.baseline]);
+ const parsed = growthStrategyStoredSchema.safeParse(approved);
+ assert.equal(parsed.success,true, JSON.stringify(parsed.error?.issues));
+ const prior = evaluateGrowthGoals(approved,{...source,opportunities:[]},[],{start:'2026-11-10',end:'2026-11-16'},new Date('2026-11-22T00:00:00Z'));
+ assert.equal(prior.baselineCount,1);
+});
 test('integer market and delivery budgets preserve totals and distinct units',()=>{assert.deepEqual(allocateIntegerBudget(239,MARKET_RESEARCH_WEIGHTS),{US:83,JP:60,BR:48,SG:36,other:12});assert.deepEqual(allocateIntegerBudget(552,DELIVERY_WEIGHTS),{primary:331,foundation:138,experiment:83});assert.deepEqual(allocateIntegerBudget(0,DELIVERY_WEIGHTS),{primary:0,foundation:0,experiment:0});assert.throws(()=>allocateIntegerBudget(-1,DELIVERY_WEIGHTS));});
 test('cumulative research never loses an allocated country slot at a one-slot boundary',()=>{const a=allocateIntegerBudget(9,MARKET_RESEARCH_WEIGHTS),b=allocateIntegerBudget(10,MARKET_RESEARCH_WEIGHTS);assert.equal(Object.keys(a).every(key=>b[key]>=a[key]),true);for(let n=1;n<100;n++){const before=allocateIntegerBudget(n-1,MARKET_RESEARCH_WEIGHTS),after=allocateIntegerBudget(n,MARKET_RESEARCH_WEIGHTS);assert.equal(Object.keys(before).every(key=>after[key]>=before[key]),true);}});
 test('quarter proposal has actual workstreams, source identity and exact budgets rather than inventory-only approval',()=>{assert.equal(quarterPlanningInputSchema.safeParse(plan()).success,true);const wrong=plan();wrong.researchBudget.counts.US++;assert.equal(quarterPlanningInputSchema.safeParse(wrong).success,false);const duplicate=plan();duplicate.targetIds.push('t1');assert.equal(quarterPlanningInputSchema.safeParse(duplicate).success,false);const p=plan();p.workstreams[0].topicIds=['fake'];assert.throws(()=>run(emptyGrowthStrategy(),{action:'save_quarter_plan',plan:p}),{code:'quarter_reference_missing'});});

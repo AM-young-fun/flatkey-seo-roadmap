@@ -7,6 +7,7 @@ import { growthObservationComparisonInputSchema, growthObservationComparisonStor
 import { growthObservationComparisonText } from "./growth-observation-display";
 import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 import { quarterPlanningInputSchema, quarterPlanningStoredSchema } from "./growth-quarter-planning";
+import { quarterCalendarProblem, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
 
 export const GROWTH_STRATEGY_KIND = "growth-strategy";
 export const GROWTH_QUARTER_ID = "2026-close";
@@ -55,10 +56,12 @@ const observationSchema = z.object({ id, publicationId: id, taskId: id, site: z.
 }).strict();
 const storedObservationSchema = observationSchema.extend({ coverage: z.object({ indexing: z.enum(["verified", "missing"]), ranking: z.enum(["verified", "missing"]), traffic: z.enum(["verified", "missing"]) }).strict().optional(), comparison: growthObservationComparisonStoredSchema.optional() });
 const newObservationSchema = observationSchema.extend({ comparison: growthObservationComparisonInputSchema });
+type GrowthBaseline = { frozenAt: string; actor: "human"; sourceVersion: string; targets: GrowthBaselineTarget[]; reason: string; planHash?: string };
 export type GrowthStrategy = {
   id: typeof GROWTH_QUARTER_ID; version: number; updatedAt: string | null;
   deadline: "2027-02-05"; coverageGoal: 0.6; qualityGoal: 0.8; weeklySessionsGoal: 3000;
-  baseline: { frozenAt: string; actor: "human"; sourceVersion: string; targets: GrowthBaselineTarget[]; reason: string } | null;
+  baseline: GrowthBaseline | null;
+  baselineHistory?: GrowthBaseline[];
   batches: GrowthBatch[]; directions: GrowthDirection[]; observations: GrowthObservation[]; trafficEvidence: GrowthExactTrafficEvidence[];
   /** Baseline IDs/members stay immutable; explicitly approved scope supplements are append-only. */
   identityRevisions: GrowthIdentityRevision[];
@@ -67,10 +70,12 @@ export type GrowthStrategy = {
 };
 const decisionSchema = z.object({ decision: z.enum(["approve", "hold", "reject"]), reason: text, decidedAt: stamp, actor: z.literal("human"), revision: z.number().int().positive(), scope: z.array(scopeSchema).min(1) }).strict();
 const baselineTargetSchema = z.object({ id: growthLogicalTargetIdSchema, keywordId: id.nullable(), site: z.enum(GROWTH_EXECUTION_SITES), topicId: id, keyword: z.string().min(1), country: z.string().min(2).nullable(), language: z.string().min(2).nullable(), publishedUrls: z.array(z.url()), plannedUrls: z.array(z.url()), pageState: z.enum(["published", "planned", "unmapped"]).optional(), reason: z.string().optional(), languageStatus: z.enum(["match", "mismatch", "unknown"]).optional() }).strict();
+const baselineSchema = z.object({ frozenAt: stamp, actor: z.literal("human"), sourceVersion: id, targets: z.array(baselineTargetSchema).min(1), reason: text, planHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict();
 const identityMappingSchema = z.object({ targetId: growthLogicalTargetIdSchema, country: z.string().min(2).max(10), language: z.string().min(2).max(20) }).strict();
 export const growthStrategyStoredSchema = z.object({
   id: z.literal(GROWTH_QUARTER_ID), version: z.number().int().nonnegative(), updatedAt: stamp.nullable(), deadline: z.literal("2027-02-05"), coverageGoal: z.literal(0.6), qualityGoal: z.literal(0.8), weeklySessionsGoal: z.literal(3000),
-  baseline: z.object({ frozenAt: stamp, actor: z.literal("human"), sourceVersion: id, targets: z.array(baselineTargetSchema).min(1), reason: text }).strict().nullable(),
+  baseline: baselineSchema.nullable(),
+  baselineHistory: z.array(baselineSchema).optional(),
   batches: z.array(z.object({ id, admittedAt: stamp, deadline: z.iso.date(), targets: z.array(baselineTargetSchema).min(1), actor: z.enum(["human", "collector"]), reason: text }).strict()),
   directions: z.array(growthDirectionSchema.extend({ revision: z.number().int().positive(), preparedBy: z.enum(["human", "collector"]), updatedAt: stamp, decisions: z.array(decisionSchema), decision: decisionSchema.nullable() }).strict()),
   observations: z.array(storedObservationSchema),
@@ -146,7 +151,20 @@ export function growthBatchDeadline(admittedAt: Date): string {
   const lastDay = new Date(Date.UTC(year, month + 3, 0)).getUTCDate();
   return new Date(Date.UTC(year, month - 1 + 3, Math.min(day, lastDay))).toISOString().slice(0, 10);
 }
-export type GrowthMutationContext = { routineApprovedTargetIds?: string[]; taskReferences?: GrowthTaskReference[]; siteTimezones?: Record<string, string | null>; siteProperties?: Record<string, string | null> };
+export type GrowthMutationContext = { routineApprovedTargetIds?: string[]; taskReferences?: GrowthTaskReference[]; siteTimezones?: Record<string, string | null>; siteProperties?: Record<string, string | null>;
+  originalCommitments?: { site: string; kind: "blog" | "cluster_landing"; deliveryDate: string }[] };
+function nextQuarterTargets(plan: z.infer<typeof quarterPlanningInputSchema>, workspace: GrowthWorkspace, now: Date, context: GrowthMutationContext) {
+  const targets = resolveTargets(plan.targetIds, workspace);
+  const rowsById = new Map(workspace.targets.map(row => [row.id, row]));
+  if (new Set(targets.map(row => originalWord(row.keyword))).size !== targets.length || targets.some(row => {
+    const live = rowsById.get(row.id)!;
+    return !row.keywordId || live.pageState !== "unmapped" || live.publishedUrls.length || live.plannedUrls.length
+      || live.maintenancePublishedUrls?.length || ["planned", "scheduled", "in_progress", "completed"].includes(live.workState);
+  })) throw new GrowthStrategyError("quarter_new_word_scope", "季度只收全局唯一、真实身份且尚无已有页面及规划承接的新词");
+  const error = quarterCalendarProblem(plan.calendar!, targets, now, context.originalCommitments);
+  if (error) throw new GrowthStrategyError("quarter_calendar_invalid", error, 422);
+  return targets;
+}
 export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknown, actor: "human" | "collector", workspace: GrowthWorkspace, publications: GrowthPublicationReference[], taskIds: string[], now = new Date(), context: GrowthMutationContext = {}): GrowthStrategy {
   const command = growthStrategyCommandSchema.parse(raw);
   if (command.expectedVersion !== state.version) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试");
@@ -157,7 +175,10 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     const plan = command.plan;
     if (plan.sourceVersion !== growthWorkspaceIdentity(workspace)) throw new GrowthStrategyError("source_changed", "季度方案需绑定完整当前候选底账");
     const formal = state.baseline ? state.baseline.targets.map(row => row.id).sort() : workspace.targets.filter(row => row.membership === "formal").map(row => row.id).sort();
-    if (!state.baseline && plan.targetUnit === "normalized_original_word") {
+    if (plan.version === QUARTER_NEW_WORD_VERSION) {
+      if (state.baseline?.planHash) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
+      nextQuarterTargets(plan, workspace, now, context);
+    } else if (!state.baseline && plan.targetUnit === "normalized_original_word") {
       const selected = workspace.targets.filter(row => plan.targetIds.includes(row.id));
       const words = new Set(selected.map(row => originalWord(row.keyword)));
       const formalWords = new Set(workspace.targets.filter(row => row.membership === "formal").map(row => originalWord(row.keyword)));
@@ -177,7 +198,12 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     if (draft.plan.version === "quarter-planning-v2" && !state.baseline) resolveTargets(draft.plan.targetIds, workspace, true);
     if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不能事后批准新方案");
     next.quarterPlanning = { ...draft, approval: { actor: "human", approvedAt: now.toISOString(), hash: command.hash, reason: command.reason } };
-    if (!state.baseline) next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets: resolveTargets(draft.plan.targetIds, workspace, false), reason: command.reason };
+    if (draft.plan.version === QUARTER_NEW_WORD_VERSION) {
+      if (state.baseline?.planHash) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
+      const targets = nextQuarterTargets(draft.plan, workspace, now, context);
+      if (state.baseline) next.baselineHistory = [...(state.baselineHistory ?? []), state.baseline];
+      next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets, reason: command.reason, planHash: command.hash };
+    } else if (!state.baseline) next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets: resolveTargets(draft.plan.targetIds, workspace, false), reason: command.reason };
   } else if (command.action === "freeze_baseline") {
     if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不能事后冻结新的有利分母冒充原季度目标");
     if (state.baseline) throw new GrowthStrategyError("baseline_frozen", "季度基线已冻结；新词请进入新增批次");
@@ -336,8 +362,9 @@ function evaluateCohort(targets: GrowthBaselineTarget[], workspace: GrowthWorksp
   return { ...identity, targetCount: targets.length, rankedCount: ranked.length, top50Count: top50.length, verifiedCount: verified.length, identityCompleteCount, identityPendingCount: targets.length - identityCompleteCount, coverage: targets.length ? ranked.length / targets.length : null, quality: ranked.length ? top50.length / ranked.length : null, coverageRequired: Math.ceil(targets.length * .6), coverageGap: Math.max(0, Math.ceil(targets.length * .6) - ranked.length), qualityRequired: ranked.length ? Math.ceil(ranked.length * .8) : null, qualityGap: ranked.length ? Math.max(0, Math.ceil(ranked.length * .8) - top50.length) : null, latestRankAt: verified.map(row => row.checkedAt!).sort().at(-1) ?? null, complete: targets.length > 0 && verified.length === targets.length };
 }
 export function evaluateGrowthGoals(state: GrowthStrategy, workspace: GrowthWorkspace, traffic: GrowthTrafficEvidence[], period: { start: string; end: string }, now = new Date(), finalEvidence?: { workspace: GrowthWorkspace; traffic: GrowthTrafficEvidence[] }): GrowthGoalEvaluation {
-  const baseline = state.baseline;
   const closed = now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF), rankingAsOf = closed ? new Date(GROWTH_DEADLINE_CUTOFF) : now;
+  const baseline = state.baseline && (!state.baselineHistory?.length || Date.parse(state.baseline.frozenAt) <= rankingAsOf.getTime()) ? state.baseline
+    : state.baselineHistory?.filter(item => Date.parse(item.frozenAt) <= rankingAsOf.getTime()).sort((a, b) => b.frozenAt.localeCompare(a.frozenAt))[0] ?? null;
   const quarter = baseline ? evaluateCohort(baseline.targets, closed ? finalEvidence?.workspace ?? workspace : workspace, rankingAsOf, { id: state.id, label: "冻结季度目标", kind: "quarter", deadline: state.deadline }, state) : null;
   const complete = quarter?.complete ?? false;
   const platformTargets = workspace.targets.filter(target => target.membership === "formal" && GROWTH_EXECUTION_SITES.some(site => site === target.site)).map(freezeTarget);

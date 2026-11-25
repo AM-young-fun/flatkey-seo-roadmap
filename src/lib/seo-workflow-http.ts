@@ -12,11 +12,11 @@ export async function authorizeWorkflow(request: Request, write = false) {
   if (collector ? Boolean(origin) : write ? (localPreview ? !isLocalPreviewOrigin(request) : origin !== new URL(request.url).origin) : Boolean(origin && (localPreview ? !isLocalPreviewOrigin(request) : origin !== new URL(request.url).origin))) throw new WorkflowError("invalid_origin", "请求来源无效", 403);
   return { actor: collector ? "collector" as const : "human" as const, localPreview };
 }
-export async function readWorkflowBody(request: Request) {
+export async function readWorkflowBody(request: Request, maximumBytes = 512 * 1024) {
   const reader = request.body?.getReader();
   if (!reader) throw new WorkflowError("empty_body", "缺少执行记录", 400);
   const chunks: Uint8Array[] = []; let length = 0;
-  for (;;) { const { value, done } = await reader.read(); if (done) break; length += value.byteLength; if (length > 512 * 1024) { await reader.cancel(); throw new WorkflowError("body_too_large", "单条执行记录不能超过 512 KB", 413); } chunks.push(value); }
+  for (;;) { const { value, done } = await reader.read(); if (done) break; length += value.byteLength; if (length > maximumBytes) { await reader.cancel(); throw new WorkflowError("body_too_large", `执行记录不能超过 ${maximumBytes / 1024} KB`, 413); } chunks.push(value); }
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
 export function workflowErrorResponse(error: unknown) {

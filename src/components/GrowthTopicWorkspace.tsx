@@ -144,7 +144,7 @@ export function GrowthTopicNetwork({ read }: { read: SeoReadState<GrowthWorkspac
   const change = (patch: Partial<GrowthScope>) => changeScope({ ...patch, membership: "formal" });
   if (error) return <section className={styles.panel}><p role="alert">话题关系图读取失败：{error}</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
   if (!data) return <section className={styles.panel}><p role="status">正在读取话题与目标关键词…</p></section>;
-  if (!data.quarter) return <section className={styles.panel}><p role="status">季度1600词清单尚未审核冻结，话题关系图待清单核定后展示。</p></section>;
+  if (!data.quarter) return <section className={styles.panel}><p role="status">季度词清单尚未冻结。</p></section>;
   const targets = selectGrowthTargets(data, scope);
   return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} />
     <p className={styles.note}>{data.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available) ? "近期SERP暂时无法读取。" : "关系图使用最近14天的SERP。"}历史排名与其他来源可在关键词详情查看。</p>
@@ -232,7 +232,7 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
     {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.keywordTabs} role="group" aria-label="关键词分类">{keywordTabs.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => changeTab(id)}><strong>{label}</strong><span>{description}</span></button>)}</div> : null}
     {!topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
       : !topicId && (tab === "keywords" || tab === "published") ? <KeywordInventory key={tab} library={tab} scope={scope} change={change} page={page} setPage={setPage} /> : <>
-    {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度1600词目标尚未完成冻结。</p><GrowthQuarterReview /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
+    {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p><GrowthQuarterReview /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
         <GrowthFilters data={data} scope={effectiveScope} change={change} fixedSite={Boolean(topic)} />
         <p className={styles.note}>季度冻结清单 {count(result.frozenTotal ?? 0)} 词。当前筛选有 {count(result.stats.total)} 个待新增关键词。已关联上线原页的词可在 <Link href="/opportunities?tab=published" className={styles.textLink}>已有内容与排名</Link> 查看。</p>
