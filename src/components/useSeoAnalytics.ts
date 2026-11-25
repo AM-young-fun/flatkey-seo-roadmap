@@ -33,7 +33,7 @@ export type SeoAnalytics = DateRange & {
   pages: PagePerformance[];
 };
 
-export function useSeoRead<T>(url: string | null, { showFeedback = true, timeoutMs = 60_000 }: { showFeedback?: boolean; timeoutMs?: number } = {}) {
+export function useSeoRead<T>(url: string | null, { showFeedback = true, timeoutMs = 60_000, keepPreviousData = false }: { showFeedback?: boolean; timeoutMs?: number; keepPreviousData?: boolean } = {}) {
   const revision = useSyncExternalStore(clientReadCache.subscribe, clientReadCache.revision, () => 0);
   const [result, setResult] = useState<{ url: string; revision: number; attempt: number; data: T | null; error: string | null } | null>(null);
   const [refresh, setRefresh] = useState({ url, id: 0 });
@@ -89,7 +89,8 @@ export function useSeoRead<T>(url: string | null, { showFeedback = true, timeout
   const retrying = Boolean(url && refresh.url === url && refresh.id > (current?.attempt ?? 0));
   const pending = Boolean(url && (readState?.url === url && readState.revision === revision && readState.pending
     || !data && !error || retrying));
-  return { data, error, pending, retrying, loading: pending && !data, refreshing: pending && Boolean(data), retry: () => {
+  const previousData = keepPreviousData && url && pending && !data && result?.revision === revision ? result.data : null;
+  return { data, previousData, previousUrl: previousData ? result?.url ?? null : null, hasSettled: Boolean(result || data || error), error, pending, retrying, loading: pending && !data, refreshing: pending && Boolean(data), retry: () => {
     if (!url || busy.current === url) return;
     busy.current = url;
     setRefresh(value => ({ url, id: value.id + 1 }));

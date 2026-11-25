@@ -33,7 +33,8 @@ Module._load = function (name, ...args) {
   };
   if (name === "@/lib/prisma") return { prisma: { seoAnalyticsDay: { findMany: async input => {
     query = input;
-    const rows = data.filter(row => input.where.kind.in.includes([row.kind, row.country, row.property === "558899190" || row.property === "https://rackrate.org/" ? "rackrate.org" : null].filter(Boolean).join(":")))
+    const rows = data.filter(row => (input.where.OR ?? [input.where]).some(where => where.kind.in.includes([row.kind, row.country, row.property === "558899190" || row.property === "https://rackrate.org/" ? "rackrate.org" : null].filter(Boolean).join(":"))
+      && row.date >= where.date.gte && row.date <= where.date.lte))
       .map(payload => ({ payload }));
     returnedBytes = Buffer.byteLength(JSON.stringify(rows));
     return rows;
@@ -96,6 +97,38 @@ test("page lists, individual daily evidence, module metadata and query reports r
 test("summary aggregation never touches unused page rows, including when called outside the route", () => {
   const unreadPages = fixtures.filter(row => row.kind.endsWith("-pages")).map(row => ({ ...row, get rows() { throw Error("unused page rows were indexed"); } }));
   assert.deepEqual(analyticsView(range, [], [...fixtures.filter(row => row.kind.endsWith("-site")), ...unreadPages]), analyticsView(range, [], fixtures));
+});
+
+test("one bounded overview traffic read combines both windows and module totals without sending raw URLs", async () => {
+  const previous = { start: "2025-10-04", end: "2025-10-05" };
+  try {
+    data = [...fixtures, { ...fixtures[0], date: previous.start, sessions: 82 }, { ...fixtures[2], date: previous.start }, { ...fixtures[0], date: "2026-02-04", sessions: 999 }];
+    const view = await read(`&view=overview-traffic&compareStart=${previous.start}&compareEnd=${previous.end}`);
+    assert.deepEqual(query.where.OR, [
+      { date: { gte: range.start, lte: range.end }, kind: { in: ["ga4-site", "ga4-pages"] } },
+      { date: { gte: previous.start, lte: previous.end }, kind: { in: ["ga4-site"] } },
+    ]);
+    assert.deepEqual(view.current.map(day => day.sessions), [0, null]);
+    assert.deepEqual(view.previous.map(day => day.sessions), [82, null]);
+    assert.deepEqual(view.modules, { sessions: { models: 500500 }, complete: false });
+    assert.doesNotMatch(JSON.stringify(view), /example-|landingDaily|pages/);
+    const legacy = await read("&pages=all&landingDaily=1");
+    assert.ok(Buffer.byteLength(JSON.stringify(view)) < Buffer.byteLength(JSON.stringify(legacy)) / 100);
+    const module = await read(`&view=overview-traffic&module=models&compareStart=${previous.start}&compareEnd=${previous.end}`);
+    assert.deepEqual(query.where.OR.map(row => row.kind.in), [["ga4-pages", "gsc-pages"], ["ga4-pages", "gsc-pages"]]);
+    assert.equal(module.current[0].sessions, 500500);
+    assert.equal(module.current[0].clicks, 2);
+    assert.equal(module.previous[0].clicks, null);
+    assert.equal(module.previous[0].sessions, 500500);
+  } finally { data = fixtures; }
+});
+
+test("overview mode rejects incompatible parameters and incomplete comparisons before reading source records", async () => {
+  for (const extra of ["&view=overview-traffic&compareStart=2026-10-01", "&view=overview-traffic&pages=all", "&view=overview-traffic&site=rackrate.org", "&view=overview-traffic&country=JP&country=US", "&view=overview-traffic&module=unavailable"]) {
+    query = undefined;
+    assert.equal((await GET(request(extra))).status, 400);
+    assert.equal(query, undefined);
+  }
 });
 
 test("local summary preview filters by kind before opening and validating page archive files", async () => {

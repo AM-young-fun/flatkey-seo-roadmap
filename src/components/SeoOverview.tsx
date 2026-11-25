@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
 import type { GrowthWorkspace } from "@/lib/growth-types";
 import { PageHeader } from "./PageHeader";
-import { OverviewTrafficCharts, useOverviewTrafficReads } from "./OverviewTrafficCharts";
+import { OverviewTrafficCharts, useOverviewTrafficRead } from "./OverviewTrafficCharts";
 import { SeoDateControl, useSeoRange } from "./SeoDateControl";
 import { RankingTrend } from "./RankingTrend";
 import { GrowthRankingCoverage, GrowthTopicNetwork } from "./GrowthTopicWorkspace";
@@ -25,9 +25,8 @@ export function SeoOverview() {
   const strategy = useOverviewRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=dashboard");
   const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=dashboard", 90_000);
   const conversion = useOverviewRead<OverviewConversion>("/api/seo/growth/conversion");
-  const traffic = useOverviewTrafficReads(context.range, context.comparison, module, country);
-  const loading = [traffic.current, traffic.previous, traffic.landing]
-    .some(read => read.loading && !read.retrying);
+  const traffic = useOverviewTrafficRead(context.range, context.comparison, module, country, context.ready);
+  const loading = !traffic.hasSettled && (!context.ready || traffic.loading);
   useEffect(() => {
     const read = () => setModule(overviewModule(new URLSearchParams(location.search).get("module")));
     read(); addEventListener("popstate", read);
@@ -39,7 +38,9 @@ export function SeoOverview() {
     history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const moduleLabel = OVERVIEW_PAGE_MODULES.find(([key]) => key === module)![1];
+  const shown = traffic.data ?? traffic.previousData;
+  const trafficModule = shown?.module ?? module, trafficCountry = shown?.country ?? country;
+  const moduleLabel = OVERVIEW_PAGE_MODULES.find(([key]) => key === trafficModule)![1];
   return <main className={workspace.shell}>
     <PageHeader active="overview" />
     <div className={styles.content} aria-busy={loading} inert={loading}>
@@ -49,15 +50,15 @@ export function SeoOverview() {
       <OverviewGrowthCharts strategy={strategy} growth={growth} conversion={conversion} />
       <GrowthRankingCoverage read={growth} />
       <div className={styles.trends}>
-        <section className={styles.traffic} aria-labelledby="overview-traffic-title">
+        <section className={styles.traffic} aria-labelledby="overview-traffic-title" aria-busy={traffic.pending || undefined}>
           <div className={styles.trafficHeading}>
             <div>
-              <h2 id="overview-traffic-title">Flatkey {module === "all" ? "全站" : moduleLabel}自然搜索</h2>
-              <p>{country === "all" ? "全部国家" : REGIONS[country].label}</p>
+              <h2 id="overview-traffic-title">Flatkey {trafficModule === "all" ? "全站" : moduleLabel}自然搜索</h2>
+              <p>{trafficCountry === "all" ? "全部国家" : REGIONS[trafficCountry].label}</p>
             </div>
-            <SeoDateControl value={context} />
+            <SeoDateControl value={context} pending={traffic.hasSettled && traffic.pending && !traffic.retrying} />
           </div>
-          <OverviewTrafficCharts range={context.range} comparison={context.comparison} module={module} reads={traffic} />
+          <OverviewTrafficCharts read={traffic} />
         </section>
         <div className={styles.rankings}>
           <RankingTrend region={country} module={module} historicalScope chartsOnly />

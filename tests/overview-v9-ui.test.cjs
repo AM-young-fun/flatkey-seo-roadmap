@@ -5,13 +5,27 @@ const React = require("react"), { renderToStaticMarkup: render } = require("reac
 const fixtures = new Map();
 const overviewReads = new Map();
 const overviewRange = { start: "2026-11-17", end: "2026-11-23" };
+let rangeReady = true;
+let activeRange = overviewRange;
+let listQuery = "";
+let listRead;
+let lastTrafficUrl;
 Module._load = function(name, parent, ...rest) {
-  if (name === "./AppLink" || name === "@/components/AppLink") return { __esModule:true, default:({ children,...props }) => React.createElement("a",props,children) };
+  if (name === "./AppLink" || name === "@/components/AppLink") return { __esModule:true, default:({ children,prefetch,...props }) => React.createElement("a",props,children) };
   if (name === "./PageHeader" || name === "./UiSelect" || name === "./FeedbackButton") return { PageHeader:()=>React.createElement("nav",{ "aria-label":"主导航" }), UiSelect:()=>null, FeedbackButton:()=>null };
-  if (name === "./SeoDateControl") return { useSeoRange:()=>({ range:overviewRange, comparison:null }), SeoDateControl:()=>null };
+  if (name === "./SeoDateControl") return { useSeoRange:()=>({ range:activeRange, comparison:null, ready:rangeReady }),
+    SeoDateControl:({pending})=>React.createElement("button",{"aria-label":"选择时间", "aria-busy":pending||undefined}),
+    useSeoListDateRange:()=>({ preset:listQuery.includes("range=custom") ? "custom" : "week", range:activeRange }),
+    SeoListDateControl:({pending})=>React.createElement("button",{"aria-label":"筛选日期", "aria-busy":pending||undefined}) };
+  if (name === "next/navigation") return { useSearchParams:()=>new URLSearchParams(listQuery) };
+  if (name === "next/link") return { useLinkStatus:()=>({pending:false}) };
+  if (name === "./useFeedbackRouter") return { useFeedbackRouter:()=>({}) };
   if (name === "./useSeoCountry") return { useSeoCountry:()=>["all"] };
   if (name === "./RankingTrend") return { RankingTrend:()=>null };
-  if (name === "./useSeoAnalytics") return { useSeoRead:url => ({ data:fixtures.get(url) ?? null }), useOverviewRead:url => ({ data:null, error:null, loading:false, retry() {}, ...overviewReads.get(url) }), analyticsUrl:(range,urls,country) => `/api/seo/analytics?start=${range.start}&end=${range.end}${country!=="all"?`&country=${country}`:""}` };
+  if (name === "./useSeoAnalytics") return { useSeoRead:(url,_options) => {
+    if (parent?.filename.endsWith("/OverviewTrafficCharts.tsx")) lastTrafficUrl=url;
+    return { data:fixtures.get(url) ?? null, error:null, loading:false, retry() {}, ...(url?.includes("workList=1") ? listRead : overviewReads.get(url)) };
+  }, useOverviewRead:url => ({ data:null, error:null, loading:false, retry() {}, ...overviewReads.get(url) }), numberText:String, shanghaiStamp:String, analyticsUrl:(range,urls,country) => `/api/seo/analytics?start=${range.start}&end=${range.end}${country!=="all"?`&country=${country}`:""}` };
   if (name.endsWith(".module.css")) return new Proxy({}, {get:(_,key)=>key === "__esModule"?false:String(key)});
   return originalLoad.call(this,name.startsWith("@/")?path.join(root,"src",name.slice(2)):name,parent,...rest);
 };
@@ -21,6 +35,7 @@ const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
 const { ConversionCharts, OverviewGoalCharts, TopicComparison } = require("../src/components/OverviewGrowthCharts.tsx");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
+const { SeoWorkWorkspace } = require("../src/components/SeoWorkWorkspace.tsx");
 const { PageHeader } = require("../src/components/PageHeader.tsx");
 const { PreviewModeProvider } = require("../src/components/PreviewMode.tsx");
 
@@ -37,7 +52,7 @@ test("credentials follow schedule in the main menu and logout is an independent 
 
 test("only the traffic read gates the page and growth failures have independent retry",()=> {
   const strategyUrl="/api/seo/growth/strategy?view=dashboard";
-  const trafficUrl=`/api/seo/analytics?start=${overviewRange.start}&end=${overviewRange.end}`;
+  const trafficUrl=`/api/seo/analytics?view=overview-traffic&start=${overviewRange.start}&end=${overviewRange.end}`;
   overviewReads.set(strategyUrl,{loading:true});
   try {
     const rankingPending=render(React.createElement(SeoOverview));
@@ -55,6 +70,38 @@ test("only the traffic read gates the page and growth failures have independent 
   } finally {
     overviewReads.clear();
   }
+});
+
+test("the overview date refresh preserves the prior traffic view without making the rest of the page inert",()=>{
+  rangeReady=false;
+  try {
+    const initial=render(React.createElement(SeoOverview));
+    assert.equal(lastTrafficUrl,null);
+    assert.match(initial,/data-page-loading="local"/);
+    rangeReady=true;
+    activeRange={start:"2026-11-19",end:"2026-11-20"};
+    const previousData={range:overviewRange, comparison:null, module:"all", country:"all", current:[{date:"2026-11-23",sessions:251}],previous:null,modules:{sessions:{blog:251},complete:true}};
+    const currentUrl=`/api/seo/analytics?view=overview-traffic&start=${activeRange.start}&end=${activeRange.end}`;
+    overviewReads.set(currentUrl,{previousData,loading:true,pending:true,hasSettled:true});
+    const pending=render(React.createElement(SeoOverview));
+    assert.doesNotMatch(pending,/data-page-loading|\sinert=/);
+    assert.match(pending,/aria-label="选择时间" aria-busy="true"/);
+    assert.match(pending,/本期 2026-11-17—2026-11-23/);
+    assert.doesNotMatch(pending,/本期 2026-11-19—2026-11-20/);
+    assert.equal(lastTrafficUrl,currentUrl);
+  } finally {rangeReady=true;activeRange=overviewRange;overviewReads.clear();}
+});
+
+test("work date filtering keeps the filters interactive and only retains stale rows while the list loads",()=>{
+  listQuery="range=custom";
+  listRead={hasSettled:true,pending:true,loading:true,previousUrl:"/api/seo/workflow?range=week",previousData:{storage:"database",pagination:{page:1,pageSize:10,total:1,pageCount:1},tasks:[{id:"original-task",title:"原任务标题",siteDomain:"flatkey.ai",displayStatus:"scheduled",owner:"Codex"}]}};
+  try {
+    const html=render(React.createElement(SeoWorkWorkspace));
+    assert.match(html,/aria-label="筛选日期" aria-busy="true"/);
+    assert.match(html,/<div inert="">[\s\S]*?原任务标题/);
+    assert.doesNotMatch(html,/data-page-loading|正在读取工作任务/);
+    assert.match(html,/每页 10 项/);
+  } finally {listQuery="";listRead=undefined;}
 });
 test("a duplicated page with ambiguous topics is not plotted as an invented topic contribution",()=>{
  const driver={title:'GPU page',url:'https://flatkey.ai/blog/gpu',module:'blog',topicId:'gpu',country:'US',language:'en',metric:'sessions',source:'GA4',previous:10,current:20,window:{start:'2026-11-12',end:'2026-11-18',previousStart:'2026-11-05',previousEnd:'2026-11-11',timezone:'America/Los_Angeles'}};

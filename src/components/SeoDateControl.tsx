@@ -1,5 +1,6 @@
 "use client";
 import { UiSelect } from "./UiSelect";
+import { LoaderCircle } from "lucide-react";
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -11,6 +12,7 @@ export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
   const today = propertyToday(timeZone);
   const [range, setRange] = useState(() => initialRange(today));
   const [comparison, setComparison] = useState<DateRange | null>(() => previousRange(initialRange(today)));
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     const read = () => {
       const params = new URLSearchParams(location.search), fallback = initialRange(today);
@@ -19,6 +21,7 @@ export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
       const compare = { start: params.get("compareStart") ?? "", end: params.get("compareEnd") ?? "" };
       setRange(next);
       setComparison(params.get("compare") === "none" ? null : validRange(compare) ? compare : previousRange(next));
+      setReady(true);
     };
     read(); addEventListener("popstate", read);
     return () => removeEventListener("popstate", read);
@@ -29,13 +32,14 @@ export function useSeoRange(timeZone = SEO_REPORT_TIME_ZONE) {
     params.delete("compareStart"); params.delete("compareEnd"); params.delete("compare");
     if (compare) { params.set("compareStart", compare.start); params.set("compareEnd", compare.end); }
     else params.set("compare", "none");
-    history.pushState(null, "", location.pathname + "?" + params);
+    const url = location.pathname + "?" + params + location.hash;
+    if (url !== location.pathname + location.search + location.hash) history.pushState(null, "", url);
     setRange(next); setComparison(compare); dispatchEvent(new PopStateEvent("popstate"));
   };
-  return { range, comparison, update, today, timeZone };
+  return { range, comparison, update, today, timeZone, ready };
 }
 
-export function SeoDateControl({ value, showComparison = true }: { value: ReturnType<typeof useSeoRange>; showComparison?: boolean }) {
+export function SeoDateControl({ value, showComparison = true, pending = false }: { value: ReturnType<typeof useSeoRange>; showComparison?: boolean; pending?: boolean }) {
   const { range, comparison, update, today, timeZone } = value;
   const [open, setOpen] = useState(false), root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const [start, setStart] = useState(range.start), [end, setEnd] = useState(range.end);
@@ -66,7 +70,7 @@ export function SeoDateControl({ value, showComparison = true }: { value: Return
     const compare = !showComparison ? null : mode === "previous" ? previousRange(next) : mode === "year" ? yearAgoRange(next)
       : mode === "custom" ? { start: compareStart, end: compareEnd } : null;
     if (compare && !validRange(compare)) { setError("请选择有效对比日期"); return; }
-    if (next.end >= today || compare && compare.end >= today) { setError("请选择已结束的日期；实时流量可从工具打开。"); return; }
+    if (next.end >= today || compare && compare.end >= today) { setError("请选择已结束的日期。"); return; }
     if ([next, ...(compare ? [compare] : [])].some(r => Date.parse(r.end) - Date.parse(r.start) > 365 * 86400000)) { setError("一次最多查询 366 天，请缩短日期范围。"); return; }
     update(next, compare); setOpen(false); trigger.current?.focus();
   };
@@ -75,7 +79,7 @@ export function SeoDateControl({ value, showComparison = true }: { value: Return
   const days = (Date.parse(range.end) - Date.parse(range.start)) / 86400000 + 1;
   const recentLabel = range.end === latest && [7,30,90].includes(days) ? `近 ${days} 天 · ` : "";
   return <div className={styles.root} ref={root}>
-    <button ref={trigger} type="button" className={styles.trigger} aria-label="选择时间" aria-expanded={open} onClick={() => setOpen(!open)}>{recentLabel}{range.start} — {range.end}<span aria-hidden="true">⌄</span></button>
+    <button ref={trigger} type="button" className={styles.trigger} aria-label="选择时间" aria-busy={pending || undefined} aria-expanded={open} onClick={() => setOpen(!open)}>{recentLabel}{range.start} — {range.end}{pending ? <LoaderCircle size={14} className="feedback-spinner" aria-hidden="true" /> : <span aria-hidden="true">⌄</span>}</button>
     {open ? <section className={styles.menu} aria-label="时间选择">
       <div className={styles.quick}>{[7,30,90].map(days => <button type="button" key={days} onClick={() => recent(days)}>近 {days} 天</button>)}
         {([['yesterday','昨天'],['week','本周'],['lastWeek','上周'],['month','本月']] as const).map(([key,label]) => <button type="button" key={key} onClick={() => { const next = closedPreset(key, today); if (next) apply(next); else setError("该周期尚无已结束日"); }}>{label}</button>)}
@@ -111,7 +115,7 @@ export function useSeoListDateRange(week: "calendar" | "work" = "calendar") {
   return { preset, range, today, apply } as const;
 }
 
-export function SeoListDateControl({ value }: { value: ReturnType<typeof useSeoListDateRange> }) {
+export function SeoListDateControl({ value, pending = false }: { value: ReturnType<typeof useSeoListDateRange>; pending?: boolean }) {
   const { preset, range, today, apply } = value;
   const [open, setOpen] = useState(false);
   const [start, setStart] = useState(""), [end, setEnd] = useState("");
@@ -132,10 +136,10 @@ export function SeoListDateControl({ value }: { value: ReturnType<typeof useSeoL
   };
   const label = preset === "custom" && range ? range.start + " — " + range.end : listPresets[preset === "custom" ? "all" : preset];
   return <div className={styles.root} ref={root}>
-    <button ref={trigger} type="button" className={styles.trigger} aria-label="筛选日期" aria-expanded={open} onClick={() => {
+    <button ref={trigger} type="button" className={styles.trigger} aria-label="筛选日期" aria-busy={pending || undefined} aria-expanded={open} onClick={() => {
       if (!open) { setStart(range?.start ?? today); setEnd(range?.end ?? today); setError(""); }
       setOpen(!open);
-    }}>{label}<span aria-hidden="true">⌄</span></button>
+    }}>{label}{pending ? <LoaderCircle size={14} className="feedback-spinner" aria-hidden="true" /> : <span aria-hidden="true">⌄</span>}</button>
     {open ? <form className={styles.menu} aria-label="自定义日期范围" onSubmit={event => {
       event.preventDefault();
       if (!validRange({ start, end })) { setError("请选择有效的起止日期"); return; }
