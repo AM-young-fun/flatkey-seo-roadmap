@@ -3,7 +3,12 @@ const { compareHotspotPriority } = require("./seo-hotspot-priority.cjs");
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
 const open = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
-const isExtra = task => task.capacityClass === "authorized_hotspot_extra";
+const isExtra = task => ["authorized_hotspot_extra", "authorized_weekly_growth_extra"].includes(task.capacityClass);
+const businessWeekEnd = date => {
+  const day = new Date(date + "T00:00:00Z");
+  day.setUTCDate(day.getUTCDate() + (11 - day.getUTCDay()) % 7);
+  return day.toISOString().slice(0, 10);
+};
 // User scope, 2026-11-19: public websites only; analytics configuration is excluded.
 function websiteTaskAllowed(task) {
   if (!task || task.deletedAt || !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(task.siteDomain)) return false;
@@ -55,6 +60,7 @@ function dueTasks(snapshot, scope, now = new Date()) {
     if (!websiteTaskAllowed(task) || !open.has(task.status) || !inScope(task)) return [];
     if (isExtra(task) && timeReservedToday) return [];
     const dueDay = dayFormat.format(new Date(task.dueAt));
+    if (task.capacityClass === "authorized_weekly_growth_extra" && asOf > businessWeekEnd(dueDay)) return [];
     if (Date.parse(task.dueAt) > now.getTime()) return [];
     const failed = ["blocked", "failed"].includes(task.status);
     if (!failed) {

@@ -104,3 +104,12 @@ test("a makeup workday does not bypass future due times, dependencies, approval 
   assert.deepEqual(dueTasks(input, "blog", instant(day)).candidates.map(row => row.task.id), ["allowed"]);
   assert.deepEqual(dueTasks(input, "landing", instant(day)).candidates, []);
 });
+
+test("weekly growth waits behind normal work and the scanner excludes it after its own business week", () => {
+  const boost = task("boost", "2026-11-24", { kind: "optimization", capacityClass: "authorized_weekly_growth_extra" });
+  const routine = task("routine", "2026-11-25", { kind: "optimization" });
+  const future = task("future", "2026-11-25", { dueAt: "2026-11-25T17:00:00+08:00" });
+  assert.deepEqual(dueTasks(snapshot([boost, routine, future]), "optimization", instant("2026-11-25")).candidates.map(row => row.task.id), ["routine"]);
+  assert.deepEqual(dueTasks(snapshot([boost, routine]), "optimization", instant("2026-11-25")).candidates.map(row => row.task.id), ["routine", "boost"]);
+  assert.deepEqual(dueTasks(snapshot([boost, routine]), "optimization", instant("2026-11-27")).candidates.map(row => row.task.id), ["routine"]);
+});

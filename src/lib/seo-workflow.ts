@@ -68,7 +68,8 @@ export const workflowTaskSchema = z.object({
   pageType: z.enum(["blog", "landing", "tool", "comparison", "tutorial", "pricing", "integration", "technical", "other"]),
   keyword: z.string().trim().min(1).max(300).nullable(), keywordId: z.string().trim().min(1).max(160).nullable().default(null), pageUrl: httpsUrl.nullable(),
   workflowContract: z.literal("growth-v1.5").optional(),
-  capacityClass: z.enum(["routine", "authorized_hotspot_extra"]).optional(),
+  capacityClass: z.enum(["routine", "authorized_hotspot_extra", "authorized_weekly_growth_extra"]).optional(),
+  weeklyGrowthRevision: z.number().int().positive().optional(),
   topicId: id.optional(), directionId: id.optional(), experimentId: id.optional(),
   problemKey: z.string().trim().min(12).max(500).optional(),
   researchReview: z.object({

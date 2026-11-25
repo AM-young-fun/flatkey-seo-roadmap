@@ -1,3 +1,4 @@
+import { isSeoExtraCapacity, seoExtraCapacityProblem, WEEKLY_GROWTH_EXTRA } from "../seo-extra-capacity";
 import { indexing404History, indexing404RunPrefix, type Indexing404Response } from "@/lib/seo-indexing-404";
 import { isGrowthTopicPlaceholder } from "@/lib/seo-growth-markets";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -173,21 +174,23 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
       const prior = all.find(row => row.kind === prepared.kind && row.record.id === prepared.record.id)?.record;
       const previousPlan = prepared.kind === "plan" ? prior as WorkflowPlan | undefined : undefined;
       const previouslyCommitted = previousPlan && isExecutableWorkflowPlan(previousPlan.status) ? previousPlan.taskIds : previousPlan?.committedTaskIds ?? [];
-      const extraIds = prepared.kind === "task"
-        ? (prepared.record as WorkflowTask).capacityClass === "authorized_hotspot_extra" && (prior as WorkflowTask | undefined)?.capacityClass !== "authorized_hotspot_extra" ? [prepared.record.id] : []
-        : (prepared.record as WorkflowPlan).taskIds.filter(id => !previouslyCommitted.includes(id) && all.some(row => row.kind === "task" && row.record.id === id && (row.record as WorkflowTask).capacityClass === "authorized_hotspot_extra"));
+      const storedTasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+      const plan = prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined;
+      const task = prepared.kind === "task" ? prepared.record as WorkflowTask : undefined;
+      const extraTasks = task
+        ? isSeoExtraCapacity(task.capacityClass) && task.capacityClass !== (prior as WorkflowTask | undefined)?.capacityClass ? [task] : []
+        : storedTasks.filter(task => plan!.taskIds.includes(task.id) && !previouslyCommitted.includes(task.id) && isSeoExtraCapacity(task.capacityClass));
+      const extraIds = extraTasks.map(task => task.id);
       if (extraIds.length) {
         if (prepared.kind === "task" && all.some(row => row.kind === "plan" &&
           (isExecutableWorkflowPlan(row.record.status) ? (row.record as WorkflowPlan).taskIds : (row.record as WorkflowPlan).committedTaskIds ?? []).includes(prepared.record.id))) {
           throw new WorkflowError("extra_existing_commitment", "已经正式排期的原任务保留原容量分类");
         }
-        if (prepared.kind === "plan" && isExecutableWorkflowPlan(prepared.record.status)) {
-          const plan = prepared.record as WorkflowPlan;
+        if (plan && isExecutableWorkflowPlan(plan.status)) {
           const existingPlans = all.filter(row => row.kind === "plan" && row.record.id !== plan.id).map(row => row.record as WorkflowPlan);
           const before = new Set([...previouslyCommitted,
             ...existingPlans.flatMap(row => isExecutableWorkflowPlan(row.status) ? row.taskIds : row.committedTaskIds ?? [])]);
-          const { hotspotCapacityProblem } = await import("../growth-hotspot-admission");
-          const problem = hotspotCapacityProblem(all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask),
+          const problem = seoExtraCapacityProblem(storedTasks,
             new Set([...before, ...plan.taskIds]), new Set(plan.taskIds.filter(id => !before.has(id))));
           if (problem) throw new WorkflowError("hotspot_capacity_limit", problem);
         }
@@ -195,6 +198,13 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
         // between this check and the normal task/plan CAS write.
         const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
         const leases = await tx.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: clock.now } }, select: { runId: true, status: true, leaseUntil: true } });
+        if (task || plan && isExecutableWorkflowPlan(plan.status)) {
+          const weekly = extraTasks.filter(task => task.capacityClass === WEEKLY_GROWTH_EXTRA);
+          if (weekly.length) {
+            const { assertWeeklyGrowthAdmission } = await import("./growth-weekly-admission");
+            await assertWeeklyGrowthAdmission(tx, weekly, all, plan, clock.now);
+          }
+        }
         const { hotspotLeaseConflict } = await import("../growth-hotspot-admission");
         const conflict = hotspotLeaseConflict(extraIds, all.filter(row => row.kind === "run").map(row => row.record as import("../seo-workflow").WorkflowRun), leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString() })), clock.now);
         if (conflict) throw new WorkflowError("hotspot_in_flight", conflict);

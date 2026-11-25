@@ -1,3 +1,4 @@
+import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import type { WorkflowTask } from "./seo-workflow";
 
 export const ROUTINE_LANGUAGE_START = "2026-11-27";
@@ -26,7 +27,7 @@ export function routineDailyLanguageBudgets(days: readonly { date: string; slots
   });
 }
 
-export const isRoutineKeywordTask = (task: WorkflowTask) => !task.deletedAt && task.capacityClass !== "authorized_hotspot_extra"
+export const isRoutineKeywordTask = (task: WorkflowTask) => !task.deletedAt && !isSeoExtraCapacity(task.capacityClass)
   && Boolean(task.keyword?.trim()) && ["blog", "landing", "optimization", "research", "cluster"].includes(task.kind);
 
 type LanguageProblem = { code: string; message: string };

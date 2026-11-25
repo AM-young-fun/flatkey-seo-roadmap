@@ -26,8 +26,9 @@ function evidenceFile(reference) {
   if (hash(bytes) !== reference.sha256) throw Error("recovery_receipt_hash_changed");
   return bytes;
 }
+const isExtra = task => ["authorized_hotspot_extra", "authorized_weekly_growth_extra"].includes(task?.capacityClass);
 function category(task) {
-  if (task?.capacityClass === "authorized_hotspot_extra") return null;
+  if (isExtra(task)) return null;
   if (task?.workClass === "content_refresh" && ["flatkey.ai", "modelfit.cc"].includes(task.siteDomain) && task.kind === "optimization") return "refresh";
   if (task?.kind === "blog" && task.siteDomain === "flatkey.ai") return "blog";
   if (task?.kind === "blog" && task.siteDomain === "modelfit.cc") return "modelfit_blog";
@@ -48,7 +49,7 @@ function identityMatches(task, row) {
 function guarded(task, policy = manifest) {
   // Extra work and post-publication QA keep their original independent gates.
   return typeof task?.id === "string" && policy.members.some(row => row.taskIdSha256 === hash(task.id))
-    && task.capacityClass !== "authorized_hotspot_extra" && !["published", "verified", "observing"].includes(task.status);
+    && !isExtra(task) && !["published", "verified", "observing"].includes(task.status);
 }
 function dispatchWindow(now, policy = manifest) {
   const [hour, minute] = clockFormat.format(now).split(":").map(Number), current = hour * 60 + minute;
@@ -162,7 +163,7 @@ function createRecoveryGuard(projectRoot, policy = manifest) {
     return { ...result, candidates, ...(excluded.length ? { recoveryExcluded: excluded } : {}) };
   }
   function reserve(task, snapshot, claim, now = new Date()) {
-    if (task.capacityClass === "authorized_hotspot_extra" || !category(task) || ["published", "verified", "observing"].includes(task.status)) return null;
+    if (isExtra(task) || !category(task) || ["published", "verified", "observing"].includes(task.status)) return null;
     // Unlisted ordinary claims are observed for shared usage only. They retain
     // all original eligibility; this batch never puts them under HOLD/windows.
     if (!isGuarded(task)) {

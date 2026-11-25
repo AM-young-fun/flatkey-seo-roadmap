@@ -1,3 +1,4 @@
+import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import type { WorkflowPlan, WorkflowTask } from "./seo-workflow";
 import type { WorkflowStoredRow } from "./seo-workflow-state";
 import { isExecutableWorkflowPlan } from "./seo-workflow";
@@ -10,7 +11,7 @@ type Problem = { code: string; message: string };
 const localDay = (at: string | Date) => new Date(at).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
 const executable = (plan: WorkflowPlan) => isExecutableWorkflowPlan(plan.status) || plan.committedTaskIds !== undefined;
 const day = (task: WorkflowTask) => localDay(task.dueAt);
-const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && task.capacityClass !== "authorized_hotspot_extra";
+const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
 const baseTargets = (targets: WorkflowPlan["targets"]) => Object.fromEntries(Object.entries(targets).filter(([key]) => !["maintenanceVersion", "contentRefreshPages", "maintenanceRange"].includes(key)));
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)])) : value;
 const same = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));

@@ -1,3 +1,4 @@
+import { isSeoExtraCapacity, WEEKLY_GROWTH_EXTRA } from "./seo-extra-capacity";
 import { GROWTH_EXECUTION_SITES, GROWTH_BLOG_SITES } from "./seo-growth-markets";
 import { assertGrowthPlan } from "./seo-growth-plan";
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
@@ -76,7 +77,14 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   const changingExecution = !previous || task.status !== previous.status;
   if (changingExecution && (task.channel === "product" || task.channel !== "github" && !GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain))) reject("task_scope_excluded", "该站点或产品渠道仅保留历史，不进入SEO执行队列");
   if (changingExecution && task.kind === "blog" && !GROWTH_BLOG_SITES.some(site => site === task.siteDomain)) reject("blog_scope_excluded", "博客制作仅限 Flatkey 和 ModelFit");
-  if (task.capacityClass === "authorized_hotspot_extra" && previous?.capacityClass !== task.capacityClass && actor !== "human") reject("human_extra_work_required", "额外热点须由真实用户登记授权，不能由采集器扩大常规容量");
+  if (isSeoExtraCapacity(task.capacityClass) && previous?.capacityClass !== task.capacityClass && actor !== "human") reject("human_extra_work_required", "额外工作须由真实用户登记授权，不能由采集器扩大常规容量");
+  if (previous?.capacityClass === WEEKLY_GROWTH_EXTRA && (task.capacityClass !== previous.capacityClass || task.weeklyGrowthRevision !== previous.weeklyGrowthRevision || task.directionId !== previous.directionId || task.topicId !== previous.topicId || task.dueAt !== previous.dueAt || task.pageUrl !== previous.pageUrl || task.country !== previous.country || task.language !== previous.language || task.keywordId !== previous.keywordId || task.keyword !== previous.keyword)) reject("weekly_growth_identity_immutable", "保留上涨加推的原任务、方向版本、交付日和原页身份");
+  if (task.capacityClass === WEEKLY_GROWTH_EXTRA) {
+    if (task.kind !== "optimization" || !task.pageUrl || !task.weeklyGrowthRevision || !task.directionId || !task.experimentId || !task.topicId || task.channel === "github" || task.channel === "product" || task.language === "ru") reject("weekly_growth_scope", "上涨加推须关联已有原页、原正式话题和已批准的方向版本");
+    if (previous?.capacityClass !== WEEKLY_GROWTH_EXTRA && (previous?.status !== "ready" || task.status !== "ready")) reject("weekly_growth_original_required", "上涨加推仅可从完成研究的可执行原优化任务登记");
+    if (changingExecution && task.status !== "ready" && productionStates.has(task.status)
+      && !all.some(row => row.kind === "plan" && executablePlanIncludesTask(row.record as WorkflowPlan, task))) reject("weekly_growth_plan_required", "上涨加推须在原计划追加并读回后执行");
+  } else if (task.weeklyGrowthRevision !== undefined) reject("weekly_growth_identity_invalid", "方向版本须关联上涨加推容量");
   if (previous && previous.kind !== task.kind) reject("task_kind_immutable", "原任务类型保持不变，研究与制作按依赖关联相应原任务，不转换类型绕过资格");
   if (previous?.workClass && previous.workClass !== task.workClass || previous && !previous.workClass && task.workClass && !["planned", "researching"].includes(previous.status)) reject("maintenance_class_immutable", "保留原维护分类，不能将已排或在途交付改类重复占用额度");
   if (previous?.maintenance && !same(previous.maintenance, task.maintenance) && ["published", "verified", "observing"].includes(previous.status)) reject("maintenance_plan_immutable", "已上线维护计划和基线不可覆盖");
@@ -227,7 +235,7 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   if (!plan.targets.blogLanguages) reject("plan_language_targets_required", "正式计划须明确四国源文额度");
   // Legacy plans keep their original targets. Hotspots still pass every task
   // qualification above, but do not consume or fill ordinary quota/gaps.
-  const ready = tasks.filter((task): task is WorkflowTask => Boolean(task && task.capacityClass !== "authorized_hotspot_extra" && !["planned", "researching", "blocked", "failed"].includes(task.status)));
+  const ready = tasks.filter((task): task is WorkflowTask => Boolean(task && !isSeoExtraCapacity(task.capacityClass) && !["planned", "researching", "blocked", "failed"].includes(task.status)));
   const optimized = ready.filter(task => task.kind === "optimization" && task.workClass !== "content_refresh" && task.pageUrl && (daily ? task.siteDomain === "flatkey.ai" : !focused || automaticTaskPolicy(task) === "auto_blog"));
   if (focused) {
     const perDay = new Map<string, Set<string>>();
@@ -541,6 +549,8 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
     // The server selects the new contract for new content; clients cannot opt out
     // by dropping the field. Original persisted records retain their old contract.
     if ((contentKinds.has(task.kind) || task.workClass) && (!oldTask && now >= new Date("2026-11-23T00:00:00Z") || oldTask?.workflowContract === "growth-v1.5")) task.workflowContract = "growth-v1.5";
+    if (task.capacityClass === undefined && oldTask?.capacityClass === WEEKLY_GROWTH_EXTRA) task.capacityClass = oldTask.capacityClass;
+    if (task.weeklyGrowthRevision === undefined && oldTask?.weeklyGrowthRevision) task.weeklyGrowthRevision = oldTask.weeklyGrowthRevision;
     if (task.workClass === undefined && oldTask?.workClass) task.workClass = oldTask.workClass;
     if (task.maintenance === undefined && oldTask?.maintenance) task.maintenance = oldTask.maintenance;
     // Older executors may omit the display-only Chinese brief on progress updates.
@@ -694,6 +704,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     if (task.kind === "blog" && (task.id.startsWith("seo-hotspot:") || task.capacityClass === "authorized_hotspot_extra")
       && ["planned", "researching", "ready"].includes(task.status)
       && (task.status !== "ready" || task.capacityClass !== "authorized_hotspot_extra" || !plans.some(plan => executablePlanIncludesTask(plan, task)))) return false;
+    if (task.capacityClass === WEEKLY_GROWTH_EXTRA && !plans.some(plan => executablePlanIncludesTask(plan, task))) return false;
     const version = JSON.stringify([task.id, task.contentVersion]);
     return pendingRollbacks.has(task.id) || tasksWithPendingPostReview.has(version) ||
       !["verified", "observing"].includes(task.status) && !verifiedTasks.has(version);
