@@ -7,7 +7,7 @@ import { growthObservationComparisonInputSchema, growthObservationComparisonStor
 import { growthObservationComparisonText } from "./growth-observation-display";
 import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 import { quarterPlanningInputSchema, quarterPlanningStoredSchema } from "./growth-quarter-planning";
-import { quarterCalendarProblem, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
+import { hasQuarterDelivery, quarterCalendarProblem, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
 
 export const GROWTH_STRATEGY_KIND = "growth-strategy";
 export const GROWTH_QUARTER_ID = "2026-close";
@@ -201,6 +201,9 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     next.quarterPlanning = { ...draft, approval: { actor: "human", approvedAt: now.toISOString(), hash: command.hash, reason: command.reason } };
     if (draft.plan.version === QUARTER_NEW_WORD_VERSION) {
       if (state.baseline?.planHash) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
+      if (draft.plan.calendar?.some(row => !hasQuarterDelivery(row))) {
+        throw new GrowthStrategyError("quarter_delivery_pending", "逐日研究日历已保存；请完成意图归并和制作产能校验后再启用本版季度", 422);
+      }
       const targets = nextQuarterTargets(draft.plan, workspace, now, context);
       if (state.baseline) next.baselineHistory = [...(state.baselineHistory ?? []), state.baseline];
       next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets, reason: command.reason, planHash: command.hash };

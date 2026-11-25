@@ -12,13 +12,9 @@ const otherMarkets = new Set(["BR", "FR", "DE", "VN", "ID"]);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const isWorkday = (date: string) => isSeoWorkday(new Date(date + "T12:00:00+08:00"));
 
-export const quarterCalendarRowSchema = z.object({
+const quarterResearchFields = {
   targetId: growthLogicalTargetIdSchema,
-  intentId: z.string().trim().min(1).max(200),
-  primary: z.boolean(),
-  kind: z.enum(["blog", "cluster_landing"]),
   researchDate: z.iso.date(),
-  deliveryDate: z.iso.date(),
   ahrefs: z.object({
     keyword: z.string().min(1).max(2000),
     country: z.enum(["US", "JP", "ES", "SG", "BR", "FR", "DE", "VN", "ID"]),
@@ -29,10 +25,23 @@ export const quarterCalendarRowSchema = z.object({
     observedAt: z.iso.datetime({ offset: true }),
     volume: z.number().int().min(10),
   }).strict(),
+};
+const deliveryRowSchema = z.object({
+  ...quarterResearchFields,
+  intentId: z.string().trim().min(1).max(200),
+  primary: z.boolean(),
+  kind: z.enum(["blog", "cluster_landing"]),
+  deliveryDate: z.iso.date(),
 }).strict();
+export const quarterCalendarRowSchema = z.union([deliveryRowSchema, z.object({
+  ...quarterResearchFields,
+  stage: z.literal("research_only"),
+}).strict()]);
 type CalendarRow = z.infer<typeof quarterCalendarRowSchema>;
+type DeliveryRow = z.infer<typeof deliveryRowSchema>;
+export const hasQuarterDelivery = (row: CalendarRow): row is DeliveryRow => "deliveryDate" in row;
 type CalendarTarget = Pick<GrowthTarget, "id" | "site" | "topicId" | "keyword" | "country" | "language">;
-type Slot = { site: string; kind: CalendarRow["kind"]; deliveryDate: string };
+type Slot = { site: string; kind: DeliveryRow["kind"]; deliveryDate: string };
 
 export function quarterCalendarProblem(calendar: CalendarRow[], targets: CalendarTarget[], now: Date, commitments: Slot[] = []) {
   const byId = new Map(targets.map(row => [row.id, row]));
@@ -47,14 +56,15 @@ export function quarterCalendarProblem(calendar: CalendarRow[], targets: Calenda
     const sourceRow = row.ahrefs.sourceSha256 + ":" + row.ahrefs.sourceRow;
     if (sourceRows.has(sourceRow)) return "同一Ahrefs原始证据行不可复用给不同季度词";
     sourceRows.add(sourceRow);
-    if (row.kind === "blog" ? !["flatkey.ai", "modelfit.cc"].includes(target.site) : !["rackrate.org", "modelfit.cc"].includes(target.site)) return "制作类型超出原站点权限";
-    if (row.kind === "blog" && target.site === "modelfit.cc" && target.country !== "US") return "ModelFit 源博客仅安排美国英语原词";
     const country = row.ahrefs.country;
     const group = otherMarkets.has(country) ? "other" : country as Exclude<keyof typeof shares, "other">;
     shares[group]++;
-    const key = JSON.stringify([target.site, target.topicId, target.country, row.kind, row.researchDate, row.deliveryDate]);
+    if (!hasQuarterDelivery(row)) continue;
+    if (row.kind === "blog" ? !["flatkey.ai", "modelfit.cc"].includes(target.site) : !["rackrate.org", "modelfit.cc"].includes(target.site)) return "制作类型超出原站点权限";
+    if (row.kind === "blog" && target.site === "modelfit.cc" && target.country !== "US") return "ModelFit 源博客仅安排美国英语原词";
+    const key = JSON.stringify([target.site, target.topicId, target.country, row.kind, row.deliveryDate]);
     const intent = intents.get(row.intentId) ?? { key, primaries: 0, slot: { site: target.site, kind: row.kind, deliveryDate: row.deliveryDate } };
-    if (intent.key !== key) return "同意图工作包须使用同站、同话题、同市场、同制作类型和同一研究及交付日";
+    if (intent.key !== key) return "同意图工作包须使用同站、同话题、同市场、同制作类型和同一交付日";
     intent.primaries += Number(row.primary);
     intents.set(row.intentId, intent);
   }
@@ -79,6 +89,6 @@ export function quarterCalendarProblem(calendar: CalendarRow[], targets: Calenda
 }
 
 export function quarterCalendarDatesValid(calendar: CalendarRow[], start: string, end: string) {
-  return calendar.every(row => row.researchDate >= start && row.researchDate <= row.deliveryDate && row.deliveryDate <= end
-    && isWorkday(row.researchDate) && isWorkday(row.deliveryDate));
+  return calendar.every(row => row.researchDate >= start && row.researchDate <= end && isWorkday(row.researchDate)
+    && (!hasQuarterDelivery(row) || row.researchDate <= row.deliveryDate && row.deliveryDate <= end && isWorkday(row.deliveryDate)));
 }

@@ -2,7 +2,7 @@ import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { growthResolvedIdentity, type GrowthStrategy } from "./growth-strategy";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowPublication, type WorkflowTask } from "./seo-workflow";
 import type { WorkflowStoredRow } from "./seo-workflow-state";
-import { QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
+import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
 
 const word = (value: string | null) => (value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 const content = (task: WorkflowTask) => ["blog", "landing", "cluster"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
@@ -46,7 +46,7 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
     || !quarter || !modern && quarter.plan.version !== "quarter-planning-v2" || quarter.plan.targetIds.length !== count || quarter.plan.targetIds.some(id => !frozen.has(id))) {
     return [`季度${count}词尚未核定并冻结；常规新博客和页面须沿有效季度成员和原排期进入制作`];
   }
-  const primaryCalendar = new Map(quarter.plan.calendar?.filter(row => row.primary).map(row => [row.targetId, row]));
+  const primaryCalendar = new Map(quarter.plan.calendar?.filter(hasQuarterDelivery).filter(row => row.primary).map(row => [row.targetId, row]));
   const beijing = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
   return fresh.flatMap(task => targets.some(target => {
     const identity = growthResolvedIdentity(strategy, target);

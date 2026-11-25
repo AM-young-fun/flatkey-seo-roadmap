@@ -11,7 +11,7 @@ import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
 import { QuarterMembershipReview, QuarterResearchImport } from "./QuarterMembershipReview";
 import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
 import { reportDay } from "@/lib/seo-report-time.cjs";
-import { QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "@/lib/growth-quarter-calendar";
+import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "@/lib/growth-quarter-calendar";
 
 
 export function GrowthReportSummary({ snapshot, current = false, showDirections = !current, children }: { snapshot: GrowthReportSnapshot; current?: boolean; showDirections?: boolean; children?: ReactNode }) {
@@ -57,22 +57,23 @@ type StrategyView = { state: GrowthStrategy; sourceVersion: string; formalTarget
 type QuarterCalendar = NonNullable<NonNullable<GrowthStrategy["quarterPlanning"]>["plan"]["calendar"]>;
 
 function QuarterCalendarByDay({ calendar }: { calendar: QuarterCalendar }) {
-  const dates = [...new Set(calendar.map(row => row.deliveryDate))].sort();
+  const dates = [...new Set(calendar.map(row => row.researchDate))].sort();
   const [chosenDate, chooseDate] = useState(dates[0]);
   const [page, setPage] = useState(0);
   const date = dates.includes(chosenDate) ? chosenDate : dates[0];
-  const rows = calendar.filter(row => row.deliveryDate === date);
+  const rows = calendar.filter(row => row.researchDate === date);
   const pages = Math.max(1, Math.ceil(rows.length / 10));
   const current = Math.min(page, pages - 1);
   return <details>
-    <summary>查看每日季度词与交付</summary>
-    <label>交付日 <select value={date} onChange={event => { chooseDate(event.target.value); setPage(0); }}>{dates.map(day => <option key={day}>{day}</option>)}</select></label>
-    <p>{rows.length} 个关键词 · {rows.filter(row => row.primary).length} 个页面工作包</p>
+    <summary>查看每日季度关键词</summary>
+    <label>研究日 <select value={date} onChange={event => { chooseDate(event.target.value); setPage(0); }}>{dates.map(day => <option key={day}>{day}</option>)}</select></label>
+    <p>{rows.length} 个关键词 · {rows.filter(row => !hasQuarterDelivery(row)).length} 个词待研究确认交付</p>
     <div className={styles.scroll}><table>
-      <thead><tr><th>关键词</th><th>市场</th><th>研究日</th><th>制作角色</th></tr></thead>
+      <thead><tr><th>关键词</th><th>市场</th><th>交付日</th><th>制作角色</th></tr></thead>
       <tbody>{rows.slice(current * 10, (current + 1) * 10).map(row => <tr key={row.targetId}>
         <td>{row.ahrefs.keyword}</td><td>{GROWTH_COUNTRY_LABELS[row.ahrefs.country]}</td>
-        <td>{row.researchDate}</td><td>{row.primary ? "主词" : "共用页面"}</td>
+        <td>{hasQuarterDelivery(row) ? row.deliveryDate : "待排"}</td>
+        <td>{hasQuarterDelivery(row) ? row.primary ? "主词" : "共用页面" : "待研究"}</td>
       </tr>)}</tbody>
     </table></div>
     {pages > 1 ? <div><button type="button" disabled={current === 0} onClick={() => setPage(current - 1)}>上一页</button> {current + 1} / {pages} <button type="button" disabled={current + 1 === pages} onClick={() => setPage(current + 1)}>下一页</button></div> : null}
@@ -124,7 +125,8 @@ export function GrowthQuarterReview() {
   const nextQuarter = quarter?.plan.version === QUARTER_NEW_WORD_VERSION;
   const selectedIds = new Set(quarter?.plan.targetIds);
   const selected = view.formalTargets.filter(row => selectedIds.has(row.id));
-  const canFreeze = Boolean(quarter && quarter.plan.version !== "quarter-planning-v1" && quarter.plan.sourceVersion === view.sourceVersion
+  const deliveryPending = quarter?.plan.calendar?.filter(row => !hasQuarterDelivery(row)).length ?? 0;
+  const canFreeze = Boolean(quarter && quarter.plan.version !== "quarter-planning-v1" && quarter.plan.sourceVersion === view.sourceVersion && !deliveryPending
     && selected.length === (nextQuarter ? QUARTER_NEW_WORD_COUNT : 1600)
     && selected.every(row => row.topicId && row.country && row.language && row.languageStatus === "match"));
   const marketBudget = quarter?.plan.researchBudget.counts;
@@ -145,6 +147,7 @@ export function GrowthQuarterReview() {
     <section className={styles.panel}><details><summary>季度关键词与方向决定</summary>
       {!view.state.baseline?.planHash ? <label>导入新版季度日历 <input type="file" accept="application/json,.json" disabled={busy} onChange={event => void uploadQuarter(event.target.files?.[0])} /></label> : null}
       {quarter?.plan.calendar ? <QuarterCalendarByDay calendar={quarter.plan.calendar} /> : null}
+      {deliveryPending > 0 ? <p>逐日研究排期已保存。还有 {deliveryPending} 个词待确认意图和交付名额。</p> : null}
       {legacyQuarter ? <QuarterResearchImport onChanged={load} /> : null}
       {!view.state.baseline || legacyQuarter ? <><QuarterMembershipReview onChanged={load} newQuarterOnly={legacyQuarter} /><PreFreezeIdentityReview onChanged={load} newQuarterOnly={legacyQuarter} /></> : null}
       <p>冻结目标 {view.state.baseline?.targets.length ?? "尚未核定"}；新批次 {view.state.batches.length}；原任务待补效果 {view.dueObservations.length}；历史来源待核 {view.historicalDueObservations?.length ?? 0}。新增批次不会改变季度原始分母。</p>
