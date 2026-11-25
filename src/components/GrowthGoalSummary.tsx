@@ -53,7 +53,7 @@ export function GrowthReportDirections({ directions, title = "流量归因与方
     </article>)}</div>;
 }
 
-type StrategyView = { state: GrowthStrategy; snapshot: GrowthReportSnapshot; sourceVersion: string; formalTargets: GrowthTarget[]; identityReview?: GrowthBaselineIdentityReview[]; dueObservations: { taskId: string; checkpoint: number; dueDay: string }[]; historicalDueObservations?: { publicationId: string; pageUrl: string; checkpoint: number; dueDay: string | null; writeMode: string }[] };
+type StrategyView = { state: GrowthStrategy; sourceVersion: string; formalTargets: Pick<GrowthTarget, "id" | "topicId" | "topicName" | "site" | "keyword" | "country" | "language" | "languageStatus" | "pageState">[]; identityReview?: GrowthBaselineIdentityReview[]; dueObservations: { taskId: string; checkpoint: number; dueDay: string }[]; historicalDueObservations?: { publicationId: string; pageUrl: string; checkpoint: number; dueDay: string | null; writeMode: string }[] };
 type QuarterCalendar = NonNullable<NonNullable<GrowthStrategy["quarterPlanning"]>["plan"]["calendar"]>;
 
 function QuarterCalendarByDay({ calendar }: { calendar: QuarterCalendar }) {
@@ -83,7 +83,7 @@ export function GrowthQuarterReview() {
   const [view, setView] = useState<StrategyView | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
   const [identityChoices, setIdentityChoices] = useState<Record<string, GrowthCountry | "">>({});
-  const load = useCallback(async () => { setReading(true); try { const response = await fetch("/api/seo/growth/strategy", { cache: "no-store", signal: AbortSignal.timeout(60_000) }); const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "目标读取失败"); setView(data); setError(""); } catch (error) { setError(error instanceof Error ? error.message : "目标读取失败"); } finally { setReading(false); } }, []);
+  const load = useCallback(async () => { setReading(true); try { const response = await fetch("/api/seo/growth/strategy?view=quarter-review", { cache: "no-store", signal: AbortSignal.timeout(60_000) }); const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "目标读取失败"); setView(data); setError(""); } catch (error) { setError(error instanceof Error ? error.message : "目标读取失败"); } finally { setReading(false); } }, []);
   useEffect(() => {
     const openFromHash = () => { if (window.location.hash.startsWith("#growth-direction-")) void load(); };
     openFromHash(); window.addEventListener("hashchange", openFromHash);

@@ -124,3 +124,12 @@ test("expired priority falls back to the original ordinary task order", () => {
   const value = snapshot([task("expired", { evidence: stale }), task("older", { dueAt: "2026-11-20T07:00:00Z" })]);
   assert.deepEqual(dueTasks(value, "cluster", now).candidates.map(row => row.task.id), ["older", "expired"]);
 });
+
+test("registered extra work follows due regular tasks and leaves later regular slots protected", () => {
+  const regular = task("regular", { dueAt: "2026-11-23T07:00:00Z" });
+  const extra = task("extra", { capacityClass: "authorized_hotspot_extra", evidence: pair() });
+  assert.deepEqual(dueTasks(snapshot([extra, regular]), "cluster", now).candidates.map(row => row.task.id), ["regular", "extra"]);
+  const later = { ...regular, dueAt: "2026-11-23T09:30:00Z" };
+  assert.deepEqual(dueTasks(snapshot([extra, later]), "cluster", now).candidates, []);
+  assert.deepEqual(dueTasks(snapshot([extra, { ...later, status: "verified" }]), "cluster", now).candidates.map(row => row.task.id), ["extra"]);
+});

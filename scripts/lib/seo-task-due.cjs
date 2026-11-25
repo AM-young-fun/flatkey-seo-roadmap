@@ -3,6 +3,7 @@ const { compareHotspotPriority } = require("./seo-hotspot-priority.cjs");
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
 const open = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
+const isExtra = task => task.capacityClass === "authorized_hotspot_extra";
 // User scope, 2026-11-19: public websites only; analytics configuration is excluded.
 function websiteTaskAllowed(task) {
   if (!task || task.deletedAt || !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(task.siteDomain)) return false;
@@ -47,8 +48,12 @@ function dueTasks(snapshot, scope, now = new Date()) {
   const overdue = new Set(snapshot.workWeek.overdueTaskIds);
   const awaitingReviewOrRelease = new Set(snapshot.workWeek.reviewOrReleaseTaskIds);
   const dependencyStatuses = snapshot.workWeek.dependencyStatuses;
+  const timeReservedToday = snapshot.tasks.some(task => !isExtra(task) && websiteTaskAllowed(task) && scopesForTask(task)
+    && open.has(task.status) && !awaitingReviewOrRelease.has(task.id) && dayFormat.format(new Date(task.dueAt)) === asOf
+    && Date.parse(task.dueAt) > now.getTime());
   const candidates = snapshot.tasks.flatMap(task => {
     if (!websiteTaskAllowed(task) || !open.has(task.status) || !inScope(task)) return [];
+    if (isExtra(task) && timeReservedToday) return [];
     const dueDay = dayFormat.format(new Date(task.dueAt));
     if (Date.parse(task.dueAt) > now.getTime()) return [];
     const failed = ["blocked", "failed"].includes(task.status);
@@ -59,7 +64,7 @@ function dueTasks(snapshot, scope, now = new Date()) {
     }
     return [{ task, disposition: failed ? "diagnose" : "continue", overdue: overdue.has(task.id),
       reason: failed ? "failed" : dueDay < asOf ? "overdue" : "today" }];
-  }).sort((a, b) => compareHotspotPriority(a.task, b.task, now)
+  }).sort((a, b) => Number(isExtra(a.task)) - Number(isExtra(b.task)) || compareHotspotPriority(a.task, b.task, now)
     || Date.parse(a.task.dueAt) - Date.parse(b.task.dueAt) || a.task.id.localeCompare(b.task.id));
   return { asOf, candidates };
 }

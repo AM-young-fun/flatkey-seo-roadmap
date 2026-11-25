@@ -5,6 +5,7 @@ import type { GrowthWorkspace } from "./growth-types";
 import { workflowHash } from "./seo-workflow-state";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowSnapshot, type WorkflowTask, type WorkflowRun } from "./seo-workflow";
 import { isSeoWorkday } from "./seo-workday";
+import { workWeekDateRange } from "./seo-date-range";
 
 export const growthHotspotAdmissionSchema = z.object({ directionId: z.string().trim().min(1).max(200), revision: z.number().int().positive(), taskIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).strict().superRefine((value, context) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) context.addIssue({ code: "custom", path: ["taskIds"], message: "原任务ID不能重复" });
@@ -15,6 +16,18 @@ export type HotspotAdmissionContext = { strategy: GrowthStrategy; workspace: Gro
 export type HotspotAdmissionDecision = { taskId: string; status: "pending" | "reuse" | "admit"; reason: string; planId: string | null; task: WorkflowTask | null; plan: WorkflowPlan | null };
 const day = (stamp: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(stamp));
 const word = (value: string | null) => value?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+export function hotspotCapacityProblem(tasks: WorkflowTask[], scheduledIds: ReadonlySet<string>, newIds: ReadonlySet<string>) {
+  const scheduled = tasks.filter(task => scheduledIds.has(task.id) && !task.deletedAt && task.capacityClass === "authorized_hotspot_extra");
+  for (const task of scheduled) {
+    if (!newIds.has(task.id)) continue;
+    const date = day(task.dueAt), week = workWeekDateRange(date);
+    const inWeek = scheduled.filter(other => day(other.dueAt) >= week.start && day(other.dueAt) <= week.end);
+    if (inWeek.filter(other => day(other.dueAt) === date).length > 1) return "当日额外交付已有一个原任务，优先保留当日常规排期";
+    if (inWeek.length > 2) return "当前北京时间业务周的新增热点页面已达到两页上限";
+  }
+  return null;
+}
 
 /** Unknown leases are not guessed away. Known unrelated task runs can continue. */
 export function hotspotLeaseConflict(taskIds: string[], runs: Pick<WorkflowRun, "id" | "status" | "taskIds">[], leases: HotspotLease[], now = new Date()): string | null {
@@ -60,6 +73,10 @@ export function prepareHotspotAdmission(context: HotspotAdmissionContext, comman
   if (!completeHotspotTaskResearch(task, now) || !item.researchComplete || Date.parse(task.researchReview!.reviewedAt) < Date.parse(item.eventAt) || Date.parse(task.researchReview!.duplicateCheckedAt) < Date.parse(item.eventAt)) return pending("原博客完整研究、Top10/实际前5页、去重、六项分析或E-E-A-T尚未齐全，批准已保存，补齐后人审入口重试");
   const existing = context.plans.find(plan => isExecutableWorkflowPlan(plan.status) && plan.taskIds.includes(task.id));
   if (existing) return { taskId, status: "reuse", reason: "原任务已在正式计划，只复用原ID、容量分类、来源及交付日，不再次登记或重复追加", planId: existing.id, task, plan: existing };
+  const extra = { ...task, capacityClass: "authorized_hotspot_extra" as const };
+  const scheduledIds = new Set([...context.plans.filter(plan => isExecutableWorkflowPlan(plan.status)).flatMap(plan => plan.taskIds), task.id]);
+  const capacityProblem = hotspotCapacityProblem([...context.workflow.tasks.filter(row => row.id !== task.id), extra], scheduledIds, new Set([task.id]));
+  if (capacityProblem) return pending(capacityProblem);
   const duplicate = context.workflow.tasks.find(other => other.id !== task.id && !other.deletedAt && other.siteDomain === task.siteDomain && other.country === task.country && other.language === task.language && ["blog", "landing", "optimization", "cluster"].includes(other.kind)
     && (task.pageUrl && other.pageUrl === task.pageUrl || other.topicId === task.topicId && word(other.keyword) === word(task.keyword)));
   if (duplicate) return pending(`同页或同意图已有关联原任务 ${duplicate.id}，先核定复用，未重复追加或新造替代任务`);
