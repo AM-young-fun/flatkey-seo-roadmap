@@ -137,12 +137,11 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
         <Link className={styles.textLink} href={growthLink(formalScope)}>查看话题与关键词 <span aria-hidden="true">→</span></Link>
       </div>
     </div>
-    <BarPlot rows={view === "formal" ? [{ label: "当前季度成员 N", value: stats.total }, { label: "已证实前100 R", value: ranked.length }, { label: "其中前50 F", value: stats.top50 }] : [{ label: "已获排名关键词", value: summary.total }, { label: "其中前50关键词", value: summary.top50 }, { label: "其中正式目标词", value: summary.formalWords }]} unit="个原词" denominator={`同词跨国、跨站只计一次；汇总时点 ${data.generatedAt}`} />
+    <BarPlot rows={view === "formal" ? [{ label: "当前季度成员 N", value: stats.total }, { label: "已证实前100 R", value: ranked.length }, { label: "其中前50 F", value: stats.top50 }] : [{ label: "已获排名关键词", value: summary.total }, { label: "其中前50关键词", value: summary.top50 }, { label: "其中正式目标词", value: summary.formalWords }]} unit="个原词" showAxis={false} />
     {view === "formal" ? <p className={styles.note}>当前正式目标记录 R/N：{ranked.length} / {stats.total}{stats.total ? `（${(ranked.length / stats.total * 100).toFixed(1)}%）` : "（分母为空，暂不可计算）"}。未知目标留N，未计R。</p> : null}
-    <p className={styles.note}>{count(summary.total)} 个当前有效原词，同词跨国、跨站只计一次。仅在关键词语种匹配的真实观测中择最佳排名，保留该观测原国家和页面；国家与区间占比均以这 {count(summary.total)} 个词为分母，无有效词时不计算百分比。</p>
     <div className={styles.coverageGrid}><section><h3>有效前100关键词：国家 / 地区占比</h3><BarPlot rows={markets.map(market => ({ label: market.label, value: market.share === null ? null : market.share * 100, suffix: `${market.count}词 · ${market.share === null ? "—" : `${(market.share * 100).toFixed(1)}%`}` }))} unit="%" denominator={`${summary.total}个已证实有效前100原词`} empty="尚无有效排名，国家占比暂不可计算" /></section>
       <section><h3>有效前100关键词：排名区间占比</h3><BarPlot rows={summary.bands.map(band => ({ label: `${band.label} 名`, value: band.share === null ? null : band.share * 100, suffix: `${band.count}词 · ${band.share === null ? "—" : `${(band.share * 100).toFixed(1)}%`}` }))} unit="%" denominator={`${summary.total}个已证实有效前100原词`} empty="尚无有效排名，区间占比暂不可计算" /></section></div>
-    <p className={styles.note}>统计采用 14 天内原词、原国家及语种匹配的完整 SERP。数据库、GSC、过期及待核名次均不计入当前数或季度 R。{data.reconciliation.sources.some(source => !source.available) ? "部分来源未读齐，当前为已有有效证据范围。" : ""}</p>
+    {data.reconciliation.sources.some(source => !source.available) ? <p className={styles.note}>部分来源暂未读齐。</p> : null}
   </section>;
 }
 

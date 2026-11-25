@@ -49,6 +49,19 @@ test("a duplicated page with ambiguous topics is not plotted as an invented topi
  const html=render(React.createElement(TopicComparison,{snapshot,workspace:null}));assert.match(html,/尚无同口径/);assert.doesNotMatch(html,/class="bar"/);
 });
 
+test("contribution charts display the actual single destinations and expandable links for grouped pages",()=>{
+ const scope={start:'2026-11-12',end:'2026-11-18',timezone:'America/Los_Angeles'};
+ const driver={title:'GPU page',url:'https://flatkey.ai/blog/gpu',module:'blog',topicId:'gpu',country:'ALL',language:'en',metric:'clicks',source:'GSC',previous:10,current:20,window:{...scope,previousStart:'2026-11-05',previousEnd:'2026-11-11'}};
+ const snapshot={period:scope,directions:[{drivers:[driver,{...driver,title:'GPU pricing',url:'https://flatkey.ai/blog/pricing'},{...driver,title:'本地化 GPU',url:'https://flatkey.ai/zh/blog/gpu',language:'zh-CN'}]}]};
+ const workspace={sites:[{domain:'flatkey.ai',name:'Flatkey'}],topics:[{site:'flatkey.ai',topicId:'gpu',name:'GPU 租赁'}]};
+ const html=render(React.createElement(TopicComparison,{snapshot,workspace}));
+ assert.match(html,/GPU 租赁<small>Flatkey · 全部国家 · 英语/);
+ assert.match(html,/Flatkey · 全部国家 · 中文/);
+ assert.match(html,/<details><summary>2 个贡献页面<\/summary>/);
+ for(const url of ['https://flatkey.ai/blog/gpu','https://flatkey.ai/blog/pricing','https://flatkey.ai/zh/blog/gpu']) assert.ok(html.includes(`href="${url}"`));
+ assert.doesNotMatch(html,/>GPU 租赁<\/a>|指标与来源分开显示/);
+});
+
 test("1600-word graph is complete, deterministic across reorder/rank updates, and bounded by one circle",()=>{
   const topics=Array.from({length:64},(_,i)=>({id:`topic:${i}`,site:"flatkey.ai",topicId:`t${i}`,name:`Topic ${i}`}));
   const targets=Array.from({length:1600},(_,i)=>({id:`w${i}`,keyword:`keyword ${i}`,site:"flatkey.ai",topicId:`t${i%64}`,rank:i%100+1}));
@@ -63,15 +76,16 @@ test("unknown goal values never become zero progress or inherit the historical f
   const html=render(React.createElement(GoalPlot,{label:"流量",value:null,goal:3000,unit:"次",denominator:"来源未齐",note:"未知"}));
   assert.match(html,/暂缺有效数值/);assert.doesNotMatch(html,/fill="#4285dc"/);
   const historical=render(React.createElement(OverviewGoalCharts,{snapshot:{period:{start:"2026-11-12",end:"2026-11-18"},goals:{deadline:"2027-02-05",daysRemaining:70,trafficPeriod:{start:"2026-11-12",end:"2026-11-18"},weeklySessions:2000,trafficComplete:true,baselineCount:null,rankedCount:null,top50Count:null,coverage:null,quality:null,latestRankAt:null}}}));
-  assert.doesNotMatch(historical,/2,000|2，000/);assert.match(historical,/历史统计范围/);assert.match(historical,/基线|清单尚未核定/);
+  assert.doesNotMatch(historical,/2,000|2，000/);assert.match(historical,/暂缺有效数值/);assert.match(historical,/清单尚未核定/);
 });
-test("the daily goal labels the measured rolling7 window and day-over-day change without rewriting a fixed snapshot",()=>{
+test("the daily goal displays concise observation dates in LA without changing snapshot data",()=>{
  const {unavailableGrowthReportSnapshot}=require('../src/lib/growth-strategy.ts');
  const snapshot=unavailableGrowthReportSnapshot({start:'2026-11-12',end:'2026-11-18'},new Date('2026-11-25T01:00:00Z'));
  Object.assign(snapshot.goals,{trafficWindowKind:'rolling7day-v1',trafficPeriod:{start:'2026-11-17',end:'2026-11-23',timezone:'America/Los_Angeles'},weeklySessions:1558,trafficGap:1442,trafficComplete:true,dailyTrafficObservation:{version:'rolling7day-v1',asOf:'2026-11-25T01:00:00Z',period:{start:'2026-11-17',end:'2026-11-23'},previousPeriod:{start:'2026-11-16',end:'2026-11-22'},sessions:1558,previousSessions:1485,difference:73,complete:true,previousComplete:true}});
- const before=JSON.stringify(snapshot),html=render(React.createElement(OverviewGoalCharts,{snapshot}));assert.match(html,/最新滚动7日/);assert.match(html,/2026-11-17—2026-11-23/);assert.match(html,/1485 → 1558，\+73/);assert.match(html,/1,442/);assert.equal(JSON.stringify(snapshot),before);
- snapshot.goals.dailyTrafficObservation.previousSessions=null;snapshot.goals.dailyTrafficObservation.difference=null;
- assert.match(render(React.createElement(OverviewGoalCharts,{snapshot})),/同口径标量未齐，暂不计算变化/);
+ Object.assign(snapshot.goals,{trafficScope:'flatkey_website_console',latestRankAt:'2026-11-23T01:00:00Z'});
+ const before=JSON.stringify(snapshot),html=render(React.createElement(OverviewGoalCharts,{snapshot}));assert.match(html,/最新滚动7日/);assert.match(html,/流量截至 11月23日 · 排名截至 11月22日/);assert.match(html,/1,558/);assert.doesNotMatch(html,/1485|1,442|R \/ N|控制台生产域名|2026-11-23T/);assert.equal(JSON.stringify(snapshot),before);
+ snapshot.goals.latestRankAt='2026-11-23T10:00:00Z';
+ assert.match(render(React.createElement(OverviewGoalCharts,{snapshot})),/数据截至 11月23日/);
 });
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
@@ -84,7 +98,7 @@ const projection=()=>({version:1,generatedAt:"2026-11-24T00:00:00Z",scope:{site:
 test("registration and payment use user denominators; immature or missing cohorts are never drawn as zero",()=>{
  const data=projection();data.ga4OrganicRegistrants={ users:81,observedAt:"2026-11-25T02:00:00Z" };data.api.firstPayment30d.cohorts=[{id:"not-mature",registrationStart:"2026-11-20",registrationEnd:"2026-11-21",registeredUsers:8,matureRegisteredUsers:0,confirmedFirstPayers:0,rate:0,maturity:"immature",status:"partial",reasons:["尚未满30天"]}];
   const html=render(React.createElement(ConversionCharts,{projection:data}));
- assert.match(html,/GA4 自然获客注册 <strong>81 人/);assert.match(html,/合资格访客/);assert.match(html,/30 天首次付费率/);assert.match(html,/未成熟批次/);
+ assert.doesNotMatch(html,/GA4 自然获客注册 <strong>81 人|会话趋势另列|单位：询盘 \/ 报价 \/ 成交/);assert.match(html,/合资格访客/);assert.match(html,/30 天首次付费率/);assert.match(html,/未成熟批次/);
  assert.doesNotMatch(html,/class="bar"/);assert.match(html,/尚无可靠的自然搜索询盘、报价或成交来源/);
   const mature=projection();mature.api.firstPayment30d.cohorts=[{...data.api.firstPayment30d.cohorts[0],maturity:"mature",status:"ready",matureRegisteredUsers:8}];
   const verified=render(React.createElement(ConversionCharts,{projection:mature}));assert.match(verified,/class="bar"/);assert.match(verified,/0 \/ 8 人/);

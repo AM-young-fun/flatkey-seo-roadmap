@@ -6,33 +6,33 @@ import { SeoAnchor } from "@/components/SeoAnchor";
 
 
 export const chartNumber = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString("zh-CN", { maximumFractionDigits: 1 });
-export function ChartPanel({ title, note, children, className = "" }: { title: string; note: string; children: ReactNode; className?: string }) {
-  return <section className={`${styles.panel} ${className}`}><header><h2>{title}</h2><p>{note}</p></header>{children}</section>;
+export function ChartPanel({ title, note, children, className = "" }: { title: string; note?: string; children: ReactNode; className?: string }) {
+  return <section className={`${styles.panel} ${className}`}><header><h2>{title}</h2>{note ? <p>{note}</p> : null}</header>{children}</section>;
 }
 export function EmptyPlot({ reason }: { reason: string }) {
   return <div className={styles.empty} role="img" aria-label={`暂无可绘制数据：${reason}`}><svg viewBox="0 0 300 85" aria-hidden="true"><path d="M15 8V70H290 M15 28H290 M15 49H290" /></svg><span>{reason}</span></div>;
 }
-export function GoalPlot({ label, value, goal, unit, denominator, note }: { label: string; value: number | null; goal: number; unit: string; denominator: string; note: string }) {
+export function GoalPlot({ label, value, goal, unit, denominator, note, empty = "暂缺有效数值" }: { label: string; value: number | null; goal: number; unit: string; denominator?: string; note?: string; empty?: string }) {
   const maximum = Math.max(goal * 1.15, value ?? 0, unit === "%" ? 100 : 1);
   return <figure className={styles.goal}><figcaption><h3>{label}</h3><strong>{chartNumber(value)}<small>{unit}</small></strong></figcaption>
-    <svg viewBox="0 0 360 62" role="img" aria-label={`${label}：${chartNumber(value)}${unit}，目标${goal}${unit}；${denominator}`}>
+    <svg viewBox="0 0 360 62" role="img" aria-label={`${label}：${value === null ? empty : `${chartNumber(value)}${unit}`}，目标${goal}${unit}${denominator ? `；${denominator}` : ""}`}>
       <rect x="4" y="18" width="352" height="16" rx="5" fill="#edf1f6" />
-      {value !== null ? <rect x="4" y="18" width={Math.max(0, value / maximum * 352)} height="16" rx="5" fill="#4285dc" /> : <text x="180" y="30" textAnchor="middle" fill="#718096" fontSize="10">暂缺有效数值</text>}
+      {value !== null ? <rect x="4" y="18" width={Math.max(0, value / maximum * 352)} height="16" rx="5" fill="#4285dc" /> : <text x="180" y="30" textAnchor="middle" fill="#718096" fontSize="10">{empty}</text>}
       <path d={`M${4 + goal / maximum * 352} 12v28`} stroke="#182b48" strokeWidth="2" />
       <text x="4" y="56" fill="#738197" fontSize="11">0 {unit}</text><text x="356" y="56" textAnchor="end" fill="#526680" fontSize="11">目标 {goal.toLocaleString()} {unit}</text>
-    </svg><p>{denominator}</p><small>{note}</small></figure>;
+    </svg>{denominator ? <p>{denominator}</p> : null}{note ? <small>{note}</small> : null}</figure>;
 }
-export type BarDatum = { label: string; value: number | null; prior?: number | null; color?: string; href?: string; suffix?: string };
-export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数据", signed = false }: { rows: BarDatum[]; unit: string; denominator: string; empty?: string; signed?: boolean }) {
+export type BarDatum = { id?: string; label: string; value: number | null; prior?: number | null; color?: string; href?: string; suffix?: string; context?: string; details?: ReactNode };
+export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数据", signed = false, showAxis = true }: { rows: BarDatum[]; unit: string; denominator?: string; empty?: string; signed?: boolean; showAxis?: boolean }) {
   const known = rows.filter(row => row.value !== null || typeof row.prior === "number");
   const maximum = unit === "%" ? 100 : Math.max(1, ...known.flatMap(row => [Math.abs(row.value ?? 0), Math.abs(row.prior ?? 0)]));
-  return <figure className={styles.bars}><div className={styles.axis}>单位：{unit} · {known.length ? `刻度0—${chartNumber(maximum)}` : "暂无有效数值"} · {denominator}{rows.some(row => row.prior !== undefined) ? <span>浅色：上期 深色：本期</span> : null}</div>
+  return <figure className={styles.bars}>{showAxis ? <div className={styles.axis}>单位：{unit} · {known.length ? `刻度0—${chartNumber(maximum)}` : "暂无有效数值"}{denominator ? ` · ${denominator}` : null}{rows.some(row => row.prior !== undefined) ? <span>浅色：上期 深色：本期</span> : null}</div> : null}
     {!known.length ? <EmptyPlot reason={empty} /> : null}
-    {rows.map((row, index) => <div className={styles.barRow} key={`${row.label}:${index}`}><span title={row.label}>{row.href ? <SeoAnchor href={row.href}>{row.label}</SeoAnchor> : row.label}</span><div className={styles.barTrack} data-signed={signed || undefined}>
+    {rows.map((row, index) => <div className={styles.barRow} key={row.id ?? `${row.label}:${index}`}><span title={row.label} className={row.context ? styles.barCaption : undefined}>{row.href ? <SeoAnchor href={row.href}>{row.label}</SeoAnchor> : row.label}{row.context ? <small>{row.context}</small> : null}</span><div className={styles.barTrack} data-signed={signed || undefined}>
       {signed ? <i className={styles.zero} /> : null}
       {row.prior != null ? <i className={styles.prior} style={{ width: `${Math.abs(row.prior) / maximum * 100}%` }} /> : null}
       {row.value !== null ? <i className={styles.bar} style={{ width: `${Math.abs(row.value) / maximum * (signed ? 50 : 100)}%`, ...(signed ? { left: row.value < 0 ? `${50 - Math.abs(row.value) / maximum * 50}%` : "50%" } : {}), background: row.color ?? (row.value < 0 ? "#d16e6b" : "#4b87d5") }} /> : null}
-    </div><strong>{row.value === null ? "—" : `${signed && row.value > 0 ? "+" : ""}${chartNumber(row.value)}`}{row.suffix ? <small>{row.suffix}</small> : null}</strong></div>)}
+    </div><strong>{row.value === null ? "—" : `${signed && row.value > 0 ? "+" : ""}${chartNumber(row.value)}`}{row.suffix ? <small>{row.suffix}</small> : null}</strong>{row.details ? <div className={styles.barDetails}>{row.details}</div> : null}</div>)}
   </figure>;
 }
 export type LineDatum = { label: string; value: number | null; prior?: number | null };
