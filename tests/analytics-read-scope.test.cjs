@@ -210,7 +210,8 @@ test("the traffic overview reads only session sources and retains the exact requ
   assert.equal(payload.end, range.end);
   assert.equal(payload.automatic, false);
   assert.deepEqual(payload.comparison, { previous: {start:"2026-10-02",end:"2026-10-03"},
-    sessions:{current:null,previous:null},registrations:{current:null,previous:null} });
+    totalSessions:{current:null,previous:null},organicSessions:{current:null,previous:null},
+    totalRegistrations:{current:null,previous:null},organicRegistrations:{current:null,previous:null} });
   assert.equal(payload.modules.complete, false);
   assert.equal(payload.moduleDays[0].sessions.models, 500500);
   assert.ok(payload.daily.every(row => row.site.organicSessions === null));

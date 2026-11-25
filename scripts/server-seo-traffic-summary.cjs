@@ -41,13 +41,12 @@ function trafficJobs(date, definitions, now) {
 }
 
 function trafficPeriodJobs(range, entryHosts) {
-  return trafficSiteJobs(range.start, range.end, entryHosts)
-    .filter(job => job.key === "totalSessions" || job.key === "totalRegistrations");
+  return trafficSiteJobs(range.start, range.end, entryHosts);
 }
 
 async function collectPeriods({ date, output, importing, api, readEvidence, entryHosts, refresh }) {
   const { previousRange, shiftDay } = require("../src/lib/seo-date-range.ts");
-  const { mergeTrafficSummaryPeriod, trafficSummaryPeriodSchema, TRAFFIC_SUMMARY_PERIOD } = require("../src/lib/seo-traffic-summary.ts");
+  const { mergeTrafficSummaryPeriod, trafficSummaryPeriodEvidence, trafficSummaryPeriodSchema, TRAFFIC_SUMMARY_PERIOD } = require("../src/lib/seo-traffic-summary.ts");
   const current = { start: shiftDay(date, -6), end: date };
   const receipts = [];
   for (const range of [previousRange(current), current]) {
@@ -77,17 +76,20 @@ async function collectPeriods({ date, output, importing, api, readEvidence, entr
       };
     }
     const record = trafficSummaryPeriodSchema.parse(payload);
-    if (importing && (record.totalSessions || record.totalRegistrations) && canonical(before) !== canonical(record)) {
+    const metrics = trafficSummaryPeriodEvidence(record);
+    if (importing && metrics.some(Boolean) && canonical(before) !== canonical(record)) {
       let error;
       try { await api("", record); } catch (failure) { error = failure; }
       const { period } = await api(query);
       if (canonical(period) !== canonical(mergeTrafficSummaryPeriod(before, record))) throw error ?? Error("traffic_period_production_readback_mismatch");
     }
     await fs.writeFile(path.join(directory, "traffic-period-receipt.json"), JSON.stringify({ record, imported: importing }, null, 2) + "\n", { mode: 0o600 });
-    receipts.push({ ...range, sessions: record.totalSessions?.value ?? null, registrations: record.totalRegistrations?.value ?? null });
+    receipts.push({ ...range, sessions: record.totalSessions?.value ?? null, organicSessions: record.organicSessions?.value ?? null,
+      registrations: record.totalRegistrations?.value ?? null, organicRegistrations: record.organicRegistrations?.value ?? null,
+      complete: metrics.every(Boolean) });
   }
   console.log(JSON.stringify({ periods: receipts, imported: importing }));
-  if (receipts.some(period => period.sessions === null || period.registrations === null)) process.exitCode = 2;
+  if (receipts.some(period => !period.complete)) process.exitCode = 2;
 }
 
 async function run() {
@@ -152,8 +154,8 @@ async function run() {
     let evidence = cached.filter(row => validate(item, row, new Date()).value !== null)
       .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
     if (evidence) {
-      const { cacheArtifact, ...source } = evidence;
-      evidence = source;
+      evidence = { ...evidence };
+      delete evidence.cacheArtifact;
     } else {
       requests++;
       evidence = await readEvidence(item);

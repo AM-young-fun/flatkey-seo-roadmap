@@ -26,7 +26,7 @@ export const TRAFFIC_SUMMARY_PERIOD = "flatkey-traffic-summary-period-v1";
 export const trafficSummaryPeriodSchema = z.object({
   kind: z.literal(TRAFFIC_SUMMARY_PERIOD), start: z.iso.date(), end: z.iso.date(),
   property: z.literal("541304395"), timezone: z.literal("America/Los_Angeles"),
-  totalSessions: metric, totalRegistrations: metric,
+  ...sessions.shape, totalRegistrations: metric, organicRegistrations: metric,
 }).strict().refine(row => row.start <= row.end && Date.parse(row.end) - Date.parse(row.start) <= 365 * 86400000,
   { message: "流量汇总周期无效" });
 export type TrafficSummaryPeriod = z.infer<typeof trafficSummaryPeriodSchema>;
@@ -76,6 +76,9 @@ export function mergeTrafficSummaryDay(previous: TrafficSummaryDay | null, next:
 
 
 export function mergeTrafficSummaryPeriod(previous: TrafficSummaryPeriod | null, next: TrafficSummaryPeriod): TrafficSummaryPeriod {
-  return { ...next, totalSessions: choose(previous?.totalSessions, next.totalSessions),
-    totalRegistrations: choose(previous?.totalRegistrations, next.totalRegistrations) };
+  const merged = { ...next };
+  for (const key of TRAFFIC_SUMMARY_SITE_METRICS) merged[key] = choose(previous?.[key], next[key]);
+  return merged;
 }
+
+export const trafficSummaryPeriodEvidence = (period: TrafficSummaryPeriod) => TRAFFIC_SUMMARY_SITE_METRICS.map(key => period[key]);

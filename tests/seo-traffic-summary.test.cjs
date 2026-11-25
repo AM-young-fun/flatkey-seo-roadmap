@@ -80,16 +80,16 @@ test("period comparison uses two exact windows and GA4 dimensionless registratio
   const prior = {start:"2026-11-11",end:"2026-11-17"};
   const metric = (value,observedAt="2026-11-25T10:00:00Z") => ({value,observedAt,sourceSha256:"a".repeat(64)});
   const jobs = trafficPeriodJobs(current, FLATKEY_ENTRY_HOSTS);
-  assert.deepEqual(jobs.map(job => job.request.dateRanges), [[{startDate:current.start,endDate:current.end}],[{startDate:current.start,endDate:current.end}]]);
-  assert.deepEqual(jobs.map(job => job.metric), ["sessions","totalUsers"]);
+  assert.deepEqual(jobs.map(job => job.request.dateRanges), Array.from({length:4},()=>[{startDate:current.start,endDate:current.end}]));
+  assert.deepEqual(jobs.map(job => job.metric), ["sessions","sessions","totalUsers","totalUsers"]);
   assert.ok(jobs.every(job=>!job.request.dimensions));
-  assert.match(JSON.stringify(jobs[1].request), /sign_up_success/);
-  assert.doesNotMatch(JSON.stringify(jobs[1].request), /hostName|channel/i);
-  const currentRecord = {...current,totalSessions:metric(10),totalRegistrations:metric(4)};
-  const old = {...prior,totalSessions:metric(0),totalRegistrations:metric(3)};
+  assert.match(JSON.stringify(jobs[2].request), /sign_up_success/);
+  assert.doesNotMatch(JSON.stringify(jobs[2].request), /hostName|channel/i);
+  const currentRecord = {...current,totalSessions:metric(10),organicSessions:metric(6),totalRegistrations:metric(4),organicRegistrations:metric(2)};
+  const old = {...prior,totalSessions:metric(0),organicSessions:metric(0),totalRegistrations:metric(3),organicRegistrations:metric(1)};
   const falsePrevious = {...prior,end:"2026-11-16",totalRegistrations:metric(100)};
   assert.deepEqual(trafficPeriodComparison(current,[falsePrevious,currentRecord,old]),
-    {previous:prior,sessions:{current:10,previous:0},registrations:{current:4,previous:3}});
-  assert.equal(trafficPeriodComparison(current,[falsePrevious,currentRecord]).registrations.previous, null);
+    {previous:prior,totalSessions:{current:10,previous:0},organicSessions:{current:6,previous:0},totalRegistrations:{current:4,previous:3},organicRegistrations:{current:2,previous:1}});
+  assert.equal(trafficPeriodComparison(current,[falsePrevious,currentRecord]).totalRegistrations.previous, null);
   assert.deepEqual(mergeTrafficSummaryPeriod(currentRecord,{...currentRecord,totalSessions:metric(8,"2026-11-25T09:00:00Z"),totalRegistrations:null}), currentRecord);
 });

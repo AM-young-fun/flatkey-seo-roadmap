@@ -16,7 +16,9 @@
 .header p { margin: 4px 0 0; color: #64748b; }
 .note { margin: 8px 0 0; color: #64748b; font-size: 12px; }
 
-.periodTotal{color:#5d6f87;margin:-4px 0 14px;font-size:12px}
+.periodGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;margin-bottom:14px}
+@media(max-width:480px){.periodGrid{grid-template-columns:1fr}}
+.periodTotal{color:#5d6f87;margin:0;font-size:12px}
 .periodNumbers{display:flex;gap:8px 12px;align-items:baseline;flex-wrap:wrap}
 .periodNumbers strong{color:#203653;font-size:23px;font-weight:650;margin-inline:3px}
 .periodTotal p{margin:3px 0 0;line-height:1.6}

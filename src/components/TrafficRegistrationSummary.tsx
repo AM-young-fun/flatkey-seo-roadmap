@@ -70,18 +70,24 @@ export function TrafficRegistrationSummary({ dates, read }: {
         <div className={styles.header}>
           <div><h3 id="flatkey-traffic-trend">Flatkey 流量趋势</h3><p>全部国家</p></div>
         </div>
-        {data ? <><PeriodTotal label="本期总会话" unit="次" current={comparison?.sessions.current}
-          previous={comparison?.sessions.previous} range={comparison?.previous} />
-          <LinePlot rows={traffic} unit="次会话" detailUnit="次" series={["总会话", "自然搜索会话"]} />
+        {data ? <><div className={styles.periodGrid}>
+          <PeriodTotal label="本期总会话" unit="次" current={comparison?.totalSessions.current}
+            previous={comparison?.totalSessions.previous} range={comparison?.previous} />
+          <PeriodTotal label="自然搜索会话" unit="次" current={comparison?.organicSessions.current}
+            previous={comparison?.organicSessions.previous} range={comparison?.previous} />
+          </div><LinePlot rows={traffic} unit="次会话" detailUnit="次" series={["总会话", "自然搜索会话"]} />
           <p className={styles.note}>本期 {period}。GA4 会话含正式官网和 Console。</p></> : null}
       </section>
       <section className={styles.panel} aria-labelledby="flatkey-registration-trend">
         <div className={styles.header}>
           <div><h3 id="flatkey-registration-trend">Flatkey 注册趋势</h3><p>全站</p></div>
         </div>
-        {data ? <><PeriodTotal label="本期总注册" unit="人" current={comparison?.registrations.current}
-          previous={comparison?.registrations.previous} range={comparison?.previous} />
-          <LinePlot rows={registrations} unit="人" series={["总注册", "自然搜索注册"]} />
+        {data ? <><div className={styles.periodGrid}>
+          <PeriodTotal label="本期总注册" unit="人" current={comparison?.totalRegistrations.current}
+            previous={comparison?.totalRegistrations.previous} range={comparison?.previous} />
+          <PeriodTotal label="自然搜索注册" unit="人" current={comparison?.organicRegistrations.current}
+            previous={comparison?.organicRegistrations.previous} range={comparison?.previous} />
+          </div><LinePlot rows={registrations} unit="人" series={["总注册", "自然搜索注册"]} />
           <p className={styles.note}>本期 {period}。总量按整段去重，折线按日去重。自然搜索注册按首次获客渠道归因。</p></> : null}
       </section>
     </div>

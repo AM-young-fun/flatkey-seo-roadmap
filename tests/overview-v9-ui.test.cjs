@@ -178,7 +178,7 @@ test("both traffic charts have focusable date detail targets and the unsupported
   ];
   overviewReads.set(trafficUrl,{data:{...overviewRange,automatic:true,completeWeekEnd:overviewRange.end,
     daily,modules:{sessions:{blog:9},complete:true},moduleDays:[{date:"2026-11-17",sessions:{blog:9}}],
-    comparison:{previous:{start:"2026-11-10",end:"2026-11-16"},sessions:{current:19,previous:20},registrations:{current:5,previous:4}}}});
+    comparison:{previous:{start:"2026-11-10",end:"2026-11-16"},totalSessions:{current:19,previous:20},organicSessions:{current:14,previous:10},totalRegistrations:{current:5,previous:4},organicRegistrations:{current:2,previous:3}}}});
   try {
     const html=render(React.createElement(SeoOverview));
     assert.match(html,/tabindex="0" aria-label="总会话与自然搜索会话每日明细/);
@@ -186,6 +186,8 @@ test("both traffic charts have focusable date detail targets and the unsupported
     for (const { date } of daily) assert.equal(html.split(`data-chart-date="${date}"`).length - 1, 2);
     assert.match(html,/博客 · 2026-11-17—2026-11-23/);
     assert.match(html,/本期总会话 <strong>19<\/strong> 次[\s\S]*?环比 -5\.0%/);
+    assert.match(html,/自然搜索会话 <strong>14<\/strong> 次[\s\S]*?环比 \+40\.0%/);
+    assert.match(html,/自然搜索注册 <strong>2<\/strong> 人[\s\S]*?环比 -33\.3%/);
     assert.match(html,/本期总注册 <strong>5<\/strong> 人[\s\S]*?环比 \+25\.0%/);
     assert.match(html,/上期 2026-11-10—2026-11-16 · 4 人/);
     assert.ok(html.indexOf("2026 收官季目标进度") < html.indexOf("Flatkey 流量与注册"));

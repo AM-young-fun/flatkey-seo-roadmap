@@ -4,7 +4,7 @@ import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { readWorkflowBody, workflowErrorResponse } from "@/lib/seo-workflow-http";
 import { shiftDay, validRange } from "@/lib/seo-date-range";
-import { closedTrafficSummaryDay, mergeTrafficSummaryDay, mergeTrafficSummaryPeriod, trafficSummaryDaySchema, trafficSummaryEvidence, trafficSummaryPeriodKind, trafficSummaryPeriodSchema, trafficSummaryTrendDay, TRAFFIC_SUMMARY_KIND, TRAFFIC_SUMMARY_PERIOD, type TrafficSummaryPeriod } from "@/lib/seo-traffic-summary";
+import { closedTrafficSummaryDay, mergeTrafficSummaryDay, mergeTrafficSummaryPeriod, trafficSummaryDaySchema, trafficSummaryEvidence, trafficSummaryPeriodEvidence, trafficSummaryPeriodKind, trafficSummaryPeriodSchema, trafficSummaryTrendDay, TRAFFIC_SUMMARY_KIND, TRAFFIC_SUMMARY_PERIOD, type TrafficSummaryPeriod } from "@/lib/seo-traffic-summary";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
 
 
 async function saveTrafficPeriod(period: TrafficSummaryPeriod) {
-  const now = new Date(), evidence = [period.totalSessions, period.totalRegistrations].filter(value => value !== null);
+  const now = new Date(), evidence = trafficSummaryPeriodEvidence(period).filter(value => value !== null);
   if (!evidence.length || evidence.some(value => Date.parse(value.observedAt) > now.getTime()
     || period.end > closedTrafficSummaryDay(new Date(value.observedAt)))) return json({ message: "周期来源观测时间未核实" }, 422);
   const key = { kind: trafficSummaryPeriodKind(period), date: period.end }, where = { kind_date: key };
@@ -91,8 +91,9 @@ async function saveTrafficPeriod(period: TrafficSummaryPeriod) {
     const prior = await tx.seoAnalyticsDay.findUnique({ where, select: { payload: true } });
     const previous = prior ? trafficSummaryPeriodSchema.parse(prior.payload) : null;
     const merged = mergeTrafficSummaryPeriod(previous, period);
-    const observedAt = new Date([merged.totalSessions?.observedAt, merged.totalRegistrations?.observedAt].filter(Boolean).sort().at(-1)!);
-    const data = { observedAt, complete: Boolean(merged.totalSessions && merged.totalRegistrations), payload: merged as Prisma.InputJsonValue };
+    const metrics = trafficSummaryPeriodEvidence(merged);
+    const observedAt = new Date(metrics.flatMap(value => value ? [value.observedAt] : []).sort().at(-1)!);
+    const data = { observedAt, complete: metrics.every(Boolean), payload: merged as Prisma.InputJsonValue };
     await tx.seoAnalyticsDay.upsert({ where, create: { ...key, ...data }, update: data });
     return json({ period: merged, complete: data.complete });
   });

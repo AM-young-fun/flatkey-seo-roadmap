@@ -26,8 +26,11 @@ export function trafficPeriodComparison(range: DateRange, periods: TrafficSummar
   const previous = previousRange(range);
   const exact = (window: DateRange) => periods.find(row => row.start === window.start && row.end === window.end);
   const current = exact(range), prior = exact(previous);
-  return { previous, sessions: { current: current?.totalSessions?.value ?? null, previous: prior?.totalSessions?.value ?? null },
-    registrations: { current: current?.totalRegistrations?.value ?? null, previous: prior?.totalRegistrations?.value ?? null } };
+  const totals = (key: typeof TRAFFIC_SUMMARY_SITE_METRICS[number]) => ({
+    current: current?.[key]?.value ?? null, previous: prior?.[key]?.value ?? null,
+  });
+  return { previous, totalSessions: totals("totalSessions"), organicSessions: totals("organicSessions"),
+    totalRegistrations: totals("totalRegistrations"), organicRegistrations: totals("organicRegistrations") };
 }
 
 export type TrafficOverview = ReturnType<typeof trafficOverview> & { comparison: ReturnType<typeof trafficPeriodComparison> | null };
