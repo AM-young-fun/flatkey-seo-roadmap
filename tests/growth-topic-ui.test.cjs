@@ -93,7 +93,8 @@ test("circular graph renders every distinct word rather than a 24-word preview",
   const targets = Array.from({ length: 27 }, (_, index) => target(`word-${index}`, {keyword:`GPU rental ${index}`}));
   const html = renderToStaticMarkup(React.createElement(GrowthTopicClusters, { data: data(targets), scope: defaultGrowthScope, targets }));
   assert.match(html, /27 个关键词/); assert.equal((html.match(/data-keyword-id=/g)||[]).length,27); assert.doesNotMatch(html, /图中预览/);
-  assert.match(html, /topics\/topic%2F1\?site=flatkey.ai&amp;target=word-0/);
+  assert.match(html, /role="button"[^>]*aria-label="放大话题 GPU计算"/);
+  assert.doesNotMatch(html, /href="[^"]*target=word-0/);
   assert.equal((html.match(/class="cluster"/g) || []).length, 1);
 });
 
