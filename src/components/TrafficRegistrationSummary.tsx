@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { FlatkeyBrandTraffic } from "@/lib/seo-brand-traffic";
 import type { DateRange } from "@/lib/seo-date-range";
 import type { OverviewTrafficAnalytics } from "@/lib/seo-overview-analytics";
 import { OVERVIEW_PAGE_MODULES } from "@/lib/seo-overview-scope";
@@ -28,10 +29,16 @@ export function TrafficRegistrationSummary({ dates, read }: {
     dates.ready ? "/api/seo/analytics?" + new URLSearchParams({ view: "overview-traffic", ...range }) : null,
     { showFeedback: false, keepPreviousData: true, timeoutMs: 45_000 },
   );
+  const brand = useSeoRead<FlatkeyBrandTraffic>(
+    dates.ready ? "/api/seo/analytics?" + new URLSearchParams({ view: "brand-traffic", ...range }) : null,
+    { showFeedback: false, keepPreviousData: true, timeoutMs: 45_000 },
+  );
   const data = read.data ?? read.previousData;
   const displayedRange = data ?? range;
   const shareData = [shares.data, shares.previousData].find(item =>
     item && item.range.start === displayedRange.start && item.range.end === displayedRange.end);
+  const brandData = [brand.data, brand.previousData].find(item =>
+    item && item.start === displayedRange.start && item.end === displayedRange.end);
   const modules = shareData?.modules;
   const denominator = modules ? Object.values(modules.sessions).reduce((sum, value) => sum + value, 0) : 0;
   const shareRows = modules && (modules.complete || Object.keys(modules.sessions).length) ? OVERVIEW_PAGE_MODULES.flatMap(([key, label]) => {
@@ -48,7 +55,7 @@ export function TrafficRegistrationSummary({ dates, read }: {
   return <section className={styles.group} aria-labelledby="flatkey-traffic-registration">
     <header className={styles.groupHeader}>
       <div><h2 id="flatkey-traffic-registration">Flatkey 流量与注册</h2><p>按洛杉矶时间统计</p></div>
-      <SeoDateControl value={dates} showComparison={false} pending={read.hasSettled && (read.pending || shares.pending) || undefined} />
+      <SeoDateControl value={dates} showComparison={false} pending={read.hasSettled && (read.pending || shares.pending || brand.pending) || undefined} />
     </header>
     <div className={styles.panels} aria-busy={read.pending || undefined}>
       <section className={styles.panel} aria-labelledby="flatkey-traffic-trend">
@@ -70,6 +77,13 @@ export function TrafficRegistrationSummary({ dates, read }: {
           <p className={styles.note}>本期 {period}。注册按日去重，自然搜索注册按首次获客渠道归因。</p></> : null}
       </section>
     </div>
+    <section className={styles.shares} aria-labelledby="flatkey-brand-traffic" aria-busy={brand.pending || undefined}>
+      <h3 id="flatkey-brand-traffic">品牌词与非品牌词搜索点击</h3>
+      {brandData ? <LinePlot rows={brandData.daily.map(day => ({ label: day.date, value: day.branded, prior: day.nonBranded }))}
+        unit="次点击" series={["品牌词", "非品牌词"]} /> : brand.error ? null : <p className={styles.note} role="status">正在读取搜索查询…</p>}
+      <p className={styles.note}>统计 Search Console 中可见查询词带来的 Flatkey 官网 Google 自然搜索点击。匿名查询不计入；来源未完成的日期保留断点。</p>
+      {brand.error ? <div className="loadError" role="alert"><span>{brand.error}</span><button type="button" onClick={brand.retry}>重新加载搜索点击</button></div> : null}
+    </section>
     <section className={styles.shares} aria-labelledby="flatkey-module-shares" aria-busy={shares.pending || undefined}>
       <h3 id="flatkey-module-shares">页面模块入口会话占比</h3>
       {shareData ? <><BarPlot rows={shareRows} unit="次会话"

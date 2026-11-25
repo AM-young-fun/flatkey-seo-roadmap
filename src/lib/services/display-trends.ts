@@ -10,11 +10,7 @@ import { reviewGrowthLanguage } from "@/lib/growth-workspace";
 import { GROWTH_MARKET_LANGUAGES } from "@/lib/seo-growth-markets";
 import { approvedDiagnosticWordLanguages } from "@/lib/growth-word-language-evidence";
 import { isOwnedBrandKeyword } from "@/lib/keyword-market-policy";
-import { loadApprovedWeeklyKeywordCapture, type ApprovedWeeklyKeywordCapture } from "./approved-weekly-keyword-capture";
-import { serpPeriodFromKey } from "@/lib/serp-periods";
-
-const fixedCaptureDay = "2026-11-23";
-const fixedCapturePeriod = serpPeriodFromKey("2026-11-17")!;
+import { loadNovemberSecondKeywordCapture, NOVEMBER_SECOND_CAPTURE_DAY, NOVEMBER_SECOND_CAPTURE_PERIOD, type ApprovedWeeklyKeywordCapture } from "./approved-weekly-keyword-capture";
 function fixedCaptureCounts(capture: FixedCaptureTrendPoint["countries"][number] | ApprovedWeeklyKeywordCapture) {
   const { capturedKeywords, rankedKeywords, verifiedOutsideTop100, unresolvedKeywords } = capture;
   return { capturedKeywords, rankedKeywords, verifiedOutsideTop100, unresolvedKeywords };
@@ -61,10 +57,10 @@ export async function buildDisplayTrends(site: string, range: ReturnType<typeof 
 
         // This Flatkey-only approved batch used its own query markets and target
         // list. Show its confirmed results on the original period as a separate point.
-        const capture = module === "all" && (site === "all" || site === "flatkey.ai") && range.start <= fixedCaptureDay && range.end >= fixedCaptureDay
-          ? await loadApprovedWeeklyKeywordCapture({ start: "2026-11-22", end: fixedCaptureDay, asOf: now }) : null;
+        const capture = module === "all" && (site === "all" || site === "flatkey.ai") && range.start <= NOVEMBER_SECOND_CAPTURE_DAY && range.end >= NOVEMBER_SECOND_CAPTURE_DAY
+          ? await loadNovemberSecondKeywordCapture(now) : null;
         const fixedCapture: FixedCaptureTrendPoint | undefined = capture?.complete ? {
-          ...fixedCaptureCounts(capture), periodKey: fixedCapturePeriod.key, periodLabel: fixedCapturePeriod.label, latestCheckedAt: capture.latestCheckedAt,
+          ...fixedCaptureCounts(capture), periodKey: NOVEMBER_SECOND_CAPTURE_PERIOD.key, periodLabel: NOVEMBER_SECOND_CAPTURE_PERIOD.label, latestCheckedAt: capture.latestCheckedAt,
           countries: capture.countries.map(country => ({ country: country.country, ...fixedCaptureCounts(country) })),
         } : undefined;
 

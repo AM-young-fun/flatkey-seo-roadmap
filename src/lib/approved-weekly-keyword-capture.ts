@@ -158,3 +158,21 @@ export function buildApprovedWeeklyKeywordCapture(input: ApprovedWeeklyKeywordCa
   return { ...totals, runIds: fixed.map(run => run.id), window, sourceHash, complete, comparable: false,
     countries, pages, rankBuckets, latestCheckedAt: dates.at(-1)!, notes };
 }
+
+
+export function approvedCaptureRankedWords(capture: ApprovedWeeklyKeywordCapture) {
+  const languages = new Map(capture.countries.map(country => [country.country, country.language]));
+  const words = new Map<string, { keywordId: string; keyword: string; country: string; language: string | null; checkedAt: string;
+    bestRank: number; reused: boolean; pages: { url: string; title: string | null; rank: number }[] }>();
+  // The source sorts pages by rank and validates each keyword against the fixed manifest.
+  for (const page of capture.pages) {
+    const { keywordId, keyword, country, checkedAt, reused, url, title, rank } = page;
+    const word = words.get(keywordId) ?? { keywordId, keyword, country, checkedAt, reused,
+      language: languages.get(country) ?? null, bestRank: rank, pages: [] };
+    word.pages.push({ url, title, rank });
+    words.set(keywordId, word);
+  }
+  return [...words.values()];
+}
+
+export type ApprovedCaptureRankedWord = ReturnType<typeof approvedCaptureRankedWords>[number];

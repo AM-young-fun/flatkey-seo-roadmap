@@ -13,6 +13,7 @@ import { profileRead, timedRead } from "@/lib/read-profile";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const inventoryKeys = ["view", "site", "country", "language", "q", "page"];
+const savedViews = ["overview", "dashboard", "published-ranking-capture", "quarter-calendar"];
 const quarterKeys = [...inventoryKeys, "topic", "related", "target", "new"];
 const snapshotLoaders = { full: loadGrowthWorkspace, quarter: loadGrowthDashboardWorkspace, catalog: loadGrowthKeywordWorkspace };
 const snapshots = new Map<keyof typeof snapshotLoaders, { expiresAt: number; result: Promise<GrowthWorkspace> }>();
@@ -41,17 +42,38 @@ export async function GET(request: Request) {
     const site = params.get("site") ?? undefined, view = params.get("view");
     const quarter = view === "quarter" || view === "quarter-evidence";
     const library = view === "keywords" || view === "published" ? view : null;
-    const keys = quarter ? quarterKeys : library === "published" ? [...inventoryKeys, "rank"] : library ? inventoryKeys : ["site", "view"];
+    const keys = quarter ? quarterKeys : library === "published" ? [...inventoryKeys, "rank"] : library ? ["view", "q", "page"] : ["site", "view"];
     const page = Number(params.get("page") ?? 1);
     const rank = params.get("rank") ?? "all", newOnly = params.get("new");
     if ([...params.keys()].some(key => !keys.includes(key) || params.getAll(key).length > 1)
       || ((quarter || library) && (!Number.isSafeInteger(page) || page < 1 || [...params.values()].some(value => value.length > 240)))
       || (view === "quarter-evidence" && !params.get("topic"))
       || (newOnly !== null && newOnly !== "1") || !["all", "outside100", "ranked", "pending"].includes(rank)
-      || site && !GROWTH_SITES.some(item => item.domain === site) || view !== null && !quarter && !library && !["overview", "dashboard"].includes(view)) {
+      || site && !GROWTH_SITES.some(item => item.domain === site) || view !== null && !quarter && !library && !savedViews.includes(view)) {
       return Response.json({ message: "站点参数无效" }, { status: 400, headers: privateAnalyticsHeaders });
     }
     const local = analyticsLocalPreview(request);
+    if (view === "published-ranking-capture") {
+      if (site) return Response.json({ message: "采集清单范围无效" }, { status: 400, headers: privateAnalyticsHeaders });
+      const [{ loadNovemberSecondKeywordCapture, NOVEMBER_SECOND_CAPTURE_PERIOD }, { approvedCaptureRankedWords }] = await Promise.all([
+        import("@/lib/services/approved-weekly-keyword-capture"), import("@/lib/approved-weekly-keyword-capture"),
+      ]);
+      const capture = await loadNovemberSecondKeywordCapture();
+      if (!capture?.complete) return Response.json({ message: "本期采集回执暂未读齐" }, { status: 503, headers: privateAnalyticsHeaders });
+      const words = approvedCaptureRankedWords(capture);
+      if (words.length !== capture.rankedKeywords) throw new Error("Ranked word count does not match verified capture");
+      return Response.json({ periodLabel: NOVEMBER_SECOND_CAPTURE_PERIOD.label, words }, { headers: privateAnalyticsHeaders });
+    }
+    if (view === "quarter-calendar") {
+      if (site) return Response.json({ message: "季度日历范围无效" }, { status: 400, headers: privateAnalyticsHeaders });
+      const [{ loadGrowthStrategy }, { quarterCalendarDisplay }] = await Promise.all([
+        import("@/lib/services/growth-strategy"), import("@/lib/growth-quarter-display"),
+      ]);
+      const state = await loadGrowthStrategy(local);
+      if (!state.quarterPlanning?.plan.calendar) return Response.json({ plan: null }, { headers: privateAnalyticsHeaders });
+      const workspace = await loadSnapshot("quarter", local);
+      return Response.json({ plan: quarterCalendarDisplay(state, workspace.targets) }, { headers: privateAnalyticsHeaders });
+    }
     if (view === "dashboard") {
       const started = performance.now();
       const data = growthDashboardProjection(await (site ? loadGrowthDashboardWorkspace(local, new Date(), site) : loadSnapshot("quarter", local)));
@@ -59,9 +81,21 @@ export async function GET(request: Request) {
       headers.set("server-timing", `growth-dashboard;dur=${Math.round(performance.now() - started)}`);
       return Response.json(data, { headers });
     }
-    if (library) {
+    if (library === "keywords") {
+      const [{ loadGrowthStrategy }, { quarterCalendarDisplay }, { loadGrowthHotspotView },
+        { loadNovemberSecondKeywordCapture }, { approvedCaptureRankedWords }, { growthKeywordCatalog }] = await Promise.all([
+        import("@/lib/services/growth-strategy"), import("@/lib/growth-quarter-display"), import("@/lib/services/growth-hotspots"),
+        import("@/lib/services/approved-weekly-keyword-capture"), import("@/lib/approved-weekly-keyword-capture"), import("@/lib/growth-keyword-catalog"),
+      ]);
+      const [state, workspace, hotspots, capture] = await Promise.all([
+        loadGrowthStrategy(local), loadSnapshot("quarter", local), loadGrowthHotspotView(local), local ? null : loadNovemberSecondKeywordCapture(),
+      ]);
+      return Response.json(growthKeywordCatalog(quarterCalendarDisplay(state, workspace.targets), hotspots.items, workspace,
+        capture?.complete ? approvedCaptureRankedWords(capture) : [], params.get("q") ?? "", page), { headers: privateAnalyticsHeaders });
+    }
+    if (library === "published") {
       const read = await profileRead(async () => {
-        const data = await timedRead("workspace", () => loadSnapshot(library === "keywords" ? "catalog" : "quarter", local));
+        const data = await timedRead("workspace", () => loadSnapshot("quarter", local));
         return growthKeywordInventoryPage(data, readGrowthScope(params), page, library, rank as PublishedKeywordRank | "all");
       });
       const timing = [...read.phases.map(phase => `${phase.phase};dur=${phase.durationMs}`), `keyword-library;dur=${read.durationMs}`].join(", ");
