@@ -34,7 +34,7 @@ const targets = [
   { id: 'alpha/en', site, topicId: 'alpha', keyword: 'gpu rent', country: 'US', language: 'en', rank: 7, rankEligible: true },
   { id: 'alpha/ja', site, topicId: 'alpha', keyword: 'GPUの価格', country: 'JP', language: 'ja', rank: null, captureState: 'unqueried' },
   { id: 'beta/en', site, topicId: 'beta', keyword: 'api pricing', country: 'US', language: 'en', rank: 22, rankEligible: true },
-];
+].map(target => ({ ...target, publishedUrls: [], pageState: 'unmapped' }));
 const data = { topics, targets, markets: [{ country: 'US', language: 'en', label: '美国 · 英语' }, { country: 'JP', language: 'ja', label: '日本 · 日语' }] };
 
 function render(visible = targets) {
@@ -106,4 +106,21 @@ test('dragging past the threshold suppresses the release click and leaves the gr
   tree = render();
   assert.equal(pointsIn(tree).length, 3);
   assert.match(flatten(tree).find(node => node.props.transform).props.transform, /^translate\(30 0\)/);
+});
+
+test('an overview dot is part of its cluster activation target and only the focused dot navigates to its exact keyword', () => {
+  harness = { slots: [], cursor: 0 };
+  let tree = render();
+  const button = by(tree, 'aria-label', '放大话题 模型接口');
+  const dot = by(button, 'data-keyword-id', 'beta/en');
+  assert.ok(dot, 'the browser click on the dot bubbles to its own cluster button');
+  assert.ok(!flatten(tree).some(node => node.props.href?.includes('target=beta')));
+  dot.props.onMouseEnter();
+  assert.ok(by(render(), 'role', 'status'));
+  button.props.onClick();
+  tree = render();
+  assert.deepEqual(pointsIn(tree), ['beta/en']);
+  const dotLink = flatten(tree).find(node => node.props['aria-label'] === 'api pricing');
+  assert.equal(dotLink.props.href, '/topics/beta?site=flatkey.ai&target=beta%2Fen');
+  assert.ok(by(dotLink, 'data-keyword-id', 'beta/en'));
 });

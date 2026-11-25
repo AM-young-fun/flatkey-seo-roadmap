@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { GrowthTarget, GrowthWorkspace } from "@/lib/growth-types";
 import { growthLink, growthMarketLabel, growthRankKind, growthRankText, type GrowthScope } from "./growth-topic-view";
-import { keywordCircleLayout, type TopicCircle } from "./growth-network-layout";
+import { keywordCircleLayout, type KeywordPoint, type TopicCircle } from "./growth-network-layout";
 import styles from "./GrowthKeywordNetwork.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
 
@@ -18,11 +18,16 @@ export function GrowthKeywordNetwork({ data, scope, targets }: { data: GrowthWor
   const resetButton = useRef<HTMLButtonElement>(null);
   const visible = new Set(targets.map(target => target.id));
   const visiblePoints = layout.points.filter(point => visible.has(point.target.id));
-  const visibleClusters = new Set(visiblePoints.map(point => point.clusterId));
-  const focused = layout.clusters.find(cluster => cluster.id === view.clusterId && visibleClusters.has(cluster.id));
+  const pointsByCluster = new Map<string, KeywordPoint[]>();
+  for (const point of visiblePoints) {
+    const clusterPoints = pointsByCluster.get(point.clusterId) ?? [];
+    clusterPoints.push(point);
+    pointsByCluster.set(point.clusterId, clusterPoints);
+  }
+  const focused = layout.clusters.find(cluster => cluster.id === view.clusterId && pointsByCluster.has(cluster.id));
   const { zoom, x, y } = view.clusterId && !focused ? initialView : view;
-  const points = focused ? visiblePoints.filter(point => point.clusterId === focused.id) : visiblePoints;
-  const clusters = focused ? [focused] : layout.clusters.filter(cluster => visibleClusters.has(cluster.id));
+  const points = focused ? pointsByCluster.get(focused.id) ?? [] : visiblePoints;
+  const clusters = focused ? [focused] : layout.clusters.filter(cluster => pointsByCluster.has(cluster.id));
   const hover = points.find(point => point.target.id === hoverId);
   const reset = () => { setView(initialView); setHoverId(null); };
   const focus = (cluster: TopicCircle) => {
@@ -35,6 +40,10 @@ export function GrowthKeywordNetwork({ data, scope, targets }: { data: GrowthWor
     const next = Math.max(.7, Math.min(focused ? Math.max(6, focusZoom(focused.radius) * 2) : 6, zoom * factor));
     setView({ clusterId: focused?.id ?? null, zoom: next, x: x * next / zoom, y: y * next / zoom });
   };
+  const pointTitle = (point: KeywordPoint) => `${point.target.keyword} · ${point.topic?.name ?? "话题待关联"} · ${growthMarketLabel(data, point.target.country, point.target.language)} · ${growthRankText(point.target)}`;
+  const pointDot = (point: KeywordPoint) => <circle key={point.target.id} className={styles.point} cx={point.x} cy={point.y} r={focused ? 5 / zoom : point.radius}
+    data-kind={growthRankKind(point.target)} data-keyword-id={point.target.id} vectorEffect="non-scaling-stroke"
+    onMouseEnter={() => setHoverId(point.target.id)} onMouseLeave={() => setHoverId(null)}><title>{pointTitle(point)}</title></circle>;
   return <section aria-label="按话题分簇的关键词关系图" className={styles.root}
     onKeyDown={event => { if (focused && event.key === "Escape") { event.preventDefault(); reset(); resetButton.current?.focus(); } }}>
     <header>
@@ -76,15 +85,17 @@ export function GrowthKeywordNetwork({ data, scope, targets }: { data: GrowthWor
             onClick={focused ? undefined : () => focus(cluster)} onKeyDown={focused ? undefined : event => {
               if (event.key === "Enter" || event.key === " ") { event.preventDefault(); focus(cluster); }
             }}><circle className={styles.cluster} cx={cluster.x} cy={cluster.y} r={cluster.radius} vectorEffect="non-scaling-stroke" />
-            {focused ? null : <text className={styles.clusterLabel} x={cluster.x} y={cluster.y - cluster.radius - 3} textAnchor="middle">{clusterName(cluster)}</text>}</g>)}
-          {points.map(point => <SeoAnchor key={point.target.id} href={growthLink(scope, point.topic ?? undefined, point.target.id)} aria-label={point.target.keyword} tabIndex={focused ? -1 : undefined}
-            onFocus={() => setHoverId(point.target.id)} onBlur={() => setHoverId(null)} onMouseEnter={() => setHoverId(point.target.id)} onMouseLeave={() => setHoverId(null)}>
-            <circle className={styles.point} cx={point.x} cy={point.y} r={focused ? 5 / zoom : point.radius} data-kind={growthRankKind(point.target)} data-keyword-id={point.target.id} vectorEffect="non-scaling-stroke" />
-            <title>{`${point.target.keyword} · ${point.topic?.name ?? "话题待关联"} · ${growthMarketLabel(data, point.target.country, point.target.language)} · ${growthRankText(point.target)}`}</title>
-          </SeoAnchor>)}
+            {focused ? null : <>
+              <text className={styles.clusterLabel} x={cluster.x} y={cluster.y - cluster.radius - 3} textAnchor="middle">{clusterName(cluster)}</text>
+              {pointsByCluster.get(cluster.id)?.map(pointDot)}
+            </>}
+          </g>)}
+          {focused ? points.map(point => <SeoAnchor key={point.target.id} href={growthLink(scope, point.topic ?? undefined, point.target.id)} aria-label={point.target.keyword} tabIndex={-1}>
+            {pointDot(point)}
+          </SeoAnchor>) : null}
         </g>
       </svg>
-      {hover ? <aside className={styles.tooltip} role="status"><strong>{hover.target.keyword}</strong><span>{hover.topic?.name ?? "话题待关联"} · {hover.target.site}</span><span>{growthMarketLabel(data, hover.target.country, hover.target.language)} · {growthRankText(hover.target)}</span><span>{hover.target.pageState === "published" ? "已建页面" : hover.target.pageState === "planned" ? "已规划页面" : "页面待关联"} · {hover.target.checkedAt ? `实测 ${hover.target.checkedAt.slice(0, 10)}` : "采样待齐"}</span><span>{hover.target.rankUrl ?? hover.target.publishedUrls[0] ?? "页面地址待关联"}</span><small>点击进入话题下的原关键词、页面和任务</small></aside> : null}
+      {hover ? <aside className={styles.tooltip} role="status"><strong>{hover.target.keyword}</strong><span>{hover.topic?.name ?? "话题待关联"} · {hover.target.site}</span><span>{growthMarketLabel(data, hover.target.country, hover.target.language)} · {growthRankText(hover.target)}</span><span>{hover.target.pageState === "published" ? "已建页面" : hover.target.pageState === "planned" ? "已规划页面" : "页面待关联"} · {hover.target.checkedAt ? `实测 ${hover.target.checkedAt.slice(0, 10)}` : "采样待齐"}</span><span>{hover.target.rankUrl ?? hover.target.publishedUrls[0] ?? "页面地址待关联"}</span><small>{focused ? "点击查看原关键词、页面和任务" : "点击放大所在话题"}</small></aside> : null}
       {!points.length ? <p className={styles.empty}>当前筛选没有可展示的季度关键词。</p> : null}
     </div>
       {focused ? <aside className={styles.keywordList} aria-label={`${clusterName(focused)}的关键词列表`}>
