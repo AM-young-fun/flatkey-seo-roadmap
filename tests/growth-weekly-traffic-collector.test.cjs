@@ -79,7 +79,7 @@ test("parallel source reads retain missing Rouge data; an ambiguous successful w
   if (site === "rougecue.org") throw Object.assign(Error("no source"), { code: "forbidden" });
   return { id: site, site, sessions: 5, metadata: { timeZone: "Asia/Shanghai", propertyId: "2" } };
  }, fetcher: async (url, init) => {
-  assert.equal(url, "https://flatkey-seo-roadmap.vercel.app/api/seo/growth/strategy"); assert.equal(init.redirect, "error");
+  assert.equal(url, "https://flatkey-seo-roadmap.vercel.app/api/seo/growth/strategy" + (init.method === "GET" ? "?view=traffic-state" : "")); assert.equal(init.redirect, "error");
   if (init.method === "POST") { posts++; const command = JSON.parse(init.body); assert.equal(command.expectedVersion, state.version); state.version++; state.trafficEvidence.push(command.evidence); throw Error("timeout after saved"); }
   return Response.json({ state });
  } });

@@ -11,6 +11,10 @@ export async function GET(request: Request) {
   try {
     const auth = await authorizeWorkflow(request);
     const params = new URL(request.url).searchParams, mode = params.get("view");
+    if (mode === "traffic-state" && params.size === 1) {
+      const { version, trafficEvidence } = await loadGrowthStrategy(auth.localPreview);
+      return Response.json({ state: { version, trafficEvidence } }, { headers: workflowHeaders });
+    }
     if (mode === "topic-directions") {
       const site = params.get("site"), topic = params.get("topic");
       if (!site || !topic || site.length > 240 || topic.length > 240 || params.size !== 3) return Response.json({ message: "话题方向查询参数无效" }, { status: 400, headers: workflowHeaders });

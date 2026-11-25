@@ -35,4 +35,11 @@ test("the collector reaches the exact route and the handler independently checks
   assert.equal((await route.GET(new Request(url, { headers: { cookie: "test=verified-user" } }))).status, 200);
   assert.equal((await route.POST(new Request(url, { method: "POST", headers: { cookie: "test=verified-user" } }))).status, 403);
   assert.equal((await route.POST(new Request(url, { method: "POST", headers: { ...collector, origin: "https://example.com" } }))).status, 403);
+  const range = await route.GET(new Request(url + "?start=2026-11-18&end=2026-11-20", { headers: collector }));
+  assert.equal(range.status, 200);
+  const { daily } = await range.json();
+  assert.deepEqual(daily.map(point => [point.date, point.site.organicSessions]), [
+    ["2026-11-18", null], ["2026-11-19", null], ["2026-11-20", null],
+  ]);
+  assert.equal((await route.GET(new Request(url + "?start=2026-11-18", { headers: collector }))).status, 400);
 });

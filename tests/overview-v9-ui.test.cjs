@@ -23,7 +23,7 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./useSeoCountry") return { useSeoCountry:()=>["all"] };
   if (name === "./RankingTrend") return { RankingTrend:()=>null };
   if (name === "./useSeoAnalytics") return { useSeoRead:(url,_options) => {
-    if (parent?.filename.endsWith("/OverviewTrafficCharts.tsx")) lastTrafficUrl=url;
+    if (parent?.filename.endsWith("/TrafficRegistrationSummary.tsx")) lastTrafficUrl=url;
     return { data:fixtures.get(url) ?? null, error:null, loading:false, retry() {}, ...(url?.includes("workList=1") ? listRead : overviewReads.get(url)) };
   }, useOverviewRead:url => ({ data:null, error:null, loading:false, retry() {}, ...overviewReads.get(url) }), numberText:String, shanghaiStamp:String, analyticsUrl:(range,urls,country) => `/api/seo/analytics?start=${range.start}&end=${range.end}${country!=="all"?`&country=${country}`:""}` };
   if (name.endsWith(".module.css")) return new Proxy({}, {get:(_,key)=>key === "__esModule"?false:String(key)});
@@ -32,7 +32,7 @@ Module._load = function(name, parent, ...rest) {
 for(const extension of [".ts",".tsx"]) require.extensions[extension]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,file);
 const { keywordCircleLayout } = require("../src/components/growth-network-layout.ts");
 const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
-const { ConversionCharts, OverviewGoalCharts, TopicComparison } = require("../src/components/OverviewGrowthCharts.tsx");
+const { OverviewGoalCharts } = require("../src/components/OverviewGrowthCharts.tsx");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
 const { SeoWorkWorkspace } = require("../src/components/SeoWorkWorkspace.tsx");
@@ -52,7 +52,7 @@ test("credentials follow schedule in the main menu and logout is an independent 
 
 test("only the traffic read gates the page and growth failures have independent retry",()=> {
   const strategyUrl="/api/seo/growth/strategy?view=dashboard";
-  const trafficUrl=`/api/seo/analytics?view=overview-traffic&start=${overviewRange.start}&end=${overviewRange.end}`;
+  const trafficUrl=`/api/seo/traffic-summary?start=${overviewRange.start}&end=${overviewRange.end}`;
   overviewReads.set(strategyUrl,{loading:true});
   try {
     const rankingPending=render(React.createElement(SeoOverview));
@@ -80,13 +80,15 @@ test("the overview date refresh preserves the prior traffic view without making 
     assert.match(initial,/data-page-loading="local"/);
     rangeReady=true;
     activeRange={start:"2026-11-19",end:"2026-11-20"};
-    const previousData={range:overviewRange, comparison:null, module:"all", country:"all", current:[{date:"2026-11-23",sessions:251}],previous:null,modules:{sessions:{blog:251},complete:true}};
-    const currentUrl=`/api/seo/analytics?view=overview-traffic&start=${activeRange.start}&end=${activeRange.end}`;
+    const previousData={...overviewRange,daily:[{date:"2026-11-23",site:{totalSessions:1094,organicSessions:317,totalRegistrations:70,organicRegistrations:20},modules:{}}]};
+    const currentUrl=`/api/seo/traffic-summary?start=${activeRange.start}&end=${activeRange.end}`;
     overviewReads.set(currentUrl,{previousData,loading:true,pending:true,hasSettled:true});
     const pending=render(React.createElement(SeoOverview));
     assert.doesNotMatch(pending,/data-page-loading|\sinert=/);
     assert.match(pending,/aria-label="选择时间" aria-busy="true"/);
     assert.match(pending,/本期 2026-11-17—2026-11-23/);
+    for (const title of ["Flatkey 流量趋势","Flatkey 注册趋势","总会话","自然搜索会话","总注册","自然搜索注册"]) assert.ok(pending.includes(title));
+    assert.doesNotMatch(pending,/话题与内容涨跌贡献对比|GPU 租赁业务承接|API 自然获客注册/);
     assert.doesNotMatch(pending,/本期 2026-11-19—2026-11-20/);
     assert.equal(lastTrafficUrl,currentUrl);
   } finally {rangeReady=true;activeRange=overviewRange;overviewReads.clear();}
@@ -103,25 +105,6 @@ test("work date filtering keeps the filters interactive and only retains stale r
     assert.match(html,/每页 10 项/);
   } finally {listQuery="";listRead=undefined;}
 });
-test("a duplicated page with ambiguous topics is not plotted as an invented topic contribution",()=>{
- const driver={title:'GPU page',url:'https://flatkey.ai/blog/gpu',module:'blog',topicId:'gpu',country:'US',language:'en',metric:'sessions',source:'GA4',previous:10,current:20,window:{start:'2026-11-12',end:'2026-11-18',previousStart:'2026-11-05',previousEnd:'2026-11-11',timezone:'America/Los_Angeles'}};
- const snapshot={period:{start:'2026-11-12',end:'2026-11-18',timezone:'America/Los_Angeles'},directions:[{drivers:[driver]},{drivers:[{...driver,topicId:'api'}]}]};
- const html=render(React.createElement(TopicComparison,{snapshot,workspace:null}));assert.match(html,/尚无同口径/);assert.doesNotMatch(html,/class="bar"/);
-});
-
-test("contribution charts display the actual single destinations and expandable links for grouped pages",()=>{
- const scope={start:'2026-11-12',end:'2026-11-18',timezone:'America/Los_Angeles'};
- const driver={title:'GPU page',url:'https://flatkey.ai/blog/gpu',module:'blog',topicId:'gpu',country:'ALL',language:'en',metric:'clicks',source:'GSC',previous:10,current:20,window:{...scope,previousStart:'2026-11-05',previousEnd:'2026-11-11'}};
- const snapshot={period:scope,directions:[{drivers:[driver,{...driver,title:'GPU pricing',url:'https://flatkey.ai/blog/pricing'},{...driver,title:'本地化 GPU',url:'https://flatkey.ai/zh/blog/gpu',language:'zh-CN'}]}]};
- const workspace={sites:[{domain:'flatkey.ai',name:'Flatkey'}],topics:[{site:'flatkey.ai',topicId:'gpu',name:'GPU 租赁'}]};
- const html=render(React.createElement(TopicComparison,{snapshot,workspace}));
- assert.match(html,/GPU 租赁<small>Flatkey · 全部国家 · 英语/);
- assert.match(html,/Flatkey · 全部国家 · 中文/);
- assert.match(html,/<details><summary>2 个贡献页面<\/summary>/);
- for(const url of ['https://flatkey.ai/blog/gpu','https://flatkey.ai/blog/pricing','https://flatkey.ai/zh/blog/gpu']) assert.ok(html.includes(`href="${url}"`));
- assert.doesNotMatch(html,/>GPU 租赁<\/a>|指标与来源分开显示/);
-});
-
 test("1600-word graph is complete, deterministic across reorder/rank updates, and bounded by one circle",()=>{
   const topics=Array.from({length:64},(_,i)=>({id:`topic:${i}`,site:"flatkey.ai",topicId:`t${i}`,name:`Topic ${i}`}));
   const targets=Array.from({length:1600},(_,i)=>({id:`w${i}`,keyword:`keyword ${i}`,site:"flatkey.ai",topicId:`t${i%64}`,rank:i%100+1}));
@@ -152,14 +135,6 @@ test("daily chart preserves missing-day gaps rather than joining through or fill
   assert.equal((html.match(/<circle /g)||[]).length,2);assert.match(html,/d="M42,[^ ]+ {2}M558,/);assert.match(html,/缺失日期保留断点/);
   const empty=render(React.createElement(LinePlot,{unit:"人",rows:[{label:"11-01",value:null}]}));
   assert.match(empty,/缺口未记为0/);assert.doesNotMatch(empty,/<circle /);
-});
-const missing=(unit)=>({value:null,unit,status:"unavailable",reason:"尚无可靠来源",sourceRefs:[]});
-const projection=()=>({version:1,generatedAt:"2026-11-24T00:00:00Z",scope:{site:"flatkey.ai",start:"2026-11-12",end:"2026-11-18",timezone:"America/Los_Angeles",country:"all"},api:{registration:{eligibleVisitors:missing("users"),firstRegistrations:missing("users"),rate:missing("ratio")},firstPayment30d:{registeredUsers:missing("users"),confirmedFirstPayers:missing("users"),rate:missing("ratio"),cohorts:[]}},gpu:{inquiries:missing("inquiries"),quotes:missing("quotes"),deals:missing("deals")},readiness:{status:"unavailable",reasons:["支付身份关联缺失"]}});
-test("the overview preserves the eligible registration denominator and omits payment metrics",()=>{
- const data=projection();data.ga4OrganicRegistrants={ users:81,observedAt:"2026-11-25T02:00:00Z" };data.api.firstPayment30d.cohorts=[{id:"not-mature",registrationStart:"2026-11-20",registrationEnd:"2026-11-21",registeredUsers:8,matureRegisteredUsers:0,confirmedFirstPayers:0,rate:0,maturity:"immature",status:"partial",reasons:["尚未满30天"]}];
-  const html=render(React.createElement(ConversionCharts,{projection:data}));
- assert.doesNotMatch(html,/GA4 自然获客注册 <strong>81 人|会话趋势另列|单位：询盘 \/ 报价 \/ 成交|付费率|未成熟批次/);assert.match(html,/合资格访客/);
- assert.doesNotMatch(html,/class="bar"/);assert.match(html,/尚无可靠的自然搜索询盘、报价或成交来源/);
 });
 test("hotspot topics open the saved original terms, evidence and task links without the quarter review editor",()=>{
   const base={version:"growth-hotspots-v9",generatedAt:"2026-11-24T00:00:00Z",businessWeek:{start:"2026-11-20",end:"2026-11-26"}};

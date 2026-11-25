@@ -37,15 +37,18 @@ export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数�
 }
 export type LineDatum = { label: string; value: number | null; prior?: number | null };
 /** Gaps remain gaps. Previous observations align by ordinal day and retain their own dates in labels. */
-export function LinePlot({ rows, unit, priorLabel }: { rows: LineDatum[]; unit: string; priorLabel?: string }) {
+export function LinePlot({ rows, unit, priorLabel, series }: { rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string, string] }) {
   const values = rows.flatMap(row => [row.value, row.prior]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) return <EmptyPlot reason="所选周期暂无已归档的有效数据，缺口未记为0" />;
   const max = Math.max(1, ...values) * 1.12, x = (i: number) => 42 + i / Math.max(1, rows.length - 1) * 516, y = (v: number) => 182 - v / max * 150;
   const path = (key: "value" | "prior") => rows.map((row, i) => row[key] == null ? "" : `${i && rows[i - 1][key] != null ? "L" : "M"}${x(i)},${y(row[key]!)}`).join(" ");
-  return <figure className={styles.line}><div className={styles.axis}>单位：{unit} · 深色：本期{priorLabel ? ` 浅色虚线：${priorLabel}` : ""}</div><svg viewBox="0 0 580 222" role="img" aria-label={`${unit}逐日趋势，缺失日期保留断点`}>
+  const secondary = series ? "#087e76" : "#b7c8e0";
+  return <figure className={styles.line}><div className={styles.axis}>{series ? <span className={styles.lineLegend}><span><i />{series[0]}</span><span><i />{series[1]}</span><span>单位：{unit}</span></span>
+    : <>单位：{unit} · 深色：本期{priorLabel ? ` 浅色虚线：${priorLabel}` : ""}</>}</div><svg viewBox="0 0 580 222" role="img" aria-label={`${series ? series.join("、") + " · " : ""}${unit}逐日趋势，缺失日期保留断点`}>
     {[0, .5, 1].map(ratio => <g key={ratio}><path d={`M42 ${y(max * ratio)}H558`} stroke="#e6ebf2" strokeDasharray="3 4" /><text x="35" y={y(max * ratio) + 4} textAnchor="end" fill="#718096" fontSize="11">{chartNumber(max * ratio)}</text></g>)}
-    <path d={path("prior")} fill="none" stroke="#b7c8e0" strokeWidth="2" strokeDasharray="5 4" /><path d={path("value")} fill="none" stroke="#3478ca" strokeWidth="2.5" />
-    {rows.map((row, i) => row.value == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.value)} r="3" fill="#3478ca"><title>{`${row.label}：${chartNumber(row.value)} ${unit}${row.prior != null ? `；对比日 ${chartNumber(row.prior)} ${unit}` : ""}`}</title></circle>)}
+    <path d={path("prior")} fill="none" stroke={secondary} strokeWidth="2" strokeDasharray="5 4" /><path d={path("value")} fill="none" stroke="#3478ca" strokeWidth="2.5" />
+    {rows.map((row, i) => row.value == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.value)} r="3" fill="#3478ca"><title>{`${row.label}：${series ? series[0] + " " : ""}${chartNumber(row.value)} ${unit}${!series && row.prior != null ? `；对比日 ${chartNumber(row.prior)} ${unit}` : ""}`}</title></circle>)}
+    {series ? rows.map((row, i) => row.prior == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.prior)} r="3" fill={secondary}><title>{`${row.label}：${series[1]} ${chartNumber(row.prior)} ${unit}`}</title></circle>) : null}
     {rows.map((row, i) => i === 0 || i === rows.length - 1 || i === Math.floor(rows.length / 2) ? <text key={row.label} x={x(i)} y="210" textAnchor={i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle"} fill="#718096" fontSize="11">{row.label}</text> : null)}
   </svg></figure>;
 }

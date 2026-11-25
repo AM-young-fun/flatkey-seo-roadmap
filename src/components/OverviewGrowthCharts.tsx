@@ -1,14 +1,11 @@
 "use client";
-import { useState } from "react";
 import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
 import type { GrowthWorkspace } from "@/lib/growth-types";
-import type { ConversionProjection } from "@/lib/seo-conversion";
 import type { SeoReadState } from "./useSeoAnalytics";
 import { quarterTargetWorkspace } from "./growth-topic-view";
-import { BarPlot, ChartPanel, GoalPlot, chartNumber } from "./OverviewCharts";
+import { BarPlot, ChartPanel, GoalPlot } from "./OverviewCharts";
 import styles from "./OverviewCharts.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
-import { growthComparisonGroups, growthContributionDrivers } from "@/lib/growth-topic-contributions";
 import { reportDay } from "@/lib/seo-report-time.cjs";
 
 const shortDay = (day: string) => `${Number(day.slice(5, 7))}月${Number(day.slice(8, 10))}日`;
@@ -37,98 +34,22 @@ function ContentProgress({ workspace }: { workspace: GrowthWorkspace | null }) {
   </ChartPanel>;
 }
 
-const moduleNames = new Map([["home", "首页"], ["blog", "博客"], ["models", "模型"], ["gpu", "GPU"], ["prompts", "Prompt"], ["other", "其他功能页"]]);
-const languageNames = new Intl.DisplayNames("zh-CN", { type: "language" });
-const countryNames = new Intl.DisplayNames("zh-CN", { type: "region" });
-const languageLabel = (value: string) => {
-  if (value === "und") return "语言待核";
-  try { return languageNames.of(value) ?? value; } catch { return value; }
-};
-
-function ContributionPage({ page }: { page: { url: string; title: string } }) {
-  const url = new URL(page.url), path = `${url.pathname}${url.search}${url.hash}`;
-  return <SeoAnchor href={page.url} title={page.url}>{page.title?.startsWith("页面 /") ? path : <>{page.title || path}{page.title && page.title !== path ? <small>{path}</small> : null}</>}</SeoAnchor>;
-}
-
-export function TopicComparison({ snapshot, workspace }: { snapshot: GrowthReportSnapshot | null; workspace: GrowthWorkspace | null }) {
-  const [groupBy, setGroupBy] = useState<"topic" | "module">("topic");
-  const [selectedMetric, setMetric] = useState<"sessions" | "clicks" | "impressions" | null>(null);
-  const available = (["sessions", "clicks", "impressions"] as const).find(metric =>
-    growthContributionDrivers(snapshot, metric).some(row => groupBy === "module" || row.topicId));
-  const metric = selectedMetric ?? available ?? "sessions";
-  const labels = { sessions: "自然搜索会话", clicks: "Google点击", impressions: "Google曝光" };
-  const mainRows = growthComparisonGroups(snapshot, metric, groupBy).slice(0, 10);
-  const rows = mainRows.map(row => {
-    const topicName = workspace?.topics.find(topic => topic.site === row.site && topic.topicId === row.topicId)?.name;
-    const site = workspace?.sites.find(item => item.domain === row.site)?.name ?? row.site;
-    const country = row.country.toUpperCase();
-    const countryName = country === "ALL" ? "全部国家" : /^[A-Z]{2}$/.test(country) ? countryNames.of(country) ?? row.country : row.country;
-    const comparisons = mainRows.some(other => row !== other && other.site === row.site && other.country === row.country && other.language === row.language
-      && (groupBy === "module" ? other.module === row.module : other.topicId === row.topicId));
-    const context = [site, countryName, languageLabel(row.language), ...(comparisons ? [`对比 ${shortDay(row.window.previousStart)}—${shortDay(row.window.previousEnd)}`] : [])].join(" · ");
-    const firstPage = row.pages[0];
-    const fallbackTopicName = firstPage.title || new URL(firstPage.url).pathname;
-    const label = groupBy === "module" ? moduleNames.get(row.module) ?? (row.module || "模块待核")
-      : topicName ?? `${fallbackTopicName}${row.pages.length > 1 ? ` 等 ${row.pages.length} 页` : ""}`;
-    const details = row.pages.length === 1 ? <ContributionPage page={firstPage} /> : <details>
-      <summary>{row.pages.length} 个贡献页面</summary>
-      <ul>{row.pages.map(page => <li key={page.url}><ContributionPage page={page} /><small>{chartNumber(page.previous)} → {chartNumber(page.current)}</small></li>)}</ul>
-    </details>;
-    return { id: row.id, label, context, details, value: row.current - row.previous, suffix: `${chartNumber(row.previous)} → ${chartNumber(row.current)}` };
-  });
-  return <ChartPanel title="话题与内容涨跌贡献对比">
-    <div className={styles.switcher} aria-label="归因分组"><button type="button" aria-pressed={groupBy === "topic"} onClick={() => setGroupBy("topic")}>按话题</button><button type="button" aria-pressed={groupBy === "module"} onClick={() => setGroupBy("module")}>按模块</button></div>
-    <div className={styles.switcher} aria-label="话题比较指标">{Object.entries(labels).map(([key, label]) => <button key={key} type="button" aria-pressed={metric === key} onClick={() => setMetric(key as typeof metric)}>{label}</button>)}</div>
-    {rows.length ? <BarPlot rows={rows} signed unit={metric === "sessions" ? "次会话增减" : metric === "clicks" ? "次点击增减" : "次曝光增减"} denominator="页面贡献合计；同国家语言、同来源、同可比周期，切片不叠加为全站总量" />
-      : <p className={styles.note}>尚无同口径的{groupBy === "topic" ? "话题" : "模块"}{labels[metric]}涨跌证据。</p>}
-  </ChartPanel>;
-}
-export type OverviewConversion = ConversionProjection & { ga4OrganicRegistrants?: { users: number; observedAt: string } | null };
-
-export function ConversionCharts({ projection }: { projection: OverviewConversion | null }) {
-  const registration = projection?.api.registration;
-  const readyRate = (value: { value: number | null; status: string } | undefined) => value?.status === "ready" && value.value !== null ? value.value * 100 : null;
-  const registrationRate = readyRate(registration?.rate);
-  const gpuRows = projection ? [[ "询盘", projection.gpu.inquiries ], [ "报价", projection.gpu.quotes ], [ "成交", projection.gpu.deals ]].map(([label, raw]) => {
-    const metric = raw as ConversionProjection["gpu"]["inquiries"];
-    return { label: label as string, value: metric.status === "ready" ? metric.value : null };
-  }) : [];
-  return <div className={styles.two}>
-    <ChartPanel title="API 自然获客注册">
-      <h3 className={styles.subheading}>自然获客注册率</h3>
-      {registrationRate === null ? <p className={styles.note}>待接入可核验的首次账户身份及合资格访客。</p>
-        : <BarPlot rows={[{ label: "合资格首注 / 访客", value: registrationRate, suffix: `${chartNumber(registration?.eligibleFirstRegistrations?.value)} / ${chartNumber(registration?.eligibleVisitors.value)} 人` }]} unit="%" denominator="同批合资格自然访客，排除已注册回访用户" />}
-    </ChartPanel>
-    <ChartPanel title="GPU 租赁业务承接">
-      {gpuRows.some(row => row.value !== null) ? <BarPlot rows={gpuRows} unit="件" denominator="仅有可靠来源与自然获客关联的业务记录" />
-        : <p className={styles.note}>尚无可靠的自然搜索询盘、报价或成交来源。</p>}
-    </ChartPanel>
-  </div>;
-}
 export function OverviewReadFailure({ title, error, retry }: { title: string; error: string; retry: () => void }) {
   return <ChartPanel title={title} note="">
     <div className="loadError" role="alert"><span>{error}</span><button type="button" onClick={retry}>重新加载</button></div>
   </ChartPanel>;
 }
 
-export function OverviewGrowthCharts({ strategy, growth, conversion }: {
+export function OverviewGrowthCharts({ strategy, growth }: {
   strategy: SeoReadState<{ snapshot: GrowthReportSnapshot }>;
   growth: SeoReadState<GrowthWorkspace>;
-  conversion: SeoReadState<OverviewConversion>;
 }) {
   return <>
     {strategy.data?.snapshot ? <OverviewGoalCharts snapshot={strategy.data.snapshot} />
       : strategy.loading ? <ChartPanel title="2026 收官季目标进度" note=""><p role="status">正在重读季度目标…</p></ChartPanel>
       : <OverviewReadFailure title="2026 收官季目标进度" error={strategy.error ?? "季度目标未返回，请重试"} retry={strategy.retry} />}
-    <div className={styles.two}>
-      {growth.data ? <ContentProgress workspace={growth.data} />
-        : growth.loading ? <ChartPanel title="季度内容建设进度" note=""><p role="status">正在重读建设进度…</p></ChartPanel>
-        : <OverviewReadFailure title="季度内容建设进度" error={growth.error ?? "建设进度未返回，请重试"} retry={growth.retry} />}
-      {strategy.data?.snapshot ? <TopicComparison snapshot={strategy.data.snapshot} workspace={growth.data} />
-        : <ChartPanel title="话题与内容涨跌贡献对比" note=""><p>{strategy.loading ? "正在重读对比数据…" : "请重新加载季度目标，以读取同期贡献数据。"}</p></ChartPanel>}
-    </div>
-    {conversion.data ? <ConversionCharts projection={conversion.data} />
-      : conversion.loading ? <ChartPanel title="API 与 GPU 业务承接" note=""><p role="status">正在重读业务数据…</p></ChartPanel>
-      : <OverviewReadFailure title="API 与 GPU 业务承接" error={conversion.error ?? "业务数据未返回，请重试"} retry={conversion.retry} />}
+    {growth.data ? <ContentProgress workspace={growth.data} />
+      : growth.loading ? <ChartPanel title="季度内容建设进度" note=""><p role="status">正在重读建设进度…</p></ChartPanel>
+      : <OverviewReadFailure title="季度内容建设进度" error={growth.error ?? "建设进度未返回，请重试"} retry={growth.retry} />}
   </>;
 }

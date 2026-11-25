@@ -4,18 +4,16 @@ import { useEffect, useState } from "react";
 import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
 import type { GrowthWorkspace } from "@/lib/growth-types";
 import { PageHeader } from "./PageHeader";
-import { OverviewTrafficCharts, useOverviewTrafficRead } from "./OverviewTrafficCharts";
-import { SeoDateControl, useSeoRange } from "./SeoDateControl";
+import { useSeoRange } from "./SeoDateControl";
 import { RankingTrend } from "./RankingTrend";
 import { GrowthRankingCoverage, GrowthTopicNetwork } from "./GrowthTopicWorkspace";
-import { OverviewGrowthCharts, type OverviewConversion } from "./OverviewGrowthCharts";
+import { OverviewGrowthCharts } from "./OverviewGrowthCharts";
 import { useOverviewRead } from "./useSeoAnalytics";
 import { useSeoCountry } from "./useSeoCountry";
-import { REGIONS } from "@/lib/seo";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
 import { UiSelect } from "./UiSelect";
 import { PageLoading } from "./PageLoading";
-import { TrafficRegistrationSummary } from "./TrafficRegistrationSummary";
+import { TrafficRegistrationSummary, useTrafficSummaryTrend } from "./TrafficRegistrationSummary";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
@@ -25,8 +23,7 @@ export function SeoOverview() {
   const [module, setModule] = useState<OverviewPageModule>("all");
   const strategy = useOverviewRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=dashboard");
   const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=dashboard", 90_000);
-  const conversion = useOverviewRead<OverviewConversion>("/api/seo/growth/conversion");
-  const traffic = useOverviewTrafficRead(context.range, context.comparison, module, country, context.ready);
+  const traffic = useTrafficSummaryTrend(context.range, context.ready);
   const loading = !traffic.hasSettled && (!context.ready || traffic.loading);
   useEffect(() => {
     const read = () => setModule(overviewModule(new URLSearchParams(location.search).get("module")));
@@ -39,32 +36,17 @@ export function SeoOverview() {
     history.pushState(null, "", location.pathname + (params.size ? "?" + params : "") + location.hash);
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const shown = traffic.data ?? traffic.previousData;
-  const trafficModule = shown?.module ?? module, trafficCountry = shown?.country ?? country;
-  const moduleLabel = OVERVIEW_PAGE_MODULES.find(([key]) => key === trafficModule)![1];
   return <main className={workspace.shell}>
     <PageHeader active="overview" />
     <div className={styles.content} aria-busy={loading} inert={loading}>
       <div className={styles.scopeHeading}><h1 className={styles.title}>流量与 SEO 总览</h1>
-        <UiSelect aria-label="总览页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} />
+        <UiSelect aria-label="排名页面模块" value={module} onChange={changeModule} options={OVERVIEW_PAGE_MODULES.map(([value, label]) => ({ value, label }))} />
       </div>
-      <TrafficRegistrationSummary />
-      <OverviewGrowthCharts strategy={strategy} growth={growth} conversion={conversion} />
+      <TrafficRegistrationSummary dates={context} read={traffic} />
+      <OverviewGrowthCharts strategy={strategy} growth={growth} />
       <GrowthRankingCoverage read={growth} />
-      <div className={styles.trends}>
-        <section className={styles.traffic} aria-labelledby="overview-traffic-title" aria-busy={traffic.pending || undefined}>
-          <div className={styles.trafficHeading}>
-            <div>
-              <h2 id="overview-traffic-title">Flatkey {trafficModule === "all" ? "全站" : moduleLabel}自然搜索</h2>
-              <p>{trafficCountry === "all" ? "全部国家" : REGIONS[trafficCountry].label}</p>
-            </div>
-            <SeoDateControl value={context} pending={traffic.hasSettled && traffic.pending && !traffic.retrying} />
-          </div>
-          <OverviewTrafficCharts read={traffic} />
-        </section>
-        <div className={styles.rankings}>
-          <RankingTrend region={country} module={module} historicalScope chartsOnly />
-        </div>
+      <div className={styles.rankings}>
+        <RankingTrend region={country} module={module} historicalScope chartsOnly />
       </div>
       <div className={styles.network}>
         <GrowthTopicNetwork read={growth} />
