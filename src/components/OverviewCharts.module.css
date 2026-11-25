@@ -10,3 +10,12 @@
 .lineLegend{flex-wrap:wrap;gap:8px 15px}
 .lineLegend i{width:16px;border-top:2px solid #3478ca}
 .lineLegend>span:nth-child(2) i{border-top:2px dashed #087e76}
+
+.barRow:has(.barTooltip){position:relative}
+.barTrack:focus-visible{outline:2px solid #3478ca;outline-offset:3px}
+.barTooltip{display:none;position:absolute;z-index:5;inset-inline-start:clamp(0px,30%,300px);bottom:100%;padding:10px 12px;max-width:calc(100% - 16px);width:max-content;background:#fff;border:1px solid #d7e1ee;border-radius:7px;box-shadow:0 6px 20px #182b4826;color:#314866;font-size:12px;line-height:1.6;pointer-events:none}
+.barRow:hover .barTooltip,.barRow:focus-within .barTooltip{display:block}
+.barTooltip>b{display:block;margin-bottom:3px;font-weight:650}
+.barTooltip dl{display:grid;grid-template-columns:auto auto;column-gap:14px;margin:5px 0 0}
+.barTooltip dd{margin:0;text-align:end;font-variant-numeric:tabular-nums}
+@media(max-width:560px){.barTooltip{inset-inline-start:8px}}

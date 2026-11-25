@@ -44,3 +44,31 @@ test("partial and stale reads never erase a known count and verified zero surviv
   assert.equal(merged.site.totalRegistrations.value, 0);
   assert.equal(merged.site.organicRegistrations, null);
 });
+
+test("the latest complete seven-day window moves back across a gap and retains observed zeros", () => {
+  const { trafficOverview } = require("../src/lib/seo-traffic-overview.ts");
+  const { rangeDays } = require("../src/lib/seo-analytics.ts");
+  const scan = {start:"2026-11-14",end:"2026-11-24"};
+  const dates = rangeDays(scan);
+  const metric = {value:0, observedAt:"2026-11-25T10:00:00Z", sourceSha256:"a".repeat(64)};
+  const site = dates.map(date => ({
+    date, site:{totalSessions:metric,organicSessions:metric,totalRegistrations:metric,organicRegistrations:metric},
+    modules:Object.fromEntries(TRAFFIC_SUMMARY_MODULES.map(([key])=>[key,{totalSessions:metric,organicSessions:metric}])),
+  }));
+  const pages = dates.filter(date=>date!=="2026-11-22").map(date=>({
+    date, property:"541304395", kind:"ga4-pages", sessionsComplete:true,
+    rows:[{hostname:"flatkey.ai",path:"/blog/example",sessions:1,registrations:null}],
+  }));
+  const automatic = trafficOverview(scan,null,site,pages);
+  assert.equal(automatic.start,"2026-11-15");
+  assert.equal(automatic.end,"2026-11-21");
+  assert.equal(automatic.daily.length,7);
+  assert.ok(automatic.daily.every(row=>row.site.organicSessions===0));
+  assert.deepEqual(automatic.modules,{sessions:{blog:7},complete:true});
+  assert.equal(automatic.moduleDays[0].sessions.blog,1);
+  const custom = trafficOverview(scan,{start:"2026-11-22",end:scan.end},site,pages);
+  assert.equal(custom.start,"2026-11-22");
+  assert.equal(custom.end,scan.end);
+  assert.equal(custom.modules.complete,false);
+  assert.equal(trafficOverview(scan,null,[],pages).completeWeekEnd,null);
+});

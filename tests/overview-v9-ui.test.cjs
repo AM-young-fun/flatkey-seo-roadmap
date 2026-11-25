@@ -5,7 +5,7 @@ const React = require("react"), { renderToStaticMarkup: render } = require("reac
 const fixtures = new Map();
 const overviewReads = new Map();
 const overviewRange = { start: "2026-11-17", end: "2026-11-23" };
-let rangeReady = true;
+let rangeReady = true, automaticRange = true;
 let activeRange = overviewRange;
 let listQuery = "";
 let listRead;
@@ -13,8 +13,8 @@ let lastTrafficUrl;
 Module._load = function(name, parent, ...rest) {
   if (name === "./AppLink" || name === "@/components/AppLink") return { __esModule:true, default:({ children,prefetch,...props }) => React.createElement("a",props,children) };
   if (name === "./PageHeader" || name === "./UiSelect" || name === "./FeedbackButton") return { PageHeader:()=>React.createElement("nav",{ "aria-label":"主导航" }), UiSelect:()=>null, FeedbackButton:()=>null };
-  if (name === "./SeoDateControl") return { useSeoRange:()=>({ range:activeRange, comparison:null, ready:rangeReady }),
-    SeoDateControl:({pending})=>React.createElement("button",{"aria-label":"选择时间", "aria-busy":pending||undefined}),
+  if (name === "./SeoDateControl") return { useSeoRange:()=>({ range:activeRange, comparison:null, ready:rangeReady, isDefault:automaticRange }),
+    SeoDateControl:({pending,value})=>React.createElement("button",{"aria-label":"选择时间", "aria-busy":pending||undefined}, value.range.start + " — " + value.range.end),
     useSeoListDateRange:()=>({ preset:listQuery.includes("range=custom") ? "custom" : "week", range:activeRange }),
     SeoListDateControl:({pending})=>React.createElement("button",{"aria-label":"筛选日期", "aria-busy":pending||undefined}) };
   if (name === "next/navigation") return { useSearchParams:()=>new URLSearchParams(listQuery) };
@@ -23,7 +23,7 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./useSeoCountry") return { useSeoCountry:()=>["all"] };
   if (name === "./RankingTrend") return { RankingTrend:()=>null };
   if (name === "./useSeoAnalytics") return { useSeoRead:(url,_options) => {
-    if (parent?.filename.endsWith("/TrafficRegistrationSummary.tsx") && !url?.startsWith("/api/seo/analytics?")) lastTrafficUrl=url;
+    if (parent?.filename.endsWith("/TrafficRegistrationSummary.tsx") ) lastTrafficUrl=url;
     return { data:fixtures.get(url) ?? null, error:null, loading:false, retry() {}, ...(url?.includes("workList=1") ? listRead : overviewReads.get(url)) };
   }, useOverviewRead:url => ({ data:null, error:null, loading:false, retry() {}, ...overviewReads.get(url) }), numberText:String, shanghaiStamp:String, analyticsUrl:(range,urls,country) => `/api/seo/analytics?start=${range.start}&end=${range.end}${country!=="all"?`&country=${country}`:""}` };
   if (name.endsWith(".module.css")) return new Proxy({}, {get:(_,key)=>key === "__esModule"?false:String(key)});
@@ -52,7 +52,7 @@ test("credentials follow schedule in the main menu and logout is an independent 
 
 test("only the traffic read gates the page and growth failures have independent retry",()=> {
   const strategyUrl="/api/seo/growth/strategy?view=dashboard";
-  const trafficUrl=`/api/seo/traffic-summary?start=${overviewRange.start}&end=${overviewRange.end}`;
+  const trafficUrl="/api/seo/analytics?view=traffic-overview";
   overviewReads.set(strategyUrl,{loading:true});
   try {
     const rankingPending=render(React.createElement(SeoOverview));
@@ -72,39 +72,37 @@ test("only the traffic read gates the page and growth failures have independent 
   }
 });
 
-test("the overview date refresh preserves the prior traffic view without making the rest of the page inert",()=>{
+test("the shared date control and all four charts always use the same returned range",()=>{
   rangeReady=false;
   try {
     const initial=render(React.createElement(SeoOverview));
     assert.equal(lastTrafficUrl,null);
     assert.match(initial,/data-page-loading="local"/);
     rangeReady=true;
+    automaticRange=false;
     activeRange={start:"2026-11-19",end:"2026-11-20"};
-    const previousData={...overviewRange,daily:[{date:"2026-11-23",site:{totalSessions:1094,organicSessions:317,totalRegistrations:70,organicRegistrations:20},modules:{}}]};
-    const currentUrl=`/api/seo/traffic-summary?start=${activeRange.start}&end=${activeRange.end}`;
-    overviewReads.set(currentUrl,{previousData,loading:true,pending:true,hasSettled:true});
+    const previous={...overviewRange,automatic:true,completeWeekEnd:overviewRange.end,
+      daily:[{date:"2026-11-23",site:{totalSessions:1094,organicSessions:317,totalRegistrations:70,organicRegistrations:20}}],
+      modules:{sessions:{blog:40,models:60},complete:true},moduleDays:[{date:"2026-11-23",sessions:{blog:40,models:60}}]};
+    const currentUrl=`/api/seo/analytics?view=traffic-overview&start=${activeRange.start}&end=${activeRange.end}`;
+    overviewReads.set(currentUrl,{previousData:previous,loading:true,pending:true,hasSettled:true});
     const pending=render(React.createElement(SeoOverview));
     assert.doesNotMatch(pending,/data-page-loading|\sinert=/);
-    assert.match(pending,/aria-label="选择时间" aria-busy="true"/);
-    assert.match(pending,/本期 2026-11-17—2026-11-23/);
+    assert.match(pending,/aria-label="选择时间" aria-busy="true">2026-11-17 — 2026-11-23/);
+    assert.equal((pending.match(/本期 2026-11-17—2026-11-23/g)||[]).length,4);
     for (const title of ["Flatkey 流量趋势","Flatkey 注册趋势","总会话","自然搜索会话","总注册","自然搜索注册"]) assert.ok(pending.includes(title));
-    assert.doesNotMatch(pending,/话题与内容涨跌贡献对比|GPU 租赁业务承接|API 自然获客注册/);
-    assert.doesNotMatch(pending,/本期 2026-11-19—2026-11-20/);
-    const newShareUrl=`/api/seo/analytics?view=overview-traffic&start=${activeRange.start}&end=${activeRange.end}`;
-    const shareData={range:overviewRange,modules:{sessions:{blog:40,models:60},complete:true}};
-    overviewReads.set(newShareUrl,{data:{range:activeRange,modules:{sessions:{blog:100},complete:true}},previousData:shareData});
-    const refreshing=render(React.createElement(SeoOverview));
-    assert.match(refreshing,/Flatkey 流量与注册[\s\S]*选择时间[\s\S]*Flatkey 流量趋势[\s\S]*Flatkey 注册趋势[\s\S]*页面模块入口会话占比/);
-    assert.match(refreshing,/博客[\s\S]*?40\.0%/);
-    assert.doesNotMatch(refreshing,/100\.0%/);
-    overviewReads.set(currentUrl,{data:{...previousData,...activeRange}});
-    overviewReads.set(newShareUrl,{data:{range:activeRange,modules:{sessions:{blog:35},complete:false}}});
+    assert.match(pending,/博客[\s\S]*?40\.0%/);
+    assert.doesNotMatch(pending,/100\.0%|2026-11-19—2026-11-20/);
+    overviewReads.set(currentUrl,{data:{...previous,...activeRange,automatic:false,
+      daily:[{date:"2026-11-19",site:{totalSessions:null,organicSessions:null,totalRegistrations:null,organicRegistrations:null}}],
+      modules:{sessions:{blog:35},complete:false},moduleDays:[]}});
     const partial=render(React.createElement(SeoOverview));
-    assert.match(partial,/本期 2026-11-19—2026-11-20。按自然搜索会话/);
-    assert.match(partial,/所选日期有缺口，暂不计算占比/);
+    assert.equal((partial.match(/本期 2026-11-19—2026-11-20/g)||[]).length,4);
+    assert.match(partial,/自然搜索会话尚未归档齐全/);
+    assert.match(partial,/页面入口数据尚未归档齐全/);
     assert.doesNotMatch(partial,/40\.0%|100\.0%/);
     assert.equal(lastTrafficUrl,currentUrl);
-  } finally {rangeReady=true;activeRange=overviewRange;overviewReads.clear();}
+  } finally {rangeReady=true;automaticRange=true;activeRange=overviewRange;overviewReads.clear();}
 });
 
 test("work date filtering keeps the filters interactive and only retains stale rows while the list loads",()=>{
@@ -171,15 +169,21 @@ test("hotspot topics open the saved original terms, evidence and task links with
   } finally { fixtures.clear(); }
 });
 
-test("brand traffic shows only the click counts and ratio from covered dates as bars", () => {
-  const brandUrl=`/api/seo/analytics?view=brand-traffic&start=${overviewRange.start}&end=${overviewRange.end}`;
-  overviewReads.set(brandUrl,{data:{...overviewRange,daily:[
-    {date:"2026-11-17",branded:9,nonBranded:3},{date:"2026-11-18",branded:null,nonBranded:null},
-    {date:"2026-11-19",branded:3,nonBranded:5},
-  ]}});
+test("search traffic and its breakdown show session counts and daily details with unsupported keyword attribution", () => {
+  const trafficUrl="/api/seo/analytics?view=traffic-overview";
+  const daily=[
+    {date:"2026-11-17",site:{organicSessions:9}},
+    {date:"2026-11-18",site:{organicSessions:0}},
+    {date:"2026-11-19",site:{organicSessions:5}},
+  ];
+  overviewReads.set(trafficUrl,{data:{...overviewRange,automatic:true,completeWeekEnd:overviewRange.end,
+    daily,modules:{sessions:{blog:9},complete:true},moduleDays:[{date:"2026-11-17",sessions:{blog:9}}]}});
   try {
     const html=render(React.createElement(SeoOverview));
-    assert.match(html,/品牌词与非品牌词搜索点击[\s\S]*?12<small>60\.0%[\s\S]*?8<small>40\.0%/);
-    assert.match(html,/已覆盖 2\/3 天/); assert.doesNotMatch(html,/流量板块/);
+    assert.match(html,/品牌词与非品牌词自然搜索会话[\s\S]*?品牌词会话[\s\S]*?<strong>—<\/strong>/);
+    assert.match(html,/搜索词未归因[\s\S]*?<strong>14<small>100%/);
+    assert.match(html,/aria-describedby="[^"]+"[\s\S]*role="tooltip"[^>]*>[\s\S]*2026-11-17<\/dt><dd>9 次/);
+    assert.match(html,/博客 · 2026-11-17—2026-11-23/);
+    assert.doesNotMatch(html,/点击|新用户|流量板块/);
   } finally { overviewReads.clear(); }
 });

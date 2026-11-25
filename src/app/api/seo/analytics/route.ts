@@ -10,9 +10,11 @@ import { publishedKeywordRankLabels } from "@/lib/published-keyword-rank";
 import { GROWTH_EXECUTION_SITES } from "@/lib/seo-growth-markets";
 import { loadGrowthDashboardWorkspace } from "@/lib/services/growth-workspace";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
-import { propertyToday, seoToday } from "@/lib/seo-date-range";
+import { propertyToday, seoToday, shiftDay, validRange } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
 import { flatkeyBrandTraffic } from "@/lib/seo-brand-traffic";
+import { trafficOverview } from "@/lib/seo-traffic-overview";
+import { closedTrafficSummaryDay, TRAFFIC_SUMMARY_KIND, trafficSummaryDaySchema } from "@/lib/seo-traffic-summary";
 import { overviewModuleAnalytics, overviewTrafficAnalytics } from "@/lib/seo-overview-analytics";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,7 @@ export async function GET(request: Request) {
     return Response.json({ message: "国家筛选无效" }, { status: 400, headers });
   }
   const range = { start: search.get("start") ?? "", end: search.get("end") ?? "" };
+  if (search.get("view") === "traffic-overview") return readTrafficOverview(request, search, range);
   const urls = [...new Set(search.getAll("url"))];
   const allPages = search.get("pages") === "all", pageDaily = search.get("pageDaily") === "1";
   const pageQueries = search.get("pageQueries") === "1";
@@ -142,5 +145,39 @@ export async function GET(request: Request) {
     return Response.json(view, { headers });
   } catch {
     return Response.json({ message: "暂时无法读取已归档的 SEO 数据。" }, { status: 503, headers });
+  }
+}
+
+
+async function readTrafficOverview(request: Request, search: URLSearchParams, range: { start: string; end: string }) {
+  const latest = closedTrafficSummaryDay();
+  const requested = search.has("start") || search.has("end") ? range : null;
+  if ([...search.keys()].some(key => !["view", "start", "end"].includes(key) || search.getAll(key).length !== 1)
+    || requested && (!validRange(requested) || requested.end > latest || Date.parse(requested.end) - Date.parse(requested.start) > 365 * 86400000)) {
+    return Response.json({ message: "请选择已结束日期；一次最多查询366天。" }, { status: 400, headers });
+  }
+  try {
+    const scan = requested ?? { start: shiftDay(latest, -34), end: latest };
+    const kinds = ["ga4-pages"] as const;
+    const local = analyticsLocalPreview(request);
+    const [rows, localAnalytics] = await Promise.all([
+      prisma.seoAnalyticsDay.findMany({ where: { date: { gte: scan.start, lte: scan.end },
+        kind: { in: local ? [TRAFFIC_SUMMARY_KIND] : [TRAFFIC_SUMMARY_KIND, ...kinds] } },
+        select: { kind: true, date: true, payload: true } }),
+      local ? readAnalyticsEvidence(scan, "all", undefined, kinds) : [],
+    ]);
+    const summaries = rows.flatMap(row => {
+      if (row.kind !== TRAFFIC_SUMMARY_KIND) return [];
+      const result = trafficSummaryDaySchema.safeParse(row.payload);
+      return result.success && result.data.date === row.date ? [result.data] : [];
+    });
+    const sources = rows.flatMap(row => {
+      if (row.kind === TRAFFIC_SUMMARY_KIND) return [];
+      const result = analyticsObservationSchema.safeParse(row.payload);
+      return result.success && result.data.date === row.date && result.data.kind === row.kind ? [result.data] : [];
+    });
+    return Response.json(trafficOverview(scan, requested, summaries, [...sources, ...localAnalytics]), { headers });
+  } catch {
+    return Response.json({ message: "暂时无法读取流量与注册数据。" }, { status: 503, headers });
   }
 }
