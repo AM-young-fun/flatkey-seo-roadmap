@@ -13,7 +13,8 @@ import { growthPageContributionDirections } from "../growth-report-attribution";
 import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
 import type { GrowthWorkspace } from "../growth-types";
 import { workflowSnapshot, type WorkflowStoredRow } from "../seo-workflow-state";
-import type { WorkflowTask, WorkflowSnapshot } from "../seo-workflow";
+import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask, type WorkflowSnapshot } from "../seo-workflow";
+import { QUARTER_NEW_WORD_VERSION } from "../growth-quarter-calendar";
 import { growthExactTrafficSchema, growthTrafficHasCompleteHostScope } from "../growth-exact-traffic";
 import { growthDueObservationInventory } from "../growth-due-observations";
 
@@ -48,21 +49,30 @@ export async function loadGrowthStrategy(localPreview = false) {
 }
 export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collector", localPreview = false, now = new Date()) {
   const command = growthStrategyCommandSchema.parse(raw), requestHash = growthHash({ actor, command });
-  if (command.action === "save_quarter_plan" && command.plan.version !== "quarter-planning-v2") throw new GrowthStrategyError("legacy_allocation_read_only", "新季度方案统一GPU/API/其他70/25/5；旧版本仅保留历史，不再提交两套投入比例", 422);
+  if (command.action === "save_quarter_plan" && command.plan.version === "quarter-planning-v1") throw new GrowthStrategyError("legacy_allocation_read_only", "新季度方案统一GPU/API/其他70/25/5", 422);
   const assertApprovalContract = (state: GrowthStrategy) => {
-    if (command.action === "approve_quarter_plan" && state.quarterPlanning?.plan.version !== "quarter-planning-v2") throw new GrowthStrategyError("legacy_approval_read_only", "旧待审草稿不能作为新季度基座；请先保存本轮GPU优先的1600词确切方案，旧已审历史保留", 422);
+    if (command.action === "approve_quarter_plan" && (!state.quarterPlanning || state.quarterPlanning.plan.version === "quarter-planning-v1")) throw new GrowthStrategyError("legacy_approval_read_only", "旧待审草稿不能作为新季度基座", 422);
+    if (state.baseline?.planHash && command.action === "save_quarter_plan" && command.plan.version !== QUARTER_NEW_WORD_VERSION) throw new GrowthStrategyError("legacy_allocation_read_only", "新版已启用，历史季度只读", 422);
   };
   if (actor === "collector" && ["decide_direction", "freeze_baseline", "resolve_baseline_identities", "approve_quarter_plan"].includes(command.action)) throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
   const requestId = `growth:${command.requestId}`;
   // Evidence references are read from the real sources; caller-supplied target
   // identities, page versions or task IDs cannot become the source of truth.
   const [workspace, workflow, sites] = await Promise.all([loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_EXECUTION_SITES] } }, select: { domain: true, ga4PropertyId: true } })]);
-  const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[]) => ({ routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now),
+  const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[], plans: WorkflowPlan[] = []) => {
+    const committed = new Set([...plans.flatMap(plan => isExecutableWorkflowPlan(plan.status) ? plan.taskIds : plan.committedTaskIds ?? []),
+      ...(state.quarterPlanning?.plan.reservedOriginalTaskIds ?? [])]);
+    const originalCommitments = tasks.filter(task => committed.has(task.id) && !task.deletedAt && task.capacityClass !== "authorized_hotspot_extra"
+      && ["blog", "landing", "cluster"].includes(task.kind) && (task.kind === "blog" || task.siteDomain !== "flatkey.ai"))
+      .map(task => ({ site: task.siteDomain, kind: task.kind === "blog" ? "blog" as const : "cluster_landing" as const,
+        deliveryDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(task.dueAt)) }));
+    return { routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now),
     // Trusted task identities are loaded from the original workflow records,
     // never accepted from a caller's observation payload.
     taskReferences: tasks.map(({ id, siteDomain, pageUrl, keyword, keywordId, country, language, deletedAt }) => ({ id, siteDomain, pageUrl, keyword, keywordId, country, language, deletedAt })),
-    siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state) });
-  const prepare = (state: GrowthStrategy) => { assertApprovalContract(state); return growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks))); };
+    siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state), originalCommitments };
+  };
+  const prepare = (state: GrowthStrategy) => { assertApprovalContract(state); return growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks, workflow.plan ? [workflow.plan] : []))); };
   const directory = previewDirectory(localPreview);
   if (directory) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -88,13 +98,14 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
     const references = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: ["task", "publication", "plan", "historical_import"] } }, select: { kind: true, recordId: true, payload: true } });
     const publications = references.filter(row => row.kind === "publication").map(row => row.payload as unknown as import("../growth-strategy").GrowthPublicationReference);
     const tasks = references.filter(row => row.kind === "task").map(row => row.payload as unknown as WorkflowTask);
+    const plans = references.filter(row => row.kind === "plan").map(row => row.payload as unknown as WorkflowPlan);
     // Approval reads identities, TopicMap and task/page sources from the same
     // repeatable-read transaction snapshot. This does not lock future Topic edits.
     const identityCommands = ["save_quarter_plan", "approve_quarter_plan", "freeze_baseline", "resolve_baseline_identities"];
     const transactionWorkspace = identityCommands.includes(command.action)
       ? await loadGrowthWorkspace(false, now, undefined, { db: tx, workflow: workflowSnapshot(references.map(row => ({ kind: row.kind, record: row.payload })) as unknown as WorkflowStoredRow[], { allHistory: true }, "database", now) })
       : workspace;
-    const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(current, command, actor, transactionWorkspace, publications, tasks.map(task => task.id), now, contextFor(current, tasks)));
+    const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(current, command, actor, transactionWorkspace, publications, tasks.map(task => task.id), now, contextFor(current, tasks, plans)));
     const data = { kind: GROWTH_STRATEGY_KIND, recordId: GROWTH_QUARTER_ID, weekStart: "2026-11-23", siteDomain: null, status: state.baseline ? "frozen" : "draft", version: state.version, payload: json(state) };
     if (current.version === 0) await tx.seoWorkflowRecord.create({ data: { key, ...data } });
     else { const saved = await tx.seoWorkflowRecord.updateMany({ where: { key, version: command.expectedVersion }, data }); if (saved.count !== 1) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试"); }
