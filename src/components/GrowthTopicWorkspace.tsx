@@ -11,12 +11,14 @@ import { FeedbackButton } from "./FeedbackButton";
 import { PageLoading } from "./PageLoading";
 import { SeoTablePagination } from "./SeoTablePagination";
 import type { GrowthQuarterPage } from "@/lib/growth-quarter-page";
+import type { GrowthKeywordInventoryPage } from "@/lib/growth-keyword-inventory";
+import { publishedKeywordRankLabels, type PublishedKeywordRank } from "@/lib/published-keyword-rank";
 import { GrowthTopicDirections } from "./GrowthTopicDirections";
 import { GrowthKeywordNetwork } from "./GrowthKeywordNetwork";
 import { GrowthQuarterReview } from "./GrowthGoalSummary";
 import { GrowthHotspotWorkspace } from "./GrowthHotspotWorkspace";
 import { BarPlot } from "./OverviewCharts";
-import { defaultGrowthScope, growthCounts, growthLink, growthMarketLabel, growthRankKind, growthRankText, readGrowthScope, selectGrowthTargets, growthRankingEvidence, quarterTargetWorkspace, type GrowthRankingView, type GrowthScope } from "./growth-topic-view";
+import { defaultGrowthScope, growthCounts, growthLink, growthMarketLabel, growthRankKind, growthRankText, parseGrowthKeywordTab, readGrowthScope, selectGrowthTargets, growthRankingEvidence, quarterTargetWorkspace, type GrowthKeywordTab, type GrowthRankingView, type GrowthScope } from "./growth-topic-view";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./GrowthTopicWorkspace.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
@@ -28,6 +30,12 @@ const pageStates = { published: "已关联页面", planned: "已规划页面", u
 const workStates = { planned: "已规划", scheduled: "已排期", researching: "研究中", in_progress: "制作中", completed: "已有页面记录", unknown: "进度待核" };
 const sourceNames = { serp: "SERP实查", database: "域名词库", gsc: "GSC观察" };
 const count = (value: number) => value.toLocaleString("zh-CN");
+const keywordTabs = [
+  { id: "keywords", label: "全部关键词", description: "原词、市场与关联任务" },
+  { id: "quarter", label: "季度关键词", description: "固定清单里的待新增词" },
+  { id: "hotspots", label: "近期热点词", description: "按话题查看每周新增热点" },
+  { id: "published", label: "已有内容与排名", description: "已上线页面、排名与优化线索" },
+] as const;
 function safeUrl(value: string): string | null { try { const url = new URL(value); return url.protocol === "https:" ? url.href : null; } catch { return null; } }
 
 export function GrowthTopicContributionCells({ snapshot, topic, scope }: { snapshot: GrowthReportSnapshot | null; topic: GrowthTopic; scope: GrowthScope }) {
@@ -71,21 +79,19 @@ function GrowthFilters({ data, scope, change, fixedSite }: { data: Pick<GrowthWo
   </div>;
 }
 
-function Summary({ stats, rankAvailable }: { stats: ReturnType<typeof growthCounts>; rankAvailable: boolean }) {
-  return <div className={styles.stats}>{[["目标关键词", stats.total], ["已关联页面目标", stats.built], [stats.unknown ? "已证实前100（部分）" : "有效前100", rankAvailable ? stats.ranked : "待核"], ["其中前50", rankAvailable ? stats.top50 : "待核"]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{typeof value === "number" ? count(value) : value}</strong></div>)}</div>;
-}
-
-export function GrowthTargetTable({ data, targets, scope, topic, selectedTarget, rankWait }: { data: Pick<GrowthWorkspace, "sites" | "markets" | "topics">; targets: GrowthTarget[]; scope: GrowthScope; topic?: GrowthTopic; selectedTarget?: string | null; rankWait?: string }) {
+export function GrowthTargetTable({ data, targets, scope, topic, selectedTarget, rankWait, publishedRanks }: { data: Pick<GrowthWorkspace, "sites" | "markets" | "topics">; targets: GrowthTarget[]; scope: GrowthScope; topic?: GrowthTopic; selectedTarget?: string | null; rankWait?: string; publishedRanks?: Record<string, PublishedKeywordRank> }) {
   if (!targets.length) return <p className={styles.empty}>当前筛选没有关键词，原始记录仍保留。</p>;
   return <><div className={styles.tableScroll}><table className={styles.table}><thead><tr><th>关键词与市场</th><th>建设进度</th><th>排名证据</th><th>页面与效果</th><th>关联任务</th></tr></thead><tbody>
     {targets.map(target => {
       const actualUrls = target.publishedUrls.map(safeUrl).filter((url): url is string => Boolean(url));
-      const plannedUrls = target.plannedUrls.map(safeUrl).filter((url): url is string => Boolean(url) && !actualUrls.includes(url!));
+      const publishedRank = publishedRanks?.[target.id];
+      const hasRank = !publishedRank || publishedRank === "ranked";
+      const plannedUrls = publishedRanks ? [] : target.plannedUrls.map(safeUrl).filter((url): url is string => Boolean(url) && !actualUrls.includes(url!));
       const linkedTopic = data.topics.find(item => item.topicId === target.topicId && item.site === target.site);
       return <tr key={target.id} data-selected={target.id === selectedTarget || undefined} id={`target-${target.id}`}>
         <th scope="row"><strong>{target.keyword}</strong><small>{growthMarketLabel(data, target.country, target.language)}</small>{target.wordLanguage&&!target.language?<small>原词语种 {target.wordLanguage}；目标国家待核</small>:null}{!topic && linkedTopic ? <Link href={growthLink(scope, linkedTopic, target.id)} className={styles.textLink}>{linkedTopic.name} →</Link> : null}<small>{data.sites.find(site => site.domain === target.site)?.name || target.site}</small>{target.aliasKeywordIds?.length?<small>另保留 {target.aliasKeywordIds.length} 个历史同词 ID，未替换当前正式成员</small>:null}</th>
         <td><span className={styles.badge} data-kind={target.pageState}>{pageStates[target.pageState]}</span><small title={target.workStateProof?.reason}>{workStates[target.workState]}</small>{target.workState === "scheduled" && target.workStateProof?.planIds.length ? <small>原计划：{target.workStateProof.planIds.join("、")}</small> : null}{target.membership !== "formal"||target.membershipSource==="committed_task" ? <small>{target.reason}</small> : null}</td>
-        <td><span className={styles.rank} data-kind={growthRankKind(target)}>{rankWait && !target.rankSource ? rankWait : growthRankText(target)}</span><small>{target.rankSource ? sourceNames[target.rankSource] : target.relatedObservations?.length?"已有同原 ID 观测，目标身份仍待核":rankWait?null:"暂无可归属的排名证据"}{target.checkedAt ? ` · ${new Date(target.checkedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}` : ""}</small>{target.languageStatus !== "match" ? <small>{target.languageReason}</small> : null}{target.rankUrl && safeUrl(target.rankUrl) ? <SeoAnchor className={styles.textLink} href={safeUrl(target.rankUrl)!} target="_blank" rel="noreferrer">实际排名页 ↗</SeoAnchor> : null}{target.relatedObservations?.length?<div><small>原国家观测（当次查询环境），未授长期主国，不计正式抢占：</small>{target.relatedObservations.slice(0,3).map(observation=>safeUrl(observation.url)?<SeoAnchor key={`${observation.country}:${observation.source}:${observation.url}:${observation.checkedAt}`} className={styles.textLink} href={safeUrl(observation.url)!} target="_blank" rel="noreferrer">{observation.country} · {observation.language||"语种待核"} · {observation.source==="gsc"?"平均位置":"第"} {observation.rank}{observation.source==="gsc"?"":" 名"} · {sourceNames[observation.source]}{observation.checkedAt?` · ${new Date(observation.checkedAt).toLocaleDateString("zh-CN",{timeZone:"Asia/Shanghai"})}`:""} ↗</SeoAnchor>:null)}</div>:null}</td>
+        <td><span className={styles.rank} data-kind={hasRank ? growthRankKind(target) : undefined}>{publishedRank && publishedRank !== "ranked" ? publishedKeywordRankLabels[publishedRank] : rankWait && !target.rankSource ? rankWait : growthRankText(target)}</span><small>{target.rankSource ? sourceNames[target.rankSource] : target.relatedObservations?.length?"已有同原 ID 观测，目标身份仍待核":rankWait?null:"暂无可归属的排名证据"}{target.checkedAt ? ` · ${new Date(target.checkedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}` : ""}</small>{target.languageStatus !== "match" ? <small>{target.languageReason}</small> : null}{hasRank && target.rankUrl && safeUrl(target.rankUrl) ? <SeoAnchor className={styles.textLink} href={safeUrl(target.rankUrl)!} target="_blank" rel="noreferrer">实际排名页 ↗</SeoAnchor> : null}{target.relatedObservations?.length?<div><small>原国家观测（当次查询环境），未授长期主国，不计正式抢占：</small>{target.relatedObservations.slice(0,3).map(observation=>safeUrl(observation.url)?<SeoAnchor key={`${observation.country}:${observation.source}:${observation.url}:${observation.checkedAt}`} className={styles.textLink} href={safeUrl(observation.url)!} target="_blank" rel="noreferrer">{observation.country} · {observation.language||"语种待核"} · {observation.source==="gsc"?"平均位置":"第"} {observation.rank}{observation.source==="gsc"?"":" 名"} · {sourceNames[observation.source]}{observation.checkedAt?` · ${new Date(observation.checkedAt).toLocaleDateString("zh-CN",{timeZone:"Asia/Shanghai"})}`:""} ↗</SeoAnchor>:null)}</div>:null}</td>
         <td>{actualUrls.map(url => <div key={url} className={styles.pageLink}><SeoAnchor href={url} target="_blank" rel="noreferrer">{new URL(url).pathname || "/"} ↗</SeoAnchor><Link href={"/opportunities?" + new URLSearchParams({ view: "analysis", targetUrl: url, site: target.site, ...(target.country ? { country: target.country.toLowerCase() } : {}) })}>页面分析与效果</Link></div>)}
           {plannedUrls.length ? <details className={styles.planned}><summary>{plannedUrls.length} 个规划地址</summary>{plannedUrls.map(url => <span key={url}>{url}</span>)}</details> : null}{!actualUrls.length && !plannedUrls.length ? <small>尚未关联页面</small> : null}</td>
         <td>{target.taskIds.length ? target.taskIds.map(id => { const relation=target.taskRelations?.find(link=>link.taskId===id&&link.status==="confirmed");return <div key={id}><Link className={styles.task} href={`/work/${encodeURIComponent(id)}`}>{id} ↗</Link>{relation?<small>同页原任务 · 原主词：{relation.originalKeyword||"未登记"} · {relation.country} / {relation.language}</small>:null}</div>; }) : <small>尚未确认关联任务</small>}
@@ -93,6 +99,38 @@ export function GrowthTargetTable({ data, targets, scope, topic, selectedTarget,
       </tr>;
     })}
   </tbody></table></div></>;
+}
+
+const rankingFilters: (PublishedKeywordRank | "all")[] = ["all", "outside100", "ranked", "pending"];
+
+function KeywordInventory({ library, scope, change, page, setPage }: { library: "keywords" | "published"; scope: GrowthScope; change: (patch: Partial<GrowthScope>) => void; page: number; setPage: (page: number) => void }) {
+  const [rank, setRank] = useState<PublishedKeywordRank | "all">("all");
+  const published = library === "published";
+  const params = new URLSearchParams({ view: library, page: String(page) });
+  if (published && rank !== "all") params.set("rank", rank);
+  if (scope.site !== "all") params.set("site", scope.site);
+  if (scope.country !== "all") params.set("country", scope.country);
+  if (scope.language !== "all") params.set("language", scope.language);
+  if (scope.search.trim()) params.set("q", scope.search.trim().slice(0, 240));
+  const { data, error, retry, retrying } = useSeoRead<GrowthKeywordInventoryPage>("/api/seo/growth?" + params);
+  const title = published ? "已有内容与排名" : "全部关键词";
+  return <section className={styles.panel} aria-label={title}>
+    <div className={styles.sectionHeading}>
+      <div><h2>{title}</h2>{published ? <p>选做页面优化或旧文重写前，先核验原词与已上线页面的搜索意图。</p> : null}</div>
+      <FeedbackButton className={styles.more} onClick={retry} pending={retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
+    </div>
+    {error ? <p role="alert">关键词暂时无法读取：{error}</p> : !data ? <p role="status">正在读取已存关键词…</p> : <>
+      <div className={styles.inventoryFilters}><GrowthFilters data={data.data} scope={scope} change={change} /></div>
+      {published ? <div className={styles.tabs} role="group" aria-label="已上线关键词排名状态">
+        {rankingFilters.map(id => <button type="button" aria-pressed={rank === id} key={id} onClick={() => { setRank(id); setPage(1); }}>
+          {id === "all" ? "全部已上线" : publishedKeywordRankLabels[id]} <span>{count(id === "all" ? Object.values(data.counts).reduce((a, b) => a + b, 0) : data.counts[id])}</span>
+        </button>)}
+      </div> : null}
+      <p className={styles.note}>{count(data.originalWordCount)} 个原词 · {count(data.pagination.total)} 条站点和市场记录</p>
+      <GrowthTargetTable data={data.data} targets={data.data.targets} scope={scope} publishedRanks={published ? data.publishedRanks : undefined} />
+      <SeoTablePagination pagination={data.pagination} onPage={setPage} />
+    </>}
+  </section>;
 }
 
 /** One stable circular point cloud, one point per original word. */
@@ -145,17 +183,23 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
   </section>;
 }
 
-export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1 }: { topicId?: string; initialTab?: "quarter" | "hotspots"; hotspotTopic?: string; hotspotPage?: number }) {
-  const [tab, setTab] = useState<"quarter" | "hotspots">(initialTab);
+export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1 }: { topicId?: string; initialTab?: GrowthKeywordTab; hotspotTopic?: string; hotspotPage?: number }) {
+  const [tab, setTab] = useState(initialTab);
   const [page, setPage] = useState(1);
   const [related, setRelated] = useState(false);
   const [useSelectedTarget, setUseSelectedTarget] = useState(true);
-  useEffect(() => { const readTab = () => setTab(new URLSearchParams(location.search).get("tab") === "hotspots" ? "hotspots" : "quarter"); readTab(); addEventListener("popstate", readTab); return () => removeEventListener("popstate", readTab); }, [initialTab]);
-  const changeTab = (value: "quarter" | "hotspots") => { setTab(value); const params = new URLSearchParams(location.search); if (value === "hotspots") params.set("tab", value); else params.delete("tab"); history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : "")); };
+  useEffect(() => { const readTab = () => setTab(parseGrowthKeywordTab(new URLSearchParams(location.search).get("tab"))); readTab(); addEventListener("popstate", readTab); return () => removeEventListener("popstate", readTab); }, [initialTab]);
+  const changeTab = (value: GrowthKeywordTab) => {
+    setTab(value);
+    setPage(1);
+    const params = new URLSearchParams(location.search);
+    if (value === "quarter") params.delete("tab"); else params.set("tab", value);
+    history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : ""));
+  };
   const quarter = Boolean(topicId) || tab === "quarter";
   const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope();
   const scope = { ...savedScope, membership: "formal" as const };
-  const query = new URLSearchParams({ view: "quarter", page: String(page) });
+  const query = new URLSearchParams({ view: "quarter", page: String(page), new: "1" });
   if (topicId) query.set("topic", topicId);
   if (scope.site !== "all") query.set("site", scope.site);
   if (scope.country !== "all") query.set("country", scope.country);
@@ -184,12 +228,18 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
   const loading = quarter && read.loading && !read.retrying;
   return <main className={workspace.shell}><PageHeader active="opportunities" marketControl={false} /><div className={styles.content} inert={loading} aria-busy={loading}>
     <div className={styles.heading}><div>{topicId ? <Link className={styles.back} href={growthLink(scope)}><ArrowLeft size={14} aria-hidden="true" />返回话题列表</Link> : null}<h1>{topicId ? topic?.name || "话题详情" : "关键词目标"}</h1><p>{topicId ? "同一话题下按国家、语言查看关键词、页面、任务与排名。" : "以 TopicMap 话题为主线，包含规划中、进行中与已完成目标。"}</p></div>{quarter && (data || read.error || read.retrying) ? <FeedbackButton className={styles.more} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton> : null}</div>
-    {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.tabs} role="group" aria-label="关键词目标范围"><button type="button" aria-pressed={tab === "quarter"} onClick={() => changeTab("quarter")}>季度关键词 <span>1600 · 固定</span></button><button type="button" aria-pressed={tab === "hotspots"} onClick={() => changeTab("hotspots")}>近期热点词 <span>动态</span></button></div> : null}
-    {!topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} /> : <>
+    {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.keywordTabs} role="group" aria-label="关键词分类">{keywordTabs.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => changeTab(id)}><strong>{label}</strong><span>{description}</span></button>)}</div> : null}
+    {!topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
+      : !topicId && (tab === "keywords" || tab === "published") ? <KeywordInventory key={tab} library={tab} scope={scope} change={change} page={page} setPage={setPage} /> : <>
     {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度1600词目标尚未完成冻结。</p><GrowthQuarterReview /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
         <GrowthFilters data={data} scope={effectiveScope} change={change} fixedSite={Boolean(topic)} />
-        <Summary stats={result.stats} rankAvailable={result.rankAvailable} />
+        <p className={styles.note}>季度冻结清单 {count(result.frozenTotal ?? 0)} 词。当前筛选有 {count(result.stats.total)} 个待新增关键词。已关联上线原页的词可在 <Link href="/opportunities?tab=published" className={styles.textLink}>已有内容与排名</Link> 查看。</p>
+        {result.selectedPublished ? <p className={styles.note}><Link className={styles.textLink} href={"/opportunities?" + new URLSearchParams({
+          tab: "published", site: result.selectedPublished.site, q: result.selectedPublished.keyword,
+          ...(result.selectedPublished.country ? { country: result.selectedPublished.country } : {}),
+          ...(result.selectedPublished.language ? { language: result.selectedPublished.language } : {}),
+        })}>在已有内容与排名中查看「{result.selectedPublished.keyword}」 →</Link></p> : null}
         {topic ? <>
           <div className={styles.marketSlices}>{result.markets.map(market => <button type="button" key={`${market.country}:${market.language}`} onClick={() => change({ country: market.country || "all", language: market.language || "all" })} aria-pressed={scope.country === market.country && scope.language === market.language}>{growthMarketLabel(data, market.country, market.language)}<span>{market.total} 目标 · {result.rankAvailable ? `${market.ranked} 前100` : "排名待核"}</span></button>)}</div>
           <p className={styles.note}>主归属目标 {result.ownTotal} 个，含子话题 {result.stats.total} 个。</p>

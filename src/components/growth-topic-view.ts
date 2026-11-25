@@ -4,6 +4,11 @@ import { currentRankingSummary } from "@/lib/current-ranking-summary";
 export type GrowthScope = { site: string; country: string; language: string; membership: "formal" | "opportunity" | "review"; search: string };
 export const defaultGrowthScope: GrowthScope = { site: "all", country: "all", language: "all", membership: "formal", search: "" };
 export type GrowthRankingView = "all" | "formal";
+export type GrowthKeywordTab = "keywords" | "quarter" | "hotspots" | "published";
+
+export function parseGrowthKeywordTab(value: unknown): GrowthKeywordTab {
+  return value === "keywords" || value === "hotspots" || value === "published" ? value : "quarter";
+}
 
 /** The execution workspace contains the one quarterly TopicMap list. Discovery
  * observations remain available to the overview without becoming target queues. */
@@ -56,11 +61,11 @@ export function growthLink(scope: GrowthScope, topic?: GrowthTopic, targetId?: s
   return path + (params.size ? `?${params}` : "");
 }
 
-export function selectGrowthTargets(data: GrowthWorkspace, scope: GrowthScope, topic?: GrowthTopic): GrowthTarget[] {
+export function selectGrowthTargets(data: GrowthWorkspace, scope: GrowthScope, topic?: GrowthTopic, allMemberships = false): GrowthTarget[] {
   const query = scope.search.trim().toLocaleLowerCase();
   const descendants = topic ? growthDescendantIds(data.topics, topic) : null;
   const matchedTopics = query ? data.topics.filter(item => item.name.toLocaleLowerCase().includes(query)).map(item => ({ site: item.site, ids: growthDescendantIds(data.topics, item) })) : [];
-  return data.targets.filter(target => target.membership === scope.membership
+  return data.targets.filter(target => (allMemberships || target.membership === scope.membership)
     && (scope.site === "all" || target.site === scope.site)
     && (scope.country === "all" || target.country?.toUpperCase() === scope.country)
     && (scope.language === "all" || target.language === scope.language)

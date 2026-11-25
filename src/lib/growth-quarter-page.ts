@@ -1,11 +1,15 @@
 import type { GrowthWorkspace } from "./growth-types";
 import { seoTablePage } from "./seo-table-page";
+import { publishedKeywordRank } from "./growth-keyword-inventory";
 import { growthCounts, growthRelatedTargets, growthTopicContains, growthTopicTargets, quarterTargetWorkspace, selectGrowthTargets, type GrowthScope } from "../components/growth-topic-view";
 
-type QuarterQuery = { scope: GrowthScope; topicId?: string; page: number; related: boolean; selected?: string };
+type QuarterQuery = { scope: GrowthScope; topicId?: string; page: number; related: boolean; selected?: string; newOnly?: boolean };
 
 export function growthQuarterPage(full: GrowthWorkspace, query: QuarterQuery) {
   const data = quarterTargetWorkspace(full);
+  const frozenTotal = data.quarter?.keywordCount ?? null;
+  const selectedPublished = query.newOnly && query.selected ? data.targets.find(target => target.id === query.selected && publishedKeywordRank(target, data.generatedAt)) : undefined;
+  if (query.newOnly) data.targets = data.targets.filter(target => publishedKeywordRank(target, data.generatedAt) === null);
   const topic = query.topicId ? data.topics.find(item => item.topicId === query.topicId
     && (query.scope.site === "all" || item.site === query.scope.site)) : undefined;
   const scope = { ...query.scope, ...(topic ? { site: topic.site } : {}), membership: "formal" as const };
@@ -37,7 +41,10 @@ export function growthQuarterPage(full: GrowthWorkspace, query: QuarterQuery) {
       sites: data.sites, markets: data.markets, generatedAt: data.generatedAt, targets: currentTargets,
       topics: data.topics.filter(item => topicIds.has(`${item.site}:${item.topicId}`)),
     },
-    frozen: Boolean(data.quarter), scope, topic: topic ?? null, markets, topicRows: currentTopics,
+    frozen: Boolean(data.quarter), frozenTotal, selectedPublished: selectedPublished
+      ? { keyword: selectedPublished.keyword, site: selectedPublished.site, country: selectedPublished.country, language: selectedPublished.language }
+      : null,
+    scope, topic: topic ?? null, markets, topicRows: currentTopics,
     stats: growthCounts(targets), relatedTotal: related.length, showRelated,
     rankAvailable: !(data.reconciliation?.sources ?? []).some(source => source.name === "最近14天的已存SERP" && !source.available),
     ownTotal: topic ? targets.filter(target => growthTopicContains(topic, target)).length : 0,

@@ -9,7 +9,10 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./UiSelect") return { UiSelect: () => null };
   if (name === "./FeedbackButton") return { FeedbackButton: () => null };
   if (name === "./useSeoAnalytics") return {
-    useSeoRead: () => ({ data: readData }),
+    useSeoRead: url => {
+      if (!readData || !url?.includes("view=published")) return { data: readData };
+      return { data: require("../src/lib/growth-keyword-inventory.ts").growthKeywordInventoryPage(readData, defaultGrowthScope, 1, "published") };
+    },
     useOverviewRead: url => ({ data: readData && url?.includes("view=quarter")
       ? require("../src/lib/growth-quarter-page.ts").growthQuarterPage(readData, { scope: defaultGrowthScope, page: 1, related: false }) : null })
   };
@@ -189,4 +192,39 @@ test("quarter detail sends ten matching rows and preserves full stats, filters a
   assert.equal(linked.frozen, true);
   assert.deepEqual(Object.keys(linked.data).sort(), ["generatedAt", "markets", "sites", "targets", "topics"]);
   assert.equal(growthQuarterPage(workspace, { scope, page: 1, related: false }).data.targets.length, 0);
+});
+
+test("existing-content inventory preserves exact pages and prioritizes verified absence over ranked and unknown", () => {
+  const { growthKeywordInventoryPage, publishedKeywordRank } = require("../src/lib/growth-keyword-inventory.ts");
+  const { growthQuarterPage } = require("../src/lib/growth-quarter-page.ts");
+  const ranked = target("ranked", { keyword: "GPU rental", wordLanguage: "en", publishedUrls: ["https://www.flatkey.ai/gpu/#details", "https://flatkey.ai/another"] });
+  const absent = target("absent", { keyword: "GPU rental quote", rank: null, captureState: "outside100", rankEligible: false, observationEligible: true });
+  const stale = { ...absent, id: "stale", keyword: "GPU rental price", checkedAt: "2026-10-01T00:00:00Z" };
+  const unknown = target("unknown", { keyword: "GPU cloud server", rank: null, rankEligible: false, observationEligible: false, captureState: "unqueried" });
+  const planned = target("only-planned", { keyword: "GPU rental service", maintenancePublishedUrls: [], pageState: "planned" });
+  const discovery = target("discovery", { keyword: "GPU rental period", membership: "opportunity", publishedUrls: [] });
+  const workspace = data([ranked, stale, unknown, absent, planned, discovery]);
+  const before = JSON.stringify(workspace);
+  assert.equal(publishedKeywordRank(ranked, workspace.generatedAt, "https://flatkey.ai/gpu"), "ranked");
+  assert.equal(publishedKeywordRank(ranked, workspace.generatedAt, "https://flatkey.ai/another"), "pending");
+  assert.equal(publishedKeywordRank(ranked, workspace.generatedAt, "https://flatkey.ai/unpublished"), null);
+  const existing = growthKeywordInventoryPage(workspace, defaultGrowthScope, 1, "published");
+  assert.deepEqual(existing.data.targets.map(row => row.id), ["absent", "ranked", "stale", "unknown"]);
+  assert.deepEqual(existing.counts, { outside100: 1, ranked: 1, pending: 2 });
+  assert.equal(growthKeywordInventoryPage(workspace, defaultGrowthScope, 1, "keywords").originalWordCount, 6);
+  assert.equal(growthKeywordInventoryPage(workspace, defaultGrowthScope, 1, "published", "outside100").pagination.total, 1);
+  const quarter = growthQuarterPage(workspace, { scope: defaultGrowthScope, topicId: topic.topicId, page: 1, related: false, newOnly: true, selected: ranked.id });
+  assert.equal(quarter.frozenTotal, 5);
+  assert.deepEqual(quarter.data.targets.map(row => row.id), [planned.id]);
+  assert.equal(quarter.selectedPublished.keyword, ranked.keyword);
+  assert.equal(JSON.stringify(workspace), before);
+  readData = workspace;
+  try {
+    const html = renderToStaticMarkup(React.createElement(GrowthTopicWorkspace, { initialTab: "published" }));
+    assert.match(html, /全部关键词[\s\S]*季度关键词[\s\S]*近期热点词[\s\S]*已有内容与排名/);
+    assert.match(html, /已核实未进前100[\s\S]*已有有效排名[\s\S]*排名待核/);
+    assert.match(html, /先核验原词与已上线页面的搜索意图/);
+    assert.match(html, /https:\/\/flatkey.ai\/gpu/);
+    assert.match(html, /\/work\/original-task/);
+  } finally { readData = null; }
 });
