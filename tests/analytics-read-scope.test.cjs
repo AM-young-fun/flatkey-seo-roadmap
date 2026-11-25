@@ -23,7 +23,7 @@ const fixtures = [
   { ...base, property: "sc-domain:flatkey.ai", kind: "gsc-page-queries",
     rows: [{ url, query: "example model", clicks: 2, impressions: 10, position: 5 }] },
 ];
-let query, returnedBytes, data = fixtures, localPreview = false;
+let query, returnedBytes, data = fixtures, localPreview = false, priorityWorkspaceReads = 0;
 const load = Module._load;
 Module._load = function (name, ...args) {
   if (name === "@/lib/seo-analytics-access") return {
@@ -40,6 +40,12 @@ Module._load = function (name, ...args) {
     return rows;
   } } } };
   if (name === "@/lib/services/seo-workflow") return { loadWorkflowSnapshot: async () => ({ tasks: [], publications: [] }) };
+  if (name === "@/lib/services/growth-workspace") return { loadGrowthDashboardWorkspace: async (_local, now, site) => {
+    priorityWorkspaceReads++;
+    return { targets: Array.from({ length: 12 }, (_, index) => ({ id: `target-${index}`, site, country: "JP", language: "ja", keyword: `GPU価格 ${index}`,
+      publishedUrls: [url], maintenancePublishedUrls: [url], languageStatus: "match", observationEligible: index < 11,
+      rank: null, rankSource: "serp", rankUrl: null, checkedAt: now.toISOString(), captureState: "outside100" })) };
+  } };
   return load.call(this, name.startsWith("@/") ? path.resolve(__dirname, "../src", name.slice(2)) + ".ts" : name, ...args);
 };
 const { GET } = require("../src/app/api/seo/analytics/route.ts");
@@ -54,6 +60,23 @@ const read = async extra => {
   return response.json();
 };
 const view = (rows = fixtures, urls = []) => ({ ...analyticsView(range, urls, rows), country: "all", site: "flatkey.ai" });
+
+test("priority validates filters and serves paginated only-published keyword suggestions", async () => {
+  const count = priorityWorkspaceReads;
+  for (const extra of ["&rank=invalid", "&rank=pending&rank=all", "&page=0", "&site=rougecue.org"]) {
+    assert.equal((await GET(request("&priority=1&country=JP" + extra))).status, 400);
+  }
+  assert.equal(priorityWorkspaceReads, count);
+  const first = await read("&priority=1&country=JP&rank=outside100");
+  assert.deepEqual(first.pagination, { page: 1, pageCount: 2, total: 11 });
+  assert.equal(first.rows.length, 10);
+  assert.ok(first.rows.every(row => row.rankStatus === "outside100" && row.rank === null));
+  assert.deepEqual(first.counts, { outside100: 11, ranked: 0, pending: 1 });
+  assert.deepEqual(query.where.kind.in, ["gsc-pages:JP"]);
+  const second = await read("&priority=1&country=JP&rank=outside100&page=2");
+  assert.equal(second.rows.length, 1);
+  assert.equal(second.pagination.page, 2);
+});
 
 test("site totals exclude landing/search page payloads while preserving every response field, zeros and missing dates", async () => {
   const actual = await read("");
