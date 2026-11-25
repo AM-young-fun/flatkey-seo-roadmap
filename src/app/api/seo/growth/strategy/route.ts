@@ -1,7 +1,7 @@
 import { authorizeWorkflow, readWorkflowBody, workflowErrorResponse, workflowHeaders } from "@/lib/seo-workflow-http";
 import { GrowthStrategyError } from "@/lib/growth-strategy";
 import { withRequestReads } from "@/lib/request-read-scope";
-import { loadGrowthStrategy, loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
+import { loadGrowthQuarterReview, loadGrowthStrategy, loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
@@ -14,7 +14,8 @@ export async function GET(request: Request) {
       return Response.json({ directions: directions.filter(direction => direction.scope.some(scope => scope.site === site && scope.topicId === topic)) }, { headers: workflowHeaders });
     }
     const view = await withRequestReads(async () => mode === "dashboard" ? loadGrowthStrategyDashboard(auth.localPreview)
-      : mode === "overview" ? loadGrowthStrategyOverview(auth.localPreview) : loadGrowthStrategyView(auth.localPreview));
+      : mode === "overview" ? loadGrowthStrategyOverview(auth.localPreview)
+        : mode === "quarter-review" ? loadGrowthQuarterReview(auth.localPreview, new Date()) : loadGrowthStrategyView(auth.localPreview));
     return Response.json(view, { headers: workflowHeaders });
   }
   catch (error) { return response(error); }

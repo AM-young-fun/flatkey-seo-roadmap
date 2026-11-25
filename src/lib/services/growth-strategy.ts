@@ -201,3 +201,24 @@ export async function loadGrowthStrategyView(localPreview = false, now = new Dat
   const inventory = growthDueObservationInventory(workflow, state.observations, growthSourceTimezones(state), now);
   return { state, snapshot, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), ...inventory };
 }
+
+export async function loadGrowthQuarterReview(localPreview = false, now = new Date()) {
+  if (localPreview) {
+    const { snapshot: _snapshot, ...review } = await loadGrowthStrategyView(true, now);
+    return review;
+  }
+  const [state, workspace, history, archives] = await Promise.all([
+    loadGrowthStrategy(),
+    loadGrowthDashboardWorkspace(false, now),
+    loadGrowthDashboardHistory(),
+    prisma.seoWorkflowRecord.findMany({ where: { kind: "historical_import" }, select: { payload: true } }),
+  ]);
+  const historicalImports = archives.map(row => row.payload as unknown as WorkflowSnapshot["historicalImports"][number]);
+  const inventory = growthDueObservationInventory({ ...history, historicalImports }, state.observations, growthSourceTimezones(state), now);
+  const selected = state.baseline ? new Set(state.quarterPlanning?.plan.targetIds ?? state.baseline.targets.map(row => row.id)) : null;
+  const formalTargets = workspace.targets.filter(row => row.membership === "formal" && (!selected || selected.has(row.id)))
+    .map(({ id, topicId, topicName, site, keyword, country, language, languageStatus, pageState }) =>
+      ({ id, topicId, topicName, site, keyword, country, language, languageStatus, pageState }));
+  return { state, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace),
+    formalTargets, ...inventory };
+}

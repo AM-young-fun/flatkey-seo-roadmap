@@ -181,7 +181,10 @@ export function loadGrowthDashboardHistory(localPreview = false): Promise<Dashbo
         'id', payload->'id', 'taskId', payload->'taskId', 'siteDomain', payload->'siteDomain',
         'pageUrl', payload->'pageUrl', 'title', payload->'title', 'status', payload->'status',
         'publishedAt', payload->'publishedAt', 'country', payload->'country', 'language', payload->'language',
-        'keyword', payload->'keyword', 'kind', payload->'kind', 'contentVersion', payload->'contentVersion'
+        'keyword', payload->'keyword', 'kind', payload->'kind', 'contentVersion', payload->'contentVersion',
+        'automaticWrite', CASE WHEN jsonb_typeof(payload->'automaticWrite') = 'object' THEN jsonb_build_object(
+          'operation', payload->'automaticWrite'->'operation', 'sourceId', payload->'automaticWrite'->'sourceId',
+          'baseContentVersion', payload->'automaticWrite'->'baseContentVersion') ELSE NULL END
       ) END AS payload
       FROM "SeoWorkflowRecord"
       WHERE (kind = 'task' AND payload->>'deletedAt' IS NULL)
