@@ -22,7 +22,7 @@ export function SeoOverview() {
   const [country] = useSeoCountry();
   const [module, setModule] = useState<OverviewPageModule>("all");
   const strategy = useOverviewRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=dashboard");
-  const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=dashboard", 90_000);
+  const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=all-keyword-overview", 90_000);
   const traffic = useTrafficSummaryTrend(context.range, context.ready);
   const loading = !traffic.hasSettled && (!context.ready || traffic.loading);
   useEffect(() => {

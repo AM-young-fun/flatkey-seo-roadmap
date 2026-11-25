@@ -107,3 +107,6 @@
 .relatedTargets { margin-top:18px; border-top:1px solid #e6ebf2; padding-top:15px; color:#61758f; font-size:12px; }.relatedTargets > summary { cursor:pointer; font-weight:550; }
 
 .capturePage + .capturePage { margin-top: 8px; }
+
+.rankFilter { margin-bottom: 10px; max-width: 220px; }
+.rankFilter label { display: grid; gap: 6px; color: #536680; font-size: 13px; }

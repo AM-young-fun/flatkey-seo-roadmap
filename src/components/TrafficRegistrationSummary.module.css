@@ -14,5 +14,4 @@
 .header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
 .header h3 { margin: 0; font-size: 15px; font-weight: 650; }
 .header p { margin: 4px 0 0; color: #64748b; }
-.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
 .note { margin: 8px 0 0; color: #64748b; font-size: 12px; }

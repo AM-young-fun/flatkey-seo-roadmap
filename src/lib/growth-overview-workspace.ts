@@ -24,8 +24,8 @@ export function growthOverviewWorkspace(workspace: GrowthWorkspace): GrowthWorks
 
 /** Detail evidence stays on the keyword page. Keep the market/rank identity,
  * topic edges, and overview progress in the visual read. */
-export function growthDashboardProjection(workspace: GrowthWorkspace): GrowthWorkspace {
-  const overview = growthOverviewWorkspace(workspace);
+export function growthDashboardProjection(workspace: GrowthWorkspace, includeCatalog = false): GrowthWorkspace {
+  const overview = includeCatalog ? workspace : growthOverviewWorkspace(workspace);
   return { ...overview, targets: overview.targets.map(target => ({
     id: target.id, keywordId: target.keywordId, site: target.site, topicId: target.topicId, topicName: target.topicName,
     keyword: target.keyword, country: target.country, language: target.language, wordLanguage: target.wordLanguage,
