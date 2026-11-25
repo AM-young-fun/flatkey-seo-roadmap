@@ -18,7 +18,7 @@ async function collectGrowthWeeklyTraffic({ sites, period, fetchWeek, credential
   const selected = sites.filter(site => observationSites.has(site.domain));
   if (new Set(selected.map(site => site.domain)).size !== selected.length) throw new Error("growth_duplicate_source_site");
   const api = async command => {
-    const response = await fetcher(endpoint, { method: command ? "POST" : "GET", redirect: "error", signal: AbortSignal.timeout(180000),
+    const response = await fetcher(command ? endpoint : endpoint + "?view=traffic-state", { method: command ? "POST" : "GET", redirect: "error", signal: AbortSignal.timeout(180000),
       headers: { authorization: "Bearer " + credential, ...(command ? { "content-type": "application/json" } : {}) },
       ...(command ? { body: JSON.stringify(command) } : {}) });
     if (!response.ok) throw new Error("growth_production_" + response.status);

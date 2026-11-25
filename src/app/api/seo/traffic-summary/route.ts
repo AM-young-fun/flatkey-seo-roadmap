@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { readWorkflowBody, workflowErrorResponse } from "@/lib/seo-workflow-http";
-import { shiftDay } from "@/lib/seo-date-range";
-import { closedTrafficSummaryDay, mergeTrafficSummaryDay, trafficSummaryDaySchema, trafficSummaryEvidence, TRAFFIC_SUMMARY_KIND } from "@/lib/seo-traffic-summary";
+import { shiftDay, validRange } from "@/lib/seo-date-range";
+import { closedTrafficSummaryDay, mergeTrafficSummaryDay, trafficSummaryDaySchema, trafficSummaryEvidence, trafficSummaryTrendDay, TRAFFIC_SUMMARY_KIND } from "@/lib/seo-traffic-summary";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,22 @@ const json = (value: unknown, status = 200) => Response.json(value, { status, he
 export async function GET(request: Request) {
   try {
     if (!await authenticateImportToken(request) && !await authorizeAnalyticsRead(request)) return json({ message: "请先登录" }, 401);
-    const input = new URL(request.url).searchParams.get("date");
+    const params = new URL(request.url).searchParams;
+    const input = params.get("date"), start = params.get("start"), end = params.get("end");
     const latestClosedDay = closedTrafficSummaryDay();
+    if (start !== null || end !== null) {
+      if (input !== null || !start || !end || !validRange({ start, end }) || end > latestClosedDay
+        || Date.parse(end) - Date.parse(start) > 365 * 86400000) return json({ message: "请选择已结束的洛杉矶日期，区间最多 366 天" }, 400);
+      const rows = await prisma.seoAnalyticsDay.findMany({ where: { kind: TRAFFIC_SUMMARY_KIND, date: { gte: start, lte: end } },
+        select: { date: true, payload: true } });
+      const days = new Map(rows.flatMap(row => {
+        const result = trafficSummaryDaySchema.safeParse(row.payload);
+        return result.success && result.data.date === row.date ? [[row.date, result.data] as const] : [];
+      }));
+      const daily = [];
+      for (let date = start; date <= end; date = shiftDay(date, 1)) daily.push(trafficSummaryTrendDay(date, days.get(date) ?? null));
+      return json({ start, end, daily });
+    }
     if (input && (!z.iso.date().safeParse(input).success || input > latestClosedDay)) return json({ message: "请选择已结束的洛杉矶日期" }, 400);
     const date = input ?? latestClosedDay, previous = shiftDay(date, -1);
     const rows = await prisma.seoAnalyticsDay.findMany({
