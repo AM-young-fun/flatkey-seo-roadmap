@@ -17,7 +17,7 @@ export function OverviewGoalCharts({ snapshot }: { snapshot: GrowthReportSnapsho
   return <ChartPanel title="2026 收官季目标进度" note={`截至 ${g.deadline} · 剩余 ${g.daysRemaining} 天；流量 ${g.trafficPeriod.start}—${g.trafficPeriod.end}（洛杉矶）；排名核验时点 ${g.latestRankAt ?? "尚无有效采样"}`}>
     <div className={styles.grid}>
       <GoalPlot label={g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 日常最新滚动7日自然搜索会话" : "Flatkey 每周自然搜索会话"} value={g.trafficScope ? g.weeklySessions : null} goal={3000} unit="次" denominator="Flatkey官网＋控制台生产域名，排除测试域名和IP" note={(g.trafficComplete && g.trafficScope ? `完整七天；距目标 ${chartNumber(g.trafficGap)} 次` : "同窗口来源未齐或属于历史统计范围，暂不计算完成率") + (g.dailyTrafficObservation ? `；${dailyTrafficComparisonText(g)}` : "")} />
-      <GoalPlot label="季度关键词前100覆盖" value={g.baselineCount !== null && g.coverage !== null ? g.coverage * 100 : null} goal={60} unit="%" denominator={`R / N = ${chartNumber(g.rankedCount)} / ${chartNumber(g.baselineCount)} 个原词；固定季度目标1600`} note={g.baselineCount === null ? "季度清单尚未核定，未用词库总量代替N" : `未核验词留在N、不计R；距离目标 ${chartNumber(g.coverageGap)} 词`} />
+      <GoalPlot label="季度关键词前100覆盖" value={g.baselineCount !== null && g.coverage !== null ? g.coverage * 100 : null} goal={60} unit="%" denominator={`R / N = ${chartNumber(g.rankedCount)} / ${chartNumber(g.baselineCount)} 个原词；固定季度目标1600`} note={g.baselineCount === null ? "季度清单尚未核定，未用词库总量代替N" : g.rankedCount === null ? "近期SERP暂时无法读取，已冻结分母保留。" : `未核验词留在N、不计R；距离目标 ${chartNumber(g.coverageGap)} 词`} />
       <GoalPlot label="已获排名关键词中前50" value={g.quality === null ? null : g.quality * 100} goal={80} unit="%" denominator={`F / R = ${chartNumber(g.top50Count)} / ${chartNumber(g.rankedCount)} 个有效前100原词`} note="仅使用原词语种与真实查询国家匹配的14天内完整SERP" />
     </div>
   </ChartPanel>;

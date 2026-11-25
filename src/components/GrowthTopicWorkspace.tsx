@@ -107,7 +107,9 @@ export function GrowthTopicNetwork({ read }: { read: SeoReadState<GrowthWorkspac
   if (!data) return <section className={styles.panel}><p role="status">正在读取话题与目标关键词…</p></section>;
   if (!data.quarter) return <section className={styles.panel}><p role="status">季度1600词清单尚未审核冻结，话题关系图待清单核定后展示。</p></section>;
   const targets = selectGrowthTargets(data, scope);
-  return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} /><Link className={styles.textLink} href={growthLink(scope)}>打开话题与关键词目标 →</Link></section>;
+  return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} />
+    <p className={styles.note}>{data.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available) ? "近期SERP暂时无法读取。" : "关系图使用最近14天的SERP。"}历史排名与其他来源可在关键词详情查看。</p>
+    <Link className={styles.textLink} href={growthLink(scope)}>打开话题与关键词目标 →</Link></section>;
 }
 
 export function GrowthRankingCoverage({ initialView = "all", read }: { initialView?: GrowthRankingView; read?: SeoReadState<GrowthWorkspace> } = {}) {
@@ -117,6 +119,9 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
   const [view, setView] = useState<GrowthRankingView>(initialView);
   if (error) return <section className={styles.panel}><h2 className={styles.panelTitle}>当前有效关键词排名</h2><p role="alert">排名汇总读取失败：{error}</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
   if (!data) return <section className={styles.panel}><p role="status">正在汇总有效实测与正式目标…</p></section>;
+  if (data.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available)) {
+    return <section className={styles.panel}><h2 className={styles.panelTitle}>当前有效关键词排名</h2><p role="alert">近期SERP暂时无法读取。</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
+  }
   const formalScope = { ...scope, membership: "formal" as const, search: "" };
   const { targets, ranked, summary } = growthRankingEvidence(view === "formal" ? quarterTargetWorkspace(data) : data, scope, view);
   const stats = growthCounts(targets);

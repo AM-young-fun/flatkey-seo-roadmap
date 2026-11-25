@@ -22,11 +22,11 @@ export function SeoOverview() {
   const context = useSeoRange("America/Los_Angeles");
   const [country] = useSeoCountry();
   const [module, setModule] = useState<OverviewPageModule>("all");
-  const strategy = useOverviewRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=overview");
-  const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=overview");
+  const strategy = useOverviewRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=dashboard");
+  const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=dashboard");
   const conversion = useOverviewRead<OverviewConversion>("/api/seo/growth/conversion");
   const traffic = useOverviewTrafficReads(context.range, context.comparison, module, country);
-  const loading = [strategy, growth, conversion, traffic.current, traffic.previous, traffic.landing]
+  const loading = [traffic.current, traffic.previous, traffic.landing]
     .some(read => read.loading && !read.retrying);
   useEffect(() => {
     const read = () => setModule(overviewModule(new URLSearchParams(location.search).get("module")));

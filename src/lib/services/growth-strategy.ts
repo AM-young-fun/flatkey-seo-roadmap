@@ -8,7 +8,7 @@ import { analyticsObservationSchema, analyticsSiteForProperty, scopedAnalytics }
 import { CLUSTER_SITES } from "../seo-cluster-sites";
 import { latestClosedLa7DayRange, shiftDay, weeklyReportRange } from "../seo-date-range";
 import { loadWorkflowSnapshot } from "./seo-workflow";
-import { loadGrowthWorkspace } from "./growth-workspace";
+import { loadGrowthDashboardHistory, loadGrowthDashboardWorkspace, loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
 import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
 import type { GrowthWorkspace } from "../growth-types";
@@ -135,7 +135,7 @@ export async function loadGrowthTraffic(period: { start: string; end: string }, 
   });
 }
 
-export async function loadGrowthReportSnapshot(date: string, localPreview = false, now = new Date(), provided: { state?: GrowthStrategy; workspace?: GrowthWorkspace; workflow?: WorkflowSnapshot; trafficObservation?: "rolling7day-v1"; trafficEndLimit?: string } = {}): Promise<GrowthReportSnapshot> {
+export async function loadGrowthReportSnapshot(date: string, localPreview = false, now = new Date(), provided: { state?: GrowthStrategy; workspace?: GrowthWorkspace; workflow?: Pick<WorkflowSnapshot, "tasks" | "publications">; trafficObservation?: "rolling7day-v1"; trafficEndLimit?: string } = {}): Promise<GrowthReportSnapshot> {
   const period = weeklyReportRange(date);
   const dailyObservation = provided.trafficObservation === "rolling7day-v1";
   const trafficPeriod = dailyObservation ? latestClosedLa7DayRange(now, provided.trafficEndLimit) : period;
@@ -170,6 +170,18 @@ async function loadGrowthStrategyRead(localPreview: boolean, now: Date) {
 
 export async function loadGrowthStrategyOverview(localPreview = false, now = new Date()) {
   const { snapshot } = await loadGrowthStrategyRead(localPreview, now);
+  return { snapshot };
+}
+
+export async function loadGrowthStrategyDashboard(localPreview = false, now = new Date()) {
+  if (localPreview) return loadGrowthStrategyOverview(true, now);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
+  const [state, workspace, workflow] = await Promise.all([loadGrowthStrategy(), loadGrowthDashboardWorkspace(false, now), loadGrowthDashboardHistory()]);
+  const snapshot = await loadGrowthReportSnapshot(date, false, now, { state, workspace, workflow, trafficObservation: "rolling7day-v1" });
+  if (snapshot.goals.evaluationMode === "live" && workspace.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available)) {
+    Object.assign(snapshot.goals, { rankedCount: null, top50Count: null, coverage: null, quality: null,
+      coverageGap: null, qualityGap: null, rankingReasons: ["近期SERP暂时无法读取，已冻结分母保留"] });
+  }
   return { snapshot };
 }
 

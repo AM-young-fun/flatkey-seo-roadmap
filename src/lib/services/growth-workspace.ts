@@ -17,6 +17,7 @@ import { projectAppliedQuarterManifestTopics } from "@/lib/applied-quarter-manif
 import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
 import { growthPageAuditChecks, growthPublicationPageChecks } from "@/lib/growth-live-page-evidence";
 import { PAGE_AUDIT_SOURCE_ID } from "@/lib/page-audit";
+import { requestRead } from "@/lib/request-read-scope";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const array = (value: unknown) => Array.isArray(value) ? value.map(object) : [];
@@ -29,10 +30,11 @@ const providerMarkets: Record<string, { location: number; language: string[] }> 
   FR: { location: 2250, language: ["fr", "fr-FR"] }, DE: { location: 2276, language: ["de", "de-DE"] }, VN: { location: 2704, language: ["vi", "vi-VN"] }, ID: { location: 2360, language: ["id", "id-ID"] },
 };
 
-/** Read only the saved normalized results. This query deliberately has no run
- * scope/date filter, so the separately approved 1,499-word diagnostic is reused.
- * Trim competitor result arrays in SQL before transferring them to the server. */
-async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = prisma): Promise<GrowthRankEvidence[]> {
+/** Read saved normalized results from every original run scope. Historical
+ * views keep the full archive; the dashboard bounds the same evidence by its
+ * eligibility window. Trim competitors before transferring the results. */
+async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = prisma, asOf?: Date): Promise<GrowthRankEvidence[]> {
+  const cutoff = asOf && new Date(asOf.getTime() - 14 * 86_400_000);
   const tasks = await db.$queryRaw<SavedTask[]>(Prisma.sql`
     SELECT t.id, t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."requestJson",
       r.id AS "runId", r."periodKey", r."periodLabel", r.scope, r."cohortHash", r."targetCount", r."queryCount",
@@ -44,6 +46,7 @@ async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = 
           CASE WHEN jsonb_typeof("normalizedJson"->'organicResults') = 'array' THEN "normalizedJson"->'organicResults' ELSE '[]'::jsonb END
         ) item WHERE item->>'domain' IN ('flatkey.ai', 'www.flatkey.ai', 'rackrate.org', 'www.rackrate.org', 'modelfit.cc', 'www.modelfit.cc')), '[]'::jsonb)) AS "normalizedJson"
     FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId" WHERE t."checkedAt" IS NOT NULL
+      ${cutoff ? Prisma.sql`AND t."checkedAt" BETWEEN ${cutoff} AND ${asOf}` : Prisma.empty}
     ORDER BY t."checkedAt" DESC, t.id
   `);
   return tasks.flatMap(task => {
@@ -88,8 +91,45 @@ async function savedDiscoveryEvidence(db: Prisma.TransactionClient | typeof pris
   });
 }
 
+type DashboardHistory = Pick<WorkflowSnapshot, "tasks" | "publications">;
+
+export function loadGrowthDashboardHistory(localPreview = false): Promise<DashboardHistory> {
+  if (localPreview) return loadWorkflowSnapshot({ allHistory: true }, true);
+  return requestRead("growth:dashboard:history", async () => {
+    const rows = await prisma.$queryRaw<{ kind: "task" | "publication"; payload: unknown }[]>(Prisma.sql`
+      SELECT kind, CASE WHEN kind = 'task' THEN jsonb_build_object(
+        'id', payload->'id', 'siteDomain', payload->'siteDomain', 'keyword', payload->'keyword',
+        'keywordId', payload->'keywordId', 'country', payload->'country', 'language', payload->'language',
+        'pageUrl', payload->'pageUrl', 'status', payload->'status', 'channel', payload->'channel',
+        'kind', payload->'kind', 'dueAt', payload->'dueAt', 'workClass', payload->'workClass',
+        'contentVersion', payload->'contentVersion', 'progress', payload->'progress'
+      ) ELSE jsonb_build_object(
+        'id', payload->'id', 'taskId', payload->'taskId', 'siteDomain', payload->'siteDomain',
+        'pageUrl', payload->'pageUrl', 'title', payload->'title', 'status', payload->'status',
+        'publishedAt', payload->'publishedAt', 'country', payload->'country', 'language', payload->'language',
+        'keyword', payload->'keyword', 'kind', payload->'kind', 'contentVersion', payload->'contentVersion'
+      ) END AS payload
+      FROM "SeoWorkflowRecord"
+      WHERE (kind = 'task' AND payload->>'deletedAt' IS NULL)
+         OR (kind = 'publication' AND payload->>'status' IN ('published', 'verified'))
+      ORDER BY "updatedAt" DESC
+    `);
+    const tasks = rows.flatMap(row => row.kind === "task" ? [row.payload as DashboardHistory["tasks"][number]] : []);
+    const publications = rows.flatMap(row => row.kind === "publication" ? [row.payload as DashboardHistory["publications"][number]] : []);
+    return { tasks: tasks.sort((a, b) => a.dueAt.localeCompare(b.dueAt)), publications: publications.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)) };
+  });
+}
+
+export function loadGrowthDashboardWorkspace(localPreview = false, now = new Date(), selectedSite?: string) {
+  return readGrowthWorkspace(localPreview, now, selectedSite, { dashboard: true });
+}
+
 /** No import APIs, mutations, provider fetches, scheduling or paid switches. */
-export async function loadGrowthWorkspace(localPreview = false, now = new Date(), selectedSite?: string, transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot }): Promise<GrowthWorkspace> {
+export function loadGrowthWorkspace(localPreview = false, now = new Date(), selectedSite?: string, transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot }): Promise<GrowthWorkspace> {
+  return readGrowthWorkspace(localPreview, now, selectedSite, { transaction });
+}
+
+async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSite: string | undefined, { dashboard = false, transaction }: { dashboard?: boolean; transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot } }): Promise<GrowthWorkspace> {
   if (!process.env.DATABASE_URL) throw new Error("GROWTH_DATABASE_UNAVAILABLE");
   const db = transaction?.db ?? prisma;
   const goalSites = GROWTH_SITES.filter(site => site.keywordGoals).map(site => site.domain);
@@ -99,13 +139,15 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
       topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }),
     db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: MARKET_ASSIGNMENT_SOURCE_ID }, select: { siteDomain: true, rowKey: true, snapshot: true } }),
     db.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
-    transaction?.workflow ?? loadWorkflowSnapshot({ allHistory: true }, localPreview),
+    transaction?.workflow ?? (dashboard ? loadGrowthDashboardHistory(localPreview) : loadWorkflowSnapshot({ allHistory: true }, localPreview)),
     db.seoSite.findMany({ select: { domain: true, active: true, ga4PropertyId: true } }),
     db.seoWorkflowRecord.findMany({where:{kind:"plan",status:{in:["scheduled","reviewed"]}},select:{recordId:true,status:true,payload:true}}),
     db.seoWorkflowRecord.findUnique({ where: { key: "growth-strategy:2026-close" }, select: { payload: true } }),
     db.keywordCurationAudit.findFirst({ where: { status: QUARTER_MEMBERSHIP_STATUS }, orderBy: { appliedAt: "desc" },
       select: { id: true, siteDomain: true, status: true, payloadHash: true, before: true, after: true, summary: true, appliedAt: true, restoredAt: true } }),
-    Promise.allSettled([savedSerpEvidence(db), savedDiscoveryEvidence(db), db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true, collectedAt: true } })]),
+    Promise.allSettled([savedSerpEvidence(db, dashboard ? now : undefined),
+      dashboard ? Promise.resolve([]) : savedDiscoveryEvidence(db),
+      dashboard ? Promise.resolve([]) : db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true, collectedAt: true } })]),
   ]);
   const humanLanguageRows = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: HUMAN_WORD_LANGUAGE_SOURCE_ID }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } });
   const humanAuditIds = [...new Set(humanLanguageRows.flatMap(row => typeof object(row.snapshot).auditId === "string" ? [String(object(row.snapshot).auditId)] : []))];
@@ -118,7 +160,8 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
   const ranks: GrowthRankEvidence[] = [];
   const names = ["全部已存SERP（含1499诊断批次）", "已存域名发现（供应商数据库）", "已存逐页搜索观测"];
   optional.forEach((result, index) => {
-    sources.push({ name: names[index], available: result.status === "fulfilled", reason: result.status === "rejected" ? "来源读取失败；未补采、未将缺项填0" : null });
+    if (dashboard && index > 0) return;
+    sources.push({ name: dashboard ? "最近14天的已存SERP" : names[index], available: result.status === "fulfilled", reason: result.status === "rejected" ? "来源读取失败；未补采、未将缺项填0" : null });
     if (result.status !== "fulfilled") return;
     if (index < 2) ranks.push(...result.value as GrowthRankEvidence[]);
     else for (const row of result.value as { keywordId: string; keyword: { text: string }; siteDomain: string; region: string; source: string; rank: number | null; url: string; dataUpdatedAt: Date | null; collectedAt: Date }[]) {
@@ -138,13 +181,6 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
       ? `仅当前视图投影${currentTopics.projections.length}项本站原ID主话题，${currentTopics.skipped}项当前关系/启用条件不符保留原值；审计${currentTopics.applied.auditId}，清单SHA ${currentTopics.applied.selectionHash}。数据库主父、旧边和历史期次未改。`
       : membershipAudit ? "最新成员审计未通过确切apply/来源/成员哈希校验，未借用预览或回退旧清单改主话题。" : "尚无已应用的完整1600人审成员清单，保留当前数据库主话题。" });
   const workspace = buildGrowthWorkspace(currentTopics.input, selectedSite);
-  let pageAuditAvailable = true;
-  const pageAudits = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: PAGE_AUDIT_SOURCE_ID,
-    rowKey: { in: [...new Set(members.map(member => `keyword:${member.keywordId}`))] } }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } }).catch(() => { pageAuditAvailable = false; return []; });
-  workspace.pageLiveChecks = [...growthPageAuditChecks(pageAudits, workspace.targets), ...growthPublicationPageChecks(workflow, workspace.targets)]
-    .sort((a, b) => JSON.stringify([a.site, a.keywordId, a.url, a.checkedAt, a.source]).localeCompare(JSON.stringify([b.site, b.keywordId, b.url, b.checkedAt, b.source])));
-  workspace.pageLiveEvidenceComplete = pageAuditAvailable;
-  workspace.reconciliation.sources.push({ name: "现有逐页上线验收及反证", available: pageAuditAvailable, reason: pageAuditAvailable ? "仅复用正常page-audit/liveCheck回执；库存不代表当前HTTP200。缺少新24小时真实证据不授付费资格，不影响季度N/已有排名事实。" : "逐页QA来源未读齐；普通目标/历史保留，新的付费候选全部暂缓。" });
   // Export the original stored primary alongside the current-only preference;
   // consumers must not interpret this as a database relationship migration.
   const topicProvenance = new Map(currentTopics.projections.map(row => [`${row.site}\u0000${row.keywordId}`, row]));
@@ -159,14 +195,22 @@ export async function loadGrowthWorkspace(localPreview = false, now = new Date()
   const approvedHistory = Array.isArray(quarterState.quarterPlanningHistory) ? quarterState.quarterPlanningHistory.map(object).filter(row => object(row.approval).hash === row.hash).at(-1) : undefined;
   const approvedHash = typeof quarterPlan.hash === "string" && approved.hash === quarterPlan.hash ? quarterPlan.hash : approvedHistory?.hash ?? baseline.sourceVersion;
   if (quarterTargets.length && typeof approvedHash === "string") workspace.quarter = { targetIds: quarterTargets, keywordCount: quarterTargets.length, hash: approvedHash };
+  workspace.sites = workspace.sites.map(site => {
+    const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;
+    return { ...site, dataReadiness: siteSourceReadiness(site.domain, savedProperty) };
+  });
+  if (dashboard) return workspace;
+  let pageAuditAvailable = true;
+  const pageAudits = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: PAGE_AUDIT_SOURCE_ID,
+    rowKey: { in: [...new Set(members.map(member => `keyword:${member.keywordId}`))] } }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } }).catch(() => { pageAuditAvailable = false; return []; });
+  workspace.pageLiveChecks = [...growthPageAuditChecks(pageAudits, workspace.targets), ...growthPublicationPageChecks(workflow, workspace.targets)]
+    .sort((a, b) => JSON.stringify([a.site, a.keywordId, a.url, a.checkedAt, a.source]).localeCompare(JSON.stringify([b.site, b.keywordId, b.url, b.checkedAt, b.source])));
+  workspace.pageLiveEvidenceComplete = pageAuditAvailable;
+  workspace.reconciliation.sources.push({ name: "现有逐页上线验收及反证", available: pageAuditAvailable, reason: pageAuditAvailable ? "仅复用正常page-audit/liveCheck回执；库存不代表当前HTTP200。缺少新24小时真实证据不授付费资格，不影响季度N/已有排名事实。" : "逐页QA来源未读齐；普通目标/历史保留，新的付费候选全部暂缓。" });
   const parsedStrategy = growthStrategyStoredSchema.safeParse(quarterRow?.payload);
   const authorizedHotTaskIds = new Set(parsedStrategy.success ? [...buildGrowthHotspotView(parsedStrategy.data, workflow, plans, now).items.filter(item => item.researchComplete && item.admission.status === "scheduled").flatMap(item => item.taskIds), ...publishedGrowthHotspotTaskIds(parsedStrategy.data, workflow, plans, now)] : []);
   const extraTasks = workflow.tasks.filter(task => task.capacityClass === "authorized_hotspot_extra" && !task.deletedAt && authorizedHotTaskIds.has(task.id));
   workspace.hotspotTargetIds = workspace.targets.filter(target => extraTasks.some(task => target.site === task.siteDomain && target.keywordId === task.keywordId && target.country === task.country && target.language === task.language && growthWordKey(target.keyword) === growthWordKey(task.keyword ?? ""))).map(target => target.id);
   workspace.monitoringQuote = growthCollectionMonitoringQuote(buildGrowthCollectionManifest(workspace, serpPeriod(now).key, { revision: 0, connectionVersion: 0 }, now));
-  workspace.sites = workspace.sites.map(site => {
-    const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;
-    return { ...site, dataReadiness: siteSourceReadiness(site.domain, savedProperty) };
-  });
   return workspace;
 }
