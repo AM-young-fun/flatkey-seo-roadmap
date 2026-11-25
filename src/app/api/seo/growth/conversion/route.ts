@@ -2,6 +2,7 @@ import { z } from "zod";
 import { authorizeAnalyticsRead } from "@/lib/seo-analytics-access";
 import { authorizeSavedRankingCoverage } from "@/lib/services/ranking-coverage-access";
 import { loadConversionProjection } from "@/lib/services/seo-conversion";
+import { loadExactRegistrationPeriod } from "@/lib/services/seo-registration-period";
 import { cohortDay } from "@/lib/seo-api-cohorts";
 import { weeklyReportRange } from "@/lib/seo-date-range";
 import { GROWTH_COUNTRIES } from "@/lib/seo-growth-markets";
@@ -19,7 +20,13 @@ export async function GET(request: Request) {
       site: params.get("site") ?? "flatkey.ai", country: params.get("country") ?? "all" });
     if ([...params.keys()].some(key => !["start", "end", "site", "country"].includes(key)) || scope.start > scope.end || scope.end >= cohortDay(now)
       || Date.parse(scope.end) - Date.parse(scope.start) > 366 * 86400000) return Response.json({ message: "请选择已结束的有效来源窗口" }, { status: 400, headers });
-    return Response.json(await loadConversionProjection({ ...scope, timezone: "America/Los_Angeles" }, now), { headers });
+    const [projection, registration] = await Promise.all([
+      loadConversionProjection({ ...scope, timezone: "America/Los_Angeles" }, now),
+      scope.site === "flatkey.ai" && scope.country === "all"
+        ? loadExactRegistrationPeriod(scope.start, scope.end).catch(() => null)
+        : null,
+    ]);
+    return Response.json({ ...projection, ga4OrganicRegistrants: registration ? { users: registration.users, observedAt: registration.observedAt } : null }, { headers });
   } catch (error) {
     return Response.json({ message: error instanceof z.ZodError ? "转化统计参数无效" : "转化来源暂时无法读取；未新增采集或修改数据" }, { status: error instanceof z.ZodError ? 400 : 503, headers });
   }

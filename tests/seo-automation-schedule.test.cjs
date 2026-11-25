@@ -3,7 +3,7 @@ const fs = require("node:fs"), path = require("node:path"), Module = require("no
 const root = path.resolve(__dirname, ".."), originalLoad = Module._load;
 let response = { data: null, error: null, retry() {} };
 Module._load = function (name, parent, ...rest) {
-  if (name === "./useSeoAnalytics") return { useSeoRead: url => { assert.equal(url, "/api/operations"); return response; } };
+  if (name === "./useSeoAnalytics") return { useSeoRead: url => { assert.equal(url, "/api/operations?view=schedule&page=1"); return response; } };
   // Paid review panels have independent data hooks and their own component tests.
   if (name === "./ApprovedKeywordReview") return { ApprovedKeywordReview: () => null };
   if (name === "./ApprovedOtherKeywordReview") return { ApprovedOtherKeywordReview: () => null };
@@ -12,7 +12,7 @@ Module._load = function (name, parent, ...rest) {
 };
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
 const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
-const { readonlyAutomationPlans, automationDate } = require("../src/lib/seo-automation-schedule.ts");
+const { automationSchedulePage, readonlyAutomationPlans, automationDate } = require("../src/lib/seo-automation-schedule.ts");
 const config = require("../src/lib/data/seo-automation-config.json");
 const { configuredAutomationPlans, nextAutomationTime } = require("../src/lib/operations.ts");
 const { SeoAutomationSchedule } = require("../src/components/SeoAutomationSchedule.tsx");
@@ -101,23 +101,45 @@ test("paused paid queries have no advertised next execution; resumed and emergen
   assert.equal(automationDate(null), "未核实"); assert.equal(automationDate("invalid"), "未核实");
 });
 
-test("schedule shows arrangements without paid actions, logs or retired Friday sender", () => {
-  response = { ...response, data: makeStatus(), error: null };
-  const html = render();
-  assert.match(html, /Codex 定时任务/); assert.match(html, /服务器定时任务/);
-  assert.match(html, /任务名称/); assert.match(html, /频率/); assert.match(html, /北京时间/); assert.match(html, /启停/);
-  assert.match(html, /隔周周四/); assert.match(html, /服务器调度检查与续跑/);
-  assert.doesNotMatch(html, /查看费用|补采|开启并执行|暂停新的付费提交|采集与调度回执|最近开始|最近完成|<details|<form|role="switch"/);
-  assert.doesNotMatch(html, new RegExp(config.tasks.find(task => task.id === "seo-10-00-2").name));
-  assert.equal((html.match(/<button/g) ?? []).length, 1);
+test("schedule renders only the requested page and preserves arrangement groups across pages", () => {
+  const status = makeStatus();
+  const first = automationSchedulePage(status, 1), second = automationSchedulePage(status, 2);
+  assert.equal(first.rows.length, 10);
+  assert.equal(second.rows.length, status.plans.length - first.rows.length);
+  assert.equal(first.total, status.plans.length);
+  assert.deepEqual(automationSchedulePage(status, 99), second);
+  assert.ok(first.rows.every(row => row.executionLocation === "computer"));
+  const rows = [...first.rows, ...second.rows];
+  assert.equal(new Set(rows.map(row => row.id)).size, first.total);
+  assert.ok(rows.every(row => row.id !== "seo-10-00-2"));
+  assert.deepEqual(Object.keys(first.rows[0]).sort(), ["cadence", "configurationState", "executionLocation", "id", "name"]);
+  response = { ...response, data: first, error: null };
+  const firstHtml = render();
+  assert.match(firstHtml, /Codex 定时任务/);
+  assert.doesNotMatch(firstHtml, /服务器定时任务/);
+  assert.match(firstHtml, /第 1 \/ 2 页/);
+  assert.match(firstHtml, /任务名称/); assert.match(firstHtml, /频率/); assert.match(firstHtml, /北京时间/); assert.match(firstHtml, /启停/);
+  response = { ...response, data: second, error: null };
+  const secondHtml = render();
+  assert.match(secondHtml, /第 2 \/ 2 页/);
+  assert.match(secondHtml, /Codex 定时任务/); assert.match(secondHtml, /服务器定时任务/);
+  assert.match(secondHtml, /隔周周四/); assert.match(secondHtml, /服务器调度检查与续跑/);
+  for (const html of [firstHtml, secondHtml]) {
+    assert.doesNotMatch(html, /查看费用|查看回执|开启并执行|暂停新的付费提交|采集与调度回执|最近开始|最近完成|<details|<form|role="switch"/);
+    assert.doesNotMatch(html, new RegExp(config.tasks.find(task => task.id === "seo-10-00-2").name));
+    assert.equal((html.match(/<button/g) ?? []).length, 3);
+  }
 });
 
 test("collection state is read-only and contains no continuation entry", () => {
   const data = makeStatus(); data.controls.enabled = true;
-  response = { ...response, data, error: null };
+  response = { ...response, data: automationSchedulePage(data, 2), error: null };
+  assert.equal(response.data.rows.find(row => row.id === "rankings").configurationState, "enabled");
   assert.match(render(), /已启用/);
   assert.doesNotMatch(render(), /付费|费用|暂停新的付费提交|查看本期/);
   data.controls.emergencyStopped = true;
+  response = { ...response, data: automationSchedulePage(data, 2), error: null };
+  assert.equal(response.data.rows.find(row => row.id === "rankings").configurationState, "paused");
   assert.doesNotMatch(render(), /付费|费用|暂停新的付费提交|查看本期/);
 });
 
@@ -132,7 +154,7 @@ test("actual completion receipts remain outside the arrangements page", () => {
   const data = makeStatus();
   data.scheduler.state = "HEALTHY"; data.scheduler.lastCompletedAt = "2026-11-10T08:00:00Z";
   data.records = [{ id: "check:1", name: "线上调度检查", state: "已完成", startedAt: "2026-11-10T07:59:00Z", completedAt: "2026-11-10T08:00:00Z", detail: "付费提交 0 批" }];
-  response = { ...response, data, error: null };
+  response = { ...response, data: automationSchedulePage(data, 2), error: null };
   const html = render();
   assert.match(html, /服务器调度检查与续跑/);
   assert.doesNotMatch(html, /最近一次调度检查已完成|付费提交 0 批|2026\/11\/10/);

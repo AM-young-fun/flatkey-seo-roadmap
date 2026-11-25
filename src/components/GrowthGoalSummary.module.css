@@ -1,3 +1,13 @@
 .panel{margin:20px 0;padding:24px;border:1px solid #dce4ef;border-radius:12px;background:#fff;color:#18263e}.panel header{display:flex;justify-content:space-between;gap:16px;align-items:center}.panel h3,.panel h4{margin:0 0 12px}.panel header span,.note{color:#62738c;font-size:13px;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px}.metrics>div{border-radius:8px;background:#f5f8fd;padding:18px}.metrics span,.metrics small{display:block;color:#5a6c86;font-size:13px}.metrics strong{display:block;margin:10px 0;font-size:26px}.panel details{margin:14px 0}.panel summary{cursor:pointer;font-weight:600}.panel p,.panel li{line-height:1.7;overflow-wrap:anywhere}.panel a{color:#2762d9}.directions article,.decision{border-top:1px solid #e4eaf3;padding-top:16px;margin-top:18px}.scroll{overflow:auto;max-height:380px}.scroll table{width:100%;border-collapse:collapse;font-size:13px}.scroll td,.scroll th{padding:10px;text-align:left;border-bottom:1px solid #e4eaf3;white-space:normal;min-width:100px}.actions{display:flex;flex-wrap:wrap;gap:8px}.panel button{cursor:pointer;padding:8px 12px;border:1px solid #cbd7ea;border-radius:7px;background:#f5f8fd;color:#245bd3}.panel button:disabled{opacity:.5;cursor:default}.error{color:#a42424}@media(max-width:760px){.metrics{grid-template-columns:1fr}.panel{padding:16px}.panel header{align-items:flex-start;flex-direction:column}}
 
 .json{max-height:380px;max-width:100%;overflow:auto;white-space:pre;color:#62738c;font-size:12px;line-height:1.6;padding:12px;background:#f5f8fd;border-radius:8px}
+.driverList { list-style:none; margin:0; padding:0; }
+.driverList li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:4px 20px; padding:10px 0; border-bottom:1px solid #edf0f5; }
+.driverList li:last-child { border-bottom:0; }
+.driverList small { display:block; color:#64748b; }
+.driverList p { grid-column:1/-1; margin:0; color:#64748b; font-size:12px; }
+.driverList strong { white-space:nowrap; font-variant-numeric:tabular-nums; }
+.driverList strong[data-change=up] { color:#16724d; }
+.driverList strong[data-change=down] { color:#a23b3b; }
+.taskLinks { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; font-size:12px; }
+@media(max-width:520px) { .driverList li { grid-template-columns:1fr; } }

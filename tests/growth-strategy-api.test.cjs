@@ -28,6 +28,7 @@ const quarterPlan=()=>({version:'quarter-planning-v2',targetUnit:'normalized_ori
 async function prepareQuarter(){const plan=quarterPlan();const response=await post({action:'save_quarter_plan',requestId:'save-quarter-draft-api',expectedVersion:0,plan});assert.equal(response.status,200);return {plan,command:{action:'approve_quarter_plan',requestId:'approve-quarter-api',expectedVersion:1,hash:growthHash(plan),sourceVersion:growthWorkspaceIdentity(workspace),reason:'User reviewed exact directions, market budgets, work capacity and limitations'}};}
 test('strategy API rejects missing login, foreign origins and collector self-approval before source reads',async()=>{
   assert.equal((await GET(new Request('https://production.test/api/seo/growth/strategy'))).status,401);
+  assert.equal((await GET(new Request('https://production.test/api/seo/growth/strategy?view=overview'))).status,401);
   assert.equal((await post(freeze(),{},'https://production.test/api/seo/growth/strategy')).status,401);
   assert.equal((await post(freeze(),{origin:'https://evil.test'})).status,403);
   assert.equal((await post(freeze(),{authorization:'Bearer test-workflow-secret'},'https://production.test/api/seo/growth/strategy')).status,403);
@@ -39,6 +40,15 @@ test('real preview freeze persists the exact list, replays one request, rejects 
   assert.equal((await post({...command,reason:'different content'})).status,409);
   assert.equal((await post({...command,requestId:'new-stale-request'})).status,409);
   const result=await GET(new Request(url));assert.equal(result.status,200);const view=await result.json();assert.equal(view.state.baseline.targets.length,1600);assert.equal(view.snapshot.goals.baselineCount,1600);assert.equal(view.snapshot.goals.weeklySessions,null);assert.equal(view.snapshot.goals.knownSessions,null);
+  const overviewResponse = await GET(new Request(`${url}?view=overview`));
+  assert.equal(overviewResponse.status, 200);
+  assert.equal(overviewResponse.headers.get('Cache-Control'), result.headers.get('Cache-Control'));
+  const overview = await overviewResponse.json();
+  assert.deepEqual(Object.keys(overview), ['snapshot']);
+  assert.equal(overview.snapshot.strategyVersion, view.snapshot.strategyVersion);
+  assert.equal(overview.snapshot.goals.baselineCount, view.snapshot.goals.baselineCount);
+  assert.equal(overview.snapshot.goals.trafficWindowKind, 'rolling7day-v1');
+  assert.equal(overview.snapshot.goals.weeklySessions, view.snapshot.goals.weeklySessions);
   const disk=JSON.parse(await fs.promises.readFile(path.join(directory,'growth-strategy.json'),'utf8'));assert.equal(disk.events.length,2);assert.equal(disk.state.version,2);
 });
 test('human-only stable identity supplements persist append-only against an unresolved frozen member with CAS and exact source validation',async()=>{

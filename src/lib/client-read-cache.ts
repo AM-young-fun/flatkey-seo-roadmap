@@ -24,18 +24,22 @@ export function createClientReadCache(fetcher: typeof fetch = fetch, now = Date.
       const saved = entries.get(url);
       return saved && saved.expires > now() ? saved.value as T : null;
     },
-    read<T>(url: string, force = false, ttl = 60_000): Promise<T> {
+    read<T>(url: string, force = false, ttl = 60_000, timeoutMs?: number): Promise<T> {
       const saved = entries.get(url);
       if (!force && saved && saved.expires > now()) return Promise.resolve(saved.value as T);
       if (pending.has(url)) return pending.get(url) as Promise<T>;
       const started = generation;
       const request = (async () => {
+        const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
         try {
           const readStarted = performance.now();
-          const response = await fetcher(url, { cache: "no-store" });
-          const data = await response.json();
+          const response = await fetcher(url, { cache: "no-store", ...(signal ? { signal } : {}) });
+          const data = await response.json().catch(error => {
+            if (response.ok || signal?.aborted) throw error;
+            return null;
+          });
           logReadTiming(url,response,readStarted,data);
-          if (!response.ok) throw new ClientReadError(data.message ?? "数据读取失败，请重试", response.status);
+          if (!response.ok) throw new ClientReadError(data?.message ?? "数据读取失败，请重试", response.status);
           if (started === generation) {
             entries.set(url, { value: data, expires: now() + (data?.displaySnapshot?.pending ? Math.min(ttl,4000) : ttl) });
             if (entries.size > 32) entries.delete(entries.keys().next().value!);
@@ -45,6 +49,7 @@ export function createClientReadCache(fetcher: typeof fetch = fetch, now = Date.
           // A failed refresh must not make a previous success look current on
           // the next navigation. An old session cannot invalidate a new one.
           if (started === generation) entries.delete(url);
+          if (signal?.aborted) throw new ClientReadError("数据读取超时，请重试", 408);
           throw error;
         }
       })();

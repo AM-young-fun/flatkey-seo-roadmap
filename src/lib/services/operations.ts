@@ -6,14 +6,43 @@ import { keywordCyclePlan } from "@/lib/keyword-cycle";
 import { SERP_COLLECTION_SITE } from "@/lib/serp-targets";
 import { serpPeriod, SERP_SCHEDULE_LOCAL_TIME } from "@/lib/serp-periods";
 import { workflowRunSchema } from "@/lib/seo-workflow";
+import { automationSchedulePage } from "@/lib/seo-automation-schedule";
 
 const iso = (value: Date | null) => value?.toISOString() ?? null;
 const state = (value: string) => operationStateLabels[value] ?? "状态异常";
-export async function loadOperationsStatus(now = new Date()): Promise<OperationsStatus> {
-  // Metadata only. Opening this view never calls a provider or starts a job.
-  const [config, connection, checks, rankings, discoveries, reports, collectors, workflowRuns] = await Promise.all([
+
+async function loadCollectionConfiguration() {
+  const [config, connection] = await Promise.all([
     prisma.serpMonitorConfig.findUnique({ where: { id: SERP_CONFIG_ID }, select: { paidEnabled: true, authorizationVersion: true, nextDueAt: true, maxRunCostMicros: true, maxMonthCostMicros: true } }),
     prisma.dataForSeoConnection.findUnique({ where: { siteDomain: "flatkey.ai" }, select: { scheduleEnabled: true } }),
+  ]);
+  const stopped = envBool("DISABLE_EXTERNAL_FETCH");
+  const enabled = !stopped && config?.paidEnabled === true && config.authorizationVersion === 1 && connection?.scheduleEnabled === true;
+  return { config, stopped, enabled };
+}
+
+function rankingSchedulePlan(enabled: boolean, nextAt: string | null, currentExecution?: string): OperationsStatus["plans"][number] {
+  return {
+    id: "rankings", name: "DataForSEO 已审正式目标排名复核", location: "项目服务器 · Vercel", cadence: `隔周周四 ${SERP_SCHEDULE_LOCAL_TIME}`,
+    state: enabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution,
+    note: "隔周仅消费本期确切清单、市场语言和费用获批的正式已建页目标；先复用既存结果。域名发现独立报价，不构成实测前置。",
+  };
+}
+
+export async function loadAutomationSchedulePage(page: number, now = new Date()) {
+  const { stopped, enabled } = await loadCollectionConfiguration();
+  return automationSchedulePage({
+    executionEvidence: "available",
+    controls: { enabled, emergencyStopped: stopped },
+    scheduler: { configured: deployedSeoSchedulerConfigured(process.env.CRON_SECRET), cadence: schedulerCadence },
+    plans: [rankingSchedulePlan(enabled, null), ...configuredAutomationPlans(now)],
+  }, page);
+}
+
+export async function loadOperationsStatus(now = new Date()): Promise<OperationsStatus> {
+  // Metadata only. Opening this view never calls a provider or starts a job.
+  const [{ config, stopped, enabled }, checks, rankings, discoveries, reports, collectors, workflowRuns] = await Promise.all([
+    loadCollectionConfiguration(),
     prisma.schedulerCheck.findMany({ orderBy: { startedAt: "desc" }, take: 4 }),
     prisma.serpMonitorRun.findMany({ where: { scope: { in: ["SCHEDULED", "SAMPLE"] } }, orderBy: { createdAt: "desc" }, take: 4, select: { id: true, scope: true, periodKey: true, periodLabel: true, status: true, queryCount: true, startedAt: true, completedAt: true } }),
     prisma.dataForSeoRun.findMany({ where: { siteDomain: SERP_COLLECTION_SITE, requestId: { startsWith: "discovery-" } }, orderBy: { createdAt: "desc" }, take: 4, select: { requestId: true, siteDomain: true, status: true, createdAt: true, completedAt: true } }),
@@ -29,9 +58,7 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
     return parsed.success && parsed.data.stage === "SERVER_COLLECTION" ? [parsed.data] : [];
   });
   const latestLocalCollection = collectionRuns.find(run => run.owner === "Codex · 本机");
-  const stopped = envBool("DISABLE_EXTERNAL_FETCH"), last = checks[0] ?? null;
-  const rankingEnabled = !stopped && config?.paidEnabled === true && config.authorizationVersion === 1;
-  const discoveryEnabled = rankingEnabled && connection?.scheduleEnabled === true;
+  const last = checks[0] ?? null;
   const cycle = keywordCyclePlan(now, config?.nextDueAt ? serpPeriod(config.nextDueAt).key : undefined);
   const currentDiscoveries = discoveries.filter(row => cycle.jobs.some(job => job.requestId === row.requestId));
   const currentRanking = rankings.find(row => row.scope === "SCHEDULED" && row.periodKey === cycle.period.key);
@@ -50,10 +77,10 @@ export async function loadOperationsStatus(now = new Date()): Promise<Operations
   return {
     checkedAt: now.toISOString(),
     automationConfigurationVerifiedAt, executionEvidence: "available",
-    controls: { enabled: rankingEnabled && discoveryEnabled, emergencyStopped: stopped, maxRunCostMicros: config?.maxRunCostMicros ?? 0, maxMonthCostMicros: config?.maxMonthCostMicros ?? 0, discoveryMaxCostMicros: cycle.maxDiscoveryCostMicros },
+    controls: { enabled, emergencyStopped: stopped, maxRunCostMicros: config?.maxRunCostMicros ?? 0, maxMonthCostMicros: config?.maxMonthCostMicros ?? 0, discoveryMaxCostMicros: cycle.maxDiscoveryCostMicros },
     scheduler: { configured: deployedSeoSchedulerConfigured(process.env.CRON_SECRET), cadence: schedulerCadence, state: schedulerState(last, now), lastStartedAt: iso(last?.startedAt ?? null), lastCompletedAt: iso(last?.completedAt ?? null) },
     plans: [
-      { id: "rankings", name: "DataForSEO 已审正式目标排名复核", location: "项目服务器 · Vercel", cadence: `隔周周四 ${SERP_SCHEDULE_LOCAL_TIME}`, state: rankingEnabled && discoveryEnabled ? "自动执行已启用" : "自动付费未启用", nextAt, currentExecution, note: "隔周仅消费本期确切清单、市场语言和费用获批的正式已建页目标；先复用既存结果。域名发现独立报价，不构成实测前置。" },
+      rankingSchedulePlan(enabled, nextAt, currentExecution),
       ...configuredAutomationPlans(now).map(plan => plan.id === "seo-16-00-ga4-search-console" && latestLocalCollection ? {
         ...plan,
         currentExecution: `${state(latestLocalCollection.status.toUpperCase())} · ${latestLocalCollection.completedItems}/${latestLocalCollection.checkedItems} 条应有数据已核对`,

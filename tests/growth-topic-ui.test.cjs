@@ -8,7 +8,11 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./PageHeader") return { PageHeader: () => null };
   if (name === "./UiSelect") return { UiSelect: () => null };
   if (name === "./FeedbackButton") return { FeedbackButton: () => null };
-  if (name === "./useSeoAnalytics") return { useSeoRead: () => ({ data: readData }) };
+  if (name === "./useSeoAnalytics") return {
+    useSeoRead: () => ({ data: readData }),
+    useOverviewRead: url => ({ data: readData && url?.includes("view=quarter")
+      ? require("../src/lib/growth-quarter-page.ts").growthQuarterPage(readData, { scope: defaultGrowthScope, page: 1, related: false }) : null })
+  };
   if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, property) => property === "__esModule" ? false : String(property) });
   return originalLoad.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest);
 };
@@ -138,8 +142,8 @@ test("overview counts original words once and uses the same denominator for both
   assert.match(html, /aria-pressed="true">全部有效实测/); assert.match(html, /已获排名关键词/); assert.match(html, /2<\/strong>/);
   assert.match(html, /其中前50关键词/); assert.match(html, /其中正式目标词/);
   assert.match(html, /同词跨国、跨站只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);
-  assert.match(html, /去重关键词最佳排名（2 个词）/); assert.match(html, /原始有效实测来源（3 个站点／国家组合/);
-  assert.match(html, /数据库名次 1/); assert.match(html, /GSC均位 1/); assert.match(html, /过期SERP名次 1/);
+  assert.doesNotMatch(html, /去重关键词最佳排名|原始有效实测来源|背景证据：/);
+  assert.match(html, /aria-label="排名统计范围"[\s\S]*?查看话题与关键词[\s\S]*?已获排名关键词/);
   assert.doesNotMatch(html, /目标关键词<\/span>|当前正式目标记录 R\/N/);
   const formal = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { initialView: "formal" }));
   assert.match(formal, /aria-pressed="true">正式目标实测/); assert.match(formal, /当前正式目标记录 R\/N：1 \/ 1（100\.0%）/);
@@ -166,4 +170,21 @@ test("an unfrozen quarter never falls back to the formal inventory or labels it 
  const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
  assert.match(html,/季度1600词目标尚未完成冻结/); assert.doesNotMatch(html,/当前筛选没有季度话题/);
  readData=null;
+});
+
+test("quarter detail sends ten matching rows and preserves full stats, filters and exact deep links", () => {
+  const rows = Array.from({ length: 27 }, (_, index) => target("keyword-" + index, { keyword: "GPU rental " + index, country: index < 23 ? "US" : "JP" }));
+  const { growthQuarterPage } = require("../src/lib/growth-quarter-page.ts");
+  const workspace = data(rows);
+  const scope = { ...defaultGrowthScope, country: "US" };
+  const first = growthQuarterPage(workspace, { scope, topicId: topic.topicId, page: 1, related: false });
+  const second = growthQuarterPage(workspace, { scope, topicId: topic.topicId, page: 2, related: false });
+  const linked = growthQuarterPage(workspace, { scope, topicId: topic.topicId, page: 1, related: false, selected: "keyword-22" });
+  assert.equal(first.data.targets.length, 10);
+  assert.deepEqual(second.data.targets.map(row => row.id), rows.slice(10, 20).map(row => row.id));
+  assert.equal(second.stats.total, 23);
+  assert.equal(linked.pagination.page, 3);
+  assert.equal(linked.data.targets.length, 3);
+  assert.equal(linked.frozen, true);
+  assert.equal(growthQuarterPage(workspace, { scope, page: 1, related: false }).data.targets.length, 0);
 });

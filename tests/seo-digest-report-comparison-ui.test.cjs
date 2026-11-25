@@ -58,7 +58,7 @@ test("historical reports retain their original comparison rendering", () => {
 test("refresh stays in original work progress and is excluded from the ordinary optimization group", () => {
   const task = { id: "refresh-original", weekStart: "2026-11-23", siteDomain: "modelfit.cc", kind: "optimization", workClass: "content_refresh", title: "原文翻新任务", pageUrl: "https://modelfit.cc/blog/gguf", country: "US", language: "en", keyword: "gguf", dueAt: "2026-11-24T14:00:00+08:00", status: "verified", scheduled: true, action: "原任务观察" };
   const html = renderToStaticMarkup(React.createElement(ReportWorkPlan, { weekly: false, day: "2026-11-24", plan: { weekStart: "2026-11-23", status: "scheduled", targets: { optimizedPages: 10, contentRefreshPages: 10 }, tasks: [task] } }));
-  assert.match(html, /当日工作进度/); assert.match(html, /内容刷新/); assert.match(html, /已验收 1 \/ 1/);
-  assert.equal((html.match(/原文翻新任务/g) ?? []).length, 1);
+  assert.match(html, /当日任务/); assert.match(html, /内容刷新 1 \/ 1/); assert.match(html, /已验收 \/ 已排/);
+  assert.doesNotMatch(html, /原文翻新任务|<table/);
   assert.match(html, /rangeStart=2026-11-24/); assert.doesNotMatch(html, /rangeStart=2026-11-23/);
 });

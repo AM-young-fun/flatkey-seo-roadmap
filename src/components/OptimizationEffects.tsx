@@ -5,9 +5,10 @@ import Link from "@/components/AppLink";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, ChevronRight, RefreshCw, Search } from "lucide-react";
-import { formatCtr, formatDelta, gscDate, gscPeriodEnd, optimizationRange, optimizationTrendDays, optimizationWeekComparison, type OptimizationEffect, type OptimizedEffectPage, type OptimizedEffectVersion } from "@/lib/seo-page-effects";
+import { formatCtr, formatDelta, gscDate, gscPeriodEnd, optimizationRange, optimizationTrendDays, optimizationWeekComparison, type OptimizationEffect, type OptimizedEffectVersion } from "@/lib/seo-page-effects";
+import type { OptimizedPageRow, OptimizedPagesResponse } from "@/lib/optimized-page-list";
 import { CLUSTER_SITES } from "@/lib/seo-cluster-sites";
-import { dateInListRange, propertyToday, shiftDay } from "@/lib/seo-date-range";
+import { propertyToday, shiftDay } from "@/lib/seo-date-range";
 import type { SeoCountry } from "@/lib/seo";
 import { UiSelect } from "./UiSelect";
 import { SeoListDateControl, listDateParamKeys, useSeoListDateRange } from "./SeoDateControl";
@@ -16,6 +17,7 @@ import { analyticsUrl, numberText, shanghaiStamp, useSeoRead } from "./useSeoAna
 import styles from "./SeoWorkWorkspace.module.css";
 import effects from "./OptimizationEffects.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
+import { SeoTablePagination } from "./SeoTablePagination";
 
 
 type GaDay = { date: string; sessions: number | null; registrations: number | null };
@@ -36,11 +38,21 @@ function effectHref(country: SeoCountry, params: Pick<URLSearchParams, "get">, i
   const query = new URLSearchParams();
   if (id) query.set("publication", id);
   if (country !== "all") query.set("country", country);
-  for (const key of listDateParamKeys) {
+  for (const key of [...listDateParamKeys, "site", "q", "listPage"]) {
     const value = params.get(key);
     if (value) query.set(key, value);
   }
   return "/optimization-effects" + (query.size ? "?" + query : "");
+}
+function updateOptimizationParams(changes: Record<string, string | null>, replace = false) {
+  const query = new URLSearchParams(location.search);
+  for (const [key, value] of Object.entries(changes)) {
+    if (value) query.set(key, value);
+    else query.delete(key);
+  }
+  const url = location.pathname + (query.size ? "?" + query : "") + location.hash;
+  if (replace) history.replaceState(null, "", url);
+  else history.pushState(null, "", url);
 }
 const dateLabel = (date: string) => date.length === 10 ? date : shanghaiStamp(date);
 const isGaMetric = (metric: Metric): metric is "sessions" | "registrations" => metric === "sessions" || metric === "registrations";
@@ -107,7 +119,7 @@ function OptimizationTrend({ series, gaDays, launchDay }: { series: Optimization
   </section>;
 }
 
-function EffectComparison({ page, optimizedAt, country }: { page: OptimizedEffectPage; optimizedAt: string; country: SeoCountry }) {
+function EffectComparison({ page, optimizedAt, country }: { page: OptimizedPageRow["page"]; optimizedAt: string; country: SeoCountry }) {
   const stamp = optimizedAt.length === 10 ? optimizedAt + "T20:00:00Z" : optimizedAt;
   const timezone = CLUSTER_SITES.find(site => site.domain === page.site)?.ga4TimeZone ?? "America/Los_Angeles";
   const gaToday = propertyToday(timezone);
@@ -147,53 +159,75 @@ function EffectComparison({ page, optimizedAt, country }: { page: OptimizedEffec
   </>;
 }
 
-function PageEffectDetail({ page, version, country }: { page: OptimizedEffectPage; version: OptimizedEffectVersion; country: SeoCountry }) {
+function PageEffectDetail({ page, version, country }: { page: OptimizedPageRow["page"]; version: OptimizedEffectVersion; country: SeoCountry }) {
   return version.date ? <EffectComparison key={`${version.id}:${country}`} page={page} optimizedAt={version.date} country={country} />
     : <p className={effects.panel}>这条记录缺少优化日期，暂时无法计算前后变化。</p>;
 }
 
 export function OptimizationEffects() {
-  const result = useSeoRead<{ pages: OptimizedEffectPage[]; partial: boolean }>("/api/seo/optimized-pages");
   const params = useSearchParams();
   const time = useSeoListDateRange();
   const [country] = useSeoCountry();
-  const [site, setSite] = useState("all"), [query, setQuery] = useState("");
+  const savedSearch = (params.get("q") ?? "").slice(0, 200);
+  const [searchDraft, setSearchDraft] = useState({ from: savedSearch, value: savedSearch });
+  const query = searchDraft.from === savedSearch ? searchDraft.value : savedSearch;
+  const site = sites.some(option => option.value === params.get("site")) ? params.get("site")! : "all";
   const selected = params.get("publication");
   const selectedPage = params.get("page");
   const detail = selected || selectedPage;
-  const pages = result.data?.pages ?? [];
-  const active = selected ? pages.find(page => page.versions.some(version => version.id === selected)) : pages.find(page => page.url === selectedPage);
-  const version = selected ? active?.versions.find(item => item.id === selected) : active?.versions[0];
-  const search = query.trim().toLowerCase();
-  const filtered = pages.flatMap(page => {
-    if ((site !== "all" && page.site !== site) || ![page.title, page.url].some(value => value.toLowerCase().includes(search))) return [];
-    const version = page.versions.find(version => dateInListRange(version.date, time.range));
-    return version ? [{ page, version }] : [];
-  }).sort((a, b) => (Date.parse(b.version.date ?? "") || 0) - (Date.parse(a.version.date ?? "") || 0));
+  const listPage = params.get("listPage") ?? "";
+  const request = new URLSearchParams();
+  if (selected) request.set("publication", selected);
+  else if (selectedPage) request.set("pageUrl", selectedPage);
+  else {
+    if (/^[1-9]\d{0,8}$/.test(listPage)) request.set("page", listPage);
+    if (savedSearch.trim()) request.set("q", savedSearch.trim());
+    if (site !== "all") request.set("site", site);
+    if (time.range) {
+      request.set("start", time.range.start);
+      request.set("end", time.range.end);
+    }
+  }
+  const result = useSeoRead<OptimizedPagesResponse>(`/api/seo/optimized-pages${request.size ? "?" + request : ""}`);
+  const list = result.data?.view === "list" ? result.data : null;
+  const item = result.data?.view === "detail" ? result.data.item : null;
+  useEffect(() => {
+    if (detail || query === savedSearch) return;
+    const timer = setTimeout(() => updateOptimizationParams({ q: query, listPage: null }, true), 300);
+    return () => clearTimeout(timer);
+  }, [detail, query, savedSearch]);
+  const listDate = { ...time, apply: (...args: Parameters<typeof time.apply>) => {
+    time.apply(...args);
+    updateOptimizationParams({ listPage: null }, true);
+  } };
   return <div className={effects.workspace}>
     <div className={effects.header}><h1>优化效果</h1><div className={styles.toolbarActions}>
       {detail ? <Link className={styles.secondary} href={effectHref(country, params)}>返回优化页面列表</Link> : null}
       <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
     </div></div>
-    {result.error ? <p className={effects.panel} role="alert">{result.error}</p>
-      : !result.data ? <p className={effects.panel} role="status">正在读取已优化页面…</p> : <>
-        {result.data.partial ? <p className={effects.panel} role="status">部分优化记录暂时无法读取。</p> : null}
-        {active && version ? <PageEffectDetail page={active} version={version} country={country} /> : detail
-          ? <p className={effects.panel}>找不到这条优化记录。</p> : <section className={effects.panel} aria-labelledby="optimized-pages-title">
-            <div className={effects.listHeading}><h2 id="optimized-pages-title">已优化页面</h2><span>{filtered.length} 个页面</span></div>
+    {result.data?.partial ? <p className={effects.panel} role="status">部分优化记录暂时无法读取。</p> : null}
+    {detail ? result.error ? <p className={effects.panel} role="alert">{result.error}</p>
+      : !result.data ? <p className={effects.panel} role="status">正在读取优化详情…</p>
+      : item ? <PageEffectDetail page={item.page} version={item.version} country={country} />
+      : <p className={effects.panel}>找不到这条优化记录。</p>
+      : <section className={effects.panel} aria-labelledby="optimized-pages-title">
+            <div className={effects.listHeading}><h2 id="optimized-pages-title">已优化页面</h2>{list ? <span>{list.total} 个页面</span> : null}</div>
             <div className={effects.filters}>
-              <label className={effects.search}><Search size={17} aria-hidden="true" /><input aria-label="搜索已优化页面" placeholder="搜索页面标题或链接" value={query} onChange={event => setQuery(event.target.value)} /></label>
-              <UiSelect aria-label="优化站点" value={site} onChange={setSite} options={[{ value: "all", label: "全部站点" }, ...sites]} />
-              <SeoListDateControl value={time} />
+              <label className={effects.search}><Search size={17} aria-hidden="true" /><input aria-label="搜索已优化页面" placeholder="搜索页面标题或链接" maxLength={200} value={query} onChange={event => setSearchDraft({ from: savedSearch, value: event.target.value })} /></label>
+              <UiSelect aria-label="优化站点" value={site} onChange={value => updateOptimizationParams({ site: value === "all" ? null : value, listPage: null })} options={[{ value: "all", label: "全部站点" }, ...sites]} />
+              <SeoListDateControl value={listDate} />
             </div>
-            {filtered.length ? <ul className={effects.list}>{filtered.map(({ page, version }) => <li className={effects.row} key={page.url}>
+            {query !== savedSearch ? <p role="status">正在搜索已优化页面…</p>
+              : result.error ? <p role="alert">{result.error}</p>
+              : !list ? <p role="status">正在读取已优化页面…</p>
+              : list.rows.length ? <ul className={effects.list}>{list.rows.map(({ page, version }) => <li className={effects.row} key={page.url}>
               <div className={effects.rowPage}><strong>{page.title}</strong>
                 <SeoAnchor href={page.url} target="_blank" rel="noreferrer">{page.url} <ArrowUpRight size={12} aria-hidden="true" /></SeoAnchor></div>
               <span className={effects.site}>{siteName(page.site)}</span>
               <span className={effects.date}>{version.date ? dateLabel(version.date) : "日期待核实"}</span>
               <Link className={`${styles.secondary} ${effects.open}`} href={effectHref(country, params, version.id)} prefetch={false}>查看详情 <ChevronRight size={15} aria-hidden="true" /></Link>
-            </li>)}</ul> : <p className={effects.note}>{pages.length ? "没有匹配的页面。" : "暂无已优化页面。"}</p>}
+            </li>)}</ul> : <p className={effects.note}>{savedSearch.trim() || site !== "all" || time.range ? "没有匹配的页面。" : "暂无已优化页面。"}</p>}
+            {list && query === savedSearch ? <SeoTablePagination pagination={list} onPage={page => updateOptimizationParams({ listPage: page === 1 ? null : String(page) })} /> : null}
           </section>}
-      </>}
   </div>;
 }

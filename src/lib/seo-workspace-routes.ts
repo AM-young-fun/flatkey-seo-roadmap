@@ -24,15 +24,15 @@ export function workspaceRedirectHref(destination: string, params: WorkspaceSear
   return target.pathname + (query.size ? `?${query}` : "") + target.hash;
 }
 
-const taskFilterKeys = ["country", "taskType", "status", "q", "range", "rangeStart", "rangeEnd"] as const;
+const taskFilterKeys = ["country", "site", "business", "language", "taskType", "status", "q", "range", "rangeStart", "rangeEnd", "page"] as const;
 
-export function workTaskHref(task: { id: string; weekStart: string }, filters?: URLSearchParams) {
-  const query = new URLSearchParams({ week: task.weekStart });
+export function workTaskHref(task: { id: string; weekStart?: string }, filters?: URLSearchParams) {
+  const query = new URLSearchParams(task.weekStart ? { week: task.weekStart } : undefined);
   for (const key of taskFilterKeys) {
     const value = filters?.get(key);
     if (value) query.set(key, value);
   }
-  return `/work/${encodeURIComponent(task.id)}?${query}`;
+  return `/work/${encodeURIComponent(task.id)}` + (query.size ? `?${query}` : "");
 }
 
 export function workPlanTaskFilters(weekStart: string) {

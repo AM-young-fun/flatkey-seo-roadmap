@@ -102,6 +102,33 @@ test("operations API needs a real session; denied reads never touch the database
   session = true;
   const response = await GET(new Request("https://platform.example/api/operations"));
   assert.equal(response.status, 200); assert.match(response.headers.get("cache-control"), /private, no-store/);
+  assert.ok((await response.json()).records.length > 0);
+});
+
+test("schedule API paginates configuration and avoids querying historical execution records", async t => {
+  const { prisma } = require("../src/lib/prisma.ts");
+  for (const source of [prisma.schedulerCheck, prisma.serpMonitorRun, prisma.dataForSeoRun, prisma.weeklyTraffic, prisma.collectorRun, prisma.seoWorkflowRecord]) {
+    t.mock.method(source, "findMany", async () => assert.fail("schedule only needs configuration"));
+  }
+  t.mock.method(globalThis, "fetch", async () => assert.fail("schedule must not call providers"));
+  session = true;
+  const url = "https://platform.example/api/operations?view=schedule&page=";
+  const [first, second] = await Promise.all([1, 2].map(async page => {
+    const response = await GET(new Request(url + page));
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control"), /private, no-store/);
+    const data = await response.json();
+    assert.equal(data.executionEvidence, "available");
+    assert.equal(data.page, page);
+    assert.equal(data.records, undefined);
+    assert.equal(data.controls, undefined);
+    return data;
+  }));
+  assert.equal(first.rows.length, 10);
+  assert.equal(first.total, first.rows.length + second.rows.length);
+  assert.equal(second.rows.find(row => row.id === "rankings").configurationState, "paused");
+  assert.equal((await GET(new Request(url + "0"))).status, 400);
+  assert.equal((await GET(new Request(url + "1&page=2"))).status, 400);
 });
 
 test("the rescheduled DataForSEO metadata displays 16:00 while a paused schedule remains unconfigured", async t => {

@@ -11,6 +11,15 @@
 .tabs button { display:inline-flex; gap:9px; align-items:center; font:inherit; border:1px solid #dfe6ef; border-radius:7px; color:#617189; background:#fff; padding:10px 16px; cursor:pointer; }
 .tabs button[aria-pressed=true] { background:#edf4ff; border-color:#9ebff1; color:#1d5cc2; font-weight:600; }
 .tabs span { font-size:11px; font-weight:500; color:inherit; border-radius:12px; background:#edf0f5; padding:2px 7px; }
+.rankingHeading { align-items:flex-start; margin-bottom:18px; }
+.rankingHeading > div:first-child { flex:1 1 315px; }
+.rankingActions { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
+.rankingActions > a { display:inline-flex; align-items:center; gap:4px; min-height:34px; white-space:nowrap; }
+.rankingSegments { display:inline-flex; gap:2px; padding:3px; border:1px solid #e5eaf2; border-radius:8px; background:#f5f7fb; }
+.rankingSegments button { min-height:28px; padding:4px 9px; border:0; border-radius:5px; background:transparent; color:#526078; cursor:pointer; font:inherit; font-size:12px; white-space:nowrap; }
+.rankingSegments button:hover { background:#eaf0f8; }
+.rankingSegments button[aria-pressed=true] { background:#fff; color:#255bb2; font-weight:600; box-shadow:0 1px 3px #2034511a; }
+.rankingSegments button:focus-visible { outline:2px solid #5288ce; outline-offset:1px; }
 .filters { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
 .filters label { display:grid; gap:7px; color:#627189; font-size:12px; min-width:135px; }
 .filters :global(.uiSelect) { width:100%; min-width:145px; }

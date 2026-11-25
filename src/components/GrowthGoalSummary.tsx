@@ -6,12 +6,10 @@ import type { GrowthTarget } from "@/lib/growth-types";
 import styles from "./GrowthGoalSummary.module.css";
 import { FeedbackButton } from "./FeedbackButton";
 import { GrowthProgressViews } from "./GrowthProgressViews";
-import { growthObservationComparisonText } from "@/lib/growth-observation-display";
-import { OverviewGrowthCharts } from "./OverviewGrowthCharts";
 import { SeoAnchor } from "@/components/SeoAnchor";
 import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
 import { QuarterMembershipReview } from "./QuarterMembershipReview";
-import { dailyTrafficComparisonText } from "@/lib/growth-goal-display";
+import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
 
 
 export function GrowthReportSummary({ snapshot }: { snapshot: GrowthReportSnapshot }) {
@@ -24,18 +22,23 @@ export function GrowthReportSummary({ snapshot }: { snapshot: GrowthReportSnapsh
       <div><span>已有排名中前 50 / 80%</span><strong>{g.quality === null ? "待有效排名" : `${(g.quality * 100).toFixed(1)}%`}</strong><small>{g.quality === null ? "暂无可计算的本轮实测" : `${g.top50Count} / ${g.rankedCount} 词，还差 ${g.qualityGap} 词`}</small></div>
     </div>
     <GrowthProgressViews cohorts={g.cohorts} />
-    <p className={styles.note}>{g.evaluationMode === "final" ? "季末固定流量窗口" : "流量窗口"} {g.trafficPeriod?.start ?? snapshot.period.start} — {g.trafficPeriod?.end ?? snapshot.period.end}（洛杉矶）。{g.latestRankAt ? `最新有效排名采样 ${g.latestRankAt}。` : "尚无本轮有效排名采样。"}{g.rankingComplete ? "" : g.trafficScope ? "排名证据覆盖未齐；待核项留N、不计R，按已证实比例核算。" : "排名尚未完成全量可比核验，暂不判定达标。"}</p>
-    {g.dailyTrafficObservation ? <p className={styles.note}>{dailyTrafficComparisonText(g)}</p> : null}
     {g.evaluationMode === "final" ? <p className={styles.note}>季末验收：{g.finalAcceptance.status === "achieved" ? "已达标" : g.finalAcceptance.status === "not_achieved" ? "未达标" : "截止前证据待补"}。{g.finalAcceptance.reason}最近滚动周 {g.rolling.period.start} — {g.rolling.period.end} 会话 {g.rolling.weeklySessions === null ? "数据未齐" : g.rolling.weeklySessions.toLocaleString()}，另作日常观察。</p> : null}
     {!g.trafficComplete ? <details><summary>{g.trafficScope ? "查看 Flatkey 来源" : "查看四站来源（历史口径）"}</summary><ul>{g.traffic.map(row => <li key={row.site}>{row.site}：{row.complete && row.sessions !== null ? `${row.sessions.toLocaleString()} 次` : row.reason}（{row.timezone}）</li>)}</ul></details> : null}
-    {typeof g.identityPendingCount === "number" ? <p className={styles.note}>稳定季度清单 N={g.baselineCount}；身份已核 {g.identityCompleteCount}，待核 {g.identityPendingCount}。身份待核项保留 N，不计有效排名 R；身份补充不改变原成员或分母；复用原采样日期，补计不代表新获排名。</p> : null}
     {snapshot.directions.length ? <div className={styles.directions}><h4>流量归因与方向决定</h4>{snapshot.directions.slice(0, 3).map(direction => <article key={direction.id}>
-      <h4>{direction.title}</h4><p>{direction.recommendation} · {direction.decision}</p>
-      {direction.kind === "decision" && !direction.drivers.length ? <p className={styles.note}>本期尚无可比流量归因；此卡保留机会与范围决定，不作为涨跌事实。</p> : null}
-      {direction.drivers.map((driver, index) => <p key={driver.url + index}><SeoAnchor href={driver.url} target="_blank" rel="noreferrer">{driver.title}</SeoAnchor> · {driver.country}/{driver.language} · {driver.source} {driver.metric}：{driver.previous} → {driver.current}（{driver.current - driver.previous > 0 ? "+" : ""}{driver.current - driver.previous}）<br />{driver.explanation} {driver.limitation}<br />下一步：{driver.nextAction}</p>)}
-      <p className={styles.note}>原任务：{direction.taskIds.length ? direction.taskIds.map(id => <SeoAnchor key={id} href={`/work/${encodeURIComponent(id)}`}>{id} </SeoAnchor>) : "先完成研究/观察，不自动扩大制作范围"}</p>
+      <h4>{direction.title}</h4>
+      {!direction.drivers.length ? <p className={styles.note}>{direction.recommendation} · {direction.decision}</p> : <ul className={styles.driverList}>
+        {direction.drivers.map((driver, index) => {
+          const delta = driver.current - driver.previous;
+          const natural = driver.explanation.startsWith("自然变化");
+          return <li key={driver.url + index}>
+            <div><SeoAnchor href={driver.url} target="_blank" rel="noreferrer">{driver.title}</SeoAnchor><small>{driver.country === "ALL" ? "全部市场" : driver.country} · {driver.language} · {growthContributionMetricNames[driver.metric]}</small></div>
+            <strong data-change={delta > 0 ? "up" : delta < 0 ? "down" : undefined}>{driver.previous.toLocaleString()} → {driver.current.toLocaleString()}（{delta > 0 ? "+" : ""}{delta.toLocaleString()}）</strong>
+            <p>{natural ? "自然变化" : driver.explanation}{!natural && driver.nextAction ? ` · ${driver.nextAction}` : ""}</p>
+          </li>;
+        })}
+      </ul>}
+      {direction.taskIds.length ? <div className={styles.taskLinks}>{direction.taskIds.map((id, index) => <SeoAnchor key={id} href={`/work/${encodeURIComponent(id)}`}>{direction.taskIds.length === 1 ? "查看关联任务" : `关联任务 ${index + 1}`}</SeoAnchor>)}</div> : null}
     </article>)}</div> : <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p>}
-    {snapshot.observations.length ? <details><summary>原任务 7 / 14 / 28 天效果复查（{snapshot.observations.length}）</summary><ul>{snapshot.observations.map(row => <li key={row.id}><SeoAnchor href={row.pageUrl} target="_blank" rel="noreferrer">{row.taskId}</SeoAnchor> · {row.checkpoint}天 · 收录{row.coverage?.indexing === "verified" ? "已核验" : "待补"} / 排名{row.coverage?.ranking === "verified" ? "已核验" : "待补"} / 流量{row.coverage?.traffic === "verified" ? "已核验" : "待补"} · {growthObservationComparisonText(row.comparison, row.checkpoint)} {row.conclusion}；{row.nextAction}</li>)}</ul></details> : null}
   </section>;
 }
 
@@ -43,9 +46,14 @@ type StrategyView = { state: GrowthStrategy; snapshot: GrowthReportSnapshot; sou
 /** Uses authenticated strategy records; rendering this component never approves a direction or freezes the cohort. */
 export function GrowthQuarterReview() {
   const [view, setView] = useState<StrategyView | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
   const [identityChoices, setIdentityChoices] = useState<Record<string, GrowthCountry | "">>({});
-  const load = useCallback(async () => { try { const response = await fetch("/api/seo/growth/strategy", { cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "目标读取失败"); setView(data); setError(""); } catch (error) { setError(error instanceof Error ? error.message : "目标读取失败"); } }, []);
-  useEffect(() => { void load(); }, [load]);
+  const load = useCallback(async () => { setReading(true); try { const response = await fetch("/api/seo/growth/strategy", { cache: "no-store", signal: AbortSignal.timeout(60_000) }); const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "目标读取失败"); setView(data); setError(""); } catch (error) { setError(error instanceof Error ? error.message : "目标读取失败"); } finally { setReading(false); } }, []);
+  useEffect(() => {
+    const openFromHash = () => { if (window.location.hash.startsWith("#growth-direction-")) void load(); };
+    openFromHash(); window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, [load]);
   useEffect(() => {
     const reveal = () => {
       let id: string; try { id = decodeURIComponent(window.location.hash.slice(1)); } catch { return; }
@@ -62,7 +70,10 @@ export function GrowthQuarterReview() {
     try { const response = await fetch("/api/seo/growth/strategy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...command, requestId: `human-${crypto.randomUUID()}`, expectedVersion: view.state.version }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "保存失败"); await load(); dispatchEvent(new Event("seo-growth-updated")); }
     catch (error) { setError(error instanceof Error ? error.message : "保存失败"); } finally { setBusy(false); }
   };
-  if (!view) return <section className={styles.panel}><h3>2026 收官季</h3><p role={error ? "alert" : "status"}>{error || "正在读取真实目标和完整周来源…"}</p></section>;
+  if (!view) return <section className={styles.panel}>
+    <FeedbackButton pending={reading} pendingLabel="正在加载审核数据…" onClick={() => void load()}>查看季度审核与方向决定</FeedbackButton>
+    {error ? <p role="alert">{error}</p> : null}
+  </section>;
   const quarterIds = view.state.baseline ? new Set(view.state.baseline.targets.map(row => row.id)) : null;
   const formalTargets = view.formalTargets.filter(row => ["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(row.site) && (!quarterIds || quarterIds.has(row.id)));
   const recentDirections = [...view.state.directions].sort((a, b) => Number(Boolean(a.decision)) - Number(Boolean(b.decision)) || b.updatedAt.localeCompare(a.updatedAt));
@@ -84,6 +95,3 @@ export function GrowthQuarterReview() {
     </details></section>
   </div>;
 }
-
-/** Overview is read-only charting; human approvals live with the keyword workspaces. */
-export function GrowthGoalSummary() { return <OverviewGrowthCharts />; }

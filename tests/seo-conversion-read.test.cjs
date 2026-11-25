@@ -5,7 +5,7 @@ Module._load=function(name,parent,...args){
   if(name==='@/lib/seo-analytics-access')return{authorizeAnalyticsRead:async()=>session};
   if(name==='@/lib/services/ranking-coverage-access')return{authorizeSavedRankingCoverage:async request=>savedRead&&!request.headers.has('origin')};
   if(name==='@/lib/env')return{isDatabaseConfigured:()=>configured};
-  if(name==='@/lib/prisma')return{prisma:{seoReportVersion:{findMany:async q=>{calls++;lastQuery=q;if(failure)throw Error('injected');return rows;}}}};
+  if(name==='@/lib/prisma')return{prisma:{seoReportVersion:{findMany:async q=>{calls++;if(q.where.kind!=='SEO_REGISTRATION_PERIOD')lastQuery=q;if(failure)throw Error('injected');return rows;}}}};
   if(name.startsWith('@/'))return original.call(this,path.resolve(__dirname,'../src',name.slice(2))+'.ts',parent,...args);
   return original.call(this,name,parent,...args);
 };
@@ -23,6 +23,7 @@ test('saved read filters exact window/site and source payload remains private; l
   assert.equal(lastQuery.where.siteDomain,'flatkey.ai');assert.equal(lastQuery.where.periodStart.toISOString(),'2026-10-01T00:00:00.000Z');
   assert.deepEqual(lastQuery.where.kind.in,['SEO_CONVERSION_EVIDENCE','GA4_BUSINESS']);
   assert.equal(body.api.firstPayment30d.rate.value,null);assert.equal(body.api.registration.firstRegistrations.value,null);
+  assert.equal(body.ga4OrganicRegistrants,null);
   assert.match(body.readiness.reasons.join('；'),/全历史收款/);assert.doesNotMatch(JSON.stringify(body),/must-not-leak|999/);
 });
 test('invalid scopes and unknown params are rejected before reads, and source outage is not reported as zero',async()=>{

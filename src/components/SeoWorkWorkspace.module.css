@@ -1,6 +1,8 @@
 .filters { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
 .filters :global(.uiSelect) { min-width:128px; }
 .toolbarActions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; margin-top:14px; }
+.pagination button:disabled { opacity:.5; cursor:not-allowed; }
 .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 16px; }
 .summary > div { display:grid; align-content:start; gap:8px; min-width:0; padding:14px 16px; border:1px solid #e5e9f0; border-radius:8px; background:#fff; }
 .summary span,.summary a { color:#64748b; font-size:12px; }

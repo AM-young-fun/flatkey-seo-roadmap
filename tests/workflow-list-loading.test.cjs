@@ -4,7 +4,7 @@ const root = path.resolve(__dirname, ".."), resolve = Module._resolveFilename, l
 Module._resolveFilename = function (name, parent, ...rest) { return resolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, parent, ...rest); };
 Module._load = function (name, ...rest) { if (name === "server-only") return {}; return load.call(this, name, ...rest); };
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
-const { workflowWorkList } = require("../src/lib/seo-workflow-list.ts");
+const { parseWorkflowWorkPageQuery, workflowWorkList, workflowWorkPage } = require("../src/lib/seo-workflow-list.ts");
 const baseline = require("./fixtures/workflow-list-reference.ts");
 const { workTaskHref } = require("../src/lib/seo-workspace-routes.ts");
 const { workflowSnapshot } = require("../src/lib/seo-workflow-state.ts");
@@ -87,6 +87,23 @@ test("multilingual pending reviews, missing materials, superseded/rejected versi
   rows.push(record("approval", { ...approval({ id: "replacement", status: "approved", supersedesApprovalIds: [review.id] }), decisions: [{ itemIds: ["item-main"], decision: "approved" }] }));
   snapshot = list(rows); dto = workflowWorkList(snapshot); equalDisplay(snapshot, dto);
   assert.equal(dto.tasks.find(row => row.id === en.id).displayStatus, "completed");
+});
+
+test("paginated work list groups a multilingual review once across pages and searches its title", () => {
+  const en = task(), ja = task({ id: "task-ja", pageUrl: "https://flatkey.ai/ja/models/test", country: "JP", language: "ja" });
+  const review = approval();
+  review.items.push({ ...review.items[0], id: "item-ja", taskId: ja.id, pageUrl: ja.pageUrl, language: "ja" });
+  const other = Array.from({ length: 12 }, (_, index) => record("task", task({ id: `separate-${index}`, title: "另一个任务", contentVersion: null, status: "planned" })));
+  const snapshot = list([record("task", en), record("task", ja), record("approval", review), ...other]);
+  const page = query => workflowWorkPage(snapshot, parseWorkflowWorkPageQuery(new URLSearchParams(query)));
+  const first = page("page=1&range=all"), second = page("page=2&range=all");
+  assert.equal(first.pagination.total, 13);
+  assert.deepEqual([first.tasks.length, second.tasks.length], [10, 3]);
+  assert.equal([...first.tasks, ...second.tasks].filter(row => row.review).length, 1);
+  const matching = page("page=1&range=all&q=待审页面&status=review&country=JP&language=ja&business=API&taskType=landing-update");
+  assert.deepEqual(matching.tasks.map(row => row.id), [ja.id]);
+  assert.deepEqual(matching.tasks[0].review.languages, ["en", "ja"]);
+  assert.equal(page("page=1&range=custom&rangeStart=2026-11-24&rangeEnd=2026-11-24").pagination.total, 0);
 });
 
 test("list/full service reads use the original simple select and preserve canonical details", async t => {
