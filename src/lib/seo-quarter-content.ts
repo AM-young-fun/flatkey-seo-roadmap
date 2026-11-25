@@ -1,10 +1,11 @@
+import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { growthResolvedIdentity, type GrowthStrategy } from "./growth-strategy";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowPublication, type WorkflowTask } from "./seo-workflow";
 import type { WorkflowStoredRow } from "./seo-workflow-state";
 import { QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
 
 const word = (value: string | null) => (value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
-const content = (task: WorkflowTask) => ["blog", "landing", "cluster"].includes(task.kind) && task.capacityClass !== "authorized_hotspot_extra";
+const content = (task: WorkflowTask) => ["blog", "landing", "cluster"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
 const execution = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
 export function quarterContentMutationTasks(kind: string, record: { id: string }, all: WorkflowStoredRow[]): WorkflowTask[] {
   if (kind === "task") { const task = record as WorkflowTask; return execution.has(task.status) && content(task) ? [task] : []; }

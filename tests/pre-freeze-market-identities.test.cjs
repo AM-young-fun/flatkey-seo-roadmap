@@ -218,3 +218,19 @@ test('null identity first-freeze closes only after source apply and explicit sta
   const approved = mutate(freshDraft, { action: 'approve_quarter_plan', hash: freshDraft.quarterPlanning.hash, sourceVersion: growthWorkspaceIdentity(after), reason: 'Separate human approval of refreshed complete current quarter plan' }, after);
   assert.equal(approved.baseline.targets.length, 1600); assert.equal(old.baseline, null); assert.deepEqual(db.quarter, originalQuarter);
 });
+
+test('new quarter identity admits real Ahrefs evidence under the old frozen cohort and preserves it', async () => {
+  db.members = db.members.slice(0, 1000);
+  db.quarter.status = 'frozen';
+  db.quarter.payload.baseline = { frozenAt: now.toISOString(), targets: Array.from({ length: 1600 }, (_, i) => ({ keyword: 'old term ' + i })) };
+  const value = review();
+  value.selection.version = 'quarter-membership-v2';
+  value.selectionHash = hash(value.selection);
+  await assert.rejects(prepare(value), { code: 'ahrefs_exact_source_required' });
+  value.assignments[0].demand.reference = 'https://app.ahrefs.com/keywords-explorer/list/new/test/google/us/ideas/matchingTerms';
+  const { command } = await prepare(value), old = copy(db.quarter);
+  const saved = await savePreFreezeIdentities(command, 'human', now);
+  assert.equal(saved.currentStateVerified, true);
+  assert.deepEqual(db.quarter, old);
+  assert.equal(saved.receipt.createdSourceRows, 2);
+});

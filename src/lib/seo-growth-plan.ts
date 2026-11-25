@@ -1,3 +1,4 @@
+import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { GROWTH_EXECUTION_SITES, GROWTH_LANGUAGES } from "./seo-growth-markets";
 import { workWeekDateRange, shiftDay } from "./seo-date-range";
 import { isSeoWorkday } from "./seo-workday";
@@ -39,7 +40,7 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
     if (original && !original.deletedAt && !plan.taskIds.includes(id)) fail("growth_plan_preserve_tasks", "原已排任务不能因降级草稿而丢失，保留原ID与排期");
   }
   if (!isExecutableWorkflowPlan(plan.status)) return;
-  const addsRoutineWork = plan.taskIds.some(id => !previous?.taskIds.includes(id) && lookup.get(id)?.capacityClass !== "authorized_hotspot_extra");
+  const addsRoutineWork = plan.taskIds.some(id => !previous?.taskIds.includes(id) && !isSeoExtraCapacity(lookup.get(id)?.capacityClass));
   if (range.start >= "2026-11-27" && !plan.strategyAllocation && !(previous && isExecutableWorkflowPlan(previous.status) && !addsRoutineWork)) fail("quarter_allocation_required", "新增常规工作须落实已审业务投入及本地研究预算；已授权热点沿原计划额外追加，不挤占原名额");
   if (previous?.strategyAllocation && !plan.strategyAllocation) fail("quarter_allocation_immutable", "保留原季度方案与投入回执");
   // Other plans can still use their original Monday keys. Count their task IDs once.
@@ -47,7 +48,7 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   for (const row of all) if (row.kind === "plan" && row.record.id !== plan.id && (isExecutableWorkflowPlan(row.record.status) || (row.record as WorkflowPlan).committedTaskIds !== undefined)) {
     for (const id of (row.record as WorkflowPlan).taskIds) { const task = lookup.get(id); if (task && day(task) >= range.start && day(task) <= range.end) selected.add(id); }
   }
-  const routine = [...selected].map(id => lookup.get(id)).filter((task): task is WorkflowTask => Boolean(task && !task.deletedAt && task.capacityClass !== "authorized_hotspot_extra"));
+  const routine = [...selected].map(id => lookup.get(id)).filter((task): task is WorkflowTask => Boolean(task && !task.deletedAt && !isSeoExtraCapacity(task.capacityClass)));
   const allocation = plan.strategyAllocation;
   const currentLanguagePolicy = range.start >= ROUTINE_LANGUAGE_START;
   const committedIds = new Set(all.flatMap(row => {
@@ -58,7 +59,7 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   const addedKeywordWork = tasks.some(task => task && isRoutineKeywordTask(task) && !committedIds.has(task.id));
   if (allocation) {
     if (all.some(row => row.kind === "plan" && row.record.id !== plan.id && (isExecutableWorkflowPlan(row.record.status) || (row.record as WorkflowPlan).committedTaskIds !== undefined) && (row.record as WorkflowPlan).strategyAllocation && "executionRange" in (row.record as WorkflowPlan).targets && JSON.stringify(((row.record as WorkflowPlan).targets as { executionRange: typeof range }).executionRange) === JSON.stringify(range))) fail("allocation_business_week_duplicate", "同业务周已有投入计划，沿原ID修订，不能跨Monday桶重复分配预算");
-    const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && task.capacityClass !== "authorized_hotspot_extra";
+    const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
     const original = new Set<string>();
     const classified = new Map<string, { bucket: DeliveryBucket; workstreamId: string }>();
     for (const row of all) if (row.kind === "plan" && (isExecutableWorkflowPlan(row.record.status) || (row.record as WorkflowPlan).committedTaskIds !== undefined)) {
@@ -151,7 +152,7 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
     if (count + gap < 1) fail("growth_plan_modelfit_gap", `ModelFit ${date} US/en源文须有原任务或逐日真实缺口`);
   }
   const gaps = (category: string) => plan.gaps.filter(gap => gap.category === category).reduce((sum, gap) => sum + gap.count, 0);
-  const own = tasks.filter((task): task is WorkflowTask => Boolean(task && task.capacityClass !== "authorized_hotspot_extra"));
+  const own = tasks.filter((task): task is WorkflowTask => Boolean(task && !isSeoExtraCapacity(task.capacityClass)));
   for (const [category, count, target] of [
     ["apiBlogs", own.filter(task => task.siteDomain === "flatkey.ai" && task.kind === "blog" && task.business === "API").length, targets.apiBlogs],
     ["gpuBlogs", own.filter(task => task.siteDomain === "flatkey.ai" && task.kind === "blog" && task.business === "GPU").length, targets.gpuBlogs],

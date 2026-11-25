@@ -22,6 +22,7 @@ const tx = {
 const prisma = { $transaction: async action => { const oldRows = copy(state.rows), oldAudits = new Map(state.audits); try { return await action(tx); } catch (error) { state.rows = oldRows; state.audits = oldAudits; throw error; } } };
 Module._load = function (name, parent, ...args) {
   if (name === 'server-only') return {};
+  if (name === './growth-strategy' && parent?.filename.endsWith('/services/quarter-membership.ts')) return { readGrowthStrategy: async () => state.strategy };
   if (name === '@/lib/prisma') return { prisma };
   if (name === 'next/headers') return { cookies: async () => ({ get: () => ({ value: 'test-cookie' }) }) };
   if (name === '@/lib/auth') return { AUTH_COOKIE_NAME: 'auth', isAuthEnabled: () => true, isValidAuthToken: async () => session };
@@ -129,4 +130,42 @@ test('pre-freeze identity actions use the same real human origin gate and expose
   assert.equal((await GET(new Request(url + '?membershipRequestId=human-original'))).status, 200); assert.equal(routeReads, 3);
   assert.equal((await GET(new Request(url + '?membershipRequestId=human-original', { headers: { authorization: 'Bearer collector' } }))).status, 403); assert.equal(routeReads, 3);
   assert.equal(writes.length, 0);
+});
+
+test('a new 1000-word membership uses separate proof and leaves the frozen 1600 unchanged', async () => {
+  const old = selection(), legacy = { frozenAt: '2026-11-24T10:00:00Z', targets: old.members.map(row => ({ keyword: row.keyword })) };
+  const sel = { ...old, version: 'quarter-membership-v2', members: old.members.slice(0, 1000).map(row => ({ ...row, keyword: 'new ' + row.keyword })) };
+  state.rows = rows(sel);
+  state.strategy = { baseline: legacy };
+  assert.equal(quarterMembershipSelectionSchema.safeParse(sel).success, true);
+  assert.equal(quarterMembershipSelectionSchema.safeParse({ ...sel, members: sel.members.slice(1) }).success, false);
+  assert.equal(quarterMembershipSelectionSchema.safeParse({ ...sel, members: [...sel.members, { ...sel.members[0], siteDomain: 'modelfit.cc' }] }).success, false);
+  const requestId = 'new-exact-1000';
+  const preview = await saveQuarterMembership({ action: 'preview', requestId, selection: sel });
+  assert.equal(preview.uniqueWords, 1000);
+  await saveQuarterMembership({ action: 'apply', requestId, selection: preview.manifest, selectionHash: preview.selectionHash, expectedStateHash: preview.stateHash });
+  assert.equal(state.audits.values().next().value.status, 'QUARTER_NEW_WORD_MEMBERSHIP_APPLIED');
+  assert.equal((await loadQuarterMembershipReceipt(requestId)).uniqueWords, 1000);
+  assert.deepEqual(state.strategy.baseline, legacy);
+  const reuse = { ...sel, members: [old.members[0], ...sel.members.slice(1)] };
+  await assert.rejects(saveQuarterMembership({ action: 'preview', requestId: 'reuse-old', selection: reuse }), { code: 'new_quarter_reuses_old_word' });
+});
+
+test('the Ahrefs staging contract binds the original exported CSV row, market, language, and local demand', () => {
+  const { quarterWordResearchProblem, quarterWordResearchSchema } = require('../src/lib/quarter-word-research.ts');
+  const row = {
+    siteDomain: 'flatkey.ai', topicId: topic.id, keyword: '大模型微调', country: 'SG', language: 'zh-CN', volume: 50,
+    sourceUrl: 'https://app.ahrefs.com/keywords-explorer/list/new/example/google/sg/ideas/matchingTerms',
+    sourceFile: 'google_sg_example.csv', sourceSha256: 'a'.repeat(64), sourceRow: 56, observedAt: '2026-11-25T14:55:16+08:00',
+    excerpt: '#,Keyword,Country,Volume,Languages\n56,大模型微调,sg,50,Chinese',
+  };
+  const time = new Date('2026-11-25T12:00:00Z');
+  assert.equal(quarterWordResearchSchema.safeParse({ action: 'stage_new_words', requestId: 'exact', rows: [row] }).success, true);
+  assert.equal(quarterWordResearchProblem(row, time), null);
+  for (const patch of [{ language: 'en' }, { sourceRow: 55 }, { volume: 55 }, { keyword: '微调大模型' },
+    { excerpt: row.excerpt + '\n57,另一词,sg,100,Chinese' },
+    { sourceUrl: row.sourceUrl.replace('app.ahrefs.com', 'ahrefs.example') },
+    { sourceUrl: row.sourceUrl.replace('/google/sg/', '/google/us/') }]) {
+    assert.ok(quarterWordResearchProblem({ ...row, ...patch }, time));
+  }
 });

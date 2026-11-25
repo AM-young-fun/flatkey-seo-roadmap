@@ -8,7 +8,43 @@ import styles from "./GrowthGoalSummary.module.css";
 
 const storageKey = "seo-quarter-membership:2026-close";
 type Pending = { command: MembershipApply; original: MembershipPreview };
-export function QuarterMembershipReview({ onChanged }: { onChanged: () => Promise<void> }) {
+export function QuarterResearchImport({ onChanged }: { onChanged: () => void | Promise<void> }) {
+  const [batch, setBatch] = useState<{ action: "stage_new_words"; requestId: string; rows: unknown[] } | null>(null);
+  const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  async function readBatch(file?: File) {
+    if (!file) return;
+    setBatch(null);
+    setMessage("");
+    try {
+      if (file.size > 1_900_000) throw Error("研究候选文件须小于1.9MB");
+      const value = JSON.parse(await file.text());
+      if (value?.action !== "stage_new_words" || typeof value.requestId !== "string" || !Array.isArray(value.rows) || !value.rows.length || value.rows.length > 150) throw Error("请选择带原请求编号及 Ahrefs 原始行的研究候选文件");
+      setBatch(value);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "无法读取研究候选文件"); }
+  }
+  async function saveBatch() {
+    if (!batch || busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch(identityApi, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(batch), signal: AbortSignal.timeout(65_000) });
+      const result = await response.json();
+      if (!response.ok || result.status !== "STAGED" || !Array.isArray(result.receipt) || result.receipt.length !== batch.rows.length) throw Error(result.message ?? "未读回完整的原批次");
+      setMessage(`已读回 ${result.receipt.length} 个研究词 · ${result.auditId}`);
+      setBatch(null);
+      await onChanged();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "保留原文件和请求编号后重试"); }
+    finally { setBusy(false); }
+  }
+  return <details><summary>导入 Ahrefs 季度研究候选</summary>
+    <label>候选文件 <input aria-label="Ahrefs 季度候选文件" type="file" accept="application/json,.json" disabled={busy} onChange={event => void readBatch(event.target.files?.[0])} /></label>
+    {batch ? <p>{batch.rows.length} 个候选 · {batch.requestId}</p> : null}
+    <FeedbackButton pending={busy} disabled={!batch || busy} onClick={() => void saveBatch()}>保存研究候选</FeedbackButton>
+    {message ? <p role="status">{message}</p> : null}
+  </details>;
+}
+
+export function QuarterMembershipReview({ onChanged, newQuarterOnly = false }: { onChanged: () => Promise<void>; newQuarterOnly?: boolean }) {
   const [selection, setSelection] = useState<QuarterMembershipSelection | null>(null), [preview, setPreview] = useState<MembershipPreview | null>(null);
   const [pending, setPending] = useState<Pending | null>(null), [receipt, setReceipt] = useState<MembershipReceipt | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -21,8 +57,9 @@ export function QuarterMembershipReview({ onChanged }: { onChanged: () => Promis
   const load = (file?: File) => run(async () => {
     if (!file || pending) return; if (file.size > 1_900_000) throw Error("完整成员审核包须小于1.9MB");
     const raw = JSON.parse(await file.text()), value = raw.review?.selection ?? raw.selection ?? raw;
-    if (value?.version !== "quarter-membership-v1" || typeof value.sourceHash !== "string" || !Array.isArray(value.members)
-      || value.members.some((row: QuarterMembershipSelection["members"][number]) => !row || [row.siteDomain, row.keywordId, row.keyword, row.topicId].some(field => typeof field !== "string"))) throw Error("请选择原quarter-membership完整1600名单，或包含同一selection的身份审核包");
+    if (!["quarter-membership-v1", "quarter-membership-v2"].includes(value?.version) || typeof value.sourceHash !== "string" || !Array.isArray(value.members)
+      || value.members.some((row: QuarterMembershipSelection["members"][number]) => !row || [row.siteDomain, row.keywordId, row.keyword, row.topicId].some(field => typeof field !== "string"))) throw Error("请选择完整季度成员名单，或包含同一名单的身份核验文件");
+    if (newQuarterOnly && value.version !== "quarter-membership-v2") throw Error("请选择新季度的完整1000词成员名单");
     setSelection(value); setPreview(null); setReceipt(null); requestId.current = "human-membership:" + crypto.randomUUID();
   });
   const readPreview = () => run(async () => {
@@ -40,14 +77,14 @@ export function QuarterMembershipReview({ onChanged }: { onChanged: () => Promis
       setPending(null); if (result.status === "verified") await onChanged(); else { setPreview(null); setError(result.error); }
     } else setError(result.error);
   });
-  return <details><summary>核定同一1600原词的正式成员与已审话题</summary>
+  return <details><summary>核定季度正式成员与原话题</summary>
     <p>先沿原接口核定完整名单：只将所选真实RESEARCH成员纳入FORMAL，保留原词ID、主父、已有边、市场、任务和未入选历史词；不会自动补市场、批准季度或冻结。随后再完成下方身份审核与待审方案。</p>
-    <label>原1600成员清单 <input type="file" aria-label="季度正式成员审核包" accept="application/json,.json" disabled={busy || Boolean(pending)} onChange={event => void load(event.target.files?.[0])} /></label>
+    <label>季度成员清单 <input type="file" aria-label="季度正式成员审核包" accept="application/json,.json" disabled={busy || Boolean(pending)} onChange={event => void load(event.target.files?.[0])} /></label>
     {selection ? <><p>原清单SHA：{selection.sourceHash}；来源：{selection.sourceReference}；成员记录 {selection.members.length} 条。</p>
       <details><summary>查看全部原词与已审话题</summary><div className={styles.scroll}><table><thead><tr><th>站点</th><th>原词 / 原ID</th><th>已审TopicMap话题ID</th></tr></thead><tbody>{selection.members.map(row => <tr key={`${row.siteDomain}:${row.keywordId}`}><td>{row.siteDomain}</td><td>{row.keyword}<small>{row.keywordId}</small></td><td>{row.topicId}</td></tr>)}</tbody></table></div></details>
       {preview ? <p>真实预览：{preview.uniqueWords}个唯一原词，{preview.membershipCount}条站点成员；待纳入FORMAL {preview.changed}条，其余原样复用。名单哈希：{preview.selectionHash}</p> : null}
       <div className={styles.actions}><FeedbackButton pending={busy} disabled={Boolean(pending) || Boolean(receipt)} onClick={() => void readPreview()}>读取正式成员预览</FeedbackButton>
-        <FeedbackButton pending={busy} disabled={!preview || Boolean(pending) || Boolean(receipt)} onClick={() => void apply()}>确认此1600名单的正式成员</FeedbackButton>
+        <FeedbackButton pending={busy} disabled={!preview || Boolean(pending) || Boolean(receipt)} onClick={() => void apply()}>{selection.version === "quarter-membership-v2" ? "确认此1000名单的正式成员" : "确认此1600名单的正式成员"}</FeedbackButton>
         {pending ? <FeedbackButton pending={busy} onClick={() => void apply(true)}>核对原成员请求回执</FeedbackButton> : null}</div></> : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
     {receipt?.readbackVerified ? <p role="status">原成员审计及当前成员完整读回一致；本次纳入 {receipt.changed} 条，原季度分母尚未冻结。</p> : null}

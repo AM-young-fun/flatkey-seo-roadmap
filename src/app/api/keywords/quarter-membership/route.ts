@@ -36,5 +36,11 @@ export async function POST(request: Request) {
       if (result.status === "IDENTITIES_APPLIED" && !result.replay) await displayDataChanged();
       return Response.json(result, { headers });
     }
+    if (input && typeof input === "object" && "action" in input && input.action === "stage_new_words") {
+      const { stageQuarterWordResearch } = await import("@/lib/services/quarter-word-research");
+      const result = await stageQuarterWordResearch(input);
+      if (!result.replay) await displayDataChanged();
+      return Response.json(result, { headers });
+    }
     const result = await saveQuarterMembership(input); if (result.status === "APPLIED" && "replay" in result && !result.replay) await displayDataChanged(); return Response.json(result, { headers }); } catch (error) { return failure(error); }
 }

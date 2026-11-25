@@ -28,6 +28,7 @@ export const growthDirectionSchema = z.object({
   competitiveGap: text, ownAdvantage: text, proposedAction: text, investment: text, expiresAt: stamp,
   scope: z.array(scopeSchema).min(1).max(20), evidence, drivers: z.array(driverSchema).max(10),
   taskIds: z.array(id).max(100), experimentId: id,
+  weeklyGrowth: z.object({ reportId: id, reportHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional(),
   experiment: z.object({ baseline: text, comparison: text, primaryMetric: text, businessGuardrail: text, successCondition: text, adjustmentCondition: text, reviewAt: stamp }).strict(),
 }).strict();
 export type GrowthDirectionInput = z.infer<typeof growthDirectionSchema>;

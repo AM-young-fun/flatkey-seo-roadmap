@@ -1,3 +1,4 @@
+import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { activeHotspotPriority, type HotspotPriority } from "../../scripts/lib/seo-hotspot-priority.cjs";
 import type { GrowthDirection, GrowthStrategy } from "./growth-strategy";
 import type { WorkflowTask, WorkflowSnapshot } from "./seo-workflow";
@@ -89,7 +90,7 @@ export function buildGrowthHotspotView(strategy: GrowthStrategy, workflow: Pick<
     const reviewed = published && strategy.observations.some(row => content.some(task => task.id === row.taskId));
     const inProgress = content.some(task => ["drafting", "review_pending", "approved"].includes(task.status));
     const currentContent = content.filter(task => { const due = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(task.dueAt)); return due >= period.start && due <= period.end; });
-    const registered = currentContent.some(task => task.capacityClass === "authorized_hotspot_extra" || Boolean(quarter) && scheduled.has(task.id));
+    const registered = currentContent.some(task => isSeoExtraCapacity(task.capacityClass) || Boolean(quarter) && scheduled.has(task.id));
     const inPlan = currentContent.some(task => scheduled.has(task.id));
     const blocked = content.find(task => ["blocked", "failed"].includes(task.status));
     let admission: GrowthHotspotItem["admission"];

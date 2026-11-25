@@ -1,4 +1,5 @@
 import "server-only";
+import { isSeoExtraCapacity } from "../seo-extra-capacity";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -62,7 +63,7 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
   const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[], plans: WorkflowPlan[] = []) => {
     const committed = new Set([...plans.flatMap(plan => isExecutableWorkflowPlan(plan.status) ? plan.taskIds : plan.committedTaskIds ?? []),
       ...(state.quarterPlanning?.plan.reservedOriginalTaskIds ?? [])]);
-    const originalCommitments = tasks.filter(task => committed.has(task.id) && !task.deletedAt && task.capacityClass !== "authorized_hotspot_extra"
+    const originalCommitments = tasks.filter(task => committed.has(task.id) && !task.deletedAt && !isSeoExtraCapacity(task.capacityClass)
       && ["blog", "landing", "cluster"].includes(task.kind) && (task.kind === "blog" || task.siteDomain !== "flatkey.ai"))
       .map(task => ({ site: task.siteDomain, kind: task.kind === "blog" ? "blog" as const : "cluster_landing" as const,
         deliveryDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(task.dueAt)) }));
