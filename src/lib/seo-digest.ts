@@ -516,14 +516,19 @@ function detailedNotification(title: string, input: DigestInput, window: ReturnT
       countries: (["US", "JP", "BR", "ES"] as const).map(name => ({ name, sessions: pairFor("flatkey.ai", "sessions", name), clicks: pairFor("flatkey.ai", "clicks", name), impressions: pairFor("flatkey.ai", "impressions", name) })),
       modules: (["home", "blog", "models", "gpu", "prompts"] as const).map(id => ({ id, sessions: { previous: null, current: null }, clicks: { previous: null, current: null }, impressions: { previous: null, current: null } })) };
     const g = input.growthSnapshot?.goals;
+    const quarterRanking = g?.baselineFrozen && g.baselineCount !== null
+      ? g.rankedCount !== null && g.top50Count !== null
+        ? `季度关键词前100 ${g.rankedCount}/${g.baselineCount}；已有排名中前50 ${g.top50Count}/${g.rankedCount}，目标分别60%和80%。`
+        : `季度已冻结 ${g.baselineCount} 个原词；排名来源待更新，目标为前100覆盖60%、其中前50占80%。`
+      : "季度目标或排名来源待核实，暂不计算本季覆盖率。";
     const lines = [`**${title}**`, "", `今日结论：自然搜索会话 ${sessions.label}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
       `统计日：${dateLabel}（America/Los_Angeles）；对比${previousLabel}。工作交付：${input.date}（北京时间）。整理取数 ${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format(now)}（北京时间）。`,
       "", "**1. 全站自然搜索**",
       `GA4自然搜索会话 ${sessions.label}；首次自然搜索新用户 ${cardComparison(previousAcquisition?.newUsers ?? null, acquisition)}；首次自然搜索获客去重注册 ${headlineRegistration}。`,
       `Google点击 ${clicks.label}；曝光 ${impressions.label}；CTR ${previousCtr === null ? "—" : formatCtr(previousCtr)} → ${currentCtr === null ? "—" : formatCtr(currentCtr)}。`,
       ...(clicks.current === null ? [`GSC ${dateLabel}尚无有效结果；${previousLabel}仅作已标日期的上期数据，不替代本日。`] : []),
-      ...(g ? [`季度流量目标：Flatkey单站每完整周3000；${g.trafficWindowKind === "rolling7day-v1" ? "日常最新完整滚动7日 " : ""}${g.trafficPeriod.start}—${g.trafficPeriod.end}已核实${g.weeklySessions ?? "来源未齐"}${g.trafficGap === null ? "" : `，距目标差${g.trafficGap}`}。${dailyTrafficComparisonText(g) ?? ""}`,
-        g.baselineFrozen && g.baselineCount === 1600 ? `季度关键词前100 ${g.rankedCount}/1600；已有排名中前50 ${g.top50Count}/${g.rankedCount}，目标分别60%和80%。` : "季度关键词：1600词清单尚未核定，暂不计算本季覆盖率；目标为前100覆盖60%、其中前50占80%。"] : ["季度关键词：1600词清单尚未核定，暂不计算本季覆盖率。"]),
+      ...(g ? [`季度流量目标：Flatkey单站每完整周3000；${g.trafficWindowKind === "rolling7day-v1" ? "日常最新完整滚动7日 " : ""}${g.trafficPeriod.start}—${g.trafficPeriod.end}已核实${g.weeklySessions ?? "来源未齐"}${g.trafficGap === null ? "" : `，距目标差${g.trafficGap}`}。${dailyTrafficComparisonText(g) ?? ""}`] : []),
+      quarterRanking,
       ...conversionReportLines(input.conversionSnapshot), "", ...dailyTrafficSection(evidence, dateLabel), "", "**流量涨跌原因**"];
     // Read the complete same-day landing source before display Top10 truncation;
     // otherwise small-current/zero pages can never appear among decline drivers.

@@ -197,8 +197,9 @@ export function loadGrowthDashboardHistory(localPreview = false): Promise<Dashbo
   });
 }
 
-export function loadGrowthDashboardWorkspace(localPreview = false, now = new Date(), selectedSite?: string) {
-  return readGrowthWorkspace(localPreview, now, selectedSite, { view: "dashboard" });
+export function loadGrowthDashboardWorkspace(localPreview = false, now = new Date(), selectedSite?: string,
+  transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot }) {
+  return readGrowthWorkspace(localPreview, now, selectedSite, { view: "dashboard", transaction });
 }
 
 /** Keep all saved rank sources and original page/task links for the catalog. */
