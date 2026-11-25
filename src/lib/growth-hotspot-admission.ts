@@ -54,6 +54,9 @@ export function prepareHotspotAdmission(context: HotspotAdmissionContext, comman
   if (!member || member.languageStatus !== "match" || !context.workspace.topics.some(topic => topic.site === task.siteDomain && topic.topicId === task.topicId)) return pending("原词、原国家语种与本站真实TopicMap正式成员尚未核齐，不借用发现词或跨语种排名");
   const dueDay = day(task.dueAt);
   if (dueDay < view.businessWeek.start || dueDay > view.businessWeek.end || !isSeoWorkday(new Date(task.dueAt))) return pending("原交付日不在本北京时间周五至周四的实际工作日内，保留原日期并报告冲突，不擅挪下周");
+  if (Date.parse(task.dueAt) < Date.parse(item.eventAt) || Date.parse(task.dueAt) > Date.parse(item.validUntil)) {
+    return pending("原交付时间须在事件发生或升温后 7 天内，保留原交付日并记录冲突");
+  }
   if (!completeHotspotTaskResearch(task, now) || !item.researchComplete || Date.parse(task.researchReview!.reviewedAt) < Date.parse(item.eventAt) || Date.parse(task.researchReview!.duplicateCheckedAt) < Date.parse(item.eventAt)) return pending("原博客完整研究、Top10/实际前5页、去重、六项分析或E-E-A-T尚未齐全，批准已保存，补齐后人审入口重试");
   const existing = context.plans.find(plan => isExecutableWorkflowPlan(plan.status) && plan.taskIds.includes(task.id));
   if (existing) return { taskId, status: "reuse", reason: "原任务已在正式计划，只复用原ID、容量分类、来源及交付日，不再次登记或重复追加", planId: existing.id, task, plan: existing };
