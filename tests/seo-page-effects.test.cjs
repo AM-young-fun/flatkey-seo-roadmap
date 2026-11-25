@@ -1,6 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const path = require("node:path");
+const Module = require("node:module");
 const ts = require("typescript");
 
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), {
@@ -8,7 +10,12 @@ require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule
 }).outputText, file);
 
 const { optimizationEffect, optimizationTrendDays, optimizationWeekComparison } = require("../src/lib/seo-page-effects.ts");
+const load = Module._load;
+Module._load = function (name, ...args) {
+  return load.call(this, name.startsWith("@/") ? path.resolve(__dirname, "../src", name.slice(2)) + ".ts" : name, ...args);
+};
 const { pageOptimizationPriorities } = require("../src/lib/seo-page-priority.ts");
+Module._load = load;
 const { buildSeoDigest } = require("../src/lib/seo-digest.ts");
 
 const url = "https://flatkey.ai/es/blog/gpu-server";
@@ -20,6 +27,9 @@ const day = (date, clicks, impressions, options = {}) => ({
 const run = (observations, end = "2026-11-19") => optimizationEffect({
   url, site: "flatkey.ai", country: "ES", publishedAt: "2026-11-15T06:00:00Z", end, now, observations,
 });
+const target = (overrides = {}) => ({ id: "original-target", site: "flatkey.ai", country: "ES", language: "es-ES", keyword: "precio servidor GPU",
+  keywordId: "original-keyword", pageState: "published", publishedUrls: [url], maintenancePublishedUrls: [url], rank: null, rankUrl: null,
+  checkedAt: "2026-11-19T10:00:00Z", rankSource: "serp", observationEligible: true, rankEligible: false, captureState: "outside100", languageStatus: "match", ...overrides });
 
 test("uses the last complete day before launch and latest same-country, same-property complete day after", () => {
   const effect = run([day("2026-11-12", 3, 100), day("2026-11-13", 9, 100, { complete: false }),
@@ -69,13 +79,44 @@ test("multiple comparable signals produce high priority; a verified recent edit 
       rows: [{ url, clicks: previous ? 12 : 2, impressions: previous ? 100 : 65, position: previous ? 5 : 11 }],
     }));
   }
-  const task = { id: "x", siteDomain: "flatkey.ai", pageUrl: url, country: "ES", kind: "optimization", status: "ready",
+  const task = { id: "x", siteDomain: "flatkey.ai", pageUrl: url, country: "ES", kind: "optimization", status: "ready", language: "es-ES", keyword: "precio servidor GPU",
     weekStart: "2026-11-16", evidence: [], research: { businessValue: 3 } };
-  const priorities = publications => pageOptimizationPriorities(rows, { tasks: [task], publications }, "flatkey.ai", "ES", now).rows;
+  const priorities = publications => pageOptimizationPriorities(rows, { tasks: [task], publications }, [target()], "flatkey.ai", "ES", now).rows;
   assert.equal(priorities([])[0].priority, "高");
+  assert.equal(priorities([])[0].taskId, "x");
+  assert.match(priorities([])[0].reasons.join(" "), /已登记业务价值 3\/3/);
   assert.equal(priorities([])[0].comparable, 7);
   assert.match(priorities([])[0].reasons.join(" "), /曝光下降.*平均排名后退/);
   assert.equal(priorities([{ siteDomain: "flatkey.ai", country: "ES", pageUrl: url, status: "verified", publishedAt: "2026-11-18T09:00:00Z" }])[0].priority, "观察中");
+});
+
+test("recommends only published targets, prioritizes verified outside 100, and keeps another URL's rank pending", () => {
+  const secondUrl = "https://flatkey.ai/es/blog/gpu-2";
+  const pending = Array.from({ length: 10 }, (_, i) => target({ id: `pending-${i}`, keyword: `precio GPU ${i}`,
+    captureState: "outside100", checkedAt: "2026-10-01T10:00:00Z" }));
+  const ranked = target({ id: "ranked", keyword: "alquiler servidor GPU", publishedUrls: [url, secondUrl], maintenancePublishedUrls: [url, secondUrl],
+    captureState: "ranked", rank: 8, rankEligible: true, rankUrl: "https://www.flatkey.ai/es/blog/gpu-server/" });
+  const sources = [
+    ...pending, ranked, target({ id: "no-live-evidence", maintenancePublishedUrls: [] }),
+    target({ id: "rank-only-discovery", maintenancePublishedUrls: undefined }),
+    target({ id: "archived-target", sourceActive: false }),
+    target({ id: "product-route", maintenancePublishedUrls: ["https://flatkey.ai/console/usage"] }),
+    target({ id: "planned", pageState: "planned", publishedUrls: [], maintenancePublishedUrls: [] }),
+    target({ id: "other-market", country: "US" }), target(),
+  ];
+  const observations = [day("2026-11-18", 30, 100, { rows: [{ url: "https://flatkey.ai/es/orphan", clicks: 30, impressions: 100, position: 4 }] })];
+  const priorities = filters => pageOptimizationPriorities(observations, { tasks: [], publications: [] }, sources, "flatkey.ai", "ES", now, filters);
+  const page = priorities();
+  assert.deepEqual(page.rows.slice(0, 2).map(row => [row.targetId, row.rankStatus, row.rank]), [["original-target", "outside100", null], ["ranked", "ranked", 8]]);
+  assert.equal(page.rows.length, 10);
+  assert.deepEqual(page.counts, { outside100: 1, ranked: 1, pending: 11 });
+  const second = priorities({ rank: "all", signal: "all", page: 2 });
+  assert.deepEqual(second.pagination, { page: 2, total: 13, pageCount: 2 });
+  assert.equal(second.rows.length, 3);
+  const unknown = [1, 2].flatMap(page => priorities({ rank: "pending", signal: "待核实", page }).rows);
+  assert.equal(unknown.length, 11);
+  assert.deepEqual(unknown.filter(row => row.url === secondUrl).map(row => [row.url, row.rankStatus, row.checkedAt]), [[secondUrl, "pending", null]]);
+  assert.ok([...page.rows, ...second.rows].every(row => !row.url.endsWith("orphan")));
 });
 
 test("daily and weekly report variants agree with the two points and show CTR change in percentage points", () => {

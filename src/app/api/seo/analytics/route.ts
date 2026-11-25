@@ -5,7 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { seoCountry } from "@/lib/seo";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
 import { optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
-import { pageOptimizationPriorities } from "@/lib/seo-page-priority";
+import { pageOptimizationPriorities, pagePrioritySignals, type PagePriorityFilters } from "@/lib/seo-page-priority";
+import { publishedKeywordRankLabels } from "@/lib/published-keyword-rank";
+import { GROWTH_EXECUTION_SITES } from "@/lib/seo-growth-markets";
+import { loadGrowthDashboardWorkspace } from "@/lib/services/growth-workspace";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
 import { propertyToday, seoToday } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
@@ -31,12 +34,15 @@ export async function GET(request: Request) {
   const module = overviewModule(requestedModule);
   const requestedSite = search.get("site");
   const site = CLUSTER_SITES.find(entry => entry.domain === requestedSite);
+  const siteDomain = site?.domain ?? "flatkey.ai";
+  const priorityFilters = { page: Number(search.get("page") ?? 1),
+    rank: search.get("rank") ?? "all", signal: search.get("signal") ?? "all" } as PagePriorityFilters;
   const viewMode = search.get("view");
   const overview = viewMode === "overview-traffic";
   const compareStart = search.get("compareStart"), compareEnd = search.get("compareEnd");
   const comparison = compareStart !== null || compareEnd !== null ? { start: compareStart ?? "", end: compareEnd ?? "" } : null;
   try {
-    rangeDays(range);
+    const days = rangeDays(range);
     if (overview) {
       const keys = ["view", "start", "end", "compareStart", "compareEnd", "country", "module"];
       const today = propertyToday("America/Los_Angeles");
@@ -44,7 +50,14 @@ export async function GET(request: Request) {
         || requestedModule !== null && requestedModule !== module || range.end >= today || comparison && comparison.end >= today) throw new Error("无效总览范围");
       if (comparison) rangeDays(comparison);
     }
-    if (priority && (urls.length || pageDaily || pageQueries || allPages || requestedModule || effectAt || country === "all")) throw new Error("无效优先级范围");
+    if (priority) {
+      const keys = ["start", "end", "site", "country", "priority", "rank", "signal", "page"];
+      if ([...search.keys()].some(key => !keys.includes(key) || search.getAll(key).length !== 1)
+        || country === "all" || days.length > 35 || !GROWTH_EXECUTION_SITES.some(site => site === siteDomain)
+        || !Number.isSafeInteger(priorityFilters.page) || priorityFilters.page < 1
+        || priorityFilters.rank !== "all" && !Object.hasOwn(publishedKeywordRankLabels, priorityFilters.rank)
+        || priorityFilters.signal !== "all" && !pagePrioritySignals.includes(priorityFilters.signal)) throw new Error("无效优先级范围");
+    }
     if (effectAt && (!pageDaily || !Number.isFinite(Date.parse(effectAt)) || Date.parse(effectAt) > Date.now()
       || optimizationRange(effectAt, range.end).start !== range.start)) throw new Error("无效上线日期");
     // The cluster comparison uses one Beijing date range. Import still checks each source's timezone.
@@ -82,17 +95,21 @@ export async function GET(request: Request) {
     const kinds = priority ? ["gsc-pages" as const] : pageQueries ? ["gsc-page-queries" as const]
       : siteSummary ? ["ga4-site" as const, "gsc-site" as const]
         : analyticsKinds.filter(kind => kind !== "gsc-page-queries");
-    const rows = analyticsLocalPreview(request)
-      ? await readAnalyticsEvidence(range, country, site?.domain, kinds)
+    const local = analyticsLocalPreview(request);
+    const readObservations = async () => local ? readAnalyticsEvidence(range, country, site?.domain, kinds)
       : (await prisma.seoAnalyticsDay.findMany({
         where: { date: { gte: range.start, lte: range.end }, kind: { in: kinds.map(kind => analyticsStorageKind(kind, country, site?.domain)) } },
         select: { payload: true },
       })).map(row => analyticsObservationSchema.parse(row.payload))
         .filter(row => clusterDomainForProperty(row.property) === site?.domain && (row.country ?? "all") === country);
     if (priority) {
-      const workflow = await loadWorkflowSnapshot({ allHistory: true }, analyticsLocalPreview(request));
-      return Response.json(pageOptimizationPriorities(rows, workflow, site?.domain ?? "flatkey.ai", country, new Date()), { headers });
+      const now = new Date();
+      const [rows, workflow, inventory] = await Promise.all([
+        readObservations(), loadWorkflowSnapshot({ allHistory: true }, local), loadGrowthDashboardWorkspace(local, now, siteDomain),
+      ]);
+      return Response.json(pageOptimizationPriorities(rows, workflow, inventory.targets, siteDomain, country, now, priorityFilters), { headers });
     }
+    const rows = await readObservations();
     if (requestedModule !== null) return Response.json({ ...overviewModuleAnalytics(range, module, rows), country, site: site?.domain ?? "flatkey.ai" }, { headers });
     if (site && !pageQueries && !urls.length && !allPages) {
       const view = analyticsView(range, [], rows);
