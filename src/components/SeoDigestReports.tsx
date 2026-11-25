@@ -1,7 +1,7 @@
 "use client";
 
 import { FeedbackButton } from "./FeedbackButton";
-import { GrowthReportSummary } from "./GrowthGoalSummary";
+import { GrowthReportDirections, GrowthReportSummary } from "./GrowthGoalSummary";
 import Link from "@/components/AppLink";
 import { useEffect, useRef, useState } from "react";
 import { useReportReadyTiming } from "./useReportReadyTiming";
@@ -13,6 +13,7 @@ import { shiftDay, weeklyReportDate, weeklyReportRange, WEEKLY_REPORT_SWITCH_DAT
 import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comparisons";
 import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
+import { SeoIndexing404 } from "./SeoIndexing404";
 // Render with the report response, without another body-module download.
 import { ReviewedReportBody } from "./ReviewedReportBody";
 import { WeeklyReportSupplement } from "./WeeklyReportSupplement";
@@ -21,7 +22,6 @@ import { bestMonthlyOptimizations } from "@/lib/seo-digest-recent-pages";
 import { blogPageCounts } from "@/lib/seo-blog-page-counts";
 import type { SeoDigest } from "@/lib/seo-digest";
 import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
-import { conversionReportLines, type ConversionProjection } from "@/lib/seo-conversion";
 import { numberText, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoWorkWorkspace.module.css";
 import reportStyles from "./SeoDigestReports.module.css";
@@ -69,7 +69,7 @@ function TrafficCell({ metric, coverage, canCompare = true, delta }: {
   </td>;
 }
 
-export function SearchTraffic({ groups, countries, rankings, organicRegistrations, completeWeekRequired = false, organicRegistrationCanCompare, registrationCoverageNote, dashboardTraffic, conversionSnapshot }: {
+export function SearchTraffic({ groups, countries, rankings, organicRegistrations, completeWeekRequired = false, organicRegistrationCanCompare, registrationCoverageNote, dashboardTraffic }: {
   groups: ReturnType<typeof parseReportComparisons>;
   countries: ReturnType<typeof parseReportComparisons>;
   rankings: SeoDigest["pagePerformance"];
@@ -78,7 +78,6 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
   organicRegistrationCanCompare?: boolean;
   registrationCoverageNote?: string;
   dashboardTraffic?: NonNullable<SeoDigest["dashboard"]>["traffic"];
-  conversionSnapshot?: ConversionProjection;
 }) {
   const ga4 = rankings.find(ranking => ranking.source === "GA4")?.flatkey;
   const gsc = rankings.find(ranking => ranking.source === "GSC")?.flatkey;
@@ -134,7 +133,6 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
         </tbody>
       </table>
     </div>
-    {conversionSnapshot ? <div className={reportStyles.note} aria-label="GPU业务承接与API转化质量">{conversionReportLines(conversionSnapshot).map(line => <p key={line}>{line}</p>)}</div> : null}
     {countries ? <ReportCountryShares groups={countries} /> : null}
   </section>;
 }
@@ -267,21 +265,30 @@ export function ReportWorkPlan({ plan: sourcePlan, weekly, day }: { plan?: SeoDi
 function ReportAttribution({ text, weekly }: { text: string; weekly: boolean }) {
   // Format the dashboard's display copy. The archived body and hash are never rewritten.
   const content = weekly ? text
-    .replace(/^[ \t]*[-•][ \t]+\*\*([^*\n]+)\*\*[：:][ \t]*/gm, "\n\n#### $1\n\n- ")
+    .replace(/^[ \t]*[-•][ \t]+\*\*([^*\n]+)\*\*[：:][ \t]*/gm, "\n\n##### $1\n\n- ")
     .replace(/([。；])(?=\s*\[[^\]\n]+\]\(https:\/\/)/gu, "$1\n- ") : text;
-  return <ReviewedReportBody text={"### 流量上涨与下跌原因\n\n" + content} label="流量上涨与下跌原因" />;
+  return <ReviewedReportBody text={`${weekly ? "####" : "###"} 流量上涨与下跌原因\n\n${content}`} label="流量上涨与下跌原因" embedded={weekly} />;
 }
 
-function CurrentQuarterSummary() {
-  const read = useSeoRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=dashboard", { showFeedback: false });
-  return read.data?.snapshot ? <GrowthReportSummary snapshot={read.data.snapshot} current />
+function WeeklyQuarterSummary({ snapshot, period, attribution }: { snapshot?: GrowthReportSnapshot; period: SeoDigest["reportPeriod"]; attribution?: string }) {
+  const read = useSeoRead<{ snapshot: GrowthReportSnapshot }>(snapshot ? null : "/api/seo/growth/strategy?view=dashboard", { showFeedback: false });
+  const quarter = snapshot ?? read.data?.snapshot;
+  const archivedAttribution = attribution?.trim();
+  const directions = !archivedAttribution && period ? snapshot?.directions.flatMap(direction => {
+    const drivers = direction.drivers.filter(({ window }) => window.start === period.start && window.end === period.end && window.timezone === period.timezone);
+    return drivers.length ? [{ ...direction, drivers, taskIds: [...new Set(drivers.flatMap(driver => driver.taskIds))] }] : [];
+  }) : null;
+  const contribution = archivedAttribution ? <ReportAttribution text={archivedAttribution} weekly />
+    : directions?.length ? <GrowthReportDirections directions={directions} title="流量上涨与下跌原因" /> : null;
+  return quarter ? <GrowthReportSummary snapshot={quarter} current={!snapshot} showDirections={false}>{contribution}</GrowthReportSummary>
     : <section className={reportStyles.section} aria-label="当前季度进度"><h3>2026 收官季</h3>
       <p className={reportStyles.note}>{read.error ? "当前季度数据暂不可用。" : "正在读取当前季度进度…"}</p>
       {read.error ? <FeedbackButton type="button" className={styles.secondary} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…">重试</FeedbackButton> : null}
+      {contribution}
     </section>;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, reportTemplateVersion, conversionSnapshot }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; reportTemplateVersion?: number; conversionSnapshot?: ConversionProjection }) {
+function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, reportTemplateVersion, growthSnapshot }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; reportTemplateVersion?: number; growthSnapshot?: GrowthReportSnapshot }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -307,15 +314,18 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
   const technical = sections.find(section => section.title === "SEO 技术质检");
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={dashboard?.traffic?.sites ?? (sites ? parseReportComparisons(sites.lines) : null)} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations}
-      completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} conversionSnapshot={conversionSnapshot} />
-    {dashboard?.attributionText ? <ReportAttribution text={dashboard.attributionText} weekly={weekly} /> : null}
+      completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} />
+    {!weekly && dashboard?.attributionText ? <ReportAttribution text={dashboard.attributionText} weekly={false} /> : null}
     {github ? <section className={reportStyles.section}>
       <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
     </section> : null}
+    <SeoIndexing404 />
     {dashboard?.technicalText || technical || !weekly ? <section className={reportStyles.section}>
       <h3>SEO 技术质检</h3>
       <TechnicalIssues text={dashboard?.technicalText || technical?.lines} />
     </section> : null}
+    {weekly ? <WeeklyQuarterSummary snapshot={growthSnapshot} period={reportPeriod} attribution={dashboard?.attributionText} />
+      : growthSnapshot ? <GrowthReportSummary snapshot={growthSnapshot} /> : null}
     <RecentPageTraffic pages={recentPages} day={weekly ? undefined : reportPeriod?.start} />
     {rankingNotes?.length ? <section className={reportStyles.section}>
       <h3>关键词排名明细</h3>
@@ -418,7 +428,6 @@ export function SeoDigestReports() {
             : <Link className={styles.secondary} href={route(kind, report.date, archivePage, report.id)}>查看已保存原文</Link>}
         </div> : null}
         {showArchivedBody ? <ReviewedReportBody text={report.text} label={report.draftBody ? "待审周报完整正文" : report.reviewedBody ? undefined : "已保存周报原文"} /> : <>
-        {report.growthSnapshot ? <GrowthReportSummary snapshot={report.growthSnapshot} /> : kind === "weekly" ? <CurrentQuarterSummary /> : null}
         <dl className={reportStyles.metrics}>
           <div><dt>新增博客页面</dt><dd>{deliveryCount(blogPageCounts(report.counts).total, report.coverage?.publications)}
             <small>源文 {numberText(report.counts.originals)} · 译文 {numberText(report.counts.translations ?? 0)} · 旧文补译 {numberText(report.counts.backfillTranslations ?? 0)}</small></dd></div>
@@ -434,10 +443,11 @@ export function SeoDigestReports() {
           <ReportWorkPlan plan={report.currentWorkPlan} weekly={false} />
           <ReportWorkPlan plan={report.workPlan} weekly />
         </dl> : null}
-        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} conversionSnapshot={report.conversionSnapshot}
+        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} growthSnapshot={report.growthSnapshot}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} />
         </>}
         {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}
       </article>}
+    {showArchivedBody || !report && (result.data || result.error) ? <aside className={reportStyles.report}><SeoIndexing404 /></aside> : null}
   </div>;
 }

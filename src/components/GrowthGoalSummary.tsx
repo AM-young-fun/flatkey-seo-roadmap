@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { GrowthReportSnapshot, GrowthStrategy, GrowthBaselineIdentityReview } from "@/lib/growth-strategy";
 import { GROWTH_COUNTRIES, GROWTH_COUNTRY_LABELS, GROWTH_MARKET_LANGUAGES, type GrowthCountry } from "@/lib/seo-growth-markets";
 import type { GrowthTarget } from "@/lib/growth-types";
@@ -13,12 +13,12 @@ import { growthContributionMetricNames } from "@/lib/growth-topic-contributions"
 import { reportDay } from "@/lib/seo-report-time.cjs";
 
 
-export function GrowthReportSummary({ snapshot, current = false }: { snapshot: GrowthReportSnapshot; current?: boolean }) {
+export function GrowthReportSummary({ snapshot, current = false, showDirections = !current, children }: { snapshot: GrowthReportSnapshot; current?: boolean; showDirections?: boolean; children?: ReactNode }) {
   const g = snapshot.goals;
   const observationDates = [g.weeklySessions !== null && g.trafficScope ? `流量截至 ${g.trafficPeriod.end}` : null,
     g.latestRankAt ? `排名截至 ${reportDay(new Date(g.latestRankAt))}` : null].filter(Boolean);
   const currentLabel = observationDates.length ? `当前季度 · ${observationDates.join(" · ")}（洛杉矶）` : "当前季度 · 来源待齐";
-  return <section className={styles.panel} aria-label={current ? "当前季度进度" : "季度目标与方向复盘"}>
+  return <section className={`${styles.panel} ${styles.reportPanel}`} aria-label={current ? "当前季度进度" : showDirections ? "季度目标与方向复盘" : "季度目标"}>
     <header><h3>2026 收官季</h3><span>{current ? currentLabel : `截至 ${g.deadline} · 距截止 ${g.daysRemaining} 天`}</span></header>
     <div className={styles.metrics}>
       <div><span>{g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 最新完整滚动7日自然会话" : g.trafficScope?.label ?? "四站完整周自然会话（历史口径）"} / 3000</span><strong>{g.weeklySessions === null ? "数据待齐" : g.weeklySessions.toLocaleString()}</strong><small>{g.trafficComplete ? `还差 ${g.trafficGap} 次` : g.knownSessions === null ? "尚无核实的同窗口来源" : `同窗口已核实部分 ${g.knownSessions.toLocaleString()} 次`}</small></div>
@@ -28,8 +28,15 @@ export function GrowthReportSummary({ snapshot, current = false }: { snapshot: G
     <GrowthProgressViews cohorts={g.cohorts} />
     {g.evaluationMode === "final" ? <p className={styles.note}>季末验收：{g.finalAcceptance.status === "achieved" ? "已达标" : g.finalAcceptance.status === "not_achieved" ? "未达标" : "截止前证据待补"}。{g.finalAcceptance.reason}最近滚动周 {g.rolling.period.start} — {g.rolling.period.end} 会话 {g.rolling.weeklySessions === null ? "数据未齐" : g.rolling.weeklySessions.toLocaleString()}，另作日常观察。</p> : null}
     {!g.trafficComplete ? <details><summary>{g.trafficScope ? "查看 Flatkey 来源" : "查看四站来源（历史口径）"}</summary><ul>{g.traffic.map(row => <li key={row.site}>{row.site}：{row.complete && row.sessions !== null ? `${row.sessions.toLocaleString()} 次` : row.reason}（{row.timezone}）</li>)}</ul></details> : null}
-    {!current ? snapshot.directions.length ? <div className={styles.directions}><h4>流量归因与方向决定</h4>{snapshot.directions.slice(0, 3).map(direction => <article key={direction.id}>
-      <h4>{direction.title}</h4>
+    {showDirections ? <GrowthReportDirections directions={snapshot.directions} /> : null}
+    {children}
+  </section>;
+}
+
+export function GrowthReportDirections({ directions, title = "流量归因与方向决定" }: { directions: GrowthReportSnapshot["directions"]; title?: string }) {
+  if (!directions.length) return <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p>;
+  return <div className={styles.directions}><h4>{title}</h4>{directions.slice(0, 3).map(direction => <article key={direction.id}>
+      <h5>{direction.title}</h5>
       {!direction.drivers.length ? <p className={styles.note}>{direction.recommendation} · {direction.decision}</p> : <ul className={styles.driverList}>
         {direction.drivers.map((driver, index) => {
           const delta = driver.current - driver.previous;
@@ -42,8 +49,7 @@ export function GrowthReportSummary({ snapshot, current = false }: { snapshot: G
         })}
       </ul>}
       {direction.taskIds.length ? <div className={styles.taskLinks}>{direction.taskIds.map((id, index) => <SeoAnchor key={id} href={`/work/${encodeURIComponent(id)}`}>{direction.taskIds.length === 1 ? "查看关联任务" : `关联任务 ${index + 1}`}</SeoAnchor>)}</div> : null}
-    </article>)}</div> : <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p> : null}
-  </section>;
+    </article>)}</div>;
 }
 
 type StrategyView = { state: GrowthStrategy; snapshot: GrowthReportSnapshot; sourceVersion: string; formalTargets: GrowthTarget[]; identityReview?: GrowthBaselineIdentityReview[]; dueObservations: { taskId: string; checkpoint: number; dueDay: string }[]; historicalDueObservations?: { publicationId: string; pageUrl: string; checkpoint: number; dueDay: string | null; writeMode: string }[] };
