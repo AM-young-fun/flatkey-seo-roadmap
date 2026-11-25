@@ -55,16 +55,17 @@ export function OverviewReadFailure({ title, error, retry }: { title: string; er
   </ChartPanel>;
 }
 
-export function OverviewGrowthCharts({ strategy, growth }: {
+export function OverviewGoalSection({ strategy, growth }: {
   strategy: SeoReadState<{ snapshot: GrowthReportSnapshot }>;
   growth: SeoReadState<GrowthWorkspace>;
 }) {
-  return <>
-    {strategy.data?.snapshot ? <OverviewGoalCharts snapshot={strategy.data.snapshot} workspace={growth.data} />
-      : strategy.loading ? <ChartPanel title="2026 收官季目标进度" note=""><p role="status">正在重读季度目标…</p></ChartPanel>
-      : <OverviewReadFailure title="2026 收官季目标进度" error={strategy.error ?? "季度目标未返回，请重试"} retry={strategy.retry} />}
-    {growth.data ? <ContentProgress workspace={growth.data} />
-      : growth.loading ? <ChartPanel title="全部关键词内容建设进度" note=""><p role="status">正在重读建设进度…</p></ChartPanel>
-      : <OverviewReadFailure title="全部关键词内容建设进度" error={growth.error ?? "建设进度未返回，请重试"} retry={growth.retry} />}
-  </>;
+  return strategy.data?.snapshot ? <OverviewGoalCharts snapshot={strategy.data.snapshot} workspace={growth.data} />
+    : strategy.loading ? <ChartPanel title="2026 收官季目标进度"><p role="status">正在重读季度目标…</p></ChartPanel>
+    : <OverviewReadFailure title="2026 收官季目标进度" error={strategy.error ?? "季度目标未返回，请重试"} retry={strategy.retry} />;
+}
+
+export function OverviewContentSection({ growth }: { growth: SeoReadState<GrowthWorkspace> }) {
+  return growth.data ? <ContentProgress workspace={growth.data} />
+    : growth.loading ? <ChartPanel title="全部关键词内容建设进度"><p role="status">正在重读建设进度…</p></ChartPanel>
+    : <OverviewReadFailure title="全部关键词内容建设进度" error={growth.error ?? "建设进度未返回，请重试"} retry={growth.retry} />;
 }

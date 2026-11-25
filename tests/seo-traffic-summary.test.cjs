@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 require("./register-ui-modules.cjs");
 const { mergeTrafficSummaryDay, closedTrafficSummaryDay, trafficSummaryDaySchema, TRAFFIC_SUMMARY_MODULES } = require("../src/lib/seo-traffic-summary.ts");
-const { trafficJobs } = require("../scripts/server-seo-traffic-summary.cjs");
+const { trafficJobs, trafficPeriodJobs } = require("../scripts/server-seo-traffic-summary.cjs");
 const { PILLAR_PAGE_GROUPS } = require("../src/lib/weekly-page-visitors.ts");
 const { DAILY_SEO_PAGE_GROUPS } = require("../src/lib/daily-seo-page-groups.ts");
 const { FLATKEY_ENTRY_HOSTS } = require("../src/lib/ga4-host-scope.ts");
@@ -71,4 +71,25 @@ test("the latest complete seven-day window moves back across a gap and retains o
   assert.equal(custom.end,scan.end);
   assert.equal(custom.modules.complete,false);
   assert.equal(trafficOverview(scan,null,[],pages).completeWeekEnd,null);
+});
+
+test("period comparison uses two exact windows and GA4 dimensionless registration totals", () => {
+  const { trafficPeriodComparison } = require("../src/lib/seo-traffic-overview.ts");
+  const { mergeTrafficSummaryPeriod } = require("../src/lib/seo-traffic-summary.ts");
+  const current = {start:"2026-11-18",end:"2026-11-24"};
+  const prior = {start:"2026-11-11",end:"2026-11-17"};
+  const metric = (value,observedAt="2026-11-25T10:00:00Z") => ({value,observedAt,sourceSha256:"a".repeat(64)});
+  const jobs = trafficPeriodJobs(current, FLATKEY_ENTRY_HOSTS);
+  assert.deepEqual(jobs.map(job => job.request.dateRanges), [[{startDate:current.start,endDate:current.end}],[{startDate:current.start,endDate:current.end}]]);
+  assert.deepEqual(jobs.map(job => job.metric), ["sessions","totalUsers"]);
+  assert.ok(jobs.every(job=>!job.request.dimensions));
+  assert.match(JSON.stringify(jobs[1].request), /sign_up_success/);
+  assert.doesNotMatch(JSON.stringify(jobs[1].request), /hostName|channel/i);
+  const currentRecord = {...current,totalSessions:metric(10),totalRegistrations:metric(4)};
+  const old = {...prior,totalSessions:metric(0),totalRegistrations:metric(3)};
+  const falsePrevious = {...prior,end:"2026-11-16",totalRegistrations:metric(100)};
+  assert.deepEqual(trafficPeriodComparison(current,[falsePrevious,currentRecord,old]),
+    {previous:prior,sessions:{current:10,previous:0},registrations:{current:4,previous:3}});
+  assert.equal(trafficPeriodComparison(current,[falsePrevious,currentRecord]).registrations.previous, null);
+  assert.deepEqual(mergeTrafficSummaryPeriod(currentRecord,{...currentRecord,totalSessions:metric(8,"2026-11-25T09:00:00Z"),totalRegistrations:null}), currentRecord);
 });

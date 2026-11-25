@@ -4,7 +4,7 @@ import { authenticateImportToken } from "@/lib/services/import-tokens";
 import { authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
 import { readWorkflowBody, workflowErrorResponse } from "@/lib/seo-workflow-http";
 import { shiftDay, validRange } from "@/lib/seo-date-range";
-import { closedTrafficSummaryDay, mergeTrafficSummaryDay, trafficSummaryDaySchema, trafficSummaryEvidence, trafficSummaryTrendDay, TRAFFIC_SUMMARY_KIND } from "@/lib/seo-traffic-summary";
+import { closedTrafficSummaryDay, mergeTrafficSummaryDay, mergeTrafficSummaryPeriod, trafficSummaryDaySchema, trafficSummaryEvidence, trafficSummaryPeriodKind, trafficSummaryPeriodSchema, trafficSummaryTrendDay, TRAFFIC_SUMMARY_KIND, TRAFFIC_SUMMARY_PERIOD, type TrafficSummaryPeriod } from "@/lib/seo-traffic-summary";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,16 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const input = params.get("date"), start = params.get("start"), end = params.get("end");
     const latestClosedDay = closedTrafficSummaryDay();
+    if (params.get("view") === "period") {
+      if ([...params.keys()].some(key => !["view", "start", "end"].includes(key) || params.getAll(key).length !== 1)
+        || !start || !end || !validRange({ start, end }) || end > latestClosedDay || Date.parse(end) - Date.parse(start) > 365 * 86400000) {
+        return json({ message: "请选择有效的闭合统计周期" }, 400);
+      }
+      const row = await prisma.seoAnalyticsDay.findUnique({ where: { kind_date: { kind: trafficSummaryPeriodKind({ start, end }), date: end } },
+        select: { payload: true } });
+      const result = trafficSummaryPeriodSchema.safeParse(row?.payload);
+      return json({ period: result.success && result.data.start === start && result.data.end === end ? result.data : null });
+    }
     if (start !== null || end !== null) {
       if (input !== null || !start || !end || !validRange({ start, end }) || end > latestClosedDay
         || Date.parse(end) - Date.parse(start) > 365 * 86400000) return json({ message: "请选择已结束的洛杉矶日期，区间最多 366 天" }, 400);
@@ -45,7 +55,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     if (request.headers.has("origin") || !await authenticateImportToken(request)) return json({ message: "需要原采集凭据" }, 403);
-    const day = trafficSummaryDaySchema.parse(await readWorkflowBody(request, 32_768));
+    const input = await readWorkflowBody(request, 32_768);
+    if (input && typeof input === "object" && "kind" in input && input.kind === TRAFFIC_SUMMARY_PERIOD) {
+      return await saveTrafficPeriod(trafficSummaryPeriodSchema.parse(input));
+    }
+    const day = trafficSummaryDaySchema.parse(input);
     const now = new Date();
     if (day.date > closedTrafficSummaryDay(now)) return json({ message: "仅可归档已结束的洛杉矶日期" }, 422);
     const evidence = trafficSummaryEvidence(day).filter(value => value !== null);
@@ -64,4 +78,22 @@ export async function POST(request: Request) {
       return json({ date: day.date, complete: data.complete, observedAt });
     });
   } catch (error) { return workflowErrorResponse(error); }
+}
+
+
+async function saveTrafficPeriod(period: TrafficSummaryPeriod) {
+  const now = new Date(), evidence = [period.totalSessions, period.totalRegistrations].filter(value => value !== null);
+  if (!evidence.length || evidence.some(value => Date.parse(value.observedAt) > now.getTime()
+    || period.end > closedTrafficSummaryDay(new Date(value.observedAt)))) return json({ message: "周期来源观测时间未核实" }, 422);
+  const key = { kind: trafficSummaryPeriodKind(period), date: period.end }, where = { kind_date: key };
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key.kind + ":" + key.date}))`;
+    const prior = await tx.seoAnalyticsDay.findUnique({ where, select: { payload: true } });
+    const previous = prior ? trafficSummaryPeriodSchema.parse(prior.payload) : null;
+    const merged = mergeTrafficSummaryPeriod(previous, period);
+    const observedAt = new Date([merged.totalSessions?.observedAt, merged.totalRegistrations?.observedAt].filter(Boolean).sort().at(-1)!);
+    const data = { observedAt, complete: Boolean(merged.totalSessions && merged.totalRegistrations), payload: merged as Prisma.InputJsonValue };
+    await tx.seoAnalyticsDay.upsert({ where, create: { ...key, ...data }, update: data });
+    return json({ period: merged, complete: data.complete });
+  });
 }

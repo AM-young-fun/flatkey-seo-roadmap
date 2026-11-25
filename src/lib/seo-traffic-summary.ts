@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DateRange } from "./seo-date-range";
 
 export const TRAFFIC_SUMMARY_KIND = "flatkey-traffic-summary-v1";
 export const TRAFFIC_SUMMARY_SITE_METRICS = ["totalSessions", "organicSessions", "totalRegistrations", "organicRegistrations"] as const;
@@ -21,6 +22,17 @@ export const trafficSummaryDaySchema = z.object({
   site: sessions.extend({ totalRegistrations: metric, organicRegistrations: metric }),
   modules: z.object({ home: sessions, blog: sessions, models: sessions, gpu: sessions, prompts: sessions }).strict(),
 }).strict();
+export const TRAFFIC_SUMMARY_PERIOD = "flatkey-traffic-summary-period-v1";
+export const trafficSummaryPeriodSchema = z.object({
+  kind: z.literal(TRAFFIC_SUMMARY_PERIOD), start: z.iso.date(), end: z.iso.date(),
+  property: z.literal("541304395"), timezone: z.literal("America/Los_Angeles"),
+  totalSessions: metric, totalRegistrations: metric,
+}).strict().refine(row => row.start <= row.end && Date.parse(row.end) - Date.parse(row.start) <= 365 * 86400000,
+  { message: "流量汇总周期无效" });
+export type TrafficSummaryPeriod = z.infer<typeof trafficSummaryPeriodSchema>;
+export const trafficSummaryPeriodKind = ({ start, end }: DateRange) =>
+  `${TRAFFIC_SUMMARY_PERIOD}:${(Date.parse(end) - Date.parse(start)) / 86400000 + 1}`;
+
 export type TrafficSummaryDay = z.infer<typeof trafficSummaryDaySchema>;
 export type TrafficSummaryRead = { date: string; latestClosedDay: string; day: TrafficSummaryDay | null; previous: TrafficSummaryDay | null };
 type SiteMetric = typeof TRAFFIC_SUMMARY_SITE_METRICS[number];
@@ -60,4 +72,10 @@ export function mergeTrafficSummaryDay(previous: TrafficSummaryDay | null, next:
     for (const key of TRAFFIC_SUMMARY_SESSION_METRICS) modules[id][key] = choose(previous?.modules[id][key], next.modules[id][key]);
   }
   return { ...next, site, modules };
+}
+
+
+export function mergeTrafficSummaryPeriod(previous: TrafficSummaryPeriod | null, next: TrafficSummaryPeriod): TrafficSummaryPeriod {
+  return { ...next, totalSessions: choose(previous?.totalSessions, next.totalSessions),
+    totalRegistrations: choose(previous?.totalRegistrations, next.totalRegistrations) };
 }

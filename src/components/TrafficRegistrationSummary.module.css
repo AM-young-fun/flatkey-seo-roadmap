@@ -15,3 +15,11 @@
 .header h3 { margin: 0; font-size: 15px; font-weight: 650; }
 .header p { margin: 4px 0 0; color: #64748b; }
 .note { margin: 8px 0 0; color: #64748b; font-size: 12px; }
+
+.periodTotal{color:#5d6f87;margin:-4px 0 14px;font-size:12px}
+.periodNumbers{display:flex;gap:8px 12px;align-items:baseline;flex-wrap:wrap}
+.periodNumbers strong{color:#203653;font-size:23px;font-weight:650;margin-inline:3px}
+.periodTotal p{margin:3px 0 0;line-height:1.6}
+.periodChange{padding:2px 6px;border-radius:4px;background:#f0f4f8;color:#526780;font-weight:600;white-space:nowrap}
+.periodChange[data-direction=up]{background:#ecf8f3;color:#147254}
+.periodChange[data-direction=down]{background:#fdf1ef;color:#9b4340}

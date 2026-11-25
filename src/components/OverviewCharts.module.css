@@ -19,3 +19,15 @@
 .barTooltip dl{display:grid;grid-template-columns:auto auto;column-gap:14px;margin:5px 0 0}
 .barTooltip dd{margin:0;text-align:end;font-variant-numeric:tabular-nums}
 @media(max-width:560px){.barTooltip{inset-inline-start:8px}}
+
+.lineCanvas{position:relative;border-radius:4px}
+.lineCanvas:focus-visible{outline:2px solid #3478ca;outline-offset:3px}
+.lineStatus{pointer-events:none}
+.lineTooltip{position:absolute;z-index:5;top:4px;box-sizing:border-box;width:200px;max-width:calc(100% - 12px);padding:10px 12px;border:1px solid #d7e1ee;border-radius:7px;background:#fff;box-shadow:0 6px 20px #182b4826;color:#314866;font-size:12px;line-height:1.6}
+.lineTooltip>strong{display:block;font-weight:650;margin-bottom:4px}
+.lineTooltip dl{margin:0}
+.lineTooltipMetric{display:flex;justify-content:space-between;gap:8px}
+.lineTooltipMetric dt{display:flex;align-items:center;gap:6px}
+.lineTooltipMetric i{width:7px;height:7px;flex:none;border-radius:50%;background:#3478ca}
+.lineTooltipMetric[data-secondary] i{background:#087e76}
+.lineTooltipMetric dd{margin:0;text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}

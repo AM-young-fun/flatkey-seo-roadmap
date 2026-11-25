@@ -23,7 +23,7 @@ const fixtures = [
   { ...base, property: "sc-domain:flatkey.ai", kind: "gsc-page-queries",
     rows: [{ url, query: "example model", clicks: 2, impressions: 10, position: 5 }] },
 ];
-let query, returnedBytes, data = fixtures, localPreview = false, priorityWorkspaceReads = 0;
+let query, returnedBytes, trafficQuery, trafficPeriodQuery, data = fixtures, localPreview = false, priorityWorkspaceReads = 0;
 const load = Module._load;
 Module._load = function (name, ...args) {
   if (name === "@/lib/seo-analytics-access") return {
@@ -33,6 +33,12 @@ Module._load = function (name, ...args) {
   };
   if (name === "@/lib/prisma") return { prisma: { seoAnalyticsDay: { findMany: async input => {
     query = input;
+    if (input.where.kind?.in.includes("flatkey-traffic-summary-v1")) trafficQuery = input;
+    if (input.where.kind?.in.some(kind => kind.startsWith("flatkey-traffic-summary-period-v1:"))) {
+      trafficPeriodQuery = input;
+      return data.filter(row=>row.kind === "flatkey-traffic-summary-period-v1" && input.where.date.in.includes(row.end))
+        .map(payload => ({ payload, date: payload.end }));
+    }
     const rows = data.filter(row => (input.where.OR ?? [input.where]).some(where => where.kind.in.includes([row.kind, row.country, row.property === "558899190" || row.property === "https://rackrate.org/" ? "rackrate.org" : null].filter(Boolean).join(":"))
       && row.date >= where.date.gte && row.date <= where.date.lte))
       .map(payload => ({ payload, kind: payload.kind, date: payload.date }));
@@ -197,10 +203,14 @@ test("brand traffic uses final visible queries on the official Flatkey site only
 
 test("the traffic overview reads only session sources and retains the exact requested period", async () => {
   const payload = await read("&view=traffic-overview");
-  assert.deepEqual(query.where.kind.in, ["flatkey-traffic-summary-v1", "ga4-pages"]);
+  assert.deepEqual(trafficQuery.where.kind.in, ["flatkey-traffic-summary-v1", "ga4-pages"]);
+  assert.deepEqual(trafficPeriodQuery.where.kind.in, ["flatkey-traffic-summary-period-v1:2"]);
+  assert.deepEqual(trafficPeriodQuery.where.date.in, ["2026-10-03", "2026-10-05"]);
   assert.equal(payload.start, range.start);
   assert.equal(payload.end, range.end);
   assert.equal(payload.automatic, false);
+  assert.deepEqual(payload.comparison, { previous: {start:"2026-10-02",end:"2026-10-03"},
+    sessions:{current:null,previous:null},registrations:{current:null,previous:null} });
   assert.equal(payload.modules.complete, false);
   assert.equal(payload.moduleDays[0].sessions.models, 500500);
   assert.ok(payload.daily.every(row => row.site.organicSessions === null));
