@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { Indexing404Response } from "@/lib/seo-indexing-404";
 import { SeoAnchor } from "./SeoAnchor";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
@@ -9,9 +10,13 @@ export function SeoIndexing404() {
   const result = useSeoRead<Indexing404Response>("/api/seo/indexing-404", { showFeedback: false });
   const history = result.data?.observations ?? [];
   const latest = history[0];
-  return <section className={styles.panel} aria-labelledby="seo-indexing-404">
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (location.hash === "#seo-indexing-404") section.current?.scrollIntoView();
+  }, []);
+  return <section ref={section} id="seo-indexing-404" className={styles.panel} aria-labelledby="seo-indexing-404-title">
     <div className={styles.heading}>
-      <h2 id="seo-indexing-404">Flatkey 网页索引 · 404</h2>
+      <h3 id="seo-indexing-404-title">Flatkey 网页索引 · 404</h3>
       <SeoAnchor href="https://search.google.com/search-console/index?resource_id=sc-domain%3Aflatkey.ai" target="_blank" rel="noopener noreferrer">打开 Search Console ↗</SeoAnchor>
     </div>
     {result.error ? <p role="alert">404 记录暂时无法读取。 <button type="button" onClick={result.retry}>重试</button></p> :
@@ -23,7 +28,7 @@ export function SeoIndexing404() {
           <div><span>Google 报告日期</span><strong>{latest.reportDate ?? "待取得"}</strong></div>
           <div><span>Google 验证状态</span><strong>{latest.validation ?? "待取得"}</strong></div>
         </div>
-        <p>最近采集于 {shanghaiStamp(latest.observedAt)}（北京时间）。{latest.decision ?? "尚无本次处置记录。"}</p>
+        <p>GSC 最新采集于 <time dateTime={latest.observedAt}>{shanghaiStamp(latest.observedAt)}</time>（北京时间）。{latest.decision ?? "尚无本次处置记录。"}</p>
         <details className={styles.history}>
           <summary>查看每日记录</summary>
           <div className={styles.scroll}><table>

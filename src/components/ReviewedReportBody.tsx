@@ -37,8 +37,8 @@ const components: Components = {
   img({ alt }) { return alt ? <span>{alt}</span> : null; },
 };
 
-export function ReviewedReportBody({ text, label = "已审周报完整正文" }: { text: string; label?: string }) {
-  return <section className={styles.body} aria-label={label}>
+export function ReviewedReportBody({ text, label = "已审周报完整正文", embedded = false }: { text: string; label?: string; embedded?: boolean }) {
+  return <section className={embedded ? `${styles.body} ${styles.embedded}` : styles.body} aria-label={label}>
     <Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={reportUrl} components={components}>{text}</Markdown>
   </section>;
 }
