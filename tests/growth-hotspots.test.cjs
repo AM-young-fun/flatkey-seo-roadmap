@@ -75,3 +75,24 @@ test("a direction card cannot borrow a task from a different experiment or direc
   const view=project(tasks,[{id:"original-plan",status:"scheduled",taskIds:["blog"]}],strategy);
   assert.equal(view.items[0].admission.status,"not_approved");
 });
+
+test("saved source pairs with keyword identity stay visible while missing topic links block admission", () => {
+  const keywordId = "real-keyword";
+  const research = task("original-research", { keywordId, topicId: null, directionId: null, status: "verified", researchReview: null });
+  const blog = task("original-blog", { keywordId, topicId: null, directionId: null, kind: "blog", source: "human", status: "planned", researchReview: null, dependencies: [research.id], pageUrl: "https://flatkey.ai/blog/draft-target" });
+  const crossSiteResearch = task("other-site-research", { keywordId, topicId: null, directionId: null, siteDomain: "modelfit.cc" });
+  const unrelated = task("unrelated", { keywordId, topicId: null, directionId: null, keyword: "different keyword", evidence: [] });
+  const noIdentity = task("unverified-identity", { topicId: null, keywordId: null });
+  const view = project([research, blog, crossSiteResearch, unrelated, noIdentity], [{ id: "plan", status: "scheduled", taskIds: [blog.id] }]);
+  assert.equal(view.items.length, 2);
+  const flatkey = view.items.find(item => item.site === "flatkey.ai");
+  assert.equal(flatkey.topicId, null);
+  assert.equal(flatkey.inQuarter, false);
+  assert.equal(flatkey.admission.status, "needs_topic_link");
+  assert.notEqual(flatkey.stage, "scheduled");
+  assert.equal(flatkey.researchComplete, false);
+  assert.equal(flatkey.approvedAt, null);
+  assert.deepEqual(flatkey.taskIds, [blog.id, research.id]);
+  assert.equal(flatkey.tasks[0].pageUrl, null, "an intended draft URL is not a publication");
+  assert.deepEqual(view.items.find(item => item.site === "modelfit.cc").taskIds, [crossSiteResearch.id]);
+});
