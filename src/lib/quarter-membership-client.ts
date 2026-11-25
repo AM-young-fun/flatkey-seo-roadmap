@@ -17,7 +17,8 @@ export async function verifyMembershipOperation(command: MembershipApply, origin
     return { status: "unknown" as const, error: "原成员请求结果尚未核实，只核对原回执，不重复提交" };
   }
   if (receipt.status !== "APPLIED" || receipt.actor !== "human" || receipt.requestId !== command.requestId || receipt.selectionHash !== original.selectionHash
-    || receipt.sourceHash !== command.selection.sourceHash || receipt.expectedStateHash !== command.expectedStateHash || receipt.uniqueWords !== 1600
+    || receipt.sourceHash !== command.selection.sourceHash || receipt.expectedStateHash !== command.expectedStateHash
+    || receipt.uniqueWords !== original.uniqueWords
     || receipt.membershipCount !== original.membershipCount || canonicalIdentityClient(receipt.manifest) !== canonicalIdentityClient(original.manifest)) {
     return { status: "unknown" as const, error: "原成员审计与本次确切名单不匹配，未再次提交" };
   }
