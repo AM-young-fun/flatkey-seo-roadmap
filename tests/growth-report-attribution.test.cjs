@@ -75,8 +75,44 @@ test("a newer incomplete source revision blocks stale complete weekly attributio
   assert.deepEqual(growthPageContributionDirections(workspace, [], [newer, ...rows], period, now), [], "input order cannot restore the obsolete complete row");
   const anotherCountry = { ...newer, country: "JP" };
   assert.equal(growthPageContributionDirections(workspace, [], [...rows, anotherCountry], period, now)[0].drivers[0].current, 28, "a different country identity does not invalidate the all-country source");
-  const ga = before.map(row => ({ ...row, observedAt: "2026-11-23T10:00:00Z", kind: "ga4-pages", property: "541304395", sessionsComplete: true, rows: [{ path: "/blog/original-page", sessions: row.date < period.start ? 2 : 4, users: 1, registrations: null }] }));
+  const ga = before.map(row => ({ ...row, observedAt: "2026-11-23T10:00:00Z", kind: "ga4-pages", property: "541304395", scope: "session-organic-search", hostScope: "production-hosts-v1", hostnameDimension: "hostName", complete: false, sessionsComplete: true, rows: [{ hostname: "flatkey.ai", path: "/blog/original-page", sessions: row.date < period.start ? 2 : 4, registrations: null }] }));
   assert.equal(growthPageContributionDirections(workspace, [], ga, period, now)[0].drivers[0].current, 28);
   const missingSessions = { ...ga.at(-1), observedAt: newer.observedAt, sessionsComplete: false };
   assert.deepEqual(growthPageContributionDirections(workspace, [], [...ga, missingSessions], period, now), []);
+});
+
+test("the saved range produces independent sessions, click and impression leaders", () => {
+  const urls = Array.from({ length: 5 }, (_, index) => `https://flatkey.ai/blog/page-${index}`);
+  const gsc = observations(urls[0]).map(row => ({
+    ...row,
+    rows: urls.map((url, index) => ({
+      url, clicks: row.date < period.start ? 1 : 20 - index,
+      impressions: row.date < period.start ? 100 : 150 + index * 10,
+      position: null,
+    })),
+  }));
+  const ga4 = gsc.map(row => ({
+    kind: "ga4-pages", property: "541304395", scope: "session-organic-search", hostScope: "production-hosts-v1", hostnameDimension: "hostName",
+    date: row.date, observedAt: row.observedAt, source: row.source, complete: false, sessionsComplete: true,
+    rows: [{ hostname: "flatkey.ai", path: "/blog/page-0", sessions: row.date < period.start ? 1 : 2, registrations: null }],
+  }));
+  const rows = growthPageContributionDirections(workspace, [], [...gsc, ...ga4], period, now)[0].drivers;
+  assert.deepEqual(rows.filter(row => row.metric === "sessions").map(({ previous, current }) => [previous, current]), [[7, 14]]);
+  assert.deepEqual(rows.filter(row => row.metric === "clicks").map(row => row.url), urls.slice(0, 3));
+  assert.deepEqual(rows.filter(row => row.metric === "impressions").map(row => row.url), urls.slice(-3).reverse());
+  assert.ok(rows.filter(row => row.metric === "impressions").every(row => row.source === "GSC"));
+  assert.match(rows.find(row => row.metric === "impressions").explanation, /Google曝光/);
+});
+
+test("a complete pair still requires the same source, property and real landing hostname", () => {
+  const url = "https://flatkey.ai/blog/original-page", gsc = observations(url);
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [...gsc.slice(0, -1), { ...gsc.at(-1), property: "https://flatkey.ai/" }], period, now), []);
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [...gsc.slice(0, -1), { ...gsc.at(-1), source: "browser-export" }], period, now), []);
+  const ga4 = gsc.map(row => ({
+    kind: "ga4-pages", property: "541304395", scope: "session-organic-search", hostScope: "production-hosts-v1", hostnameDimension: "hostName",
+    date: row.date, observedAt: row.observedAt, source: row.source, complete: false, sessionsComplete: true,
+    rows: [{ hostname: "flatkey.ai", path: "/blog/original-page", sessions: row.date < period.start ? 1 : 2, registrations: null }],
+  }));
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [...ga4.slice(0, -1), { ...ga4.at(-1), rows: [{ ...ga4.at(-1).rows[0], hostname: null }] }], period, now), []);
+  assert.deepEqual(growthPageContributionDirections(workspace, [], [...ga4.slice(0, -1), { ...ga4.at(-1), hostScope: undefined }], period, now), []);
 });

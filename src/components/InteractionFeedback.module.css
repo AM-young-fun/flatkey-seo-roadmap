@@ -1,7 +1,5 @@
-.progress { position: fixed; z-index: 1800; inset: 0 0 auto; height: 3px; overflow: hidden; background: #dbeafe; pointer-events: none; }
-.progress span { display: block; height: 100%; width: 35%; background: #2563eb; animation: travel 1.3s ease-in-out infinite; }
 .region { position: fixed; z-index: 1700; top: 68px; right: 20px; width: min(370px, calc(100vw - 32px)); display: grid; justify-items: end; gap: 8px; pointer-events: none; }
-.notice, .pending { display: flex; align-items: center; gap: 9px; max-width: 100%; padding: 11px 14px; border: 1px solid #dfe7f1; border-radius: 9px; background: #fff; color: #34445c; box-shadow: 0 4px 18px #20345114; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.notice { display: flex; align-items: center; gap: 9px; max-width: 100%; padding: 11px 14px; border: 1px solid #dfe7f1; border-radius: 9px; background: #fff; color: #34445c; box-shadow: 0 4px 18px #20345114; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .notice { pointer-events: auto; }
 .notice > svg { flex-shrink: 0; color: #15803d; }
 .notice[data-tone=error] { border-color: #fecaca; }
@@ -9,9 +7,4 @@
 .notice button { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #64748b; cursor: pointer; }
 .notice button:hover { background: #f1f5f9; }
 .notice button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
-.pending { animation: reveal .15s ease .12s both; }
-.pending small { display: block; margin-top: 3px; color: #64748b; }
-@keyframes travel { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
-@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 640px) { .region { top: auto; bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; } }
-@media (prefers-reduced-motion: reduce) { .progress span { animation: none; transform: translateX(90%); opacity: .6; } .pending { animation: none; } }

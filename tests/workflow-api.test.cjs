@@ -93,6 +93,35 @@ test("workflow diagnostics expose aggregate sizes and durations without rows or 
   assert.equal(denied.status, 401); assert.equal(Object.hasOwn(await denied.json(), "phases"), false);
 });
 
+test("work task list filters all matching records before returning fixed ten-row pages", async () => {
+  const weekStart = "2026-11-23", dueAt = "2026-11-23T09:00:00Z";
+  for (let index = 0; index < 26; index++) {
+    const id = `page-task-${String(index).padStart(2, "0")}`;
+    const matching = index > 1 && index < 24;
+    const record = { ...task, id, weekStart, dueAt, title: matching ? `Matching canonical ${index}` : `Other task ${index}` };
+    assert.equal((await post(mutation({ requestId: `add-${id}`, record }))).status, 200);
+  }
+  const base = `${url}?operational=1&workList=1&format=list`;
+  const filtered = `${base}&q=matching&status=scheduled&site=flatkey.ai&taskType=technical&range=all`;
+  for (const [page, count, first] of [[1, 10, "02"], [2, 10, "12"], [3, 2, "22"], [9, 2, "22"]]) {
+    const response = await GET(new Request(`${filtered}&page=${page}`));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.pagination, { page: Math.min(page, 3), pageSize: 10, total: 22, pageCount: 3 });
+    assert.equal(result.tasks.length, count);
+    assert.equal(result.tasks[0].id, `page-task-${first}`);
+    assert.equal(Object.hasOwn(result, "workWeek"), false, "a page does not carry global task ID arrays");
+  }
+  const noMatches = await (await GET(new Request(`${base}&page=2&site=rackrate.org&range=all`))).json();
+  assert.deepEqual(noMatches.pagination, { page: 1, pageSize: 10, total: 0, pageCount: 1 });
+  assert.deepEqual(noMatches.tasks, []);
+  assert.equal((await (await GET(new Request(base))).json()).tasks.length, 26, "legacy callers keep their full list");
+  for (const query of ["page=0", "page=-1", "page=2&page=3", "page=1&pageSize=100", "page=1&site=bad", "page=1&status=bogus", "page=1&range=custom"]) {
+    assert.equal((await GET(new Request(`${base}&${query}`))).status, 400, query);
+  }
+  assert.equal((await GET(new Request(`${url}?taskId=task-1&page=1`))).status, 400);
+});
+
 
 test("approval preflight is authenticated, read-only and fails closed for absent approvals", async () => {
  const request = (headers={},target="https://production.test/api/seo/workflow/approval-check")=>new Request(target,{method:"POST",headers,body:JSON.stringify({approvalId:"missing",itemId:"missing",taskId:task.id,pageUrl:task.pageUrl,language:"en",contentVersion:"v1"})});

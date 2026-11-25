@@ -1,5 +1,5 @@
 import { profileRead, timedRead } from "@/lib/read-profile";
-import { workflowWorkList } from "@/lib/seo-workflow-list";
+import { parseWorkflowWorkPageQuery, workflowWorkList, workflowWorkPage } from "@/lib/seo-workflow-list";
 import { prisma } from "@/lib/prisma";
 import { approvalMaterialBacklog } from "@/lib/seo-approval-display";
 import { workflowRecordIdSchema, workflowWeekSchema, pageBelongsToSite, workflowReleaseCandidates, workflowClusterRollbackCandidates, WORKFLOW_SITES } from "@/lib/seo-workflow";
@@ -21,6 +21,8 @@ export async function GET(request: Request) {
         || ["taskId", "topicMap", "releaseQueue", "rollbackQueue", "materialQueue"].some(key => params.has(key)))) {
         throw new WorkflowError("invalid_format", "精简列表格式仅用于 operational=1 与 workList=1 的任务列表", 400);
       }
+      const page = params.has("page") && format === "list" ? parseWorkflowWorkPageQuery(params) : null;
+      if (params.has("page") && !page) throw new WorkflowError("invalid_work_page", "任务列表的页码或筛选条件无效", 400);
       if (params.has("taskId")) {
         const detail = await timedRead("detail", () => loadWorkflowTaskDetail(workflowRecordIdSchema.parse(params.get("taskId")), auth.localPreview));
         return workflowJson(detail);
@@ -50,7 +52,7 @@ export async function GET(request: Request) {
       const snapshot = await loadWorkflowSnapshot(operational ? { operational: true, workList } : {
         week, pageUrl, allHistory: rollbackQueue || params.get("allHistory") === "true",
       }, auth.localPreview);
-      if (format === "list") return workflowJson(await timedRead("list", async () => workflowWorkList(snapshot)));
+      if (format === "list") return workflowJson(await timedRead("list", async () => page ? workflowWorkPage(snapshot, page) : workflowWorkList(snapshot)));
       if (rollbackQueue) return workflowJson({ candidates: workflowClusterRollbackCandidates(snapshot), storage: snapshot.storage });
       if (materialQueue) return workflowJson({ candidates: approvalMaterialBacklog(snapshot.approvals, snapshot.tasks), storage: snapshot.storage });
       if (releaseQueue) return workflowJson({ candidates: workflowReleaseCandidates(snapshot), storage: snapshot.storage });

@@ -161,10 +161,20 @@ export async function loadGrowthReportSnapshot(date: string, localPreview = fals
     directions: [...growthReportDirections(state, workspace, period, now), ...contributions],
     observations: state.observations.filter(row => row.windowEnd >= period.start && row.windowEnd <= period.end) };
 }
-export async function loadGrowthStrategyView(localPreview = false, now = new Date()) {
+async function loadGrowthStrategyRead(localPreview: boolean, now: Date) {
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
   const [state, workspace, workflow] = await Promise.all([loadGrowthStrategy(localPreview), loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview)]);
   const snapshot = await loadGrowthReportSnapshot(date, localPreview, now, { state, workspace, workflow, trafficObservation: "rolling7day-v1" });
+  return { state, workspace, workflow, snapshot };
+}
+
+export async function loadGrowthStrategyOverview(localPreview = false, now = new Date()) {
+  const { snapshot } = await loadGrowthStrategyRead(localPreview, now);
+  return { snapshot };
+}
+
+export async function loadGrowthStrategyView(localPreview = false, now = new Date()) {
+  const { state, workspace, workflow, snapshot } = await loadGrowthStrategyRead(localPreview, now);
   const inventory = growthDueObservationInventory(workflow, state.observations, growthSourceTimezones(state), now);
   return { state, snapshot, identityReview: growthBaselineIdentityReview(state, workspace, now), sourceVersion: growthWorkspaceIdentity(workspace), formalTargets: workspace.targets.filter(row => row.membership === "formal"), ...inventory };
 }

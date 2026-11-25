@@ -58,11 +58,11 @@ test("a pending weekly review preserves other modules with concise plans and the
   };
   try {
     const html=await renderReport();
-    for(const title of ["新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","模块流量","GitHub 提示词渠道","SEO 技术质检","暂无问题","本周计划进度","下周工作计划","下周优先关注","2026-11-16","2026-11-23","知识蒸馏成本比较","JP / ja","待领取","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
+    for(const title of ["新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","GitHub 提示词渠道","SEO 技术质检","暂无问题","本周计划进度","下周工作计划","已排任务","博客关键词 1","2026-11-16","2026-11-23","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
     assert.match(html,/href="\/optimization-effects"/);
-    assert.match(html,/href="https:\/\/flatkey-seo-roadmap\.vercel\.app\/work\/next-blog\?week=2026-11-23"/);
+    assert.match(html,/href="\/work\?range=custom[^"]*rangeStart=2026-11-23/);
     assert.ok(html.indexOf("Large gain") < html.indexOf("Small gain"));
-    assert.doesNotMatch(html,/四个页面组流量|四页面组流量|工作记录与排名明细|旧工作记录不应重现|旧期关键词不应占位|\/Users\/|research\.md|完整内部制作说明|stale registration coverage|已核实，台账未齐|阶段值，整周覆盖待核验/);
+    assert.doesNotMatch(html,/模块流量|下周优先关注|知识蒸馏成本比较|四个页面组流量|四页面组流量|工作记录与排名明细|旧工作记录不应重现|旧期关键词不应占位|\/Users\/|research\.md|完整内部制作说明|stale registration coverage|已核实，台账未齐|阶段值，整周覆盖待核验/);
   } finally {selectedReport=report;}
 });
 
@@ -70,5 +70,5 @@ test("daily report presents only its day in progress and optimization metrics",a
  selectedKind="daily";
  const task=(title,day)=>({id:title,kind:"blog",title,siteDomain:"flatkey.ai",scheduled:true,status:"ready",dueAt:day+"T10:00:00+08:00",country:"US",language:"en",pageUrl:null,action:""});
  selectedReport={...report,kind:"daily",reviewedBody:undefined,reportPeriod:{start:"2026-11-18",end:"2026-11-18",timezone:"America/Los_Angeles"},counts:{originals:0,landingPages:0,optimizedPages:0},recentPages:[],pagePerformance:[],dashboard:{detailText:"SEO 技术质检\n\n暂无问题"},workPlan:{weekStart:"2026-11-16",periodStart:"2026-11-13",periodEnd:"2026-11-19",status:"scheduled",tasks:[task("当天任务","2026-11-18"),task("其他日期任务","2026-11-17")]}};
- try {const html=await renderReport();assert.match(html,/当日优化效果/);assert.doesNotMatch(html,/近一个月优化效果|周五至周四|GA4 行为与转化|四个页面组流量/);const progress=html.split("当日工作进度")[1].split("明日优先关注")[0];assert.match(progress,/当天任务/);assert.doesNotMatch(progress,/其他日期任务/);assert.match(progress,/查看当天全部任务/);}finally{selectedKind="weekly";selectedReport=report;}
+ try {const html=await renderReport();assert.match(html,/当日优化效果|当日任务/);assert.match(html,/博客关键词 0 \/ 1/);assert.match(html,/rangeStart=2026-11-18/);assert.doesNotMatch(html,/当天任务|其他日期任务|明日优先关注|当日工作进度|近一个月优化效果|GA4 行为与转化|四个页面组流量|模块流量占比/);}finally{selectedKind="weekly";selectedReport=report;}
 });

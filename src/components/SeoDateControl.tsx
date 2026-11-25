@@ -100,6 +100,7 @@ export function useSeoListDateRange(week: "calendar" | "work" = "calendar") {
   function apply(next: ListDatePreset, custom?: DateRange) {
     const query = new URLSearchParams(location.search);
     listDateParamKeys.forEach(key => query.delete(key));
+    if (week === "work") query.delete("page");
     if (next !== "all" || week === "work") query.set("range", next);
     if (next === "custom" && custom) {
       query.set("rangeStart", custom.start);

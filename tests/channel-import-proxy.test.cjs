@@ -63,3 +63,17 @@ test('delegated growth data still rejects absent/wrong/foreign-origin credential
  for(const headers of [{},{authorization:'Bearer wrong'},{authorization:'Bearer fixture',origin:'https://foreign.test'}])assert.equal((await route.GET(new Request(endpoint,{headers}))).status,401);
  assert.equal((await route.GET(new Request(endpoint,{headers:{authorization:'Bearer fixture'}}))).status,200);
 });
+
+test('growth overview keeps the existing credential and site validation boundaries', async () => {
+ const endpoint = 'https://flatkey.test/api/seo/growth';
+ const route = require('../src/app/api/seo/growth/route.ts');
+ const headers = { authorization: 'Bearer fixture' };
+ assert.equal((await route.GET(new Request(`${endpoint}?view=overview`))).status, 401);
+ const result = await route.GET(new Request(`${endpoint}?site=flatkey.ai&view=overview`, { headers }));
+ assert.equal(result.status, 200);
+ assert.equal(result.headers.get('cache-control'), 'private, no-store');
+ assert.deepEqual((await result.json()).targets, []);
+ for (const query of ['view=other', 'view=overview&view=overview', 'view=overview&site=not-a-site']) {
+   assert.equal((await route.GET(new Request(`${endpoint}?${query}`, { headers }))).status, 400);
+ }
+});

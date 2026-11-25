@@ -15,3 +15,13 @@ export async function loadRegistrationPeriods(start: string, end: string): Promi
     periodStart: { gte: new Date(start) }, periodEnd: { lte: new Date(end) } }, orderBy: { createdAt: "desc" }, take: 2000, select: { payload: true } });
   return rows.flatMap(row => { const parsed = registrationPeriodSchema.safeParse(row.payload); return parsed.success ? [parsed.data] : []; });
 }
+
+export async function loadExactRegistrationPeriod(start: string, end: string): Promise<RegistrationPeriod | null> {
+  const rows = await prisma.seoReportVersion.findMany({ where: { siteDomain: "flatkey.ai", kind: "SEO_REGISTRATION_PERIOD",
+    periodStart: new Date(start), periodEnd: new Date(end) }, orderBy: { createdAt: "desc" }, take: 10, select: { payload: true } });
+  for (const row of rows) {
+    const parsed = registrationPeriodSchema.safeParse(row.payload);
+    if (parsed.success && parsed.data.start === start && parsed.data.end === end) return parsed.data;
+  }
+  return null;
+}

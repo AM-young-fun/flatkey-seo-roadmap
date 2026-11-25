@@ -8,12 +8,21 @@ frozen.dashboard={detailText:'原六块正文',attributionText:'原归因',techn
 frozen.dailyDashboardBody={version:1,recordOnly:true};
 const newerGeneric={...frozen,id:'seo-digest:2026-11-23:bbbbbbbbbbbbbbbb',dashboard:undefined,dailyDashboardBody:undefined,rankingNotes:['较新通用稿，不应遮盖来源看板']};
 let liveReads=0,snapshotReads=0,deliveryReads=0,local=false,hasSourceDashboard=true;
+let archiveDates = [new Date(frozen.date)], archiveQueries = [];
 const tripwire=()=>{liveReads++;throw Error('saved_archive_must_not_overlay_live_state');};
 Module._load=function(name,...args){
  if(name==='@/lib/services/import-tokens')return{authenticateImportToken:async()=>true};
  if(name==='@/lib/seo-analytics-access')return{authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>local,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
  if(name==='@/lib/services/seo-digest')return{DigestError:class extends Error{},generateSeoDigest:tripwire,saveSeoDigest:tripwire};
- if(name==='@/lib/prisma')return{prisma:{seoReportVersion:{groupBy:async()=>[{periodStart:new Date(frozen.date)}],findFirst:async({where})=>{snapshotReads++;return where.id?{payload:structuredClone(where.id===frozen.id?frozen:newerGeneric)}:where.AND?hasSourceDashboard?{payload:structuredClone(frozen)}:null:{payload:structuredClone(newerGeneric)};},findUnique:async()=>({kind:'SEO_DIGEST',payload:structuredClone(frozen)})},seoDigestDelivery:{findUnique:async()=>{deliveryReads++;return null;}}}};
+ if(name==='@/lib/prisma')return{prisma:{seoReportVersion:{groupBy:async({skip = 0, take, where})=>{
+   archiveQueries.push({skip, take, kind: where.payload.equals});
+   return archiveDates.slice(skip, take === undefined ? undefined : skip + take).map(periodStart => ({periodStart}));
+ },findFirst:async({where,select})=>{
+   if(select.periodStart) { const periodStart = archiveDates.find(day => !where.periodStart?.lt || day < where.periodStart.lt); return periodStart ? { periodStart } : null; }
+   snapshotReads++;
+   if (String(where.periodStart) !== String(new Date(frozen.date))) return null;
+   return where.id?{payload:structuredClone(where.id===frozen.id?frozen:newerGeneric)}:where.AND?hasSourceDashboard?{payload:structuredClone(frozen)}:null:{payload:structuredClone(newerGeneric)};
+ },findUnique:async()=>({kind:'SEO_DIGEST',payload:structuredClone(frozen)})},seoDigestDelivery:{findUnique:async()=>{deliveryReads++;return null;}}}};
  if(name==='@/lib/seo-workflow-http')return{authorizeWorkflow:tripwire};
  if(name==='@/lib/services/seo-digest-recovery')return{DigestRecoveryError:class extends Error{}};
  if(name.startsWith('@/lib/services/'))return new Proxy({}, {get:()=>tripwire});
@@ -35,4 +44,35 @@ test('a racing newer generic cannot obscure a source snapshot, while explicit ge
  const current=await route.GET(new Request(url+'?saved=1&archive=1&kind=daily'));assert.equal((await current.json()).report.id,frozen.id);
  const explicit=await route.GET(new Request(url+'?saved=1&archive=1&kind=daily&reportId='+newerGeneric.id));assert.equal((await explicit.json()).report.id,newerGeneric.id);
  hasSourceDashboard=false;try{const initial=await route.GET(new Request(url+'?saved=1&archive=1&kind=daily'));assert.equal((await initial.json()).report.id,newerGeneric.id);}finally{hasSourceDashboard=true;}assert.equal(liveReads,0);
+});
+
+test('archive dates are distinct ten-row DB pages without changing the selected report', async t => {
+  const oldDates = archiveDates;
+  archiveDates = Array.from({ length: 23 }, (_, index) => new Date(Date.parse(frozen.date) - index * 86400000));
+  archiveQueries = [];
+  t.after(() => { archiveDates = oldDates; });
+  const get = (page, rest = '') => route.GET(new Request(`${url}?saved=1&archive=1&kind=daily&archivePage=${page}${rest}`));
+  for (const [page, length, archiveHasNext] of [[1, 10, true], [2, 10, true], [3, 3, false], [9, 0, false]]) {
+    const response = await get(page);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.dates.length, length);
+    assert.equal(body.archivePage, page);
+    assert.equal(body.archiveHasNext, archiveHasNext);
+    assert.equal(body.report.id, frozen.id, 'pagination without an explicit date keeps the newest report');
+    assert.deepEqual(archiveQueries.at(-1), { skip: (page - 1) * 10, take: 10, kind: 'daily' });
+  }
+  const date = await (await get(2, '&date=' + frozen.date)).json();
+  assert.equal(date.dates.includes(frozen.date), false);
+  assert.equal(date.report.id, frozen.id, 'an explicitly selected date may be outside the current page');
+  const exact = await (await get(2, '&reportId=' + newerGeneric.id)).json();
+  assert.equal(exact.report.id, newerGeneric.id, 'the exact report ID takes precedence over the archive page');
+  const legacy = await (await route.GET(new Request(url + '?saved=1&archive=1&kind=daily'))).json();
+  assert.equal(legacy.dates.length, 23);
+  assert.equal(Object.hasOwn(legacy, 'archivePage'), false);
+  assert.equal(Object.hasOwn(legacy, 'archiveHasNext'), false);
+  for (const query of ['?archivePage=1', '?saved=1&archive=1&archivePage=0', '?saved=1&archive=1&archivePage=1&archivePage=2']) {
+    assert.equal((await route.GET(new Request(url + query))).status, 400);
+  }
+  assert.equal(liveReads, 0);
 });

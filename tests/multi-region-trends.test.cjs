@@ -44,6 +44,7 @@ mockFile("src/lib/services/serp-results.ts", {
 });
 const { GET } = require("../src/app/api/seo/trends/route.ts");
 const { combinedSerpTrendPoints, multiRegionTrendPeriods, marketTrendCount, marketTrendLineSegments, marketTrendComparison, serpCheckTrendFrames, scopeTrendCohorts, trendModuleTargets } = require("../src/lib/ranking-trends.ts");
+const { rankingTrendDisplayPeriods } = require("../src/components/ranking-trend-display.ts");
 const { REGION_CODES } = require("../src/lib/seo.ts");
 const request = extra => new Request(`https://flatkey.test/api/seo/trends?region=all&start=2026-10-08&end=2026-10-16&refresh=1${extra ?? ""}`);
 beforeEach(t => { calls = []; failMarket = null; failCohort = false; scopedHistory = false; currentTargets = frozenTargets; t.mock.method(globalThis, "fetch", async () => { throw new Error("no provider requests from a trend read"); }); });
@@ -68,6 +69,27 @@ test("only explicit complete identical cohorts can connect or calculate change",
     assert.deepEqual(marketTrendLineSegments([a, { ...b, ...patch }]), []);
     assert.equal(marketTrendComparison(a, { ...b, ...patch }), null);
   }
+});
+
+test("an incompletely covered zero leaves a chart gap and keeps all four historical records", () => {
+  const point = (date, ranked, captured, total, pending, sampleOnly = false) => ({
+    date, ranked, captured, total, pending, sampleOnly, outside: 0, comparable: false, cohortHash: null,
+  });
+  const history = [
+    point("2026-10-02", 9, 30, 1596, 1587, true),
+    point("2026-10-20", 230, 957, 1486, 1238),
+    point("2026-11-03", 223, 960, 1490, 1265),
+    point("2026-11-16", 0, 1, 1516, 1516),
+  ];
+  const display = rankingTrendDisplayPeriods(history);
+  assert.deepEqual(display.map(row => row.key), history.map(row => row.date));
+  assert.deepEqual(display.map(row => row.chartValue), [9, 230, 223, null]);
+  assert.equal(display[3].point, history[3]);
+  assert.equal(display[3].captured, 1);
+  assert.deepEqual(marketTrendLineSegments(display.map(row => row.point)), []);
+  const measuredZero = { ...point("2026-11-16", 0, 4, 4, 0), outside: 4 };
+  assert.equal(rankingTrendDisplayPeriods([measuredZero])[0].chartValue, 0);
+  assert.equal(rankingTrendDisplayPeriods([{ ...measuredZero, sampleOnly: true }])[0].chartValue, null);
 });
 
 test("one four-market read shares the immutable cohort and keeps failed, missing and measured-zero countries distinct", async () => {

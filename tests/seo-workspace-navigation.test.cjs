@@ -51,11 +51,12 @@ test("empty redirects have no dangling query; approval deep links preserve the t
 
 test("task detail uses its recorded week and restores the available list filters", () => {
   const detail = new URL(workTaskHref({ id: "task:es", weekStart: "2026-11-09" },
-    new URLSearchParams({ week: "current", site: "flatkey.ai", country: "ES", taskType: "optimization", q: "servidor gpu", range: "custom", rangeStart: "2026-11-16", rangeEnd: "2026-11-20" })), "https://test.invalid");
+    new URLSearchParams({ week: "current", site: "flatkey.ai", country: "ES", taskType: "optimization", q: "servidor gpu", range: "custom", rangeStart: "2026-11-16", rangeEnd: "2026-11-20", page: "2" })), "https://test.invalid");
   assert.equal(detail.pathname, "/work/task%3Aes");
   assert.equal(detail.searchParams.get("week"), "2026-11-09");
   const list = workTaskListHref(Object.fromEntries(detail.searchParams));
-  assert.equal(list, "/work?country=ES&taskType=optimization&q=servidor+gpu&range=custom&rangeStart=2026-11-16&rangeEnd=2026-11-20");
+  assert.equal(list, "/work?country=ES&site=flatkey.ai&taskType=optimization&q=servidor+gpu&range=custom&rangeStart=2026-11-16&rangeEnd=2026-11-20&page=2");
+  assert.equal(workTaskHref({ id: "task:es" }, new URLSearchParams({ page: "2" })), "/work/task%3Aes?page=2");
 });
 
 test("report task links carry the date range the work list reads", () => {

@@ -65,7 +65,8 @@
 .workspace .reportHeader h2 { margin: 0; font-size: 20px; line-height: 1.35; }
 .reportHeader p { margin: 5px 0 0; color: #52647b; font-size: 12px; }
 .badge { flex: none; padding: 3px 9px; border-radius: 6px; background: #eef4ff; color: #244e9c; font-size: 12px; }
-.metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; margin: 0; }
+.archivePages { display:flex; align-items:center; flex-wrap:wrap; gap:12px; font-size:12px; color:#64748b; }
 .metrics > div { padding: 14px 16px; }
 .metrics dt { color: #52647b; font-size: 13px; }
 .metrics dd { margin: 4px 0 0; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }

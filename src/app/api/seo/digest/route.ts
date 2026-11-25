@@ -23,6 +23,8 @@ import { saveDailyDashboardSeoDigest } from "@/lib/services/seo-daily-dashboard"
 export const dynamic = "force-dynamic";
 const auth = async (request: Request) => !request.headers.get("origin") && await authenticateImportToken(request);
 const reportId = z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/);
+const archivePageSize = 10;
+const archivePageSchema = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().positive().max(214748364));
 const mutation = z.discriminatedUnion("action", [
   reviewedDigestCommandSchema,
   draftDigestCommandSchema,
@@ -48,6 +50,13 @@ async function readDigest(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const archive = params.get("saved") === "1" && params.get("archive") === "1";
+    const rawArchivePage = params.get("archivePage");
+    if (rawArchivePage !== null && (!archive || params.getAll("archivePage").length !== 1)) {
+      return Response.json({ message: "归档页码仅用于已保存报告列表" }, { status: 400, headers });
+    }
+    const archivePage = rawArchivePage === null ? null : archivePageSchema.parse(rawArchivePage);
+    const archiveOffset = archivePage === null ? 0 : (archivePage - 1) * archivePageSize;
+    const archiveMetadata = (archiveHasNext: boolean) => archivePage === null ? {} : { archivePage, archiveHasNext };
     const rawDate = params.get("date");
     const kind = digestKindSchema.parse(params.get("kind") ?? "daily");
     const defaultDate = kind === "daily" && beijingDay() >= DAILY_BUSINESS_DATE_SWITCH ? beijingDay() : reportDay();
@@ -60,28 +69,41 @@ async function readDigest(request: Request) {
       const preview = process.env.SEO_DIGEST_PREVIEW_DIR;
       if (preview && isAbsolute(preview) && analyticsLocalPreview(request)) {
         const suffix = `.${kind}.json`;
-        const dates = archive ? (await readdir(preview))
+        const allDates = archive ? (await readdir(preview))
           .filter(name => name.endsWith(suffix))
           .map(name => name.slice(0, -suffix.length))
           .filter(value => digestDateSchema.safeParse(value).success)
           .sort().reverse() : undefined;
-        const selected = requestedDate ?? dates?.[0];
+        const dates = archivePage === null ? allDates : allDates?.slice(archiveOffset, archiveOffset + archivePageSize);
+        const selected = requestedDate ?? allDates?.[0];
         const saved = selected ? await readFile(join(preview, `${selected}.${kind}.json`), "utf8").catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return null;
           throw error;
         }) : null;
         const local = saved ? JSON.parse(saved) : null;
         const report = local?.report;
-        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null, dates }, { headers });
+        return Response.json({ report: report && report.date === selected && report.kind === kind && (!explicitId || explicitId === report.id) ? report : null,
+          dates, ...archiveMetadata((allDates?.length ?? 0) > archiveOffset + archivePageSize) }, { headers });
       }
       const scope = { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", payload: { path: ["kind"], equals: kind } };
-      const dates = archive ? (await timedRead("archive-dates", () => prisma.seoReportVersion.groupBy({
+      const dateRows = archive ? await timedRead("archive-dates", () => prisma.seoReportVersion.groupBy({
         by: ["periodStart"],
         where: scope,
         orderBy: { periodStart: "desc" },
-      }))).map(row => row.periodStart.toISOString().slice(0, 10)) : undefined;
-      const selected = requestedDate ?? dates?.[0];
-      if (!selected) return Response.json({ report: null, dates }, { headers });
+        ...(archivePage === null ? {} : { skip: archiveOffset, take: archivePageSize }),
+      })) : undefined;
+      const dateKey = (day: Date) => day.toISOString().slice(0, 10);
+      const dates = dateRows?.map(row => dateKey(row.periodStart));
+      const last = dateRows?.at(-1)?.periodStart;
+      const [older, latest] = await Promise.all([
+        archivePage !== null && dateRows?.length === archivePageSize && last
+          ? prisma.seoReportVersion.findFirst({ where: { ...scope, periodStart: { lt: last } }, select: { periodStart: true } }) : null,
+        archiveOffset > 0 && !requestedDate
+          ? prisma.seoReportVersion.findFirst({ where: scope, orderBy: { periodStart: "desc" }, select: { periodStart: true } }) : null,
+      ]);
+      const selected = requestedDate ?? (archiveOffset > 0 ? latest && dateKey(latest.periodStart) : dates?.[0]);
+      const selection = { dates, ...archiveMetadata(Boolean(older)) };
+      if (!selected) return Response.json({ report: null, ...selection }, { headers });
       const delivery = explicitId || archive ? null : await prisma.seoDigestDelivery.findUnique({
         where: { id: `seo-digest-delivery:${kind}:${selected}` }, select: { status: true, reportId: true },
       });
@@ -105,7 +127,7 @@ async function readDigest(request: Request) {
           const access = await authorizeWorkflow(request);
           return { supplement: await loadWeeklySupplementForDate(report.date, access.localPreview), editable: access.actor === "human" };
         }).catch(() => undefined) : undefined;
-      return Response.json({ report: report ?? null, dates, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
+      return Response.json({ report: report ?? null, ...selection, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }

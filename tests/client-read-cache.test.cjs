@@ -35,3 +35,19 @@ test("failed and unauthorized responses are never cached or silently converted i
   await assert.rejects(store.read("/api/report"), error=>error.status === 503);
   assert.equal(calls,2); assert.equal(store.peek("/api/report"),null);
 });
+
+test("an overview deadline terminates the read, clears the pending request, and allows a retry", async () => {
+  let calls = 0;
+  const store = createClientReadCache(async (_url, { signal }) => {
+    if (++calls > 1) return Response.json({ retried: true });
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+  });
+  const keepAlive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(store.read("/api/seo/growth", false, 60_000, 5), error => error.status === 408);
+    assert.equal(store.peek("/api/seo/growth"), null);
+    assert.deepEqual(await store.read("/api/seo/growth"), { retried: true });
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});

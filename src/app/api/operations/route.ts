@@ -5,7 +5,8 @@ import { isDatabaseConfigured } from "@/lib/env";
 import { retryDatabaseRead } from "@/lib/database-read";
 import { analyticsLocalPreview } from "@/lib/seo-analytics-access";
 import { configurationOnlyOperationsStatus } from "@/lib/operations";
-import { loadOperationsStatus } from "@/lib/services/operations";
+import { automationSchedulePage } from "@/lib/seo-automation-schedule";
+import { loadAutomationSchedulePage, loadOperationsStatus } from "@/lib/services/operations";
 import { collectionControlSchema } from "@/lib/collection-control";
 import { mutateCollectionControl } from "@/lib/services/collection-control";
 import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
@@ -17,9 +18,20 @@ const headers = { "Cache-Control": "private, no-store" };
 export async function GET(request: Request) {
   const preview = analyticsLocalPreview(request);
   if (!preview && (!isAuthEnabled() || !await isValidAuthToken((await cookies()).get(AUTH_COOKIE_NAME)?.value))) return NextResponse.json({ message: "请先登录" }, { status: 401, headers });
-  if (!isDatabaseConfigured()) return NextResponse.json(configurationOnlyOperationsStatus(new Date(), preview ? "本地预览未连接执行数据库，显示已回读配置；最近运行待核实。" : "执行数据库未配置，显示已回读配置；最近运行待核实。"), { headers });
-  try { return NextResponse.json(await retryDatabaseRead(loadOperationsStatus), { headers }); }
-  catch { return NextResponse.json(configurationOnlyOperationsStatus(), { headers }); }
+  const params = new URL(request.url).searchParams;
+  const schedule = params.get("view") === "schedule", pageText = params.get("page") ?? "1", page = Number(pageText);
+  if (schedule && (!/^[1-9]\d*$/.test(pageText) || !Number.isSafeInteger(page) || params.getAll("page").length > 1)) {
+    return NextResponse.json({ message: "定时任务页码无效" }, { status: 400, headers });
+  }
+  const fallback = (note?: string) => {
+    const status = configurationOnlyOperationsStatus(new Date(), note);
+    return NextResponse.json(schedule ? automationSchedulePage(status, page) : status, { headers });
+  };
+  if (!isDatabaseConfigured()) return fallback(preview ? "本地预览未连接执行数据库，显示已回读配置；最近运行待核实。" : "执行数据库未配置，显示已回读配置；最近运行待核实。");
+  try {
+    const status = schedule ? await retryDatabaseRead(() => loadAutomationSchedulePage(page)) : await retryDatabaseRead(loadOperationsStatus);
+    return NextResponse.json(status, { headers });
+  } catch { return fallback(); }
 }
 
 export async function POST(request: Request) {

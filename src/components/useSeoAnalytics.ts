@@ -33,7 +33,7 @@ export type SeoAnalytics = DateRange & {
   pages: PagePerformance[];
 };
 
-export function useSeoRead<T>(url: string | null) {
+export function useSeoRead<T>(url: string | null, { showFeedback = true, timeoutMs = 60_000 }: { showFeedback?: boolean; timeoutMs?: number } = {}) {
   const revision = useSyncExternalStore(clientReadCache.subscribe, clientReadCache.revision, () => 0);
   const [result, setResult] = useState<{ url: string; revision: number; attempt: number; data: T | null; error: string | null } | null>(null);
   const [refresh, setRefresh] = useState({ url, id: 0 });
@@ -52,19 +52,19 @@ export function useSeoRead<T>(url: string | null) {
       busy.current = url;
       const network = force || clientReadCache.peekFresh<T>(url) === null;
       if (network) setReadState({ url, revision, pending: true });
-      const finish = network ? interactionFeedback.begin("read", "正在加载页面数据…") : () => {};
+      const finish = network && showFeedback && !force ? interactionFeedback.begin("read", "正在加载页面数据…") : () => {};
       finishRead = finish;
       try {
-        const data = await clientReadCache.read<T>(url, force, 60_000);
+        const data = await clientReadCache.read<T>(url, force, 60_000, timeoutMs);
         if (active && revision === clientReadCache.revision()) {
           setResult({ url, revision, attempt: refresh.id, data, error: null });
-          if (force) actionSucceeded("数据已刷新。");
+          if (force && showFeedback) actionSucceeded("数据已刷新。");
         }
       } catch (error) {
         if (active && revision === clientReadCache.revision()) {
           const message = error instanceof Error ? error.message : "数据读取失败";
           setResult({ url, revision, attempt: refresh.id, data: null, error: message });
-          if (force) actionFailed(message);
+          if (force && showFeedback) actionFailed(message);
         }
       } finally {
         finish(); if (finishRead === finish) finishRead = undefined; pending = false;
@@ -80,19 +80,26 @@ export function useSeoRead<T>(url: string | null) {
       if (busy.current === url) busy.current = null;
       document.removeEventListener("visibilitychange", readWhenVisible);
     };
-  }, [url, refresh, revision]);
+  }, [url, refresh, revision, showFeedback, timeoutMs]);
   const current = result?.url === url && result.revision === revision ? result : null;
   // Only this URL and this session's fresh cache can fill the first render.
   // Failed reads keep their error rather than falling back to a success.
   const cached = url && revision === clientReadCache.revision() ? clientReadCache.peekFresh<T>(url) : null;
   const data = current ? current.data : cached, error = current?.error ?? null;
+  const retrying = Boolean(url && refresh.url === url && refresh.id > (current?.attempt ?? 0));
   const pending = Boolean(url && (readState?.url === url && readState.revision === revision && readState.pending
-    || !data && !error || refresh.url === url && refresh.id > (current?.attempt ?? 0)));
-  return { data, error, pending, loading: pending && !data, refreshing: pending && Boolean(data), retry: () => {
+    || !data && !error || retrying));
+  return { data, error, pending, retrying, loading: pending && !data, refreshing: pending && Boolean(data), retry: () => {
     if (!url || busy.current === url) return;
     busy.current = url;
     setRefresh(value => ({ url, id: value.id + 1 }));
   } };
+}
+
+export type SeoReadState<T> = ReturnType<typeof useSeoRead<T>>;
+
+export function useOverviewRead<T>(url: string | null) {
+  return useSeoRead<T>(url, { showFeedback: false, timeoutMs: 45_000 });
 }
 
 export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all", site?: string): string {

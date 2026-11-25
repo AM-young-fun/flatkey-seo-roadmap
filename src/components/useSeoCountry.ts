@@ -19,6 +19,7 @@ function changeCountry(value: string) {
   const params = new URLSearchParams(location.search);
   if (country === "all") params.delete("country");
   else params.set("country", country);
+  if (location.pathname === "/work") params.delete("page");
   const url = location.pathname + (params.size ? "?" + params : "") + location.hash;
   if (url === location.pathname + location.search + location.hash) return;
   history.pushState(null, "", url);

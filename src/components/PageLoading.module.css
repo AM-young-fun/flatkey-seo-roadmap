@@ -1,0 +1,12 @@
+.cover {
+  position: fixed;
+  z-index: 90;
+  inset: 0 0 0 208px;
+  display: grid;
+  place-items: center;
+  background: var(--bg, #f6f8fb);
+}
+.status { display: grid; justify-items: center; gap: 12px; color: var(--muted, #64748b); font-size: 14px; }
+.status svg { color: var(--ui-primary, #2563eb); }
+:global(body:has([data-page-loading="local"])) .cover[data-page-loading="shared"] { display: none; }
+@media (max-width: 1099px) { .cover { inset-inline-start: 0; } }
