@@ -39,3 +39,27 @@ test('an exact human-approved quarter may explicitly reserve an old authorized t
  const unapproved=state();unapproved.quarterPlanning.plan.reservedOriginalTaskIds=[task.id];unapproved.quarterPlanning.approval=null;
  assert.equal(quarterContentProblems([original],unapproved,[row('task',original)]).length,1);
 });
+
+
+test('a fully researched word can fill one fixed workday slot without waiting for the rest of the quarter',()=>{
+ const approved=state();
+ approved.baseline.targets=approved.baseline.targets.slice(0,1000);
+ approved.baseline.planHash=approved.quarterPlanning.hash;
+ approved.quarterPlanning.plan={version:'quarter-planning-v3',targetIds:approved.baseline.targets.map(t=>t.id),
+  executionStart:'2026-11-27',executionEnd:'2027-02-05',calendar:approved.baseline.targets.map(target=>({
+   targetId:target.id,researchDate:'2026-11-27',stage:'research_only',ahrefs:{keyword:target.keyword,country:'US',volume:20}}))};
+ const first={...task,dueAt:'2026-12-02T06:00:00Z',workflowContract:'growth-v1.5',
+  research:{intent:'GPU rental'},researchReview:{keyword:task.keyword,country:task.country,language:task.language,evidence:[{}]}};
+ assert.deepEqual(quarterContentProblems([first],approved,[]),[]);
+ for(const patch of [{researchReview:undefined},{dueAt:'2026-11-26T06:00:00Z'},{dueAt:'2026-11-28T06:00:00Z'},
+  {dueAt:'2027-02-08T06:00:00Z'},{keywordId:'other'},{status:'researching'}]){
+  assert.equal(quarterContentProblems([{...first,...patch}],approved,[]).length,1);
+ }
+ assert.equal(quarterContentProblems([first],approved,[row('task',{...first,id:'already-scheduled'})]).length,1);
+ const {quarterCalendarDisplay}=require('../src/lib/growth-quarter-display.ts');
+ const projected=quarterCalendarDisplay(approved,approved.baseline.targets.map(target=>({...target,topicName:'GPU rental'})),[first]);
+ assert.equal(projected.total,1000);
+ assert.equal(projected.rows[0].deliveryDate,'2026-12-02');
+ assert.equal(projected.rows[1].deliveryDate,null);
+ assert.equal(projected.deliveryPending,999);
+});

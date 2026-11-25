@@ -1,3 +1,5 @@
+import { isSeoWorkday } from "./seo-workday";
+import { seoToday } from "./seo-date-range";
 import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { growthResolvedIdentity, type GrowthStrategy } from "./growth-strategy";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowPublication, type WorkflowTask } from "./seo-workflow";
@@ -46,13 +48,23 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
     || !quarter || !modern && quarter.plan.version !== "quarter-planning-v2" || quarter.plan.targetIds.length !== count || quarter.plan.targetIds.some(id => !frozen.has(id))) {
     return [`季度${count}词尚未核定并冻结；常规新博客和页面须沿有效季度成员和原排期进入制作`];
   }
-  const primaryCalendar = new Map(quarter.plan.calendar?.filter(hasQuarterDelivery).filter(row => row.primary).map(row => [row.targetId, row]));
-  const beijing = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
+  const calendar = new Map(quarter.plan.calendar?.map(row => [row.targetId, row]));
+  const allTasks = [...all.flatMap(row => row.kind === "task" ? [row.record as WorkflowTask] : []), ...tasks];
   return fresh.flatMap(task => targets.some(target => {
     const identity = growthResolvedIdentity(strategy, target);
-    const slot = primaryCalendar.get(target.id);
-    return identity.country && identity.language && target.site === task.siteDomain && target.topicId === task.topicId && target.keywordId === task.keywordId && target.keywordId
-      && word(target.keyword) === word(task.keyword) && identity.country === task.country && identity.language === task.language
-      && (!modern || slot?.kind === (task.kind === "blog" ? "blog" : "cluster_landing") && slot.deliveryDate === beijing.format(new Date(task.dueAt)));
+    const matches = identity.country && identity.language && target.site === task.siteDomain && target.topicId === task.topicId && target.keywordId === task.keywordId && target.keywordId
+      && word(target.keyword) === word(task.keyword) && identity.country === task.country && identity.language === task.language;
+    if (!matches || !modern) return matches;
+    const slot = calendar.get(target.id), dueAt = new Date(task.dueAt), dueDay = seoToday(dueAt);
+    if (!slot) return false;
+    if (hasQuarterDelivery(slot)) return slot.primary && slot.kind === (task.kind === "blog" ? "blog" : "cluster_landing") && slot.deliveryDate === dueDay;
+    // Research rows become eligible individually. The normal workflow checks
+    // research and the original plan's daily caps before a task can be committed.
+    const review = task.researchReview;
+    return task.workflowContract === "growth-v1.5" && execution.has(task.status) && Boolean(task.research?.intent && review?.evidence.length
+      && review.keyword === task.keyword && review.country === task.country && review.language === task.language)
+      && isSeoWorkday(dueAt) && dueDay >= slot.researchDate && dueDay <= quarter.plan.executionEnd
+      && !allTasks.some(other => other.id !== task.id && !other.deletedAt && content(other) && other.siteDomain === task.siteDomain
+        && other.country === task.country && other.language === task.language && word(other.keyword) === word(task.keyword));
   }) ? [] : [`任务${task.id}须对应已冻结的原词、话题、站点、国家语种及制作日期；同意图次词共用主词原任务`]);
 }

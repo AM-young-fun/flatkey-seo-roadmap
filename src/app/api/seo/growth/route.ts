@@ -71,8 +71,9 @@ export async function GET(request: Request) {
       ]);
       const state = await loadGrowthStrategy(local);
       if (!state.quarterPlanning?.plan.calendar) return Response.json({ plan: null }, { headers: privateAnalyticsHeaders });
-      const workspace = await loadSnapshot("quarter", local);
-      return Response.json({ plan: quarterCalendarDisplay(state, workspace.targets) }, { headers: privateAnalyticsHeaders });
+      const { loadQuarterCommittedDeliveries } = await import("@/lib/services/growth-quarter-deliveries");
+      const [workspace, committed] = await Promise.all([loadSnapshot("quarter", local), loadQuarterCommittedDeliveries(local, state.quarterPlanning.plan)]);
+      return Response.json({ plan: quarterCalendarDisplay(state, workspace.targets, committed) }, { headers: privateAnalyticsHeaders });
     }
     if (view === "dashboard") {
       const started = performance.now();
