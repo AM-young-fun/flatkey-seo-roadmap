@@ -1,0 +1,14 @@
+.panel { border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: white; padding: 22px; margin-bottom: 24px; }
+.heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 20px; }
+.heading h2 { margin: 0; font-size: 17px; }
+.heading a { color: var(--ui-primary); font-size: 13px; }
+.overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 18px; margin-top: 18px; }
+.overview div { display: grid; gap: 5px; }
+.overview span,.note { color: #5e6d84; font-size: 13px; }
+.overview strong { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.panel p { margin: 14px 0 0; font-size: 13px; line-height: 1.65; }
+.history { margin-top: 16px; font-size: 13px; }
+.history summary { cursor: pointer; color: var(--ui-primary); }
+.scroll { overflow-x: auto; }
+.history table { border-collapse: collapse; width: 100%; margin-top: 10px; text-align: left; }
+.history th,.history td { border-bottom: 1px solid var(--ui-border); padding: 8px 10px; white-space: nowrap; }

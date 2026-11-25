@@ -1,3 +1,4 @@
+import { indexing404History, indexing404RunPrefix, type Indexing404Response } from "@/lib/seo-indexing-404";
 import { isGrowthTopicPlaceholder } from "@/lib/seo-growth-markets";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -5,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requestRead } from "@/lib/request-read-scope";
-import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
+import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowRun, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
@@ -40,6 +41,20 @@ export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: s
   // PostgreSQL. The explicit list response is compacted after snapshot rules run.
   const rows = await requestRead("workflow:database", () => timedRead("database", () => prisma.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } }, select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } })));
   return timedRead("snapshot", async () => workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database"));
+}
+
+export async function loadIndexing404History(localPreview = false): Promise<Indexing404Response> {
+  const directory = localDirectory(localPreview);
+  if (directory) {
+    const runs = (await readLocal(directory)).records.filter(row => row.kind === "run").map(row => row.record as WorkflowRun);
+    return { storage: "local_preview", observations: indexing404History(runs) };
+  }
+  requireDatabase();
+  const rows = await prisma.seoWorkflowRecord.findMany({
+    where: { kind: "run", recordId: { startsWith: indexing404RunPrefix } },
+    select: { payload: true }, orderBy: { recordId: "desc" }, take: 30,
+  });
+  return { storage: "database", observations: indexing404History(rows.map(row => row.payload as unknown as WorkflowRun)) };
 }
 
 export async function loadWorkflowTaskDetail(taskId: string, localPreview = false): Promise<WorkflowTaskDetail> {
