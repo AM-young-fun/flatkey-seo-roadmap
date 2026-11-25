@@ -7,7 +7,7 @@ const day = 24 * 60 * 60 * 1000;
 
 /** The audit API admits arbitrary subdomains for historical evidence. New paid
  * eligibility is narrower: public website hosts and paths only. */
-function websiteUrl(value: string | null, site: string): string | null {
+export function growthWebsitePageUrl(value: string | null, site: string): string | null {
   if (typeof value !== "string" || value.length > 2000 || /\s/u.test(value)) return null;
   try {
     const authority = /^https:\/\/([^/?#]+)/iu.exec(value)?.[1].toLowerCase();
@@ -38,7 +38,7 @@ function explicitCanonicalConflict(check: GrowthLivePageCheck, url: string, site
   if (!check.canonicalUrl?.trim()) return false;
   try {
     const canonical = new URL(check.canonicalUrl);
-    return ["https:", "http:"].includes(canonical.protocol) && websiteUrl(check.canonicalUrl, site) !== url;
+    return ["https:", "http:"].includes(canonical.protocol) && growthWebsitePageUrl(check.canonicalUrl, site) !== url;
   } catch { return false; }
 }
 
@@ -48,7 +48,7 @@ export function growthLivePageReadiness(
   target: { site: string; keywordId: string | null; publishedUrls: string[] }, checks: GrowthLivePageCheck[], now: Date,
 ): { urls: string[]; reason: string | null } {
   if (!sites.has(target.site)) return { urls: [], reason: "published_page_url_out_of_scope" };
-  const urls = [...new Set(target.publishedUrls.flatMap(value => websiteUrl(value, target.site) ?? []))];
+  const urls = [...new Set(target.publishedUrls.flatMap(value => growthWebsitePageUrl(value, target.site) ?? []))];
   if (!urls.length) return { urls: [], reason: "published_page_url_out_of_scope" };
   const nowAt = now.getTime();
   if (!Number.isFinite(nowAt)) return { urls: [], reason: "published_page_live_unverified" };
@@ -58,10 +58,10 @@ export function growthLivePageReadiness(
   const ready = urls.filter(url => {
     const observations: Array<{ at: number | null; positive: boolean }> = noMatch.map(check => ({ at: time(check.checkedAt), positive: false }));
     for (const check of scoped) {
-      if (websiteUrl(check.url, target.site) !== url) continue;
+      if (growthWebsitePageUrl(check.url, target.site) !== url) continue;
       const own = check.keywordId === target.keywordId || check.keywordId === null;
       const sourced = typeof check.source === "string" && check.source.trim().length > 0;
-      const positive = sourced && check.verified && check.httpStatus === 200 && websiteUrl(check.canonicalUrl, target.site) === url;
+      const positive = sourced && check.verified && check.httpStatus === 200 && growthWebsitePageUrl(check.canonicalUrl, target.site) === url;
       const explicitFailure = Number.isInteger(check.httpStatus) && check.httpStatus !== null && check.httpStatus >= 100 && check.httpStatus <= 599 && check.httpStatus !== 200;
       if (own || sourced && (explicitFailure || explicitCanonicalConflict(check, url, target.site))) observations.push({ at: time(check.checkedAt), positive: own && positive });
     }

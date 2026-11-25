@@ -140,7 +140,7 @@ function mergeTaskRelations(rows: GrowthTaskRelation[]): GrowthTaskRelation[] {
     .sort((a,b)=>a.taskId.localeCompare(b.taskId)||a.pageUrl.localeCompare(b.pageUrl)||a.source.localeCompare(b.source));
 }
 
-function assignedMarkets(value: unknown): { country: string; language: string }[] {
+export function assignedGrowthMarkets(value: unknown): { country: string; language: string }[] {
   const row = obj(value), primary = typeof row.primaryCountry === "string" ? row.primaryCountry : null;
   if (!primary || typeof row.language !== "string" || typeof row.evidence !== "string" || !row.evidence.trim()) return [];
   const result = [{ country: primary, language: row.language }];
@@ -220,7 +220,7 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
     const derived=Boolean(row.pool==="RESEARCH"&&topic&&proofs.length);
     const membership = !row.active || !row.keywordActive ? "review" : row.pool === "FORMAL" && topic || derived ? "formal" : row.pool === "RESEARCH" ? exactContentTasks.length&&topic?"review":"opportunity" : "review";
     const membershipSource:GrowthTarget["membershipSource"]=membership==="formal"?derived?"committed_task":"stored_formal":membership==="opportunity"?"research":"review";
-    const markets = assignedMarkets(row.marketAssignment);
+    const markets = assignedGrowthMarkets(row.marketAssignment);
     // Explicit normal assignments win. Diagnostic query locales are never a
     // fallback; only the original task/real formal commitment can fill a gap.
     if(!markets.length)for (const task of derived?tasks.filter(task=>proofs.some(proof=>proof.taskId===task.id)):tasks) if (task.country && task.language && !markets.some(market => market.country === task.country && market.language === task.language)) markets.push({ country: task.country, language: task.language });
@@ -238,14 +238,24 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
       const relatedTaskIds=new Set(taskRelations.filter(link=>link.status==="confirmed").map(link=>link.taskId));
       const linkedTasks = [...scopedTasks, ...[...relatedTaskIds].flatMap(id => liveTaskOrder.get(id) ?? []).sort((a, b) => a.index - b.index).map(row => row.task)];
       const plannedUrls = unique([...row.targetUrls, ...scopedTasks.flatMap(task => task.pageUrl ? [task.pageUrl] : [])].flatMap(url => growthPublicUrl(url, row.site) ?? []));
-      const publishedUrls = unique([...plannedUrls.filter(url => inventory.has(url)), ...scopedTasks.flatMap(task => publicationIndex.get(task.id) ?? []).filter(publication => ["published", "verified"].includes(publication.status) && stamp(publication.publishedAt) > 0 && stamp(publication.publishedAt) <= now && (!publication.language || publication.language === scope.language)).flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? []),...taskRelations.filter(link=>link.status==="confirmed"&&link.source==="publication").map(link=>link.pageUrl)]);
+      const scopedPublications = scopedTasks.flatMap(task => publicationIndex.get(task.id) ?? []).filter(publication => ["published", "verified"].includes(publication.status) && stamp(publication.publishedAt) > 0 && stamp(publication.publishedAt) <= now && (!publication.language || publication.language === scope.language));
+      const actualPublications = scopedPublications.flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? []);
+      const relatedPublications = taskRelations.filter(link => link.status === "confirmed" && link.source === "publication").map(link => link.pageUrl);
+      const publishedUrls = unique([...plannedUrls.filter(url => inventory.has(url)), ...actualPublications, ...relatedPublications]);
+      const maintenancePublishedUrls = unique([
+        ...row.targetUrls.flatMap(url => growthPublicUrl(url, row.site) ?? []).filter(url => inventory.has(url)),
+        ...scopedPublications.filter(publication => publication.country === scope.country && publication.language === scope.language
+          && publication.siteDomain === row.site && publication.keyword && growthWordKey(publication.keyword) === growthWordKey(row.keyword))
+          .flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? []),
+        ...relatedPublications,
+      ]);
       const originalLanguage=wordProof(row.site,row.keywordId,row.keyword);
       const language = reviewGrowthLanguage(row.keyword, scope.country, scope.language, input.languageReviews,originalLanguage);
       const id = growthTargetId(row.site, row.keyword, scope.country, scope.language);
       const reason = membership === "formal" ? derived?"原内容任务已进入真实正式计划或有原市场语种源交付；只读归入已承诺目标，保留DB研究池历史":"站点正式词库且归属已核实的本站 TopicMap 话题" : membership === "opportunity" ? "研究／发现词尚未进入正式 TopicMap；保留已有结果供归属审核" : !row.active || !row.keywordActive ? "原词库条目已停用，保留历史待核" : exactContentTasks.length&&topic?"已有原内容任务关联，历史正式计划或原市场语种源交付仍待核；不据缺少计划断言未规划":"话题归属未核实或为发现占位话题，不计正式目标";
       const candidate:GrowthTarget={ id, keywordId: row.keywordId, site: row.site, topicId: topic?.id ?? null, topicName: topic?.text ?? null, relatedTopicIds: topics.map(topic => topic.id), keyword: row.keyword, ...scope, membership,
         sourcePool:row.pool,sourceActive:row.active&&row.keywordActive,membershipSource,wordLanguage:originalLanguage?.language??null,planningProofs:proofs.filter(proof=>proof.country===scope.country&&proof.language===scope.language),memberProvenance:[{keywordId:row.keywordId,keyword:row.keyword,pool:row.pool,active:row.active&&row.keywordActive}],aliasKeywordIds:[],
-        pageState: publishedUrls.length ? "published" : plannedUrls.length ? "planned" : "unmapped", publishedUrls, plannedUrls,
+        pageState: publishedUrls.length ? "published" : plannedUrls.length ? "planned" : "unmapped", publishedUrls, plannedUrls, maintenancePublishedUrls,
         ...growthContentProgress(publishedUrls, membership, linkedTasks, plansByTask),
         rank: null, rankUrl: null, rankSource: null, checkedAt: null, languageStatus: language.status, languageReason: language.reason,
         captureState: "unqueried", rankEligible: false, observationEligible: false, monitoringEligible: false, taskIds: unique(linkedTasks.map(task => task.id)),...(taskRelations.length?{taskRelations}:{}), reason };
