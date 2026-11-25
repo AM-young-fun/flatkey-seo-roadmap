@@ -1,12 +1,18 @@
 import { authorizeWorkflow, readWorkflowBody, workflowErrorResponse, workflowHeaders } from "@/lib/seo-workflow-http";
 import { GrowthStrategyError } from "@/lib/growth-strategy";
 import { withRequestReads } from "@/lib/request-read-scope";
-import { loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
+import { loadGrowthStrategy, loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const auth = await authorizeWorkflow(request);
-    const mode = new URL(request.url).searchParams.get("view");
+    const params = new URL(request.url).searchParams, mode = params.get("view");
+    if (mode === "topic-directions") {
+      const site = params.get("site"), topic = params.get("topic");
+      if (!site || !topic || site.length > 240 || topic.length > 240 || params.size !== 3) return Response.json({ message: "话题方向查询参数无效" }, { status: 400, headers: workflowHeaders });
+      const { directions } = await loadGrowthStrategy(auth.localPreview);
+      return Response.json({ directions: directions.filter(direction => direction.scope.some(scope => scope.site === site && scope.topicId === topic)) }, { headers: workflowHeaders });
+    }
     const view = await withRequestReads(async () => mode === "dashboard" ? loadGrowthStrategyDashboard(auth.localPreview)
       : mode === "overview" ? loadGrowthStrategyOverview(auth.localPreview) : loadGrowthStrategyView(auth.localPreview));
     return Response.json(view, { headers: workflowHeaders });

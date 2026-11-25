@@ -186,5 +186,6 @@ test("quarter detail sends ten matching rows and preserves full stats, filters a
   assert.equal(linked.pagination.page, 3);
   assert.equal(linked.data.targets.length, 3);
   assert.equal(linked.frozen, true);
+  assert.deepEqual(Object.keys(linked.data).sort(), ["generatedAt", "markets", "sites", "targets", "topics"]);
   assert.equal(growthQuarterPage(workspace, { scope, page: 1, related: false }).data.targets.length, 0);
 });

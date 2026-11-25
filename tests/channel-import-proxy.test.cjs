@@ -4,7 +4,11 @@ Module._resolveFilename=function(name,parent,...rest){return resolve.call(this,n
 Module._load=function(name,...rest){
  if(name==='@/lib/auth')return {AUTH_COOKIE_NAME:'session',isAuthEnabled:()=>true,isValidAuthToken:async()=>false};
  if(name.includes('services/ranking-coverage-access'))return {authorizeSavedRankingCoverage:async req=>!req.headers.has('origin')&&req.headers.get('authorization')==='Bearer fixture'};
- if(name.includes('services/growth-workspace'))return {loadGrowthWorkspace:async()=>({version:'growth-v1.5',targets:[],topics:[]})};
+ if(name.includes('services/growth-workspace'))return {
+  loadGrowthWorkspace:async()=>({version:'growth-v1.5',targets:[],topics:[]}),
+  loadGrowthDashboardWorkspace:async()=>({version:'growth-v1.5',generatedAt:'2026-11-25T04:00:00Z',targets:[],topics:[],sites:[],markets:[],reconciliation:{sources:[]}}),
+  loadGrowthQuarterRankEvidence:async targets=>({targets,partial:false}),
+ };
  if(name.includes('services/import-tokens'))return {authenticateImportToken:async req=>req.headers.get('authorization')==='Bearer fixture'};
  if(name.includes('seo-analytics-access'))return {authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>false,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
  if(name.includes('services/seo-registration-period'))return {loadRegistrationPeriods:async()=>[],saveRegistrationPeriod:async input=>require('../src/lib/seo-registration-period.ts').registrationPeriodSchema.parse(input)};
@@ -76,4 +80,20 @@ test('growth overview keeps the existing credential and site validation boundari
  for (const query of ['view=other', 'view=overview&view=overview', 'view=overview&site=not-a-site']) {
    assert.equal((await route.GET(new Request(`${endpoint}?${query}`, { headers }))).status, 400);
  }
+});
+
+test('quarter collection and deferred rank views retain private authorization and distinct response shapes', async () => {
+ const endpoint = 'https://flatkey.test/api/seo/growth';
+ const { GET } = require('../src/app/api/seo/growth/route.ts');
+ const headers = { authorization: 'Bearer fixture' };
+ assert.equal((await GET(new Request(`${endpoint}?view=quarter&page=1`))).status, 401);
+ const list = await GET(new Request(`${endpoint}?view=quarter&page=1`, { headers }));
+ assert.equal(list.status, 200);
+ assert.match(list.headers.get('server-timing'), /^quarter-core;dur=/);
+ assert.deepEqual((await list.json()).pagination, { page: 1, pageCount: 1, total: 0 });
+ assert.equal((await GET(new Request(`${endpoint}?view=quarter-evidence`, { headers }))).status, 400);
+ const evidence = await GET(new Request(`${endpoint}?view=quarter-evidence&page=1&topic=original`, { headers }));
+ assert.equal(evidence.status, 200);
+ assert.match(evidence.headers.get('server-timing'), /quarter-evidence;dur=/);
+ assert.deepEqual(await evidence.json(), { targets: [], partial: false });
 });

@@ -9,9 +9,17 @@ const site = 'flatkey.ai', url = 'https://flatkey.ai/cloud/gpu', keyword = 'gpu 
 const targetId = 'flatkey.ai:gpu%20pricing:US:en';
 const workflowQueries = [], serpQueries = [];
 let failSerp = false;
+let historicalEvidence = false;
 
 const prisma = {
   $queryRaw: async query => {
+    if (query.sql.includes('FROM "DataForSeoRun"')) {
+      assert.ok(historicalEvidence, 'dashboard must not scan saved discovery');
+      assert.deepEqual(query.values, [keyword, site]);
+      return [{ requestId: 'discovery-original', siteDomain: site, normalized: { datasetType: 'provider_ranked_keywords_snapshot', targetDomain: site, region: 'US', rows: [
+        { rawKeyword: 'ＧＰＵ pricing', url, region: 'US', rank_group: 7, sourceSerpUpdatedAt: '2026-11-03T04:00:00Z' },
+      ] } }];
+    }
     if (query.sql.includes('FROM "SeoWorkflowRecord"')) {
       workflowQueries.push(query);
       return [
@@ -22,12 +30,27 @@ const prisma = {
     assert.match(query.sql, /FROM "SerpMonitorTask"/);
     serpQueries.push(query);
     if (failSerp) throw Error('source unavailable');
+    if (historicalEvidence) {
+      assert.match(query.sql, /t\.id IN \(\?\)/);
+      assert.deepEqual(query.values, ['matching-task']);
+      return [];
+    }
     return [{ id: 'saved-serp', runId: 'original-run', keyword, checkedAt, providerTaskId: 'provider-receipt',
       region: 'US', state: 'COMPLETE', scope: 'SCHEDULED', targetsJson: [{ siteDomain: site, keywordId, keyword }],
       requestJson: { device: 'desktop', depth: 100, location_code: 2840, language_code: 'en' },
       normalizedJson: { keyword, queryStatus: 'EXACT', rankingVerified: true, locationCode: 2840, languageCode: 'en', captureComplete: true,
         organicResults: [{ url, rankGroup: 4 }] } }];
   },
+  serpMonitorTask: { findMany: async args => {
+    assert.deepEqual(args.select, { id: true, keyword: true });
+    return [{ id: 'matching-task', keyword: 'ＧＰＵ pricing' }, { id: 'unrelated-task', keyword: 'unrelated' }];
+  } },
+  keywordPageObservation: { findMany: async args => {
+    assert.ok(historicalEvidence, 'dashboard must not read page ranking history');
+    assert.deepEqual(args.where.keywordId, { in: [keywordId] });
+    assert.deepEqual(args.where.siteDomain, { in: [site] });
+    return [];
+  } },
   topic: { findMany: async () => [{ id: 'gpu', text: 'GPU rental', active: true, parentId: null, childEdges: [], sites: [{ siteDomain: site }] }] },
   siteKeyword: { findMany: async () => [{ siteDomain: site, keywordId, active: true, topicId: 'gpu', pool: 'FORMAL', targetUrls: [url], topicAssignments: [], keyword: { text: keyword, active: true } }] },
   keywordSourceRow: { findMany: async query => { assert.equal(query.where.rowKey, undefined, 'no paid live-page audit'); return []; } },
@@ -46,7 +69,7 @@ Module._load = function (name, parent, ...args) {
   return originalLoad.call(this, name.startsWith('@/') ? path.join(root, 'src', name.slice(2)) : name, parent, ...args);
 };
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
-const { loadGrowthDashboardWorkspace, loadGrowthDashboardHistory } = require('../src/lib/services/growth-workspace.ts');
+const { loadGrowthDashboardWorkspace, loadGrowthDashboardHistory, loadGrowthQuarterRankEvidence } = require('../src/lib/services/growth-workspace.ts');
 const { withRequestReads } = require('../src/lib/request-read-scope.ts');
 
 test('dashboard bounds saved SERP by the exact eligibility window and omits historic and paid-workspace reads', async () => {
@@ -76,4 +99,24 @@ test('dashboard bounds saved SERP by the exact eligibility window and omits hist
     failSerp = false;
     if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved;
   }
+});
+
+test('quarter details recover the background rank without counting it as a fresh result', async () => {
+  const target = { id: targetId, site, keyword, keywordId, country: 'US', language: 'en', languageStatus: 'match', rank: null, rankEligible: false, taskIds: ['original-task'], publishedUrls: [url] };
+  historicalEvidence = true;
+  try {
+    const evidence = await loadGrowthQuarterRankEvidence([target], now.toISOString());
+    assert.equal(evidence.partial, false);
+    assert.equal(evidence.targets[0].rank, 7);
+    assert.equal(evidence.targets[0].rankSource, 'database');
+    assert.equal(evidence.targets[0].rankEligible, false);
+    assert.equal(evidence.targets[0].taskIds, undefined);
+    assert.equal(evidence.targets[0].publishedUrls, undefined);
+    assert.equal(target.rank, null);
+    failSerp = true;
+    const partial = await loadGrowthQuarterRankEvidence([{ ...target, rank: 4, rankSource: 'serp', rankEligible: true }], now.toISOString());
+    assert.equal(partial.partial, true);
+    assert.equal(partial.targets[0].rank, 4);
+    assert.equal(partial.targets[0].rankEligible, true);
+  } finally { historicalEvidence = false; failSerp = false; }
 });

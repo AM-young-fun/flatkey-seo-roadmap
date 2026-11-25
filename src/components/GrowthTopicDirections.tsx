@@ -1,7 +1,7 @@
 "use client";
 
 import type { GrowthStrategy } from "@/lib/growth-strategy";
-import { useSeoRead } from "./useSeoAnalytics";
+import { useOverviewRead } from "./useSeoAnalytics";
 import Link from "./AppLink";
 import styles from "./GrowthTopicDirections.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
@@ -10,8 +10,9 @@ import { SeoAnchor } from "@/components/SeoAnchor";
 const decisions = { approve: "已批准当前范围", hold: "继续观察", reject: "不采纳" };
 const metrics = { sessions: "自然搜索会话", clicks: "Google点击", impressions: "Google曝光" };
 export function GrowthTopicDirections({ site, topicId, country = "all", language = "all" }: { site: string; topicId: string; country?: string; language?: string }) {
-  const { data, error, retry } = useSeoRead<{ state: GrowthStrategy }>("/api/seo/growth/strategy");
-  const directions = data?.state.directions.filter(direction => direction.scope.some(scope => scope.site === site && scope.topicId === topicId
+  const query = new URLSearchParams({ view: "topic-directions", site, topic: topicId });
+  const { data, error, retry } = useOverviewRead<{ directions: GrowthStrategy["directions"] }>(`/api/seo/growth/strategy?${query}`);
+  const directions = data?.directions.filter(direction => direction.scope.some(scope => scope.site === site && scope.topicId === topicId
     && (country === "all" || scope.country === country) && (language === "all" || scope.language === language)))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
   return <section className={styles.root} aria-label="话题方向、涨跌原因与实验"><h2>方向与效果复盘</h2>
