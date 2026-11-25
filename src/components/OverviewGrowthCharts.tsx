@@ -5,7 +5,6 @@ import type { SeoReadState } from "./useSeoAnalytics";
 import { quarterTargetWorkspace } from "./growth-topic-view";
 import { BarPlot, ChartPanel, GoalPlot } from "./OverviewCharts";
 import styles from "./OverviewCharts.module.css";
-import { SeoAnchor } from "@/components/SeoAnchor";
 import { reportDay } from "@/lib/seo-report-time.cjs";
 
 const shortDay = (day: string) => `${Number(day.slice(5, 7))}月${Number(day.slice(8, 10))}日`;
@@ -30,7 +29,6 @@ function ContentProgress({ workspace }: { workspace: GrowthWorkspace | null }) {
   const states = [["completed", "已有公开页"], ["in_progress", "制作中"], ["scheduled", "已排期"], ["researching", "研究中"], ["planned", "已规划"], ["unknown", "进度待核"]] as const;
   return <ChartPanel title="季度内容建设进度">
     <BarPlot rows={workspace && rows.length ? states.map(([state, label]) => ({ label, value: rows.filter(row => row.workState === state).length, color: state === "completed" ? "#32aa8b" : state === "unknown" ? "#b1bdcd" : undefined })) : []} unit="词" showAxis={false} empty="季度成员或进度来源尚未齐全，暂不绘制" />
-    <SeoAnchor className={styles.link} href="/opportunities">查看话题与关键词进度 →</SeoAnchor>
   </ChartPanel>;
 }
 

@@ -203,7 +203,7 @@ test("existing-content inventory preserves exact pages and prioritizes verified 
   const absent = target("absent", { keyword: "GPU rental quote", rank: null, captureState: "outside100", rankEligible: false, observationEligible: true });
   const stale = { ...absent, id: "stale", keyword: "GPU rental price", checkedAt: "2026-10-01T00:00:00Z" };
   const unknown = target("unknown", { keyword: "GPU cloud server", rank: null, rankEligible: false, observationEligible: false, captureState: "unqueried" });
-  const planned = target("only-planned", { keyword: "GPU rental service", maintenancePublishedUrls: [], pageState: "planned" });
+  const planned = target("only-planned", { keyword: "GPU rental service", maintenancePublishedUrls: [], pageState: "planned", rankEligible: false });
   const discovery = target("discovery", { keyword: "GPU rental period", membership: "opportunity", publishedUrls: [] });
   const workspace = data([ranked, stale, unknown, absent, planned, discovery]);
   const before = JSON.stringify(workspace);
@@ -211,8 +211,8 @@ test("existing-content inventory preserves exact pages and prioritizes verified 
   assert.equal(publishedKeywordRank(ranked, workspace.generatedAt, "https://flatkey.ai/another"), "pending");
   assert.equal(publishedKeywordRank(ranked, workspace.generatedAt, "https://flatkey.ai/unpublished"), null);
   const existing = growthKeywordInventoryPage(workspace, defaultGrowthScope, 1, "published");
-  assert.deepEqual(existing.data.targets.map(row => row.id), ["absent", "ranked", "stale", "unknown"]);
-  assert.deepEqual(existing.counts, { outside100: 1, ranked: 1, pending: 2 });
+  assert.deepEqual(existing.data.targets.map(row => row.id), ["absent", "ranked", "discovery", "stale", "unknown"]);
+  assert.deepEqual(existing.counts, { outside100: 1, ranked: 2, pending: 2 });
   assert.equal(growthKeywordInventoryPage(workspace, defaultGrowthScope, 1, "keywords").originalWordCount, 6);
   assert.equal(growthKeywordInventoryPage(workspace, defaultGrowthScope, 1, "published", "outside100").pagination.total, 1);
   const quarter = growthQuarterPage(workspace, { scope: defaultGrowthScope, topicId: topic.topicId, page: 1, related: false, newOnly: true, selected: ranked.id });

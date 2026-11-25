@@ -10,6 +10,9 @@ Module._load=function(name,...rest){
   loadGrowthDashboardWorkspace:async()=>({version:'growth-v1.5',generatedAt:'2026-11-25T04:00:00Z',targets:[],topics:[],sites:[],markets:[],reconciliation:{sources:[]}}),
   loadGrowthQuarterRankEvidence:async targets=>({targets,partial:false}),
  };
+ if(name.includes('services/growth-strategy'))return {loadGrowthStrategy:async()=>({})};
+ if(name.includes('services/growth-hotspots'))return {loadGrowthHotspotView:async()=>({items:[]})};
+ if(name.includes('services/approved-weekly-keyword-capture'))return {loadNovemberSecondKeywordCapture:async()=>null};
  if(name.includes('services/import-tokens'))return {authenticateImportToken:async req=>req.headers.get('authorization')==='Bearer fixture'};
  if(name.includes('seo-analytics-access'))return {authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>false,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
  if(name.includes('services/seo-registration-period'))return {loadRegistrationPeriods:async()=>[],saveRegistrationPeriod:async input=>require('../src/lib/seo-registration-period.ts').registrationPeriodSchema.parse(input)};
@@ -108,7 +111,7 @@ test('keyword inventory views read saved data through the existing authorization
    const response = await GET(new Request(`${endpoint}?${query}`, { headers }));
    assert.equal(response.status, 200);
    assert.equal(response.headers.get('cache-control'), 'private, no-store');
-   if (!query.startsWith('view=quarter')) assert.match(response.headers.get('server-timing'), /workspace;dur=.*keyword-library;dur=/);
+   if (query.startsWith('view=published')) assert.match(response.headers.get('server-timing'), /workspace;dur=.*keyword-library;dur=/);
  }
  for (const query of ['view=published&rank=missing', 'view=keywords&rank=all', 'view=published&page=0', 'view=quarter&new=0']) {
    assert.equal((await GET(new Request(`${endpoint}?${query}`, { headers }))).status, 400);

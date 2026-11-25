@@ -1,3 +1,4 @@
+import { linkedWeeklyHotspot, weeklyHotspotAdmissionProblem } from "@/lib/seo-weekly-hotspot";
 import { isSeoExtraCapacity, seoExtraCapacityProblem, WEEKLY_GROWTH_EXTRA } from "../seo-extra-capacity";
 import { indexing404History, indexing404RunPrefix, type Indexing404Response } from "@/lib/seo-indexing-404";
 import { isGrowthTopicPlaceholder } from "@/lib/seo-growth-markets";
@@ -198,6 +199,12 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
         // between this check and the normal task/plan CAS write.
         const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
         const leases = await tx.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: clock.now } }, select: { runId: true, status: true, leaseUntil: true } });
+        if (plan && actor === "collector" && isExecutableWorkflowPlan(plan.status)) {
+          for (const extra of extraTasks.filter(row => row.capacityClass === "authorized_hotspot_extra" && row.source === "automation" && !row.directionId)) {
+            const problem = weeklyHotspotAdmissionProblem(extra, storedTasks, clock.now);
+            if (problem) throw new WorkflowError("weekly_hotspot_scope", problem);
+          }
+        }
         if (task || plan && isExecutableWorkflowPlan(plan.status)) {
           const weekly = extraTasks.filter(task => task.capacityClass === WEEKLY_GROWTH_EXTRA);
           if (weekly.length) {
@@ -214,8 +221,10 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
       for (const task of tasks.filter(task => requiresExecutionCheck(task) && task.workflowContract === "growth-v1.5" && ["blog", "landing", "optimization", "cluster"].includes(task.kind) && ["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"].includes(task.status))) {
         const member = task.keywordId ? await tx.siteKeyword.findUnique({ where: { siteDomain_keywordId: { siteDomain: task.siteDomain, keywordId: task.keywordId } }, select: { active: true, pool: true, topicId: true, topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }) : null;
         const topic = task.topicId ? await tx.topic.findUnique({ where: { id: task.topicId }, select: { text: true, active: true, createdAt: true, sites: { select: { siteDomain: true } } } }) : null;
-        if (!member?.active || !member.keyword.active || member.pool !== "FORMAL" || member.keyword.text.normalize("NFKC").trim().toLowerCase() !== task.keyword?.normalize("NFKC").trim().toLowerCase() || !topic?.active || isGrowthTopicPlaceholder(topic.text) || !topic.sites.some(site => site.siteDomain === task.siteDomain) || member.topicId !== task.topicId && !member.topicAssignments.some(row => row.topicId === task.topicId)) throw new WorkflowError("growth_target_membership", "新制作任务须关联本站真实正式TopicMap词及原话题，不能编造ID或借用发现占位词", 422);
-        if (topic.createdAt >= new Date("2026-11-23T00:00:00Z") && !task.directionId) throw new WorkflowError("new_direction_approval_required", "新建话题须关联用户确认的方向卡，已有正式方向继续自动执行", 403);
+        const policyAsOf = new Date(Math.min(Date.now(), Date.parse(task.dueAt)));
+        const automaticHotspot = linkedWeeklyHotspot(task, storedTasks, policyAsOf);
+        if (!member?.active || !member.keyword.active || member.pool !== "FORMAL" && !(automaticHotspot && member.pool === "RESEARCH") || member.keyword.text.normalize("NFKC").trim().toLowerCase() !== task.keyword?.normalize("NFKC").trim().toLowerCase() || !topic?.active || isGrowthTopicPlaceholder(topic.text) || !topic.sites.some(site => site.siteDomain === task.siteDomain) || member.topicId !== task.topicId && !member.topicAssignments.some(row => row.topicId === task.topicId)) throw new WorkflowError("growth_target_membership", "新制作任务须关联本站真实正式TopicMap词及原话题，不能编造ID或借用发现占位词", 422);
+        if (topic.createdAt >= new Date("2026-11-23T00:00:00Z") && !task.directionId && !automaticHotspot) throw new WorkflowError("new_direction_approval_required", "新建话题须关联用户确认的方向卡，已有正式方向继续自动执行", 403);
       }
       const guarded = tasks.filter(task => requiresExecutionCheck(task) && task.directionId && ["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"].includes(task.status));
       if (guarded.length) {

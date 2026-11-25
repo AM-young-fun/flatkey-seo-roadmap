@@ -18,6 +18,12 @@ function publishedKeywordUrls(target: PublishedKeywordTarget) {
   return (target.maintenancePublishedUrls ?? target.publishedUrls).filter(url => publishedPageKey(url, target.site) !== null);
 }
 
+export function linkedPublishedKeywordUrls(target: PublishedKeywordTarget, asOf?: string) {
+  const actual = target.pageState === "published" ? target.publishedUrls : [];
+  const observed = asOf && target.rankUrl && isCurrentNativeRanking(target, asOf) ? [target.rankUrl] : [];
+  return [...new Set([...actual, ...publishedKeywordUrls(target), ...observed])].filter(url => publishedPageKey(url, target.site) !== null);
+}
+
 export function publishedKeywordRank(target: PublishedKeywordTarget, asOf: string, pageUrl?: string): PublishedKeywordRank | null {
   const pages = publishedKeywordUrls(target).map(url => publishedPageKey(url, target.site));
   if (!pages.length) return null;
@@ -41,8 +47,8 @@ export function growthKeywordInventoryPage(workspace: GrowthWorkspace, scope: Gr
   let targets = candidates;
   if (library === "published") {
     targets = candidates.filter(target => {
-      const status = publishedKeywordRank(target, workspace.generatedAt);
-      if (!status) return false;
+      if (!linkedPublishedKeywordUrls(target, workspace.generatedAt).length) return false;
+      const status = publishedKeywordRank(target, workspace.generatedAt) ?? (isCurrentNativeRanking(target, workspace.generatedAt) && linkedPublishedKeywordUrls(target, workspace.generatedAt).includes(target.rankUrl ?? "") ? "ranked" : "pending");
       ranks.set(target.id, status);
       counts[status]++;
       return rank === "all" || rank === status;
@@ -51,7 +57,7 @@ export function growthKeywordInventoryPage(workspace: GrowthWorkspace, scope: Gr
   const { rows, ...pagination } = seoTablePage(targets, page);
   return {
     data: { sites: workspace.sites, markets: workspace.markets, topics: [],
-      targets: library === "published" ? rows.map(target => ({ ...target, publishedUrls: publishedKeywordUrls(target) })) : rows },
+      targets: library === "published" ? rows.map(target => ({ ...target, pageState: "published" as const, publishedUrls: linkedPublishedKeywordUrls(target, workspace.generatedAt) })) : rows },
     publishedRanks: Object.fromEntries(rows.flatMap(target => ranks.has(target.id) ? [[target.id, ranks.get(target.id)!]] : [])) as Record<string, PublishedKeywordRank>,
     counts, originalWordCount: new Set(targets.map(target => growthWordKey(target.keyword)).filter(Boolean)).size,
     pagination,

@@ -1,3 +1,4 @@
+import { linkedWeeklyHotspot, weeklyDerivedHotspot } from "./seo-weekly-hotspot";
 import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { activeHotspotPriority, type HotspotPriority } from "../../scripts/lib/seo-hotspot-priority.cjs";
 import type { GrowthDirection, GrowthStrategy } from "./growth-strategy";
@@ -11,7 +12,7 @@ export type HotspotPlan = { id: string; status: string; taskIds: string[] };
 export type GrowthHotspotItem = {
   id: string; title: string; keyword: string; country: string | null; language: string | null; site: string; topicId: string | null;
   quarterTargetId: string | null; inQuarter: boolean; stage: "needs_decision" | "approved" | "scheduled" | "in_progress" | "published" | "reviewed" | "expired" | "rejected";
-  eventAt: string; validUntil: string; officialEvidence: { url: string; observedAt: string }[]; demandEvidence: { url: string; observedAt: string }[];
+  weeklyBatch?: boolean; eventAt: string; validUntil: string; officialEvidence: { url: string; observedAt: string }[]; demandEvidence: { url: string; observedAt: string }[];
   directionId: string | null; directionRevision: number | null; taskIds: string[]; tasks: { id: string; title: string; status: string; dueAt: string; pageUrl: string | null; kind: WorkflowTask["kind"]; source: WorkflowTask["source"]; capacityClass: WorkflowTask["capacityClass"] | null; inCurrentPlan: boolean }[];
   approvedAt: string | null; researchComplete: boolean; admission: { status: "not_approved" | "needs_research" | "needs_topic_link" | "needs_target_registration" | "needs_plan_append" | "scheduled" | "blocked"; reason: string };
 };
@@ -20,8 +21,9 @@ const word = (value: string | null) => value?.normalize("NFKC").trim().toLowerCa
 const taskEvidence = (task: WorkflowTask) => [...task.evidence, ...(task.brief?.evidence ?? []), ...(task.research?.evidence ?? [])];
 /** Expired items retain the last valid source pair, rather than silently being
  * converted to newly verified events. The shared rule validates the pair. */
-function savedHotspot(task: WorkflowTask, now: Date): HotspotPriority | null {
-  const active = activeGrowthHotspot(task, now); if (active) return active;
+function savedHotspot(task: WorkflowTask, now: Date, weeklyOnly: boolean): HotspotPriority | null {
+  if (weeklyOnly) return weeklyDerivedHotspot(task, now);
+  const active = activeHotspotPriority(task, now); if (active) return active;
   const samples = taskEvidence(task).filter(row => row.label.startsWith("seo-hotspot-v1;") && Date.parse(row.observedAt) <= now.getTime()).map(row => row.observedAt).sort().reverse();
   for (const sample of samples) { const original = activeHotspotPriority(task, new Date(sample)); if (original) return original; }
   return null;
@@ -43,10 +45,10 @@ export function publishedGrowthHotspotTaskIds(strategy: GrowthStrategy, workflow
   const ids = new Set<string>();
   for (const publication of workflow.publications.filter(row => row.status === "verified" && row.kind === "source_blog")) {
     const at = Date.parse(publication.publishedAt), task = workflow.tasks.find(task => task.id === publication.taskId);
-    if (!Number.isFinite(at) || at > now.getTime() || !task || task.deletedAt || task.capacityClass !== "authorized_hotspot_extra" || task.kind !== "blog" || !["flatkey.ai", "modelfit.cc"].includes(task.siteDomain) || task.language === "ru" || !scheduled.has(task.id) || publication.siteDomain !== task.siteDomain || publication.pageUrl !== task.pageUrl || publication.contentVersion !== task.contentVersion || !task.directionId || !task.experimentId) continue;
+    if (!Number.isFinite(at) || at > now.getTime() || !task || task.deletedAt || task.capacityClass !== "authorized_hotspot_extra" || task.kind !== "blog" || !["flatkey.ai", "modelfit.cc"].includes(task.siteDomain) || task.language === "ru" || !scheduled.has(task.id) || publication.siteDomain !== task.siteDomain || publication.pageUrl !== task.pageUrl || publication.contentVersion !== task.contentVersion ) continue;
     const direction = strategy.directions.find(row => row.id === task.directionId && row.experimentId === task.experimentId);
-    if (!direction) continue;
-    const approved = [...(direction.decisions ?? []), ...(direction.decision ? [direction.decision] : [])].some(decision => decision.actor === "human" && decision.decision === "approve" && Date.parse(decision.decidedAt) <= at && decision.scope.some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && scope.kinds.includes("blog") && Date.parse(scope.validUntil) >= at));
+    const auto = linkedWeeklyHotspot(task, workflow.tasks, new Date(at));
+    const approved = Boolean(auto) || [...(direction?.decisions ?? []), ...(direction?.decision ? [direction.decision] : [])].some(decision => decision.actor === "human" && decision.decision === "approve" && Date.parse(decision.decidedAt) <= at && decision.scope.some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && scope.kinds.includes("blog") && Date.parse(scope.validUntil) >= at));
     if (!approved) continue;
     const originals = workflow.tasks.filter(row => !row.deletedAt && row.siteDomain === task.siteDomain && row.topicId === task.topicId && row.country === task.country && row.language === task.language && word(row.keyword) === word(task.keyword) && (row.id === task.id || task.dependencies.includes(row.id)));
     const priority = activeHotspotPriority({ evidence: originals.flatMap(taskEvidence) }, new Date(at));
@@ -57,7 +59,7 @@ export function publishedGrowthHotspotTaskIds(strategy: GrowthStrategy, workflow
 }
 /** Read-only facts from saved research/directions and original task/plan IDs.
  * No candidate pool, task creation, target admission, or provider calls. */
-export function buildGrowthHotspotView(strategy: GrowthStrategy, workflow: Pick<WorkflowSnapshot, "tasks" | "publications">, plans: HotspotPlan[], now = new Date()): GrowthHotspotView {
+export function buildGrowthHotspotView(strategy: GrowthStrategy, workflow: Pick<WorkflowSnapshot, "tasks" | "publications">, plans: HotspotPlan[], now = new Date(), weeklyOnly = false): GrowthHotspotView {
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
   const period = digestExecutionPeriod(digestExecutionWeek(day));
   const tasks = workflow.tasks.filter(task => !task.deletedAt && task.channel !== "product" && task.channel !== "github" && ["flatkey.ai", "modelfit.cc"].includes(task.siteDomain) && task.language !== "ru");
@@ -66,7 +68,7 @@ export function buildGrowthHotspotView(strategy: GrowthStrategy, workflow: Pick<
     // Older tasks can have a saved keyword identity and verified sources before
     // the topic is linked. They remain visible while admission stays gated.
     if (!task.keyword || (!task.topicId && !task.keywordId)) continue;
-    const priority = savedHotspot(task, now); if (!priority) continue;
+    const priority = savedHotspot(task, now, weeklyOnly); if (!priority) continue;
     const key = [priority.eventKey, task.siteDomain, task.country, task.language, word(task.keyword)].join("|");
     const group = groups.get(key) ?? { priority, tasks: [] }; group.tasks.push(task); groups.set(key, group);
   }
@@ -81,9 +83,9 @@ export function buildGrowthHotspotView(strategy: GrowthStrategy, workflow: Pick<
     const linked = [...new Map([...group.tasks, ...related].map(task => [task.id, task])).values()].sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.id.localeCompare(b.id));
     const direction = strategy.directions.filter(direction => linked.some(task => task.directionId === direction.id || direction.taskIds.includes(task.id))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     const content = linked.filter(task => task.kind === "blog");
-    const representative = content[0] ?? seed;
     const quarter = strategy.baseline?.targets.find(target => target.site === seed.siteDomain && target.topicId === seed.topicId && target.country === seed.country && target.language === seed.language && word(target.keyword) === word(seed.keyword));
-    const approved = directionApproved(direction, representative, now), researchComplete = linked.some(task => fullResearch(task) && Date.parse(task.researchReview!.reviewedAt) >= Date.parse(group.priority.at) && Date.parse(task.researchReview!.reviewedAt) <= now.getTime());
+    const approved = weeklyOnly || directionApproved(direction, content[0] ?? seed, now);
+    const researchComplete = linked.some(task => fullResearch(task) && Date.parse(task.researchReview!.reviewedAt) >= Date.parse(group.priority.at) && Date.parse(task.researchReview!.reviewedAt) <= now.getTime());
     const expired = Date.parse(group.priority.expiresAt) <= now.getTime();
     const publication = workflow.publications.filter(row => content.some(task => task.id === row.taskId) && ["published", "verified"].includes(row.status));
     const published = publication.length > 0 || content.some(task => ["published", "verified", "observing"].includes(task.status));
@@ -99,12 +101,12 @@ export function buildGrowthHotspotView(strategy: GrowthStrategy, workflow: Pick<
     else if (!seed.topicId) admission = { status: "needs_topic_link", reason: "已保存事件证据和原任务，待关联本站话题并核验研究后才能追加计划" };
     else if (!researchComplete) admission = { status: "needs_research", reason: "已保存热点源证据，完整原词/原市场SERP、逐页分析及质量研究尚未齐全，未冒称可制作" };
     else if (!approved) admission = { status: "not_approved", reason: "等待人工批准当前方向范围；研究完成不等于已授权排期" };
-    else if (!registered) admission = { status: "needs_target_registration", reason: "尚未读取到当周真实human额外目标或可复用的原季度任务登记" };
+    else if (!registered) admission = { status: "needs_target_registration", reason: "等待自动登记当周热点额外任务，已有同意图任务沿原 ID 归并" };
     else if (!inPlan) admission = { status: "needs_plan_append", reason: "已登记额外目标，尚未追加原当周正式计划taskIds；不能仅凭任务存在冒称已排期" };
     else admission = { status: "scheduled", reason: "已关联当周原计划与原任务，热点额外工作不挤占常规名额，不修改原交付日" };
     const stage: GrowthHotspotItem["stage"] = reviewed ? "reviewed" : published ? "published" : direction?.decision?.decision === "reject" ? "rejected" : expired ? "expired" : inProgress ? "in_progress" : admission.status === "scheduled" ? "scheduled" : approved ? "approved" : "needs_decision";
     return { id: `hotspot:${key}`, title: direction?.title ?? seed.title, keyword: seed.keyword!, site: seed.siteDomain, country: seed.country, language: seed.language, topicId: seed.topicId ?? null,
-      quarterTargetId: quarter?.id ?? null, inQuarter: Boolean(quarter), stage, eventAt: group.priority.at, validUntil: group.priority.expiresAt, officialEvidence: [group.priority.official], demandEvidence: [group.priority.demand],
+      quarterTargetId: quarter?.id ?? null, inQuarter: Boolean(quarter), stage, weeklyBatch: weeklyOnly || undefined, eventAt: group.priority.at, validUntil: group.priority.expiresAt, officialEvidence: [group.priority.official], demandEvidence: [group.priority.demand],
       directionId: direction?.id ?? null, directionRevision: direction?.revision ?? null, taskIds: linked.map(task => task.id), tasks: linked.map(task => ({ id: task.id, title: task.title, status: task.status, dueAt: task.dueAt, kind: task.kind, source: task.source, capacityClass: task.capacityClass ?? null, inCurrentPlan: currentContent.some(row => row.id === task.id) && scheduled.has(task.id), pageUrl: publication.find(row => row.taskId === task.id)?.pageUrl ?? null })), approvedAt: direction?.decision?.actor === "human" && direction.decision.decision === "approve" ? direction.decision.decidedAt : null, researchComplete, admission };
   }).sort((a, b) => b.eventAt.localeCompare(a.eventAt) || a.id.localeCompare(b.id));
   return { version: "growth-hotspots-v9", generatedAt: now.toISOString(), businessWeek: { start: period.start, end: period.end }, items };

@@ -89,7 +89,7 @@ export const emptyGrowthStrategy = (): GrowthStrategy => ({ id: GROWTH_QUARTER_I
 const commandBase = { requestId: z.string().regex(/^[a-zA-Z0-9:_-]{8,200}$/), expectedVersion: z.number().int().nonnegative() };
 export const growthStrategyCommandSchema = z.discriminatedUnion("action", [
   z.object({ ...commandBase, action: z.literal("save_quarter_plan"), plan: quarterPlanningInputSchema }).strict(),
-  z.object({ ...commandBase, action: z.literal("approve_quarter_plan"), hash: z.string().regex(/^[a-f0-9]{64}$/), sourceVersion: id, reason: text }).strict(),
+  z.object({ ...commandBase, action: z.literal("approve_quarter_plan"), hash: z.string().regex(/^[a-f0-9]{64}$/), sourceVersion: id, reason: text, researchOnly: z.literal(true).optional() }).strict(),
   z.object({ ...commandBase, action: z.literal("save_direction"), direction: growthDirectionSchema }).strict(),
   z.object({ ...commandBase, action: z.literal("decide_direction"), directionId: id, revision: z.number().int().positive(), decision: z.enum(["approve", "hold", "reject"]), reason: text }).strict(),
   z.object({ ...commandBase, action: z.literal("freeze_baseline"), targetIds: z.array(growthLogicalTargetIdSchema).min(1).max(20000), sourceVersion: id, reason: text }).strict(),
@@ -169,6 +169,14 @@ function nextQuarterTargets(plan: z.infer<typeof quarterPlanningInputSchema>, wo
   if (error) throw new GrowthStrategyError("quarter_calendar_invalid", error, 422);
   return targets;
 }
+function canCompleteFrozenResearchCalendar(state: GrowthStrategy, targetIds: string[]) {
+  const baseline = state.baseline, version = [state.quarterPlanning, ...(state.quarterPlanningHistory ?? [])]
+    .find(row => row?.hash === baseline?.planHash && row?.approval?.hash === baseline?.planHash);
+  return Boolean(baseline?.planHash && version?.plan.version === QUARTER_NEW_WORD_VERSION
+    && version.plan.calendar?.every(row => !hasQuarterDelivery(row))
+    && baseline.targets.length === targetIds.length
+    && baseline.targets.every(target => targetIds.includes(target.id)));
+}
 export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknown, actor: "human" | "collector", workspace: GrowthWorkspace, publications: GrowthPublicationReference[], taskIds: string[], now = new Date(), context: GrowthMutationContext = {}): GrowthStrategy {
   const command = growthStrategyCommandSchema.parse(raw);
   if (command.expectedVersion !== state.version) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试");
@@ -180,7 +188,7 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     if (plan.sourceVersion !== growthWorkspaceIdentity(workspace)) throw new GrowthStrategyError("source_changed", "季度方案需绑定完整当前候选底账");
     const formal = state.baseline ? state.baseline.targets.map(row => row.id).sort() : workspace.targets.filter(row => row.membership === "formal").map(row => row.id).sort();
     if (plan.version === QUARTER_NEW_WORD_VERSION) {
-      if (state.baseline?.planHash) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
+      if (state.baseline?.planHash && !canCompleteFrozenResearchCalendar(state, plan.targetIds)) throw new GrowthStrategyError("baseline_frozen", "新版季度成员已冻结；仅可补同一批原词的页面交付");
       nextQuarterTargets(plan, workspace, now, context);
     } else if (!state.baseline && plan.targetUnit === "normalized_original_word") {
       const selected = workspace.targets.filter(row => plan.targetIds.includes(row.id));
@@ -203,13 +211,18 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不能事后批准新方案");
     next.quarterPlanning = { ...draft, approval: { actor: "human", approvedAt: now.toISOString(), hash: command.hash, reason: command.reason } };
     if (draft.plan.version === QUARTER_NEW_WORD_VERSION) {
-      if (state.baseline?.planHash) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
-      if (draft.plan.calendar?.some(row => !hasQuarterDelivery(row))) {
+      const frozen = state.baseline?.planHash ? state.baseline : null;
+      if (frozen && !canCompleteFrozenResearchCalendar(state, draft.plan.targetIds)) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
+      const pending = draft.plan.calendar?.some(row => !hasQuarterDelivery(row));
+      const researchOnly = command.researchOnly === true && !frozen && draft.plan.calendar?.every(row => !hasQuarterDelivery(row));
+      if (pending && !researchOnly) {
         throw new GrowthStrategyError("quarter_delivery_pending", "逐日研究日历已保存；请完成意图归并和制作产能校验后再启用本版季度", 422);
       }
       const targets = nextQuarterTargets(draft.plan, workspace, now, context);
-      if (state.baseline) next.baselineHistory = [...(state.baselineHistory ?? []), state.baseline];
-      next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets, reason: command.reason, planHash: command.hash };
+      if (state.baseline && !frozen) next.baselineHistory = [...(state.baselineHistory ?? []), state.baseline];
+      next.baseline = frozen ? { ...frozen, planHash: command.hash } : {
+        frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets, reason: command.reason, planHash: command.hash,
+      };
     } else if (!state.baseline) next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets: resolveTargets(draft.plan.targetIds, workspace, false), reason: command.reason };
   } else if (command.action === "freeze_baseline") {
     if (now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF)) throw new GrowthStrategyError("quarter_closed", "本季已截止，不能事后冻结新的有利分母冒充原季度目标");

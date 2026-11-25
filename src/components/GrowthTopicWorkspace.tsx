@@ -10,12 +10,16 @@ import { useOverviewRead, useSeoRead, type SeoReadState } from "./useSeoAnalytic
 import { FeedbackButton } from "./FeedbackButton";
 import { PageLoading } from "./PageLoading";
 import { SeoTablePagination } from "./SeoTablePagination";
+import type { QuarterCalendarDisplay } from "@/lib/growth-quarter-display";
 import type { GrowthQuarterPage } from "@/lib/growth-quarter-page";
 import type { GrowthKeywordInventoryPage } from "@/lib/growth-keyword-inventory";
 import { publishedKeywordRankLabels, type PublishedKeywordRank } from "@/lib/published-keyword-rank";
 import { GrowthTopicDirections } from "./GrowthTopicDirections";
 import { GrowthKeywordNetwork } from "./GrowthKeywordNetwork";
 import { GrowthQuarterReview } from "./GrowthGoalSummary";
+import { GrowthPublishedCapture } from "./GrowthPublishedCapture";
+import { GrowthKeywordCatalog } from "./GrowthKeywordCatalog";
+import { GrowthQuarterCalendarWorkspace } from "./GrowthQuarterCalendarWorkspace";
 import { GrowthHotspotWorkspace } from "./GrowthHotspotWorkspace";
 import { BarPlot } from "./OverviewCharts";
 import { defaultGrowthScope, growthCounts, growthLink, growthMarketLabel, growthRankKind, growthRankText, parseGrowthKeywordTab, readGrowthScope, selectGrowthTargets, growthRankingEvidence, quarterTargetWorkspace, type GrowthKeywordTab, type GrowthRankingView, type GrowthScope } from "./growth-topic-view";
@@ -103,32 +107,31 @@ export function GrowthTargetTable({ data, targets, scope, topic, selectedTarget,
 
 const rankingFilters: (PublishedKeywordRank | "all")[] = ["all", "outside100", "ranked", "pending"];
 
-function KeywordInventory({ library, scope, change, page, setPage }: { library: "keywords" | "published"; scope: GrowthScope; change: (patch: Partial<GrowthScope>) => void; page: number; setPage: (page: number) => void }) {
+function KeywordInventory({ scope, change, page, setPage }: { scope: GrowthScope; change: (patch: Partial<GrowthScope>) => void; page: number; setPage: (page: number) => void }) {
   const [rank, setRank] = useState<PublishedKeywordRank | "all">("all");
-  const published = library === "published";
-  const params = new URLSearchParams({ view: library, page: String(page) });
-  if (published && rank !== "all") params.set("rank", rank);
+  const params = new URLSearchParams({ view: "published", page: String(page) });
+  if (rank !== "all") params.set("rank", rank);
   if (scope.site !== "all") params.set("site", scope.site);
   if (scope.country !== "all") params.set("country", scope.country);
   if (scope.language !== "all") params.set("language", scope.language);
   if (scope.search.trim()) params.set("q", scope.search.trim().slice(0, 240));
   const { data, previousData, error, retry, retrying } = useSeoRead<GrowthKeywordInventoryPage>("/api/seo/growth?" + params, { showFeedback: false, keepPreviousData: true });
   const filters = data?.data ?? previousData?.data;
-  const title = published ? "已有内容与排名" : "全部关键词";
+  const title = "已有内容与排名";
   return <section className={styles.panel} aria-label={title}>
     <div className={styles.sectionHeading}>
-      <div><h2>{title}</h2>{published ? <p>选做页面优化或旧文重写前，先核验原词与已上线页面的搜索意图。</p> : null}</div>
+      <div><h2>{title}</h2><p>选做页面优化或旧文重写前，先核验原词与已上线页面的搜索意图。</p></div>
       <FeedbackButton className={styles.more} onClick={retry} pending={retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
     </div>
     {filters ? <div className={styles.inventoryFilters}><GrowthFilters data={filters} scope={scope} change={change} /></div> : null}
     {error ? <p role="alert">关键词暂时无法读取：{error}</p> : !data ? <p role="status">正在读取已存关键词…</p> : <>
-      {published ? <div className={styles.tabs} role="group" aria-label="已上线关键词排名状态">
+      <div className={styles.tabs} role="group" aria-label="已上线关键词排名状态">
         {rankingFilters.map(id => <button type="button" aria-pressed={rank === id} key={id} onClick={() => { setRank(id); setPage(1); }}>
           {id === "all" ? "全部已上线" : publishedKeywordRankLabels[id]} <span>{count(id === "all" ? Object.values(data.counts).reduce((a, b) => a + b, 0) : data.counts[id])}</span>
         </button>)}
-      </div> : null}
+      </div>
       <p className={styles.note}>{count(data.originalWordCount)} 个原词 · {count(data.pagination.total)} 条站点和市场记录</p>
-      <GrowthTargetTable data={data.data} targets={data.data.targets} scope={scope} publishedRanks={published ? data.publishedRanks : undefined} />
+      <GrowthTargetTable data={data.data} targets={data.data.targets} scope={scope} publishedRanks={data.publishedRanks} />
       <SeoTablePagination pagination={data.pagination} onPage={setPage} />
     </>}
   </section>;
@@ -180,20 +183,40 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
   </section>;
 }
 
-export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1 }: { topicId?: string; initialTab?: GrowthKeywordTab; hotspotTopic?: string; hotspotPage?: number }) {
+export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1, initialPublishedCapture = false }: { topicId?: string; initialTab?: GrowthKeywordTab; hotspotTopic?: string; hotspotPage?: number; initialPublishedCapture?: boolean }) {
   const [tab, setTab] = useState(initialTab);
+  const [publishedCapture, setPublishedCapture] = useState(initialPublishedCapture);
   const [page, setPage] = useState(1);
   const [related, setRelated] = useState(false);
   const [useSelectedTarget, setUseSelectedTarget] = useState(true);
-  useEffect(() => { const readTab = () => setTab(parseGrowthKeywordTab(new URLSearchParams(location.search).get("tab"))); readTab(); addEventListener("popstate", readTab); return () => removeEventListener("popstate", readTab); }, [initialTab]);
+  useEffect(() => {
+    const readTab = () => {
+      const params = new URLSearchParams(location.search);
+      setTab(parseGrowthKeywordTab(params.get("tab")));
+      setPublishedCapture(params.get("publishedView") === "november-ranks");
+    };
+    readTab(); addEventListener("popstate", readTab);
+    return () => removeEventListener("popstate", readTab);
+  }, [initialTab, initialPublishedCapture]);
   const changeTab = (value: GrowthKeywordTab) => {
     setTab(value);
     setPage(1);
     const params = new URLSearchParams(location.search);
+    if (value !== "published") { setPublishedCapture(false); params.delete("publishedView"); }
     if (value === "quarter") params.delete("tab"); else params.set("tab", value);
     history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : ""));
   };
-  const quarter = Boolean(topicId) || tab === "quarter";
+  const changePublishedView = (next: boolean) => {
+    setPublishedCapture(next); setPage(1);
+    const params = new URLSearchParams(location.search);
+    if (next) params.set("publishedView", "november-ranks"); else params.delete("publishedView");
+    history.replaceState(null, "", location.pathname + `?${params}`);
+  };
+  const published = !topicId && tab === "published";
+  const quarterHome = !topicId && tab === "quarter";
+  const calendar = useOverviewRead<{ plan: QuarterCalendarDisplay | null }>(quarterHome ? "/api/seo/growth?view=quarter-calendar" : null, 60_000);
+  const quarterPlan = quarterHome ? calendar.data?.plan : null;
+  const quarter = Boolean(topicId) || quarterHome && !quarterPlan && !calendar.loading && !calendar.error;
   const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope();
   const scope = { ...savedScope, membership: "formal" as const };
   const query = new URLSearchParams({ view: "quarter", page: String(page), new: "1" });
@@ -222,12 +245,20 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
   const turnPage = (next: number) => {
     setUseSelectedTarget(false); setRelated(Boolean(result?.showRelated)); setPage(next);
   };
-  const loading = quarter && read.loading && !read.retrying;
+  const loading = quarterHome && calendar.loading && !calendar.retrying || quarter && read.loading && !read.retrying;
   return <main className={workspace.shell}><PageHeader active="opportunities" marketControl={false} /><div className={styles.content} inert={loading} aria-busy={loading}>
     <div className={styles.heading}><div>{topicId ? <Link className={styles.back} href={growthLink(scope)}><ArrowLeft size={14} aria-hidden="true" />返回话题列表</Link> : null}<h1>{topicId ? topic?.name || "话题详情" : "关键词目标"}</h1><p>{topicId ? "同一话题下按国家、语言查看关键词、页面、任务与排名。" : "以 TopicMap 话题为主线，包含规划中、进行中与已完成目标。"}</p></div>{quarter && (data || read.error || read.retrying) ? <FeedbackButton className={styles.more} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton> : null}</div>
     {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.keywordTabs} role="group" aria-label="关键词分类">{keywordTabs.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => changeTab(id)}><strong>{label}</strong><span>{description}</span></button>)}</div> : null}
-    {!topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
-      : !topicId && (tab === "keywords" || tab === "published") ? <KeywordInventory key={tab} library={tab} scope={scope} change={change} page={page} setPage={setPage} /> : <>
+    {published ? <div className={styles.tabs} role="group" aria-label="已有内容与排名视图">
+      <button type="button" aria-pressed={!publishedCapture} onClick={() => changePublishedView(false)}>已上线内容</button>
+      <button type="button" aria-pressed={publishedCapture} onClick={() => changePublishedView(true)}>11 月第 2 期实测</button>
+    </div> : null}
+    {quarterPlan ? <><GrowthQuarterCalendarWorkspace plan={quarterPlan} /><GrowthQuarterReview /></>
+      : quarterHome && calendar.error ? <p role="alert">{calendar.error} <button type="button" onClick={calendar.retry}>重新加载季度排期</button></p>
+      : published && publishedCapture ? <GrowthPublishedCapture />
+      : !topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
+      : !topicId && tab === "keywords" ? <GrowthKeywordCatalog />
+      : published ? <KeywordInventory scope={scope} change={change} page={page} setPage={setPage} /> : <>
     {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p><GrowthQuarterReview /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
         <GrowthFilters data={data} scope={effectiveScope} change={change} fixedSite={Boolean(topic)} />

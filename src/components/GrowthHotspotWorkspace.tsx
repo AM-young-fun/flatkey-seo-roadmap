@@ -10,7 +10,7 @@ import { SeoAnchor } from "@/components/SeoAnchor";
 import type { GrowthHotspotItem } from "@/lib/growth-hotspots";
 import type { HotspotTopicPage } from "@/lib/growth-hotspot-topics";
 
-const stages: Record<string, string> = { needs_decision: "方向待定", approved: "方向已批准", scheduled: "已追加当周计划", in_progress: "制作中", published: "已发布", reviewed: "已复盘", expired: "已过有效期", rejected: "不采纳" };
+const stages: Record<string, string> = { needs_decision: "方向待定", approved: "等待自动排期", scheduled: "已追加当周计划", in_progress: "制作中", published: "已发布", reviewed: "已复盘", expired: "已过有效期", rejected: "不采纳" };
 const statuses: Record<string, string> = { planned: "已规划", researching: "研究中", in_progress: "进行中", completed: "已完成", published: "已发布", blocked: "受阻", paused: "已暂停", failed: "失败", review: "待审" };
 const eventDate = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeZone: "Asia/Shanghai" });
 

@@ -105,3 +105,5 @@
 @media(max-width:600px) { .panel { padding:15px; }.content { padding-top:18px; gap:14px; }.heading h1 { font-size:22px; }.stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }.stats > div { padding:12px; }.stats strong { font-size:22px; }.clusters { grid-template-columns:1fr; }.filters label { flex:1; min-width:125px; }.tabs button { padding:9px 11px; font-size:12px; }.table th,.table td { padding:11px; }.coverageGrid { grid-template-columns:1fr; gap:18px; } }
 
 .relatedTargets { margin-top:18px; border-top:1px solid #e6ebf2; padding-top:15px; color:#61758f; font-size:12px; }.relatedTargets > summary { cursor:pointer; font-weight:550; }
+
+.capturePage + .capturePage { margin-top: 8px; }

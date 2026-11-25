@@ -1,3 +1,4 @@
+import { weeklyHotspotAdmissionProblem } from "./seo-weekly-hotspot";
 import { isSeoExtraCapacity, WEEKLY_GROWTH_EXTRA } from "./seo-extra-capacity";
 import { GROWTH_EXECUTION_SITES, GROWTH_BLOG_SITES } from "./seo-growth-markets";
 import { assertGrowthPlan } from "./seo-growth-plan";
@@ -77,7 +78,14 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   const changingExecution = !previous || task.status !== previous.status;
   if (changingExecution && (task.channel === "product" || task.channel !== "github" && !GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain))) reject("task_scope_excluded", "该站点或产品渠道仅保留历史，不进入SEO执行队列");
   if (changingExecution && task.kind === "blog" && !GROWTH_BLOG_SITES.some(site => site === task.siteDomain)) reject("blog_scope_excluded", "博客制作仅限 Flatkey 和 ModelFit");
-  if (isSeoExtraCapacity(task.capacityClass) && previous?.capacityClass !== task.capacityClass && actor !== "human") reject("human_extra_work_required", "额外工作须由真实用户登记授权，不能由采集器扩大常规容量");
+  if (isSeoExtraCapacity(task.capacityClass) && previous?.capacityClass !== task.capacityClass && actor !== "human") {
+    if (task.capacityClass !== "authorized_hotspot_extra" || !task.sourceRowId || !task.id.startsWith("seo-hotspot:")) {
+      reject("human_extra_work_required", "仅允许按周热点证据和原研究任务自动登记，其他额外工作须由用户授权");
+    }
+    const tasks = all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask);
+    const problem = weeklyHotspotAdmissionProblem(task, tasks, now);
+    if (problem) reject("weekly_hotspot_scope", problem);
+  }
   if (previous?.capacityClass === WEEKLY_GROWTH_EXTRA && (task.capacityClass !== previous.capacityClass || task.weeklyGrowthRevision !== previous.weeklyGrowthRevision || task.directionId !== previous.directionId || task.topicId !== previous.topicId || task.dueAt !== previous.dueAt || task.pageUrl !== previous.pageUrl || task.country !== previous.country || task.language !== previous.language || task.keywordId !== previous.keywordId || task.keyword !== previous.keyword)) reject("weekly_growth_identity_immutable", "保留上涨加推的原任务、方向版本、交付日和原页身份");
   if (task.capacityClass === WEEKLY_GROWTH_EXTRA) {
     if (task.kind !== "optimization" || !task.pageUrl || !task.weeklyGrowthRevision || !task.directionId || !task.experimentId || !task.topicId || task.channel === "github" || task.channel === "product" || task.language === "ru") reject("weekly_growth_scope", "上涨加推须关联已有原页、原正式话题和已批准的方向版本");

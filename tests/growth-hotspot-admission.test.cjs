@@ -131,3 +131,24 @@ test("daily extra capacity is shared and weekly growth reserves two deliveries f
   assert.match(check(["boost0", "boost1", "boost2"]), /两项/);
   assert.match(check(["boost1", "boost3"]), /一个上涨加推话题/);
 });
+
+
+test("only new topics from the weekly first-workday capture can enter the automatic hotspot queue", () => {
+  const { weeklyHotspotAdmissionProblem } = require("../src/lib/seo-weekly-hotspot.ts");
+  const { buildGrowthHotspotView } = require("../src/lib/growth-hotspots.ts");
+  const official = { ...proof("official"), observedAt: "2026-11-23T03:00:00Z" };
+  const independent = { ...proof("demand"), observedAt: official.observedAt };
+  const weekly = { label: "seo-weekly-hotspot-v1;outcome=new-topic;batch=2026-11-23", observedAt: official.observedAt, artifact: "weekly-capture.json" };
+  const evidence = [official, independent, weekly];
+  const research = task("seo-hotspot:weekly:research", { kind: "research", status: "verified", evidence, directionId: undefined, experimentId: undefined });
+  const automatic = task("seo-hotspot:weekly:blog", { evidence, directionId: undefined, experimentId: undefined, sourceRowId: research.id,
+    dependencies: [research.id], capacityClass: "authorized_hotspot_extra" });
+  assert.equal(weeklyHotspotAdmissionProblem(automatic, [research], now), null);
+  assert.match(weeklyHotspotAdmissionProblem({ ...automatic, dependencies: [] }, [research], now), /原研究任务/);
+  assert.match(weeklyHotspotAdmissionProblem({ ...automatic, dueAt: "2026-11-30T00:00:00Z" }, [research], now), /7 天/);
+  const midweek = { ...weekly, label: weekly.label.replace("2026-11-23", "2026-11-24"), observedAt: stamp };
+  const unqualified = { ...research, id: "seo-hotspot:midweek:research", keyword: "new midweek topic", evidence: [official, independent, midweek] };
+  const view = buildGrowthHotspotView({ directions: [], observations: [] }, { tasks: [unqualified, research, automatic], publications: [] }, [], now, true);
+  assert.deepEqual(view.items.map(item => item.keyword), [research.keyword]);
+  assert.equal(view.items[0].admission.status, "needs_plan_append");
+});

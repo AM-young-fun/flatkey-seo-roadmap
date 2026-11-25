@@ -50,6 +50,15 @@ test('the 1000-word calendar replaces the active cohort only after exact validat
  assert.throws(()=>mutate(legacy,'save_quarter_plan',{plan:research},assigned),{code:'quarter_new_word_scope'});
  assert.throws(()=>mutate(researchDraft,'approve_quarter_plan',{hash:researchDraft.quarterPlanning.hash,
   sourceVersion:research.sourceVersion,reason:'用户核对已排研究日期及原季度历史'}),{code:'quarter_delivery_pending'});
+ const activeResearch = mutate(researchDraft,'approve_quarter_plan',{hash:researchDraft.quarterPlanning.hash,
+  sourceVersion:research.sourceVersion,reason:'用户确认启用新词清单及研究排期，页面交付另行核实',researchOnly:true});
+ assert.equal(activeResearch.baseline.targets.length,1000);
+ assert.equal(activeResearch.baselineHistory[0].targets.length,legacy.baseline.targets.length);
+ const delivery = mutate(activeResearch,'save_quarter_plan',{plan:proposal});
+ const activeDelivery = mutate(delivery,'approve_quarter_plan',{hash:delivery.quarterPlanning.hash,
+  sourceVersion:proposal.sourceVersion,reason:'用户核对完成制作日期后沿同一批原词启用交付'});
+ assert.deepEqual(activeDelivery.baseline.targets,activeResearch.baseline.targets);
+ assert.equal(activeDelivery.baseline.frozenAt,activeResearch.baseline.frozenAt);
  const forged = structuredClone(research);
  forged.calendar[0].deliveryDate = '2026-11-30';
  assert.equal(quarterPlanningInputSchema.safeParse(forged).success,false);

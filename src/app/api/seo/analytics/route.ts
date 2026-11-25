@@ -12,6 +12,7 @@ import { loadGrowthDashboardWorkspace } from "@/lib/services/growth-workspace";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
 import { propertyToday, seoToday } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
+import { flatkeyBrandTraffic } from "@/lib/seo-brand-traffic";
 import { overviewModuleAnalytics, overviewTrafficAnalytics } from "@/lib/seo-overview-analytics";
 
 export const dynamic = "force-dynamic";
@@ -38,11 +39,13 @@ export async function GET(request: Request) {
   const priorityFilters = { page: Number(search.get("page") ?? 1),
     rank: search.get("rank") ?? "all", signal: search.get("signal") ?? "all" } as PagePriorityFilters;
   const viewMode = search.get("view");
-  const overview = viewMode === "overview-traffic";
+  const overview = viewMode === "overview-traffic", brandTraffic = viewMode === "brand-traffic";
   const compareStart = search.get("compareStart"), compareEnd = search.get("compareEnd");
   const comparison = compareStart !== null || compareEnd !== null ? { start: compareStart ?? "", end: compareEnd ?? "" } : null;
   try {
     const days = rangeDays(range);
+    if (brandTraffic && ([...search.keys()].some(key => !["view", "start", "end"].includes(key) || search.getAll(key).length !== 1)
+      || range.end >= propertyToday("America/Los_Angeles"))) throw new Error("无效品牌词统计范围");
     if (overview) {
       const keys = ["view", "start", "end", "compareStart", "compareEnd", "country", "module"];
       const today = propertyToday("America/Los_Angeles");
@@ -73,6 +76,15 @@ export async function GET(request: Request) {
     return Response.json({ message: "请选择已结束日期；一次最多366天和25个所选站点页面。" }, { status: 400, headers });
   }
   try {
+    if (brandTraffic) {
+      const source = analyticsLocalPreview(request) ? await readAnalyticsEvidence(range, "all", undefined, ["gsc-page-queries"])
+        : (await prisma.seoAnalyticsDay.findMany({ where: { date: { gte: range.start, lte: range.end }, kind: { in: ["gsc-page-queries"] } },
+          select: { payload: true } })).flatMap(row => {
+            const result = analyticsObservationSchema.safeParse(row.payload);
+            return result.success ? [result.data] : [];
+          });
+      return Response.json(flatkeyBrandTraffic(range, source), { headers });
+    }
     if (overview) {
       const started = performance.now(), local = analyticsLocalPreview(request);
       const sources = module === "all" ? ["ga4-site" as const] : ["ga4-pages" as const, "gsc-pages" as const];

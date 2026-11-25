@@ -1,3 +1,4 @@
+import { serpPeriodFromKey } from "@/lib/serp-periods";
 import { prisma } from "@/lib/prisma";
 import { approvedWeeklyCaptureRunIds, buildApprovedWeeklyKeywordCapture, type ApprovedWeeklyKeywordCaptureInput } from "@/lib/approved-weekly-keyword-capture";
 import { loadApprovedKeywordReview } from "@/lib/services/approved-keyword-review";
@@ -16,4 +17,12 @@ export async function loadApprovedWeeklyKeywordCapture(input: ApprovedWeeklyKeyw
     } }),
   ]);
   return buildApprovedWeeklyKeywordCapture(input, { first, other }, metadata);
+}
+
+
+export const NOVEMBER_SECOND_CAPTURE_DAY = "2026-11-23";
+export const NOVEMBER_SECOND_CAPTURE_PERIOD = serpPeriodFromKey("2026-11-17");
+
+export function loadNovemberSecondKeywordCapture(asOf = new Date()) {
+  return loadApprovedWeeklyKeywordCapture({ start: "2026-11-22", end: NOVEMBER_SECOND_CAPTURE_DAY, asOf });
 }

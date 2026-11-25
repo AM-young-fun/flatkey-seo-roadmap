@@ -14,7 +14,7 @@ export async function loadGrowthHotspotView(localPreview = false, now = new Date
     return plan.id === row.recordId && plan.status === row.status && Array.isArray(plan.taskIds) && plan.taskIds.every(id => typeof id === "string") ? [{ id: row.recordId, status: row.status, taskIds: plan.taskIds as string[] }] : [];
   });
   if (localPreview && workflow.plan) plans.push(workflow.plan);
-  return buildGrowthHotspotView(strategy, workflow, plans, now);
+  return buildGrowthHotspotView(strategy, workflow, plans, now, true);
 }
 
 export async function loadSavedHotspotTopics(topicIds: string[], localPreview = false) {

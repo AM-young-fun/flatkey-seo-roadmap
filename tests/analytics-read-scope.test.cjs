@@ -175,3 +175,22 @@ test("local summary preview filters by kind before opening and validating page a
     await fs.promises.rm(directory, { recursive: true, force: true });
   }
 });
+
+
+test("brand traffic uses final visible queries on the official Flatkey site only and keeps missing days blank", async () => {
+  const baseReport = fixtures.find(row => row.kind === "gsc-page-queries");
+  const queryRow = baseReport.rows[0];
+  data = [...fixtures.filter(row => row !== baseReport), { ...baseReport, rows: [
+    queryRow, { ...queryRow, query: "Ｆｌａｔ－Ｋｅｙ router", clicks: 5 },
+    { ...queryRow, query: "flatkeyless", clicks: 3 },
+    { ...queryRow, query: "nvidia gpu", clicks: 7 },
+    { ...queryRow, url: "https://console.flatkey.ai/", query: "Flatkey login", clicks: 100 },
+  ] }, { ...baseReport, date: range.end, complete: false }];
+  try {
+    const result = await read("&view=brand-traffic");
+    assert.deepEqual(result.daily, [{ date: range.start, branded: 5, nonBranded: 12 },
+      { date: range.end, branded: null, nonBranded: null }]);
+    assert.deepEqual(query.where.kind.in, ["gsc-page-queries"]);
+    assert.equal((await GET(request("&view=brand-traffic&country=US"))).status, 400);
+  } finally { data = fixtures; }
+});
