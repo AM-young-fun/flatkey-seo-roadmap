@@ -171,10 +171,26 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     }
     if (prepared.kind === "task" || prepared.kind === "plan") {
       const prior = all.find(row => row.kind === prepared.kind && row.record.id === prepared.record.id)?.record;
+      const previousPlan = prepared.kind === "plan" ? prior as WorkflowPlan | undefined : undefined;
+      const previouslyCommitted = previousPlan && isExecutableWorkflowPlan(previousPlan.status) ? previousPlan.taskIds : previousPlan?.committedTaskIds ?? [];
       const extraIds = prepared.kind === "task"
         ? (prepared.record as WorkflowTask).capacityClass === "authorized_hotspot_extra" && (prior as WorkflowTask | undefined)?.capacityClass !== "authorized_hotspot_extra" ? [prepared.record.id] : []
-        : (prepared.record as WorkflowPlan).taskIds.filter(id => !(prior as WorkflowPlan | undefined)?.taskIds.includes(id) && all.some(row => row.kind === "task" && row.record.id === id && (row.record as WorkflowTask).capacityClass === "authorized_hotspot_extra"));
+        : (prepared.record as WorkflowPlan).taskIds.filter(id => !previouslyCommitted.includes(id) && all.some(row => row.kind === "task" && row.record.id === id && (row.record as WorkflowTask).capacityClass === "authorized_hotspot_extra"));
       if (extraIds.length) {
+        if (prepared.kind === "task" && all.some(row => row.kind === "plan" &&
+          (isExecutableWorkflowPlan(row.record.status) ? (row.record as WorkflowPlan).taskIds : (row.record as WorkflowPlan).committedTaskIds ?? []).includes(prepared.record.id))) {
+          throw new WorkflowError("extra_existing_commitment", "已经正式排期的原任务保留原容量分类");
+        }
+        if (prepared.kind === "plan" && isExecutableWorkflowPlan(prepared.record.status)) {
+          const plan = prepared.record as WorkflowPlan;
+          const existingPlans = all.filter(row => row.kind === "plan" && row.record.id !== plan.id).map(row => row.record as WorkflowPlan);
+          const before = new Set([...previouslyCommitted,
+            ...existingPlans.flatMap(row => isExecutableWorkflowPlan(row.status) ? row.taskIds : row.committedTaskIds ?? [])]);
+          const { hotspotCapacityProblem } = await import("../growth-hotspot-admission");
+          const problem = hotspotCapacityProblem(all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask),
+            new Set([...before, ...plan.taskIds]), new Set(plan.taskIds.filter(id => !before.has(id))));
+          if (problem) throw new WorkflowError("hotspot_capacity_limit", problem);
+        }
         // The claims advisory lock is already held. A lease cannot be acquired
         // between this check and the normal task/plan CAS write.
         const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
