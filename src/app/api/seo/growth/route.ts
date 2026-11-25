@@ -1,6 +1,6 @@
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders } from "@/lib/seo-analytics-access";
 import { authorizeSavedRankingCoverage } from "@/lib/services/ranking-coverage-access";
-import { loadGrowthDashboardWorkspace, loadGrowthQuarterRankEvidence, loadGrowthWorkspace } from "@/lib/services/growth-workspace";
+import { loadGrowthDashboardWorkspace, loadGrowthKeywordWorkspace, loadGrowthQuarterRankEvidence, loadGrowthWorkspace } from "@/lib/services/growth-workspace";
 import { GROWTH_SITES } from "@/lib/growth-workspace";
 import { growthDashboardProjection, growthOverviewWorkspace } from "@/lib/growth-overview-workspace";
 import { growthQuarterPage } from "@/lib/growth-quarter-page";
@@ -8,36 +8,28 @@ import { growthKeywordInventoryPage } from "@/lib/growth-keyword-inventory";
 import type { PublishedKeywordRank } from "@/lib/published-keyword-rank";
 import { readGrowthScope } from "@/components/growth-topic-view";
 import type { GrowthWorkspace } from "@/lib/growth-types";
+import { profileRead, timedRead } from "@/lib/read-profile";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const inventoryKeys = ["view", "site", "country", "language", "q", "page"];
 const quarterKeys = [...inventoryKeys, "topic", "related", "target", "new"];
-let pageSnapshot: { expiresAt: number; result: ReturnType<typeof loadGrowthWorkspace> } | undefined;
-let quarterSnapshot: typeof pageSnapshot;
+const snapshotLoaders = { full: loadGrowthWorkspace, quarter: loadGrowthDashboardWorkspace, catalog: loadGrowthKeywordWorkspace };
+const snapshots = new Map<keyof typeof snapshotLoaders, { expiresAt: number; result: Promise<GrowthWorkspace> }>();
 
-function loadPageSnapshot(local: boolean) {
-  if (local) return loadGrowthWorkspace(true);
-  if (pageSnapshot && pageSnapshot.expiresAt > Date.now()) return pageSnapshot.result;
-  const result = loadGrowthWorkspace();
+function loadSnapshot(view: keyof typeof snapshotLoaders, local: boolean) {
+  const load = snapshotLoaders[view];
+  if (local) return load(true);
+  const hit = snapshots.get(view);
+  if (hit && hit.expiresAt > Date.now()) return hit.result;
+  const result = load();
   const current = { expiresAt: Infinity, result };
-  pageSnapshot = current;
-  void result.then(() => { current.expiresAt = Date.now() + 30_000; },
-    () => { if (pageSnapshot === current) pageSnapshot = undefined; });
-  return result;
-}
-
-function loadQuarterSnapshot(local: boolean): Promise<GrowthWorkspace> {
-  if (local) return loadGrowthDashboardWorkspace(true);
-  if (quarterSnapshot && quarterSnapshot.expiresAt > Date.now()) return quarterSnapshot.result;
-  const result = loadGrowthDashboardWorkspace();
-  const current = { expiresAt: Infinity, result };
-  quarterSnapshot = current;
+  snapshots.set(view, current);
+  const discard = () => { if (snapshots.get(view) === current) snapshots.delete(view); };
   void result.then(workspace => {
-    if (workspace.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available)) {
-      if (quarterSnapshot === current) quarterSnapshot = undefined;
-    } else current.expiresAt = Date.now() + 30_000;
-  }, () => { if (quarterSnapshot === current) quarterSnapshot = undefined; });
+    if (view !== "full" && workspace.reconciliation.sources.some(source => !source.available && source.reason?.startsWith("来源读取失败"))) discard();
+    else current.expiresAt = Date.now() + 30_000;
+  }, discard);
   return result;
 }
 
@@ -62,18 +54,22 @@ export async function GET(request: Request) {
     const local = analyticsLocalPreview(request);
     if (view === "dashboard") {
       const started = performance.now();
-      const data = growthDashboardProjection(await loadGrowthDashboardWorkspace(local, new Date(), site));
+      const data = growthDashboardProjection(await (site ? loadGrowthDashboardWorkspace(local, new Date(), site) : loadSnapshot("quarter", local)));
       const headers = new Headers(privateAnalyticsHeaders);
       headers.set("server-timing", `growth-dashboard;dur=${Math.round(performance.now() - started)}`);
       return Response.json(data, { headers });
     }
     if (library) {
-      const data = await (library === "keywords" ? loadPageSnapshot(local) : loadQuarterSnapshot(local));
-      return Response.json(growthKeywordInventoryPage(data, readGrowthScope(params), page, library, rank as PublishedKeywordRank | "all"), { headers: privateAnalyticsHeaders });
+      const read = await profileRead(async () => {
+        const data = await timedRead("workspace", () => loadSnapshot(library === "keywords" ? "catalog" : "quarter", local));
+        return growthKeywordInventoryPage(data, readGrowthScope(params), page, library, rank as PublishedKeywordRank | "all");
+      });
+      const timing = [...read.phases.map(phase => `${phase.phase};dur=${phase.durationMs}`), `keyword-library;dur=${read.durationMs}`].join(", ");
+      return Response.json(read.value, { headers: { ...privateAnalyticsHeaders, "Server-Timing": timing } });
     }
     if (quarter) {
       const started = performance.now();
-      const data = await loadQuarterSnapshot(local);
+      const data = await loadSnapshot("quarter", local);
       const result = growthQuarterPage(data, { scope: readGrowthScope(params), page,
         topicId: params.get("topic") ?? undefined, related: params.get("related") === "1", selected: params.get("target") ?? undefined, newOnly: newOnly === "1" });
       const core = performance.now() - started;
@@ -84,7 +80,7 @@ export async function GET(request: Request) {
       }
       return Response.json(result, { headers: { ...privateAnalyticsHeaders, "Server-Timing": `quarter-core;dur=${core.toFixed(1)}` } });
     }
-    const workspace = await (view === "overview" && !site ? loadPageSnapshot(local) : loadGrowthWorkspace(local, new Date(), site));
+    const workspace = await (view === "overview" && !site ? loadSnapshot("full", local) : loadGrowthWorkspace(local, new Date(), site));
     return Response.json(view === "overview" ? growthOverviewWorkspace(workspace) : workspace, { headers: privateAnalyticsHeaders });
   } catch { return Response.json({ message: "增长工作台读取未完成，请重试；未触发任何采集或写入" }, { status: 503, headers: privateAnalyticsHeaders }); }
 }

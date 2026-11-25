@@ -6,6 +6,7 @@ Module._load=function(name,...rest){
  if(name.includes('services/ranking-coverage-access'))return {authorizeSavedRankingCoverage:async req=>!req.headers.has('origin')&&req.headers.get('authorization')==='Bearer fixture'};
  if(name.includes('services/growth-workspace'))return {
   loadGrowthWorkspace:async()=>({version:'growth-v1.5',targets:[],topics:[]}),
+  loadGrowthKeywordWorkspace:async()=>({version:'growth-v1.5',targets:[],topics:[],reconciliation:{sources:[]}}),
   loadGrowthDashboardWorkspace:async()=>({version:'growth-v1.5',generatedAt:'2026-11-25T04:00:00Z',targets:[],topics:[],sites:[],markets:[],reconciliation:{sources:[]}}),
   loadGrowthQuarterRankEvidence:async targets=>({targets,partial:false}),
  };
@@ -107,6 +108,7 @@ test('keyword inventory views read saved data through the existing authorization
    const response = await GET(new Request(`${endpoint}?${query}`, { headers }));
    assert.equal(response.status, 200);
    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+   if (!query.startsWith('view=quarter')) assert.match(response.headers.get('server-timing'), /workspace;dur=.*keyword-library;dur=/);
  }
  for (const query of ['view=published&rank=missing', 'view=keywords&rank=all', 'view=published&page=0', 'view=quarter&new=0']) {
    assert.equal((await GET(new Request(`${endpoint}?${query}`, { headers }))).status, 400);

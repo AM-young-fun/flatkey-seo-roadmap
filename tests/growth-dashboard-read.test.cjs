@@ -10,12 +10,14 @@ const targetId = 'flatkey.ai:gpu%20pricing:US:en';
 const workflowQueries = [], serpQueries = [];
 let failSerp = false;
 let historicalEvidence = false;
+let catalog = false;
 
 const prisma = {
   $queryRaw: async query => {
     if (query.sql.includes('FROM "DataForSeoRun"')) {
-      assert.ok(historicalEvidence, 'dashboard must not scan saved discovery');
-      assert.deepEqual(query.values, [keyword, site]);
+      assert.ok(historicalEvidence || catalog, 'dashboard must not scan saved discovery');
+      assert.deepEqual(query.values, catalog ? ['flatkey.ai', 'rackrate.org', 'modelfit.cc'] : [keyword, site]);
+      if (catalog) assert.doesNotMatch(query.sql, /normalize\(/u);
       return [{ requestId: 'discovery-original', siteDomain: site, normalized: { datasetType: 'provider_ranked_keywords_snapshot', targetDomain: site, region: 'US', rows: [
         { rawKeyword: 'ＧＰＵ pricing', url, region: 'US', rank_group: 7, sourceSerpUpdatedAt: '2026-11-03T04:00:00Z' },
       ] } }];
@@ -46,9 +48,10 @@ const prisma = {
     return [{ id: 'matching-task', keyword: 'ＧＰＵ pricing' }, { id: 'unrelated-task', keyword: 'unrelated' }];
   } },
   keywordPageObservation: { findMany: async args => {
-    assert.ok(historicalEvidence, 'dashboard must not read page ranking history');
-    assert.deepEqual(args.where.keywordId, { in: [keywordId] });
-    assert.deepEqual(args.where.siteDomain, { in: [site] });
+    assert.ok(historicalEvidence || catalog, 'dashboard must not read page ranking history');
+    assert.deepEqual(args.where.keywordId, catalog ? undefined : { in: [keywordId] });
+    assert.deepEqual(args.where.siteDomain, { in: catalog ? ['flatkey.ai', 'rackrate.org', 'modelfit.cc'] : [site] });
+    if (catalog) return [{ keywordId: 'old-source', keyword: { text: 'saved keyword' }, siteDomain: site, region: 'US', source: 'gsc', rank: 12, url, dataUpdatedAt: new Date('2026-10-12T00:00:00Z') }];
     return [];
   } },
   topic: { findMany: async () => [{ id: 'gpu', text: 'GPU rental', active: true, parentId: null, childEdges: [], sites: [{ siteDomain: site }] }] },
@@ -69,7 +72,7 @@ Module._load = function (name, parent, ...args) {
   return originalLoad.call(this, name.startsWith('@/') ? path.join(root, 'src', name.slice(2)) : name, parent, ...args);
 };
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
-const { loadGrowthDashboardWorkspace, loadGrowthDashboardHistory, loadGrowthQuarterRankEvidence } = require('../src/lib/services/growth-workspace.ts');
+const { loadGrowthDashboardWorkspace, loadGrowthDashboardHistory, loadGrowthKeywordWorkspace, loadGrowthQuarterRankEvidence } = require('../src/lib/services/growth-workspace.ts');
 const { withRequestReads } = require('../src/lib/request-read-scope.ts');
 
 test('dashboard bounds saved SERP by the exact eligibility window and omits historic and paid-workspace reads', async () => {
@@ -119,4 +122,25 @@ test('quarter details recover the background rank without counting it as a fresh
     assert.equal(partial.targets[0].rank, 4);
     assert.equal(partial.targets[0].rankEligible, true);
   } finally { historicalEvidence = false; failSerp = false; }
+});
+
+test('all-keyword catalog keeps historical discovery, page observations, and original links without full workflow and page QA', async () => {
+  const saved = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgresql://unused.invalid/mock';
+  catalog = true;
+  try {
+    const data = await loadGrowthKeywordWorkspace(false, now);
+    assert.doesNotMatch(serpQueries.at(-1).sql, /"checkedAt" BETWEEN/u);
+    const current = data.targets.find(row => row.id === targetId);
+    assert.equal(current.rank, 4);
+    assert.deepEqual(current.maintenancePublishedUrls, [url]);
+    assert.deepEqual(current.taskIds, ['original-task']);
+    assert.equal(data.targets.find(row => row.keyword === 'saved keyword').rankSource, 'gsc');
+    assert.equal(data.reconciliation.sources.find(row => row.name === '已存域名发现（供应商数据库）').available, true);
+    assert.deepEqual(data.quarter.targetIds, [targetId]);
+    assert.equal(data.pageLiveChecks, undefined);
+  } finally {
+    catalog = false;
+    if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved;
+  }
 });

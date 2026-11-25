@@ -112,15 +112,16 @@ function KeywordInventory({ library, scope, change, page, setPage }: { library: 
   if (scope.country !== "all") params.set("country", scope.country);
   if (scope.language !== "all") params.set("language", scope.language);
   if (scope.search.trim()) params.set("q", scope.search.trim().slice(0, 240));
-  const { data, error, retry, retrying } = useSeoRead<GrowthKeywordInventoryPage>("/api/seo/growth?" + params);
+  const { data, previousData, error, retry, retrying } = useSeoRead<GrowthKeywordInventoryPage>("/api/seo/growth?" + params, { showFeedback: false, keepPreviousData: true });
+  const filters = data?.data ?? previousData?.data;
   const title = published ? "已有内容与排名" : "全部关键词";
   return <section className={styles.panel} aria-label={title}>
     <div className={styles.sectionHeading}>
       <div><h2>{title}</h2>{published ? <p>选做页面优化或旧文重写前，先核验原词与已上线页面的搜索意图。</p> : null}</div>
       <FeedbackButton className={styles.more} onClick={retry} pending={retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
     </div>
+    {filters ? <div className={styles.inventoryFilters}><GrowthFilters data={filters} scope={scope} change={change} /></div> : null}
     {error ? <p role="alert">关键词暂时无法读取：{error}</p> : !data ? <p role="status">正在读取已存关键词…</p> : <>
-      <div className={styles.inventoryFilters}><GrowthFilters data={data.data} scope={scope} change={change} /></div>
       {published ? <div className={styles.tabs} role="group" aria-label="已上线关键词排名状态">
         {rankingFilters.map(id => <button type="button" aria-pressed={rank === id} key={id} onClick={() => { setRank(id); setPage(1); }}>
           {id === "all" ? "全部已上线" : publishedKeywordRankLabels[id]} <span>{count(id === "all" ? Object.values(data.counts).reduce((a, b) => a + b, 0) : data.counts[id])}</span>

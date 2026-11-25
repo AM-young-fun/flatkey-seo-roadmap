@@ -18,6 +18,7 @@ import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
 import { growthPageAuditChecks, growthPublicationPageChecks } from "@/lib/growth-live-page-evidence";
 import { PAGE_AUDIT_SOURCE_ID } from "@/lib/page-audit";
 import { requestRead } from "@/lib/request-read-scope";
+import { timedRead } from "@/lib/read-profile";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const array = (value: unknown) => Array.isArray(value) ? value.map(object) : [];
@@ -104,18 +105,18 @@ async function quarterSerpEvidence(words: Set<string>) {
   return savedSerpEvidence(prisma, undefined, index.filter(row => words.has(growthWordKey(row.keyword))).map(row => row.id));
 }
 
-async function quarterDiscoveryEvidence(words: Set<string>, sites: string[]) {
+async function projectedDiscoveryEvidence(sites: string[], words?: Set<string>) {
   // Transfer only the saved columns used by evidence selection. The canonical
   // JS word comparison below keeps aliases and Unicode handling consistent.
   const runs = await prisma.$queryRaw<{ requestId: string; siteDomain: string; normalized: unknown }[]>(Prisma.sql`
     SELECT r."requestId", r."siteDomain", jsonb_build_object(
-      'datasetType', r.normalized->>'datasetType', 'region', r.normalized->>'region', 'targetDomain', r.normalized->>'targetDomain',
+      'datasetType', r.normalized->'datasetType', 'region', r.normalized->'region', 'targetDomain', r.normalized->'targetDomain',
       'rows', (SELECT jsonb_agg(jsonb_build_object('rawKeyword', entry->'rawKeyword', 'keyword', entry->'keyword',
         'url', entry->'url', 'region', entry->'region', 'rank_group', entry->'rank_group', 'sourceSerpUpdatedAt', entry->'sourceSerpUpdatedAt'))
         FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.normalized->'rows') = 'array' THEN r.normalized->'rows' ELSE '[]'::jsonb END) entry
-        CROSS JOIN LATERAL (SELECT normalize(CASE WHEN jsonb_typeof(entry->'rawKeyword') = 'string' THEN entry->>'rawKeyword' ELSE entry->>'keyword' END, NFKC) AS value) word
+        ${words ? Prisma.sql`CROSS JOIN LATERAL (SELECT normalize(CASE WHEN jsonb_typeof(entry->'rawKeyword') = 'string' THEN entry->>'rawKeyword' ELSE entry->>'keyword' END, NFKC) AS value) word
         WHERE word.value COLLATE "C" ~ '[^ -~]'
-          OR translate(btrim(regexp_replace(word.value, ' +', ' ', 'g')), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') IN (${Prisma.join([...words])})
+          OR translate(btrim(regexp_replace(word.value, ' +', ' ', 'g')), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') IN (${Prisma.join([...words])})` : Prisma.empty}
       )
       ) AS normalized
     FROM "DataForSeoRun" r
@@ -123,7 +124,8 @@ async function quarterDiscoveryEvidence(words: Set<string>, sites: string[]) {
       AND (r."requestId" LIKE 'discovery-%' OR r."requestId" LIKE 'gd-%')
       AND r.normalized->>'datasetType' = 'provider_ranked_keywords_snapshot'
   `);
-  return discoveryRankRows(runs).filter(row => words.has(growthWordKey(row.keyword)));
+  const rows = discoveryRankRows(runs);
+  return words ? rows.filter(row => words.has(growthWordKey(row.keyword))) : rows;
 }
 
 /** Expand saved rank evidence only for the currently displayed quarter rows.
@@ -134,7 +136,7 @@ export async function loadGrowthQuarterRankEvidence(targets: GrowthTarget[], asO
   const words = new Set(targets.map(row => growthWordKey(row.keyword)));
   const members = [...new Set(targets.flatMap(row => row.keywordId ? [row.keywordId] : []))];
   const results = await Promise.allSettled([
-    quarterSerpEvidence(words), quarterDiscoveryEvidence(words, sites),
+    quarterSerpEvidence(words), projectedDiscoveryEvidence(sites, words),
     prisma.keywordPageObservation.findMany({ where: { siteDomain: { in: sites }, keywordId: { in: members }, rank: { gte: 1, lte: 100 } },
       select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true } })
       .then(rows => rows.flatMap<GrowthRankEvidence>(row => row.siteDomain && growthPublicUrl(row.url, row.siteDomain) ? [{ site: row.siteDomain,
@@ -191,7 +193,12 @@ export function loadGrowthDashboardHistory(localPreview = false): Promise<Dashbo
 }
 
 export function loadGrowthDashboardWorkspace(localPreview = false, now = new Date(), selectedSite?: string) {
-  return readGrowthWorkspace(localPreview, now, selectedSite, { dashboard: true });
+  return readGrowthWorkspace(localPreview, now, selectedSite, { view: "dashboard" });
+}
+
+/** Keep all saved rank sources and original page/task links for the catalog. */
+export function loadGrowthKeywordWorkspace(localPreview = false, now = new Date()) {
+  return readGrowthWorkspace(localPreview, now, undefined, { view: "catalog" });
 }
 
 /** No import APIs, mutations, provider fetches, scheduling or paid switches. */
@@ -199,30 +206,33 @@ export function loadGrowthWorkspace(localPreview = false, now = new Date(), sele
   return readGrowthWorkspace(localPreview, now, selectedSite, { transaction });
 }
 
-async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSite: string | undefined, { dashboard = false, transaction }: { dashboard?: boolean; transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot } }): Promise<GrowthWorkspace> {
+async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSite: string | undefined, { view = "full", transaction }: { view?: "dashboard" | "catalog" | "full"; transaction?: { db: Prisma.TransactionClient; workflow: WorkflowSnapshot } }): Promise<GrowthWorkspace> {
   if (!process.env.DATABASE_URL) throw new Error("GROWTH_DATABASE_UNAVAILABLE");
   const db = transaction?.db ?? prisma;
   const goalSites = GROWTH_SITES.filter(site => site.keywordGoals).map(site => site.domain);
-  const [topics, members, assignments, inventory, workflow, savedSites, planRows, quarterRow, membershipAudit, optional] = await Promise.all([
+  const dashboard = view === "dashboard";
+  const [topics, members, assignments, inventory, workflow, savedSites, planRows, quarterRow, membershipAudit, optional, humanLanguages] = await Promise.all([
     db.topic.findMany({ select: { id: true, text: true, active: true, parentId: true, childEdges: { select: { parentId: true } }, sites: { select: { siteDomain: true } } } }),
     db.siteKeyword.findMany({ where: { siteDomain: { in: goalSites } }, select: { siteDomain: true, keywordId: true, active: true, topicId: true, pool: true, origin: true, targetUrls: true, mappingStatus: true, sourceUrl: true,
       topicAssignments: { select: { topicId: true } }, keyword: { select: { text: true, active: true } } } }),
     db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: MARKET_ASSIGNMENT_SOURCE_ID }, select: { siteDomain: true, rowKey: true, snapshot: true } }),
     db.seoPageInventory.findMany({ select: { url: true, lastSeen: true } }),
-    transaction?.workflow ?? (dashboard ? loadGrowthDashboardHistory(localPreview) : loadWorkflowSnapshot({ allHistory: true }, localPreview)),
+    transaction?.workflow ?? timedRead("workflow", () => view === "full" ? loadWorkflowSnapshot({ allHistory: true }, localPreview) : loadGrowthDashboardHistory(localPreview)),
     db.seoSite.findMany({ select: { domain: true, active: true, ga4PropertyId: true } }),
     db.seoWorkflowRecord.findMany({where:{kind:"plan",status:{in:["scheduled","reviewed"]}},select:{recordId:true,status:true,payload:true}}),
     db.seoWorkflowRecord.findUnique({ where: { key: "growth-strategy:2026-close" }, select: { payload: true } }),
     db.keywordCurationAudit.findFirst({ where: { status: QUARTER_MEMBERSHIP_STATUS }, orderBy: { appliedAt: "desc" },
       select: { id: true, siteDomain: true, status: true, payloadHash: true, before: true, after: true, summary: true, appliedAt: true, restoredAt: true } }),
-    Promise.allSettled([savedSerpEvidence(db, dashboard ? now : undefined),
-      dashboard ? Promise.resolve([]) : savedDiscoveryEvidence(db),
-      dashboard ? Promise.resolve([]) : db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true, collectedAt: true } })]),
+    Promise.allSettled([timedRead("saved-serp", () => savedSerpEvidence(db, dashboard ? now : undefined)),
+      dashboard ? Promise.resolve([]) : timedRead("saved-discovery", () => view === "catalog" ? projectedDiscoveryEvidence(goalSites) : savedDiscoveryEvidence(db)),
+      dashboard ? Promise.resolve([]) : timedRead("saved-page-observations", () => db.keywordPageObservation.findMany({ where: { siteDomain: { in: goalSites }, rank: { gte: 1, lte: 100 } }, select: { keywordId: true, keyword: { select: { text: true } }, siteDomain: true, region: true, source: true, rank: true, url: true, dataUpdatedAt: true } }))]),
+    timedRead("word-identity", async () => {
+      const rows = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: HUMAN_WORD_LANGUAGE_SOURCE_ID }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } });
+      const auditIds = [...new Set(rows.flatMap(row => typeof object(row.snapshot).auditId === "string" ? [String(object(row.snapshot).auditId)] : []))];
+      const audits = auditIds.length ? await db.keywordCurationAudit.findMany({ where: { id: { in: auditIds }, status: PRE_FREEZE_IDENTITY_AUDIT }, select: { id: true, status: true, summary: true, payloadHash: true } }) : [];
+      return auditedHumanWordLanguages(rows as IdentitySourceRow[], audits);
+    }),
   ]);
-  const humanLanguageRows = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: HUMAN_WORD_LANGUAGE_SOURCE_ID }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } });
-  const humanAuditIds = [...new Set(humanLanguageRows.flatMap(row => typeof object(row.snapshot).auditId === "string" ? [String(object(row.snapshot).auditId)] : []))];
-  const humanAudits = humanAuditIds.length ? await db.keywordCurationAudit.findMany({ where: { id: { in: humanAuditIds }, status: PRE_FREEZE_IDENTITY_AUDIT }, select: { id: true, status: true, summary: true, payloadHash: true } }) : [];
-  const humanLanguages = auditedHumanWordLanguages(humanLanguageRows as IdentitySourceRow[], humanAudits);
   const sources: GrowthWorkspace["reconciliation"]["sources"] = [{ name: "TopicMap／站点成员／真实页面库存／跨周原任务", available: true, reason: null }];
   const plans=planRows.flatMap(row=>{const plan=object(row.payload);return plan.id===row.recordId&&plan.status===row.status&&Array.isArray(plan.taskIds)&&plan.taskIds.every(id=>typeof id==="string")?[{id:row.recordId,status:row.status,taskIds:plan.taskIds as string[]}]:[];});
   sources.push({name:"原全历史正式计划与原市场源交付",available:true,reason:`只读核验${plans.length}条scheduled/reviewed原计划；DB研究池不改，无对应证据保留待核`});
@@ -234,7 +244,7 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
     sources.push({ name: dashboard ? "最近14天的已存SERP" : names[index], available: result.status === "fulfilled", reason: result.status === "rejected" ? "来源读取失败；未补采、未将缺项填0" : null });
     if (result.status !== "fulfilled") return;
     if (index < 2) ranks.push(...result.value as GrowthRankEvidence[]);
-    else for (const row of result.value as { keywordId: string; keyword: { text: string }; siteDomain: string; region: string; source: string; rank: number | null; url: string; dataUpdatedAt: Date | null; collectedAt: Date }[]) {
+    else for (const row of result.value as { keywordId: string; keyword: { text: string }; siteDomain: string; region: string; source: string; rank: number | null; url: string; dataUpdatedAt: Date | null }[]) {
       if (!row.siteDomain || !growthPublicUrl(row.url, row.siteDomain)) continue;
       ranks.push({ site: row.siteDomain, keywordId: row.keywordId, keyword: row.keyword.text, country: row.region, language: languageFor(row.region), rank: row.rank, url: row.url,
         source: /gsc|google_search_console/i.test(row.source) ? "gsc" : "database", checkedAt: date(row.dataUpdatedAt), exact: true, complete: false });
@@ -269,7 +279,7 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
     const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;
     return { ...site, dataReadiness: siteSourceReadiness(site.domain, savedProperty) };
   });
-  if (dashboard) return workspace;
+  if (view !== "full") return workspace;
   let pageAuditAvailable = true;
   const pageAudits = await db.keywordSourceRow.findMany({ where: { siteDomain: { in: goalSites }, sourceId: PAGE_AUDIT_SOURCE_ID,
     rowKey: { in: [...new Set(members.map(member => `keyword:${member.keywordId}`))] } }, select: { siteDomain: true, sourceId: true, rowKey: true, snapshotHash: true, snapshot: true } }).catch(() => { pageAuditAvailable = false; return []; });
