@@ -88,7 +88,8 @@ test('normal workspace reader consumes the committed audit and exports original 
     seoPageInventory: { findMany: async () => [] }, seoSite: { findMany: async () => [{ domain: 'flatkey.ai', active: true, ga4PropertyId: '541304395' }] },
     seoWorkflowRecord: { findMany: async () => [], findUnique: async () => null },
     keywordCurationAudit: { findFirst: async query => { readAudit++; assert.equal(query.where.status, QUARTER_MEMBERSHIP_STATUS); assert.equal(query.orderBy.appliedAt, 'desc'); return audit; } },
-    dataForSeoRun: { findMany: async () => [] }, keywordPageObservation: { findMany: async () => [] }, $queryRaw: async () => [] };
+    dataForSeoRun: { findMany: async () => [] }, keywordPageObservation: { findMany: async () => [] },
+    $queryRaw: async query => query.sql.includes('FROM "KeywordSourceRow"') ? [{ sources: [], audits: [] }] : [] };
   const load = Module._load;
   Module._load = function (name, parent, ...args) {
     if (name === 'server-only') return {};
