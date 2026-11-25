@@ -19,6 +19,19 @@ test('lost membership responses only read the same audit; definite rejection per
   const unknown = await verifyMembershipOperation(command, original, false, async () => { throw Object.assign(Error('not found yet'), { status: 404 }); }); assert.equal(unknown.status, 'unknown');
   const rejected = await verifyMembershipOperation(command, original, true, async (_url, body) => { throw Object.assign(Error('definite reject'), { status: body ? 409 : 404 }); }); assert.equal(rejected.status, 'rejected');
 });
+test('the new 1000-word quarter reconciles its original receipt without submitting again', async () => {
+  const newSelection = { ...selection, version: 'quarter-membership-v2', members: selection.members.slice(0, 1000) };
+  const newPreview = { ...original, manifest: newSelection, uniqueWords: 1000, membershipCount: 1000, changed: 1000 };
+  const newCommand = { ...command, selection: newSelection };
+  const newReceipt = { ...receipt, manifest: newSelection, uniqueWords: 1000, membershipCount: 1000, changed: 1000 };
+  const verified = await verifyMembershipOperation(newCommand, newPreview, false, async (_url, body) => {
+    assert.equal(body, undefined);
+    return newReceipt;
+  });
+  assert.equal(verified.status, 'verified');
+  const wrongCount = await verifyMembershipOperation(newCommand, newPreview, false, async () => ({ ...newReceipt, uniqueWords: 1600 }));
+  assert.equal(wrongCount.status, 'unknown');
+});
 test('wrong original audit or changed current member state cannot report a successful pool initialization', async () => {
   for (const changed of [{ ...receipt, actor: 'collector' }, { ...receipt, requestId: 'someone-else' }, { ...receipt, expectedStateHash: '0'.repeat(64) },
     { ...receipt, manifest: { ...selection, sourceHash: '0'.repeat(64) } }]) assert.equal((await verifyMembershipOperation(command, original, false, async () => changed)).status, 'unknown');
