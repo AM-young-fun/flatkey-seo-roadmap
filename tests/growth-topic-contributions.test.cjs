@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),ts=require('typescript');
 require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,f);
-const {growthContributionDrivers,growthTopicContributions}=require('../src/lib/growth-topic-contributions.ts');
+const {growthComparisonGroups,growthContributionDrivers,growthTopicContributions}=require('../src/lib/growth-topic-contributions.ts');
 const window={start:'2026-11-12',end:'2026-11-18',previousStart:'2026-11-05',previousEnd:'2026-11-11',timezone:'America/Los_Angeles'};
 const driver=(patch={})=>({url:'https://flatkey.ai/blog/gpu',topicId:'gpu',country:'US',language:'en',source:'GA4',metric:'sessions',previous:10,current:20,window,...patch});
 const snapshot=rows=>({period:{start:window.start,end:window.end,timezone:window.timezone},directions:[{drivers:rows},{drivers:rows}]});
@@ -29,4 +29,19 @@ test('one page attributed to two topics counts once by module and is withheld fr
 test('a unique explicit topic remains usable while conflicting modules stay unassigned, with one observation only',()=>{
  const rows=growthContributionDrivers(snapshot([driver({topicId:null,module:'blog'}),driver({module:'models'})]));
  assert.equal(rows.length,1);assert.equal(rows[0].topicId,'gpu');assert.equal(rows[0].module,'模块待核');assert.equal(rows[0].current,20);
+});
+
+test('comparison groups keep exact language and windows distinct and retain every contributing page',()=>{
+ const en=driver({title:'English landing',module:'blog',country:'ALL',source:'GSC',metric:'clicks',previous:2,current:8});
+ const rows=[en,{...en,title:'English pricing',url:'https://flatkey.ai/blog/pricing',previous:4,current:9},
+   {...en,title:'Localized page',url:'https://flatkey.ai/zh/blog/gpu',language:'zh-CN',previous:3,current:5},
+   {...en,window:{...window,previousStart:'2026-10-29',previousEnd:'2026-11-04'}}];
+ for(const groupBy of ['module','topic']) {
+  const groups=growthComparisonGroups(snapshot(rows),'clicks',groupBy);
+  assert.equal(groups.length,3);
+  assert.deepEqual(groups[0].pages.map(row=>row.url),[en.url,'https://flatkey.ai/blog/pricing']);
+  assert.deepEqual([groups[0].previous,groups[0].current],[6,17]);
+  assert.equal(groups.find(group=>group.language==='zh-CN').pages[0].url,'https://flatkey.ai/zh/blog/gpu');
+  assert.deepEqual(groups,growthComparisonGroups(snapshot([...rows].reverse()),'clicks',groupBy));
+ }
 });
