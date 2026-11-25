@@ -4,7 +4,8 @@ Module._resolveFilename = function (name, parent, ...rest) { return resolve.call
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const { assertGrowthPlan } = require("../src/lib/seo-growth-plan.ts");
 const { prepareWorkflowMutation } = require("../src/lib/seo-workflow-state.ts");
-const { quarterAllocationProblems } = require("../src/lib/growth-quarter-planning.ts");
+const { allocateIntegerBudget, BUSINESS_DELIVERY_WEIGHTS, quarterAllocationProblems } = require("../src/lib/growth-quarter-planning.ts");
+const { routineDailyLanguageBudgets, routineLanguageBudget, routineLanguageGroup, routineLanguageProblems } = require("../src/lib/seo-routine-languages.ts");
 const languages = { en: 8, ja: 6, "pt-BR": 5, "zh-CN": 5, "es-ES": 1, fr: 0, de: 0, ru: 0, vi: 0, id: 0 };
 const dates = ["2026-11-27", "2026-11-30", "2026-12-01", "2026-12-02", "2026-12-03"];
 function plan(patch = {}) {
@@ -60,4 +61,44 @@ test("caller-supplied committed markers cannot forge first execution or erase an
   const draft = prepareWorkflowMutation({ action: "save_plan", requestId: "independent-retain-committed", expectedVersion: 1, record: plan({ status: "draft", taskIds: [task.id], committedTaskIds: [] }) }, [{ kind: "task", record: task }, { kind: "plan", record: previous }], "collector", now);
   assert.deepEqual(draft.record.committedTaskIds, [task.id], "An empty caller ledger cannot erase server-known formal IDs");
   assert.throws(() => prepareWorkflowMutation({ action: "save_plan", requestId: "independent-drop-after-draft", expectedVersion: draft.record.version, record: plan({ status: "draft", committedTaskIds: [] }) }, [{ kind: "task", record: task }, { kind: "plan", record: draft.record }], "collector", now), { code: "plan_preserve_committed" });
+});
+
+test("small daily capacity rotates across the full week, pooling only authorized additional languages", () => {
+  const days = dates.map((date, index) => ({ date, slots: [1, 0, 2, 1, 1][index] }));
+  const budgets = routineDailyLanguageBudgets(days.reverse());
+  assert.deepEqual(budgets.map(({ counts }) => Object.keys(counts).filter(key => counts[key])), [["zh-CN"], [], ["ja", "en"], ["es-ES"], ["other"]]);
+  for (const group of Object.keys(budgets[0].counts)) assert.equal(budgets.reduce((sum, day) => sum + day.counts[group], 0), 1);
+  assert.deepEqual(routineLanguageBudget(7, 3), { "zh-CN": 1, ja: 1, en: 1, "es-ES": 2, other: 2 });
+  for (const language of ["pt-BR", "fr", "de", "vi", "id"]) assert.equal(routineLanguageGroup(language), "other");
+  for (const language of ["ru", "ko", null]) assert.equal(routineLanguageGroup(language), null);
+});
+
+test("prior commitments and qualified extra work survive the new routine ceilings", () => {
+  const original = (id, language, extra = {}) => ({ ...task, id, keyword: "original " + id, language, ...extra });
+  const old = [original("old-1", "en"), original("old-2", "en")];
+  const extra = original("hotspot", "en", { capacityClass: "authorized_hotspot_extra" });
+  const committedIds = new Set(old.map(row => row.id));
+  const options = { capacity: 5, committedIds, dailySlots: new Map([["2026-12-01", 5]]) };
+  assert.deepEqual(routineLanguageProblems({ ...options, tasks: [...old, extra, original("new-ja", "ja")] }), []);
+  assert.equal(routineLanguageProblems({ ...options, tasks: [...old, extra, original("new-en", "en")] })[0].code, "routine_weekly_language_capacity");
+  assert.equal(routineLanguageProblems({ ...options, tasks: [...old, original("new-ru", "ru")] })[0].code, "routine_keyword_language_scope");
+  assert.equal(routineLanguageProblems({ ...options, capacity: 10, tasks: [original("new-fr", "fr"), original("new-de", "de")] })[0].code, "routine_daily_language_capacity");
+});
+
+test("formal growth save accepts new Spanish and pooled languages under the new budgets and preserves a legacy plan on extra-only append", () => {
+  const newRows = ["zh-CN", "ja", "en", "es-ES", "fr"].map((language, index) => ({ ...task, id: `blog-${index}`, kind: "blog", business: "GPU", keyword: `original ${index}`, language }));
+  const empty = plan(), taskIds = newRows.map(row => row.id), records = newRows.map(record => ({ kind: "task", record }));
+  const budget = allocateIntegerBudget(57, BUSINESS_DELIVERY_WEIGHTS);
+  const allocation = { version: "quarter-planning-v2", futureBudget: { total: 57, counts: budget }, preservedTaskIds: [], marketResearchBudget: { total: 0 },
+    tasks: taskIds.map(taskId => ({ taskId, bucket: "gpu", workstreamId: "gpu-workstream" })),
+    gaps: Object.entries(budget).map(([bucket, count]) => ({ bucket, count: count - (bucket === "gpu" ? taskIds.length : 0) })) };
+  const targets = { ...empty.targets, blogLanguages: { en: 5, ja: 5, "pt-BR": 2, "zh-CN": 5, "es-ES": 5, fr: 1, de: 1, ru: 0, vi: 0, id: 1 } };
+  const next = plan({ taskIds, targets, strategyAllocation: allocation });
+  assert.doesNotThrow(() => assertGrowthPlan(next, undefined, records));
+  assert.throws(() => assertGrowthPlan({ ...next, targets: empty.targets }, undefined, records), { code: "growth_plan_language_targets" });
+
+  const previous = plan({ taskIds, strategyAllocation: allocation });
+  const hotspot = { ...newRows[0], id: "hotspot-extra", capacityClass: "authorized_hotspot_extra" };
+  assert.doesNotThrow(() => assertGrowthPlan({ ...previous, taskIds: [...taskIds, hotspot.id] }, previous,
+    [...records, { kind: "task", record: hotspot }, { kind: "plan", record: previous }]));
 });

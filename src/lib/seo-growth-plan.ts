@@ -4,12 +4,12 @@ import { isSeoWorkday } from "./seo-workday";
 import { workflowWeek, isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask } from "./seo-workflow";
 import { WorkflowError, type WorkflowStoredRow } from "./seo-workflow-state";
 import { deliveryWeights, type DeliveryBucket } from "./growth-quarter-planning";
+import { ROUTINE_LANGUAGE_GROUPS, ROUTINE_LANGUAGE_START, isRoutineKeywordTask, routineLanguageBudget, routineLanguageGroup, routineLanguageProblems } from "./seo-routine-languages";
 
 function fail(code: string, message: string): never { throw new WorkflowError(code, message); }
 const day = (task: WorkflowTask) => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
 const content = new Set(["blog", "landing", "optimization", "cluster"]);
-/** New plans count one Friday–Thursday window across both stable Monday buckets.
- * Market proportions apply to admitted keywords, never mechanical source-post quotas. */
+/** New plans count one Friday–Thursday window across both stable Monday buckets. */
 export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[]) {
   const targets = plan.targets;
   if (!("cadence" in targets) || targets.cadence !== "growth") return;
@@ -17,7 +17,8 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   const range = targets.executionRange;
   const expected = workWeekDateRange(range.start);
   if (range.start !== expected.start || range.end !== expected.end || ![workflowWeek(new Date(range.start + "T12:00:00+08:00")), workflowWeek(new Date(range.end + "T12:00:00+08:00"))].includes(plan.weekStart)) fail("growth_plan_window", "新计划须覆盖完整北京时间周五至周四，Monday存储桶保持原值");
-  const workingDays = Array.from({ length: 7 }, (_, index) => shiftDay(range.start, index)).filter(date => isSeoWorkday(new Date(date + "T00:00:00+08:00"))).length;
+  const dates = Array.from({ length: 7 }, (_, index) => shiftDay(range.start, index)).filter(date => isSeoWorkday(new Date(date + "T00:00:00+08:00")));
+  const workingDays = dates.length;
   const maintenance = targets.maintenanceVersion === "seo-maintenance-v1";
   if (maintenance !== (targets.contentRefreshPages !== undefined) || maintenance && targets.contentRefreshPages !== 2 * workingDays) fail("growth_refresh_capacity", "新维护契约须独立按工作日安排每天2篇翻新，不扣原优化及新增额度");
   if (previous && "maintenanceVersion" in previous.targets && previous.targets.maintenanceVersion && !maintenance) fail("growth_refresh_contract_immutable", "保留已启用的维护容量契约");
@@ -48,6 +49,13 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   }
   const routine = [...selected].map(id => lookup.get(id)).filter((task): task is WorkflowTask => Boolean(task && !task.deletedAt && task.capacityClass !== "authorized_hotspot_extra"));
   const allocation = plan.strategyAllocation;
+  const currentLanguagePolicy = range.start >= ROUTINE_LANGUAGE_START;
+  const committedIds = new Set(all.flatMap(row => {
+    if (row.kind !== "plan") return [];
+    const existing = row.record as WorkflowPlan;
+    return isExecutableWorkflowPlan(existing.status) ? existing.taskIds : existing.committedTaskIds ?? [];
+  }));
+  const addedKeywordWork = tasks.some(task => task && isRoutineKeywordTask(task) && !committedIds.has(task.id));
   if (allocation) {
     if (all.some(row => row.kind === "plan" && row.record.id !== plan.id && (isExecutableWorkflowPlan(row.record.status) || (row.record as WorkflowPlan).committedTaskIds !== undefined) && (row.record as WorkflowPlan).strategyAllocation && "executionRange" in (row.record as WorkflowPlan).targets && JSON.stringify(((row.record as WorkflowPlan).targets as { executionRange: typeof range }).executionRange) === JSON.stringify(range))) fail("allocation_business_week_duplicate", "同业务周已有投入计划，沿原ID修订，不能跨Monday桶重复分配预算");
     const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && task.capacityClass !== "authorized_hotspot_extra";
@@ -82,6 +90,19 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
       const gap = allocation.gaps.filter(row => row.bucket === bucket).reduce((n, row) => n + row.count, 0);
       if (actual + gap !== (allocation.futureBudget.counts as Record<string, number>)[bucket]) fail("allocation_bucket_gap", "投入比例须由真实原任务与明确不足对平，不能为满额造任务");
     }
+    if (currentLanguagePolicy && addedKeywordWork) {
+      const ownBudgetedIds = new Set(allocation.tasks.map(item => item.taskId));
+      const budgeted = routine.filter(task => ownBudgetedIds.has(task.id) || task.kind === "cluster");
+      const research = routine.filter(task => task.kind === "research");
+      const reservedTasks = allocation.preservedTaskIds.flatMap(id => lookup.get(id) ?? []);
+      const dailySlots = new Map(dates.filter(date => date >= capacityStart && date <= capacityEnd).map(date => [date,
+        Math.max(0, (maintenance ? 10 : 8) + budgeted.filter(task => task.kind === "landing" && day(task) === date).length
+          - reservedTasks.filter(task => task.kind !== "landing" && day(task) === date).length)]));
+      const problems = [...routineLanguageProblems({ tasks: budgeted, committedIds, capacity: allocation.futureBudget.total,
+        offset: allocation.futureBudget.offset, dailySlots }), ...routineLanguageProblems({ tasks: research, committedIds,
+        capacity: allocation.marketResearchBudget.total, offset: allocation.marketResearchBudget.offset })];
+      if (problems.length) fail(problems[0].code, problems[0].message);
+    }
   }
   const flatkeyBlogs = routine.filter(task => task.siteDomain === "flatkey.ai" && task.kind === "blog");
   const modelFitBlogs = routine.filter(task => task.siteDomain === "modelfit.cc" && task.kind === "blog");
@@ -91,9 +112,31 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   if (refreshes.length > 2 * workingDays) fail("growth_refresh_shared_capacity", "Flatkey与ModelFit合计翻新每天2篇，不能跨站或跨桶重复排额");
   if (new Set(refreshes.map(task => task.pageUrl)).size !== refreshes.length || refreshes.some(task => routine.some(other => other.id !== task.id && other.pageUrl === task.pageUrl && other.kind === "optimization"))) fail("growth_refresh_duplicate_page", "同一页面本期翻新与普通优化须复用一次交付，不重复建单计数");
   if (flatkeyBlogs.length > 5 * workingDays || modelFitBlogs.length > workingDays || landings.length > targets.clusterLanding || optimizations.length > 2 * workingDays) fail("growth_plan_shared_capacity", "跨计划业务周总量超出原额度，不能在另一个存储桶重复排产");
-  for (const language of GROWTH_LANGUAGES) if (flatkeyBlogs.filter(task => task.language === language).length > targets.blogLanguages[language]) fail("growth_plan_language_capacity", "国家语言源文数量超出本期已确认分配，关键词比例不等于逐日发文配额");
-  const other = flatkeyBlogs.filter(task => !["en", "ja", "pt-BR", "zh-CN"].includes(task.language ?? ""));
-  if (other.length > 2) fail("growth_plan_secondary_markets", "低优先市场合计每周最多2篇源文，翻译另记");
+  if (currentLanguagePolicy) {
+    const flatkeyCapacity = 5 * workingDays;
+    if (!previous || !isExecutableWorkflowPlan(previous.status) && previous.committedTaskIds === undefined) {
+      const budget = routineLanguageBudget(flatkeyCapacity);
+      for (const group of ROUTINE_LANGUAGE_GROUPS) {
+        const declared = GROWTH_LANGUAGES.filter(language => routineLanguageGroup(language) === group).reduce((total, language) => total + targets.blogLanguages[language], 0);
+        if (declared !== budget[group]) fail("growth_plan_language_targets", "新计划的Flatkey源文按中、日、英、西、其他已授权语种各20%分配");
+      }
+      for (const language of GROWTH_LANGUAGES) {
+        const planned = flatkeyBlogs.filter(task => task.language === language);
+        if (planned.length > Math.max(targets.blogLanguages[language], planned.filter(task => committedIds.has(task.id)).length)) {
+          fail("growth_plan_language_capacity", `${language} 源文超过本期声明名额；可在同组内修正预计语种分配并保留原任务`);
+        }
+      }
+    }
+    if (addedKeywordWork) {
+      const problems = routineLanguageProblems({ tasks: flatkeyBlogs, committedIds, capacity: flatkeyCapacity,
+        dailySlots: new Map(dates.map(date => [date, 5])) });
+      if (problems.length) fail(problems[0].code, problems[0].message);
+    }
+  } else {
+    for (const language of GROWTH_LANGUAGES) if (flatkeyBlogs.filter(task => task.language === language).length > targets.blogLanguages[language]) fail("growth_plan_language_capacity", "国家语言源文数量超出当期已确认分配");
+    const other = flatkeyBlogs.filter(task => !["en", "ja", "pt-BR", "zh-CN"].includes(task.language ?? ""));
+    if (other.length > 2) fail("growth_plan_secondary_markets", "低优先市场合计每周最多2篇源文，翻译另记");
+  }
   for (const [site, rows, quota] of [["flatkey.ai", flatkeyBlogs, 5], ["modelfit.cc", modelFitBlogs, 1], ["flatkey.ai", optimizations, 2]] as const) {
     const counts = new Map<string, number>();
     for (const task of rows) counts.set(day(task), (counts.get(day(task)) ?? 0) + 1);

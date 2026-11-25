@@ -38,6 +38,7 @@ Module._load = function (name, parent, ...rest) {
     if (name === "@/lib/dashboard-session") return { dashboardSession: { load: async () => null, save: async () => {} } };
     if (name === "./GrowthHistoricalReview") return { GrowthHistoricalReview() { return null; } };
     if (name === "./ReportLoading") return { ReportLoading() { return null; } };
+    if (name === "./RankingTrend.module.css") return {};
   }
   return load.call(this, name, parent, ...rest);
 };
