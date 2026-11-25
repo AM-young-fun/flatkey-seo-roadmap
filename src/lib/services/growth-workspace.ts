@@ -38,13 +38,15 @@ async function savedSerpEvidence(db: Prisma.TransactionClient | typeof prisma = 
   if (taskIds?.length === 0) return [];
   const cutoff = asOf && new Date(asOf.getTime() - 14 * 86_400_000);
   const tasks = await db.$queryRaw<SavedTask[]>(Prisma.sql`
-    SELECT t.id, t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId", t."requestJson",
+    SELECT t.id, t.keyword, t.region, t."targetsJson", t.state, t."checkedAt", t."providerTaskId",
+      jsonb_build_object('device', t."requestJson"->'device', 'depth', t."requestJson"->'depth',
+        'location_code', t."requestJson"->'location_code', 'language_code', t."requestJson"->'language_code') AS "requestJson",
       r.id AS "runId", r."periodKey", r."periodLabel", r.scope, r."cohortHash", r."targetCount", r."queryCount",
       jsonb_build_object('keyword', "normalizedJson"->'keyword', 'locationCode', "normalizedJson"->'locationCode',
         'languageCode', "normalizedJson"->'languageCode', 'queryStatus', "normalizedJson"->'queryStatus',
         'rankingVerified', "normalizedJson"->'rankingVerified', 'captureComplete', "normalizedJson"->'captureComplete',
         'completeDepth', "normalizedJson"->'completeDepth',
-        'organicResults', COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements(
+        'organicResults', COALESCE((SELECT jsonb_agg(jsonb_build_object('url', item->'url', 'rankGroup', item->'rankGroup')) FROM jsonb_array_elements(
           CASE WHEN jsonb_typeof("normalizedJson"->'organicResults') = 'array' THEN "normalizedJson"->'organicResults' ELSE '[]'::jsonb END
         ) item WHERE item->>'domain' IN ('flatkey.ai', 'www.flatkey.ai', 'rackrate.org', 'www.rackrate.org', 'modelfit.cc', 'www.modelfit.cc')), '[]'::jsonb)) AS "normalizedJson"
     FROM "SerpMonitorTask" t JOIN "SerpMonitorRun" r ON r.id = t."runId" WHERE t."checkedAt" IS NOT NULL

@@ -150,16 +150,24 @@ export function assignedGrowthMarkets(value: unknown): { country: string; langua
   return result;
 }
 
+function appendRankEvidence(index: Map<string, GrowthRankEvidence[]>, key: string, row: GrowthRankEvidence) {
+  const bucket = index.get(key);
+  if (bucket) bucket.push(row);
+  else index.set(key, [row]);
+}
+
 /** Historical rows are reclassified in a versioned view, retaining each original
  * cohort denominator and run identity. Missing queries never become losses. */
 export function reviewGrowthHistoricalPeriods(ranks: GrowthRankEvidence[], reviews?: GrowthLanguageReview[], wordLanguages: GrowthWordLanguageEvidence[] = []): GrowthHistoricalPeriod[] {
   wordLanguages = wordLanguages.filter(proof => proof.scope !== "current-target-only");
   const wordProofs=new Map(wordLanguages.map(proof=>[`${proof.site}\u0000${proof.keywordId}\u0000${growthWordKey(proof.keyword)}`,proof]));
   const groups = new Map<string, GrowthRankEvidence[]>();
-  for (const rank of ranks) if (rank.source === "serp" && rank.period) groups.set(rank.period.id, [...(groups.get(rank.period.id) ?? []), rank]);
+  for (const rank of ranks) {
+    if (rank.source === "serp" && rank.period) appendRankEvidence(groups, rank.period.id, rank);
+  }
   return [...groups].map(([id, rows]) => {
     const period = rows[0].period!, byTarget = new Map<string, GrowthRankEvidence[]>();
-    for (const row of rows) { const key = growthTargetId(row.site, row.keyword, row.country, row.language); byTarget.set(key, [...(byTarget.get(key) ?? []), row]); }
+    for (const row of rows) appendRankEvidence(byTarget, growthTargetId(row.site, row.keyword, row.country, row.language), row);
     const statuses = [...byTarget.values()].map(items => ({ language: reviewGrowthLanguage(items[0].keyword, items[0].country, items[0].language, reviews,items[0].keywordId?wordProofs.get(`${items[0].site}\u0000${items[0].keywordId}\u0000${growthWordKey(items[0].keyword)}`):undefined), ranked: items.some(row => row.exact && row.complete && row.rank !== null && row.rank >= 1 && row.rank <= 100) }));
     return { id, label: period.label, scope: period.scope, cohortHash: period.cohortHash, originalTargetCount: period.originalTargetCount, originalQueryCount: period.originalQueryCount,
       checkedQueries: new Set(rows.filter(row => row.exact && row.complete).map(row => `${row.country}\u0000${row.language}\u0000${growthWordKey(row.keyword)}`)).size,
@@ -188,7 +196,13 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
   for(const plan of input.plans??[])if(["scheduled","reviewed"].includes(plan.status))for(const taskId of plan.taskIds)plansByTask.set(taskId,unique([...(plansByTask.get(taskId)??[]),plan.id]));
   for (const task of liveTasks) if (task.keyword) { const key = wordIdentity(task.siteDomain, task.keyword); taskIndex.set(key, [...(taskIndex.get(key) ?? []), task]); }
   for (const member of input.memberships) {const key=wordIdentity(member.site,member.keyword),current=memberIndex.get(key);if(!current||memberScore(member)>memberScore(current)||memberScore(member)===memberScore(current)&&member.keywordId.localeCompare(current.keywordId)<0)memberIndex.set(key,member);}
-  for (const row of input.ranks) { const key = growthTargetId(row.site, row.keyword, row.country, row.language); rankIndex.set(key, [...(rankIndex.get(key) ?? []), row]);if(row.keywordId){const memberKey=`${row.site}\u0000${row.keywordId}\u0000${growthWordKey(row.keyword)}`;ranksByMember.set(memberKey,[...(ranksByMember.get(memberKey)??[]),row]);} }
+  for (const row of input.ranks) {
+    appendRankEvidence(rankIndex, growthTargetId(row.site, row.keyword, row.country, row.language), row);
+    if (row.keywordId) {
+      const memberKey = `${row.site}\u0000${row.keywordId}\u0000${growthWordKey(row.keyword)}`;
+      appendRankEvidence(ranksByMember, memberKey, row);
+    }
+  }
   for (const row of input.publications) publicationIndex.set(row.taskId, [...(publicationIndex.get(row.taskId) ?? []), row]);
   // Only explicit member->page and original task/publication->same page edges
   // qualify. Topic similarity and observed rank URLs do not prove task intent.
