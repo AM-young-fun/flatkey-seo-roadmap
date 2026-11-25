@@ -145,12 +145,12 @@ export function GrowthRankingCoverage({ initialView = "all", read }: { initialVi
   </section>;
 }
 
-export function GrowthTopicWorkspace({ topicId, initialTab = "quarter" }: { topicId?: string; initialTab?: "quarter" | "hotspots" }) {
+export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1 }: { topicId?: string; initialTab?: "quarter" | "hotspots"; hotspotTopic?: string; hotspotPage?: number }) {
   const [tab, setTab] = useState<"quarter" | "hotspots">(initialTab);
   const [page, setPage] = useState(1);
   const [related, setRelated] = useState(false);
   const [useSelectedTarget, setUseSelectedTarget] = useState(true);
-  useEffect(() => { const readTab = () => setTab(new URLSearchParams(location.search).get("tab") === "hotspots" ? "hotspots" : "quarter"); readTab(); addEventListener("popstate", readTab); return () => removeEventListener("popstate", readTab); }, []);
+  useEffect(() => { const readTab = () => setTab(new URLSearchParams(location.search).get("tab") === "hotspots" ? "hotspots" : "quarter"); readTab(); addEventListener("popstate", readTab); return () => removeEventListener("popstate", readTab); }, [initialTab]);
   const changeTab = (value: "quarter" | "hotspots") => { setTab(value); const params = new URLSearchParams(location.search); if (value === "hotspots") params.set("tab", value); else params.delete("tab"); history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : "")); };
   const quarter = Boolean(topicId) || tab === "quarter";
   const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope();
@@ -184,8 +184,8 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter" }: { topi
   const loading = quarter && read.loading && !read.retrying;
   return <main className={workspace.shell}><PageHeader active="opportunities" marketControl={false} /><div className={styles.content} inert={loading} aria-busy={loading}>
     <div className={styles.heading}><div>{topicId ? <Link className={styles.back} href={growthLink(scope)}><ArrowLeft size={14} aria-hidden="true" />返回话题列表</Link> : null}<h1>{topicId ? topic?.name || "话题详情" : "关键词目标"}</h1><p>{topicId ? "同一话题下按国家、语言查看关键词、页面、任务与排名。" : "以 TopicMap 话题为主线，包含规划中、进行中与已完成目标。"}</p></div>{quarter && (data || read.error || read.retrying) ? <FeedbackButton className={styles.more} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton> : null}</div>
-    {!topicId ? <div className={styles.tabs} role="group" aria-label="关键词目标范围"><button type="button" aria-pressed={tab === "quarter"} onClick={() => changeTab("quarter")}>季度关键词 <span>1600 · 固定</span></button><button type="button" aria-pressed={tab === "hotspots"} onClick={() => changeTab("hotspots")}>近期热点词 <span>动态</span></button></div> : null}
-    {!topicId && tab === "hotspots" ? <GrowthHotspotWorkspace /> : <>
+    {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.tabs} role="group" aria-label="关键词目标范围"><button type="button" aria-pressed={tab === "quarter"} onClick={() => changeTab("quarter")}>季度关键词 <span>1600 · 固定</span></button><button type="button" aria-pressed={tab === "hotspots"} onClick={() => changeTab("hotspots")}>近期热点词 <span>动态</span></button></div> : null}
+    {!topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} /> : <>
     {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度1600词目标尚未完成冻结。</p><GrowthQuarterReview /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
         <GrowthFilters data={data} scope={effectiveScope} change={change} fixedSite={Boolean(topic)} />

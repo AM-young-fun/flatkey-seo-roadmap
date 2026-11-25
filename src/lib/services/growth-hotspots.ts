@@ -16,3 +16,11 @@ export async function loadGrowthHotspotView(localPreview = false, now = new Date
   if (localPreview && workflow.plan) plans.push(workflow.plan);
   return buildGrowthHotspotView(strategy, workflow, plans, now);
 }
+
+export async function loadSavedHotspotTopics(topicIds: string[], localPreview = false) {
+  if (!topicIds.length || (localPreview && !process.env.DATABASE_URL)) return [];
+  return prisma.topic.findMany({
+    where: { id: { in: topicIds }, active: true },
+    select: { id: true, text: true, sites: { select: { siteDomain: true } } },
+  });
+}

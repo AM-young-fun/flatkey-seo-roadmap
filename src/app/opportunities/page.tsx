@@ -19,5 +19,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   if (params.view === "legacy" || params.keyword || params.status || params.crossLanguage || params.business) return <KeywordDetails initialBusiness={params.business === "FLATKEY_API" || params.business === "CLOUD_GPU" ? params.business : "all"}
     initialSearch={typeof params.keyword === "string" ? params.keyword : ""} initiallyOptimized={params.status === "optimized"}
     initialCrossLanguage={params.crossLanguage === "1"} />;
-  return <GrowthTopicWorkspace initialTab={params.tab === "hotspots" ? "hotspots" : "quarter"} />;
+  const hotspots = params.tab === "hotspots";
+  const hotspotTopic = hotspots && typeof params.hotspotTopic === "string" ? params.hotspotTopic : undefined;
+  const hotspotPage = typeof params.hotspotPage === "string" && /^[1-9]\d*$/.test(params.hotspotPage) ? Number(params.hotspotPage) : 1;
+  return <GrowthTopicWorkspace initialTab={hotspots ? "hotspots" : "quarter"} hotspotTopic={hotspotTopic} hotspotPage={Number.isSafeInteger(hotspotPage) ? hotspotPage : 1} />;
 }
