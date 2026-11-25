@@ -1,5 +1,6 @@
-import { landingTrafficDays, rangeDays, type AnalyticsObservation } from "./seo-analytics";
+import { analyticsView, landingTrafficDays, rangeDays, type AnalyticsObservation } from "./seo-analytics";
 import type { DateRange } from "./seo-date-range";
+import type { SeoCountry } from "./seo";
 import { overviewPageModule, type OverviewPageModule } from "./seo-overview-scope";
 
 export type ModuleDay = { date: string; sessions: number | null; clicks: number | null; impressions: number | null; searchComplete: boolean };
@@ -13,10 +14,10 @@ const matches = (url: string, module: OverviewPageModule) => {
 };
 
 /** One GA4 session has one landing page. Never duplicate it for GSC URL fragments. */
-export function overviewModuleAnalytics(range: DateRange, module: OverviewPageModule, observations: AnalyticsObservation[]): ModuleAnalytics {
+export function overviewModuleAnalytics(range: DateRange, module: OverviewPageModule, observations: AnalyticsObservation[], landingDays = landingTrafficDays(range, observations)): ModuleAnalytics {
   const dates = rangeDays(range), allowed = new Set(dates);
   const rows = observations.filter(row => allowed.has(row.date));
-  const landing = new Map(landingTrafficDays(range, rows).map(day => [day.date, day]));
+  const landing = new Map(landingDays.map(day => [day.date, day]));
   const search = new Map(rows.flatMap(row => row.kind === "gsc-pages" ? [[row.date, row] as const] : []));
   const through = (kind: AnalyticsObservation["kind"]) => rows.filter(row => row.kind === kind).map(row => row.date).sort().at(-1) ?? null;
   return {
@@ -43,3 +44,17 @@ export function overviewMetricSummary(data: ModuleAnalytics | null, metric: "ses
   return { total: measured.length ? measured.reduce((sum, day) => sum + day[metric]!, 0) : null,
     measured: metric === "sessions" ? measured.length : measured.filter(day => day.searchComplete).length, days: daily.length };
 }
+
+export function overviewTrafficAnalytics(range: DateRange, comparison: DateRange | null, module: OverviewPageModule, country: SeoCountry, rows: AnalyticsObservation[]) {
+  const landing = landingTrafficDays(range, rows);
+  const sessionsByModule: Partial<Record<Exclude<OverviewPageModule, "all">, number>> = {};
+  for (const { paths } of landing) for (const [url, count] of paths ?? []) {
+    const key = overviewPageModule(url);
+    if (key && count !== null) sessionsByModule[key] = (sessionsByModule[key] ?? 0) + count;
+  }
+  const daily = (period: DateRange, landingDays?: typeof landing) => module === "all" ? analyticsView(period, [], rows).daily : overviewModuleAnalytics(period, module, rows, landingDays).daily;
+  return { range, comparison, module, country, current: daily(range, landing), previous: comparison ? daily(comparison) : null,
+    modules: { sessions: sessionsByModule, complete: landing.every(day => day.paths?.every(([, count]) => count !== null)) } };
+}
+
+export type OverviewTrafficAnalytics = ReturnType<typeof overviewTrafficAnalytics>;

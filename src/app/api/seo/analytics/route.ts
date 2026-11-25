@@ -7,9 +7,9 @@ import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites
 import { optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
 import { pageOptimizationPriorities } from "@/lib/seo-page-priority";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
-import { seoToday } from "@/lib/seo-date-range";
+import { propertyToday, seoToday } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
-import { overviewModuleAnalytics } from "@/lib/seo-overview-analytics";
+import { overviewModuleAnalytics, overviewTrafficAnalytics } from "@/lib/seo-overview-analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +31,19 @@ export async function GET(request: Request) {
   const module = overviewModule(requestedModule);
   const requestedSite = search.get("site");
   const site = CLUSTER_SITES.find(entry => entry.domain === requestedSite);
+  const viewMode = search.get("view");
+  const overview = viewMode === "overview-traffic";
+  const compareStart = search.get("compareStart"), compareEnd = search.get("compareEnd");
+  const comparison = compareStart !== null || compareEnd !== null ? { start: compareStart ?? "", end: compareEnd ?? "" } : null;
   try {
     rangeDays(range);
+    if (overview) {
+      const keys = ["view", "start", "end", "compareStart", "compareEnd", "country", "module"];
+      const today = propertyToday("America/Los_Angeles");
+      if ([...search.keys()].some(key => !keys.includes(key) || search.getAll(key).length !== 1)
+        || requestedModule !== null && requestedModule !== module || range.end >= today || comparison && comparison.end >= today) throw new Error("无效总览范围");
+      if (comparison) rangeDays(comparison);
+    }
     if (priority && (urls.length || pageDaily || pageQueries || allPages || requestedModule || effectAt || country === "all")) throw new Error("无效优先级范围");
     if (effectAt && (!pageDaily || !Number.isFinite(Date.parse(effectAt)) || Date.parse(effectAt) > Date.now()
       || optimizationRange(effectAt, range.end).start !== range.start)) throw new Error("无效上线日期");
@@ -49,6 +60,22 @@ export async function GET(request: Request) {
     return Response.json({ message: "请选择已结束日期；一次最多366天和25个所选站点页面。" }, { status: 400, headers });
   }
   try {
+    if (overview) {
+      const started = performance.now(), local = analyticsLocalPreview(request);
+      const sources = module === "all" ? ["ga4-site" as const] : ["ga4-pages" as const, "gsc-pages" as const];
+      const currentKinds = module === "all" ? [...sources, "ga4-pages" as const] : sources;
+      const requests = [{ range, kinds: currentKinds }, ...(comparison ? [{ range: comparison, kinds: sources }] : [])];
+      const sourceRows = local ? (await Promise.all(requests.map(entry => readAnalyticsEvidence(entry.range, country, undefined, entry.kinds)))).flat()
+        : (await prisma.seoAnalyticsDay.findMany({ where: { OR: requests.map(entry => ({
+          date: { gte: entry.range.start, lte: entry.range.end },
+          kind: { in: entry.kinds.map(kind => analyticsStorageKind(kind, country)) },
+        })) }, select: { payload: true } })).map(row => analyticsObservationSchema.parse(row.payload));
+      const rows = [...new Map(sourceRows.filter(row => !clusterDomainForProperty(row.property) && (row.country ?? "all") === country)
+        .map(row => [`${row.date}:${row.kind}`, row])).values()];
+      const responseHeaders = new Headers(headers);
+      responseHeaders.set("Server-Timing", `overview-traffic;dur=${Math.round(performance.now() - started)}`);
+      return Response.json(overviewTrafficAnalytics(range, comparison, module, country, rows), { headers: responseHeaders });
+    }
     // Site summaries use only daily site totals. Reading the page archives here
     // also deserializes and validates every landing/search URL for no output.
     const siteSummary = !urls.length && !allPages && !pageDaily && requestedModule === null;

@@ -302,18 +302,21 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     listParams.set("rangeEnd", time.range.end);
   }
   const snapshotResult = useSeoRead<WorkflowSnapshot>(isTaskList ? null : `/api/seo/workflow?week=${encodeURIComponent(week)}`);
-  const listResult = useSeoRead<WorkflowWorkPage>(isTaskList ? `/api/seo/workflow?${listParams}` : null);
+  const listResult = useSeoRead<WorkflowWorkPage>(isTaskList ? `/api/seo/workflow?${listParams}` : null, { showFeedback: false, keepPreviousData: true });
   const result = isTaskList ? listResult : snapshotResult;
   const relatedTaskHistory = useSeoRead<WorkflowSnapshot>(view === "issues" ? "/api/seo/workflow?allHistory=true" : null);
   const data = snapshotResult.data;
-  const current = isTaskList ? listResult.data : data;
+  const shownList = listResult.data ?? listResult.previousData;
+  const current = isTaskList ? shownList : data;
+  const lastListParams = new URLSearchParams(listResult.previousUrl?.split("?")[1]);
+  const datePending = Boolean(listResult.previousData && ["range", "rangeStart", "rangeEnd"].some(key => listParams.get(key) !== lastListParams.get(key)));
   const relatedTasks = [...(data?.tasks ?? []), ...(relatedTaskHistory.data?.tasks ?? [])];
   const matchesScope = (record: { siteDomain: string; country?: string | null; language?: string | null }) => (site === "all" || record.siteDomain === site) && (country === "all" || record.country === country) && (language === "all" || record.language === language);
   const taskScope = data?.tasks.filter(task => matchesScope(task) && (business === "all" || task.business === business)) ?? [];
 
   const taskFilters = new URLSearchParams(params.toString());
-  const taskRows = listResult.data?.tasks ?? [];
-  const pagination = listResult.data?.pagination;
+  const taskRows = shownList?.tasks ?? [];
+  const pagination = shownList?.pagination;
   if (pagination && pagination.page > 1) taskFilters.set("page", String(pagination.page)); else taskFilters.delete("page");
   const scopedIds = new Set(taskScope.map(task => task.id));
   const publications = data?.publications.filter(record => matchesScope(record) && (business === "all" || scopedIds.has(record.taskId))) ?? [];
@@ -353,7 +356,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       <div className={styles.toolbarActions}>
         {isTaskList ? <Link className={styles.secondary} href={country === "all" ? "/deliveries" : `/deliveries?country=${country}`}>发布记录</Link> : null}
         {view === "deliveries" ? <Link className={styles.secondary} href={country === "all" ? "/work" : `/work?country=${country}`}>返回工作任务</Link> : null}
-        <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
+        <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={isTaskList ? listResult.hasSettled && listResult.pending && !datePending : result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
       </div>
     </div> : null}
     {!embedded && !isTaskList ? <div className={styles.filters}>
@@ -365,17 +368,18 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     {view === "runs" ? <SeoAutomationSchedule /> : null}
     {isTaskList ? <section className={styles.listPanel} aria-labelledby="work-list-title">
       <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2>{pagination ? <span className={styles.count}>{pagination.total} 项</span> : null}</div>
-      <p className={styles.muted}>任务排期、日期筛选与执行时间均按北京时间（UTC+8），工作周为周五至周四。{time.preset === "week" && time.range ? `本周 ${time.range.start} — ${time.range.end}，另含此前未完成的延期任务。` : ""}</p>
+      <p className={styles.muted}>任务排期、日期筛选与执行时间均按北京时间（UTC+8），工作周为周五至周四。{!datePending && time.preset === "week" && time.range ? `本周 ${time.range.start} — ${time.range.end}，另含此前未完成的延期任务。` : ""}</p>
       <div className={styles.taskFilters}>
         <UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={workTaskTypes} />
         <UiSelect aria-label="任务站点筛选" value={site} onChange={value => filter("site", value)} options={[{ value: "all", label: "全部五站" }, ...sites]} />
         <input aria-label="搜索工作任务" value={searchText} maxLength={250} onChange={event => setDraft({ source: taskQuery, value: event.target.value })} placeholder="搜索关键词、页面、任务或负责人" />
-        <SeoListDateControl value={time} />
+        <SeoListDateControl value={time} pending={datePending} />
         <UiSelect aria-label="任务状态筛选" value={status} onChange={value => filter("status", value)} options={taskStatusOptions} />
       </div>
+      <div aria-busy={listResult.pending || undefined}>
       {listResult.error ? <div className={styles.empty} role="alert"><h2>工作任务暂时无法读取</h2><p>{listResult.error}</p><FeedbackButton className={styles.secondary} onClick={listResult.retry} pending={listResult.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div>
-      : !listResult.data ? <ReportLoading label="正在读取工作任务" /> : <>
-        {listResult.data.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
+      : !shownList ? !listResult.hasSettled && <ReportLoading label="正在读取工作任务" /> : <div inert={Boolean(listResult.previousData)}>
+        {shownList.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
         {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
           const { review, delayed, rollbackPending, displayStatus: rowStatus } = task;
           const delayBadge = delayed ? <span className={styles.badge} data-state="review_pending">延期</span> : null;
@@ -386,7 +390,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           </Link>;
           return <Link className={styles.taskLink} href={workTaskHref(task, taskFilters)} id={`task-${task.id}`} key={task.id} prefetch={false}>
             <span><strong>{task.title}</strong><small className={styles.taskContext}><span className={styles.siteTag} title={task.siteDomain}>{siteName(task.siteDomain)}</span><EditorialTaskTag task={task} /><span>{task.keyword ?? "不适用关键词"} · {task.country ? markets[task.country] : "全站"} · {task.language ?? "不限语言"}</span></small>{rollbackPending ? <small>下一步：撤销未通过审核的发布</small> : rowStatus === "failed" || delayed && task.nextAction ? <small className={styles.taskDiagnostic}>{task.failureReason} {task.nextAction ? `下一步：${task.nextAction}` : ""}</small> : null}</span>
-            <span className={styles.taskMeta}>{delayBadge}<TaskStatus status={rowStatus} /><small>{delayed ? "原计划 " : ""}{displayTime(task.dueAt)} · {task.owner}</small>{delayed && listResult.data?.catchUpDate ? <small>补齐跟进 {listResult.data.catchUpDate} 北京时间</small> : null}</span>
+            <span className={styles.taskMeta}>{delayBadge}<TaskStatus status={rowStatus} /><small>{delayed ? "原计划 " : ""}{displayTime(task.dueAt)} · {task.owner}</small>{delayed && shownList.catchUpDate ? <small>补齐跟进 {shownList.catchUpDate} 北京时间</small> : null}</span>
             <TaskLinkIndicator />
           </Link>;
         })}</div> : <p className={styles.empty}>当前筛选范围没有已登记任务。</p>}
@@ -395,7 +399,8 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
           <span className={styles.count}>第 {pagination.page} / {pagination.pageCount} 页 · 每页 {pagination.pageSize} 项</span>
           <button type="button" className={styles.secondary} disabled={pagination.page >= pagination.pageCount || searchText !== taskQuery} onClick={() => filter("page", String(pagination.page + 1))}>下一页</button>
         </nav> : null}
-      </>}
+      </div>}
+      </div>
     </section> : result.error ? <div className={styles.empty} role="alert"><h2>{title}暂时无法读取</h2><p>{result.error}</p><FeedbackButton className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div> : !current ? <ReportLoading label={`正在读取${title}`} /> : <>
       {current.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
       {view === "issues" ? <section className={styles.summary} aria-label="问题摘要">
