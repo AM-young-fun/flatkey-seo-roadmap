@@ -1,0 +1,79 @@
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+const fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), ts = require('typescript');
+const originalLoad = Module._load;
+const root = path.resolve(__dirname, '..');
+const now = new Date('2026-11-25T04:00:00Z');
+const checkedAt = new Date('2026-11-24T04:00:00Z');
+const site = 'flatkey.ai', url = 'https://flatkey.ai/cloud/gpu', keyword = 'gpu pricing', keywordId = 'gpu-keyword';
+const targetId = 'flatkey.ai:gpu%20pricing:US:en';
+const workflowQueries = [], serpQueries = [];
+let failSerp = false;
+
+const prisma = {
+  $queryRaw: async query => {
+    if (query.sql.includes('FROM "SeoWorkflowRecord"')) {
+      workflowQueries.push(query);
+      return [
+        { kind: 'task', payload: { id: 'original-task', dueAt: '2026-11-20', kind: 'landing', status: 'verified', siteDomain: site, keywordId, keyword, country: 'US', language: 'en', pageUrl: url } },
+        { kind: 'publication', payload: { id: 'verified-publication', taskId: 'original-task', kind: 'landing', status: 'verified', publishedAt: '2026-11-20T00:00:00Z', siteDomain: site, keyword, country: 'US', language: 'en', pageUrl: url } },
+      ];
+    }
+    assert.match(query.sql, /FROM "SerpMonitorTask"/);
+    serpQueries.push(query);
+    if (failSerp) throw Error('source unavailable');
+    return [{ id: 'saved-serp', runId: 'original-run', keyword, checkedAt, providerTaskId: 'provider-receipt',
+      region: 'US', state: 'COMPLETE', scope: 'SCHEDULED', targetsJson: [{ siteDomain: site, keywordId, keyword }],
+      requestJson: { device: 'desktop', depth: 100, location_code: 2840, language_code: 'en' },
+      normalizedJson: { keyword, queryStatus: 'EXACT', rankingVerified: true, locationCode: 2840, languageCode: 'en', captureComplete: true,
+        organicResults: [{ url, rankGroup: 4 }] } }];
+  },
+  topic: { findMany: async () => [{ id: 'gpu', text: 'GPU rental', active: true, parentId: null, childEdges: [], sites: [{ siteDomain: site }] }] },
+  siteKeyword: { findMany: async () => [{ siteDomain: site, keywordId, active: true, topicId: 'gpu', pool: 'FORMAL', targetUrls: [url], topicAssignments: [], keyword: { text: keyword, active: true } }] },
+  keywordSourceRow: { findMany: async query => { assert.equal(query.where.rowKey, undefined, 'no paid live-page audit'); return []; } },
+  seoPageInventory: { findMany: async () => [] },
+  seoSite: { findMany: async () => [] },
+  seoWorkflowRecord: {
+    findMany: async args => { assert.equal(args.where.kind, 'plan'); return []; },
+    findUnique: async () => ({ payload: { baseline: { targets: [{ id: targetId }], sourceVersion: 'saved-frozen-source-hash' } } }),
+  },
+  keywordCurationAudit: { findFirst: async () => null },
+};
+Module._load = function (name, parent, ...args) {
+  if (name === 'server-only') return {};
+  if (name === '@/lib/prisma') return { prisma };
+  if (name === './seo-workflow' && parent.filename.endsWith('/services/growth-workspace.ts')) return { loadWorkflowSnapshot: () => assert.fail('dashboard must not read full workflow history') };
+  return originalLoad.call(this, name.startsWith('@/') ? path.join(root, 'src', name.slice(2)) : name, parent, ...args);
+};
+require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
+const { loadGrowthDashboardWorkspace, loadGrowthDashboardHistory } = require('../src/lib/services/growth-workspace.ts');
+const { withRequestReads } = require('../src/lib/request-read-scope.ts');
+
+test('dashboard bounds saved SERP by the exact eligibility window and omits historic and paid-workspace reads', async () => {
+  const saved = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgresql://unused.invalid/mock';
+  try {
+    const [workspace] = await withRequestReads(() => Promise.all([loadGrowthDashboardWorkspace(false, now), loadGrowthDashboardHistory()]));
+    assert.equal(workflowQueries.length, 1);
+    assert.match(workflowQueries[0].sql, /SELECT kind, CASE WHEN kind = 'task' THEN jsonb_build_object/);
+    assert.match(serpQueries[0].sql, /t\."checkedAt" BETWEEN \? AND \?/);
+    assert.deepEqual(serpQueries[0].values.map(value => value.toISOString()), ['2026-11-11T04:00:00.000Z', now.toISOString()]);
+    const target = workspace.targets.find(row => row.id === targetId);
+    assert.equal(target.rankEligible, true);
+    assert.equal(target.rank, 4);
+    assert.equal(target.rankUrl, url);
+    assert.equal(target.workState, 'completed');
+    assert.equal(target.topicId, 'gpu');
+    assert.deepEqual(target.taskIds, ['original-task']);
+    assert.deepEqual(workspace.quarter.targetIds, [targetId]);
+
+    failSerp = true;
+    const fallback = await loadGrowthDashboardWorkspace(false, now);
+    assert.equal(fallback.reconciliation.sources.find(row => row.name === '最近14天的已存SERP').available, false);
+    assert.equal(fallback.targets.find(row => row.id === targetId).rank, null);
+    assert.deepEqual(fallback.quarter.targetIds, [targetId]);
+  } finally {
+    failSerp = false;
+    if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved;
+  }
+});

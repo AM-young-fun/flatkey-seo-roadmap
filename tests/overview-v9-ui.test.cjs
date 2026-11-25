@@ -22,13 +22,19 @@ const { ConversionCharts, OverviewGoalCharts, TopicComparison } = require("../sr
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
 
-test("overview gates the main region during loading and exposes failed reads for retry after settlement",()=> {
-  const strategyUrl="/api/seo/growth/strategy?view=overview";
+test("only the traffic read gates the page and growth failures have independent retry",()=> {
+  const strategyUrl="/api/seo/growth/strategy?view=dashboard";
+  const trafficUrl=`/api/seo/analytics?start=${overviewRange.start}&end=${overviewRange.end}`;
   overviewReads.set(strategyUrl,{loading:true});
   try {
+    const rankingPending=render(React.createElement(SeoOverview));
+    assert.doesNotMatch(rankingPending,/data-page-loading|\sinert=/);
+    assert.match(rankingPending,/正在重读季度目标/);
+    overviewReads.set(trafficUrl,{loading:true});
     const pending=render(React.createElement(SeoOverview));
     assert.match(pending,/<nav aria-label="主导航"><\/nav><div[^>]+aria-busy="true"[^>]+inert=""/);
     assert.match(pending,/data-page-loading="local"[\s\S]*role="status">[\s\S]*正在加载页面数据/);
+    overviewReads.delete(trafficUrl);
     overviewReads.set(strategyUrl,{error:"数据读取超时，请重试"});
     const settled=render(React.createElement(SeoOverview));
     assert.doesNotMatch(settled,/data-page-loading|\sinert=/);

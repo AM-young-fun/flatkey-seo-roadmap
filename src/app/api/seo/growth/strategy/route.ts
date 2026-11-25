@@ -1,15 +1,14 @@
 import { authorizeWorkflow, readWorkflowBody, workflowErrorResponse, workflowHeaders } from "@/lib/seo-workflow-http";
 import { GrowthStrategyError } from "@/lib/growth-strategy";
 import { withRequestReads } from "@/lib/request-read-scope";
-import { loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
+import { loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const auth = await authorizeWorkflow(request);
-    const overview = new URL(request.url).searchParams.get("view") === "overview";
-    const view = await withRequestReads(async () => overview
-      ? loadGrowthStrategyOverview(auth.localPreview)
-      : loadGrowthStrategyView(auth.localPreview));
+    const mode = new URL(request.url).searchParams.get("view");
+    const view = await withRequestReads(async () => mode === "dashboard" ? loadGrowthStrategyDashboard(auth.localPreview)
+      : mode === "overview" ? loadGrowthStrategyOverview(auth.localPreview) : loadGrowthStrategyView(auth.localPreview));
     return Response.json(view, { headers: workflowHeaders });
   }
   catch (error) { return response(error); }

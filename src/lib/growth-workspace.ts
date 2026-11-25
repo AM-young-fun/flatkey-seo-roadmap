@@ -36,15 +36,22 @@ export function growthPublicUrl(value: string, site: string): string | null {
 const placeholder = isGrowthTopicPlaceholder;
 
 export type GrowthLanguageReview = { keyword: string; country: string; classification: string; evidence?: unknown[] };
+const savedLanguageReview = new Map<string, GrowthLanguageReview>();
+for (const review of languageReview.rows) {
+  const key = `${review.country}\u0000${growthWordKey(review.keyword)}`;
+  if (!savedLanguageReview.has(key)) savedLanguageReview.set(key, review);
+}
 /** Locale is a request setting, not word-language evidence. Neutral model names remain unknown. */
 export function reviewGrowthLanguage(keyword: string, country: string | null, language: string | null, reviews: GrowthLanguageReview[] = languageReview.rows, wordProof?: GrowthWordLanguageEvidence): { status: GrowthLanguageStatus; reason: string } {
   if (!country || !language || !expectedLanguage(country)) return { status: "unknown", reason: wordProof ? `原词语种已有 ${wordProof.language} 证据；长期目标国家/语言尚待核定，诊断查询不授主国` : "原市场或原词语种尚未核实" };
   if (expectedLanguage(country) !== language) return { status: "mismatch", reason: "原市场与登记语言不匹配；未更换国家" };
   if (wordProof && growthWordKey(wordProof.keyword) === growthWordKey(keyword)) return wordProof.language === language ? { status: "match", reason: wordProof.scope === "current-target-only" ? `用户已审核当前原词语种及来源；主国由独立市场记录确认（${wordProof.source}）` : `原诊断提案的明确原词语种证据；未据查询国家分配主国（${wordProof.source}）` } : { status: "mismatch", reason: `原词语种证据为 ${wordProof.language}，与当前市场语言不同；未迁移市场` };
-  const existing = reviews.find(row => row.country === country && growthWordKey(row.keyword) === growthWordKey(keyword));
+  const text = growthWordKey(keyword);
+  const existing = reviews === languageReview.rows ? savedLanguageReview.get(`${country}\u0000${text}`)
+    : reviews.find(row => row.country === country && growthWordKey(row.keyword) === text);
   if (existing?.classification === "CLEAR_MATCH") return { status: "match", reason: "已有原词语言逐词复核证据" };
   if (existing && /MISMATCH|WRONG|OTHER_LANGUAGE/.test(existing.classification)) return { status: "mismatch", reason: "已有原词语言复核判为不匹配" };
-  const text = growthWordKey(keyword), japanese = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text) || /(?:料金|使い方|おすすめ|無料|とは|比較|価格)/u.test(text), han = /\p{Script=Han}/u.test(text);
+  const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text) || /(?:料金|使い方|おすすめ|無料|とは|比較|価格)/u.test(text), han = /\p{Script=Han}/u.test(text);
   const chinese = /(?:如何|怎么|哪个|什么|接口|模型|价格|免费|教程|生成器|人工智能|购买|租赁|比较|对比|部署|显卡|算力|开源|中文|推荐|使用|下载|在线|文档|额度|视频|图片|性能)/u.test(text);
   if (japanese) return language === "ja" ? { status: "match", reason: "原词含明确日语假名" } : { status: "mismatch", reason: "原词为日语，不能转记为当前市场排名" };
   if (chinese) return language === "zh-CN" ? { status: "match", reason: "原词含明确中文用语" } : { status: "mismatch", reason: "原词为中文，不能转记为当前市场排名" };
@@ -134,6 +141,7 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
   const sites = GROWTH_SITES.map(site => ({ ...site })), goalSites = new Set(sites.filter(site => site.keywordGoals).map(site => site.domain));
   const now = stamp(input.generatedAt), topicIndex = new Map(input.topics.map(topic => [topic.id, topic]));
   const liveTasks = input.tasks.filter(task => !task.deletedAt && task.channel !== "github" && task.channel !== "product" && goalSites.has(task.siteDomain));
+  const liveTaskOrder = new Map(liveTasks.map((task, index) => [task.id, { task, index }]));
   const inventory = new Map(input.inventory.map(item => [item.url, item.lastSeen]));
   const targets = new Map<string, GrowthTarget>();
   const taskIndex = new Map<string, GrowthTaskInput[]>(), memberIndex = new Map<string, GrowthMembershipInput>(), rankIndex = new Map<string, GrowthRankEvidence[]>(), publicationIndex = new Map<string, GrowthPublicationInput[]>();
@@ -196,7 +204,7 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
           reason:confirmed?"明确关联同一官网页面，原任务或该页发布回执市场、语言一致；保留原任务主词与ID":"同页原任务线索；目标或原任务市场语言待核，不授长期主国或执行批准"}];
       })));
       const relatedTaskIds=new Set(taskRelations.filter(link=>link.status==="confirmed").map(link=>link.taskId));
-      const linkedTasks=[...scopedTasks,...liveTasks.filter(task=>relatedTaskIds.has(task.id))];
+      const linkedTasks = [...scopedTasks, ...[...relatedTaskIds].flatMap(id => liveTaskOrder.get(id) ?? []).sort((a, b) => a.index - b.index).map(row => row.task)];
       const plannedUrls = unique([...row.targetUrls, ...scopedTasks.flatMap(task => task.pageUrl ? [task.pageUrl] : [])].flatMap(url => growthPublicUrl(url, row.site) ?? []));
       const publishedUrls = unique([...plannedUrls.filter(url => inventory.has(url)), ...scopedTasks.flatMap(task => publicationIndex.get(task.id) ?? []).filter(publication => ["published", "verified"].includes(publication.status) && stamp(publication.publishedAt) > 0 && stamp(publication.publishedAt) <= now && (!publication.language || publication.language === scope.language)).flatMap(publication => growthPublicUrl(publication.pageUrl, row.site) ?? []),...taskRelations.filter(link=>link.status==="confirmed"&&link.source==="publication").map(link=>link.pageUrl)]);
       const originalLanguage=wordProof(row.site,row.keywordId,row.keyword);
@@ -252,8 +260,17 @@ export function buildGrowthWorkspace(input: GrowthWorkspaceInput, selectedSite?:
     }
   }
   const all = [...targets.values()].filter(target => !selectedSite || target.site === selectedSite).sort((a, b) => a.site.localeCompare(b.site) || (a.topicName ?? "~").localeCompare(b.topicName ?? "~") || a.keyword.localeCompare(b.keyword) || (a.country ?? "").localeCompare(b.country ?? ""));
+  const targetsByTopic = new Map<string, GrowthTarget[]>();
+  for (const target of all) {
+    for (const id of new Set([target.topicId, ...(target.relatedTopicIds ?? [])])) {
+      if (!id) continue;
+      const key = `${target.site}:${id}`, rows = targetsByTopic.get(key) ?? [];
+      rows.push(target);
+      targetsByTopic.set(key, rows);
+    }
+  }
   const topics: GrowthTopic[] = input.topics.filter(topic => topic.active && !placeholder(topic.text)).flatMap(topic => topic.sites.filter(site => goalSites.has(site) && (!selectedSite || site === selectedSite)).map(site => {
-    const rows = all.filter(target => target.site === site && (target.topicId === topic.id || target.relatedTopicIds?.includes(topic.id))), formal = rows.filter(target => target.membership === "formal" && target.topicId === topic.id);
+    const rows = targetsByTopic.get(`${site}:${topic.id}`) ?? [], formal = rows.filter(target => target.membership === "formal" && target.topicId === topic.id);
     const marketKeys = unique(formal.map(target => `${target.country ?? ""}|${target.language ?? ""}`));
     const counts = (items: GrowthTarget[]) => ({ formalCount: items.length, publishedCount: items.filter(target => target.pageState === "published").length, rankedCount: items.filter(target => target.rankEligible && target.rank !== null && target.rank <= 100).length, top50Count: items.filter(target => target.rankEligible && target.rank !== null && target.rank <= 50).length });
     return { id: `${site}:${topic.id}`, topicId: topic.id, site, name: topic.text, parentIds: unique([...(topic.parentIds ?? []), ...(topic.parentId ? [topic.parentId] : [])]), targetIds: rows.map(target => target.id), relatedCount: rows.filter(target => target.topicId !== topic.id).length, ...counts(formal), markets: marketKeys.map(key => { const [country, language] = key.split("|"); return { country: country || null, language: language || null, ...counts(formal.filter(target => target.country === (country || null) && target.language === (language || null))) }; }) };
