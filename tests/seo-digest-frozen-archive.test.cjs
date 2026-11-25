@@ -18,6 +18,7 @@ Module._load=function(name,...args){
    archiveQueries.push({skip, take, kind: where.payload.equals});
    return archiveDates.slice(skip, take === undefined ? undefined : skip + take).map(periodStart => ({periodStart}));
  },findFirst:async({where,select})=>{
+   if(select.periodStart && select.payload) return hasSourceDashboard ? {periodStart:new Date(frozen.date),payload:structuredClone(frozen)} : null;
    if(select.periodStart) { const periodStart = archiveDates.find(day => !where.periodStart?.lt || day < where.periodStart.lt); return periodStart ? { periodStart } : null; }
    snapshotReads++;
    if (String(where.periodStart) !== String(new Date(frozen.date))) return null;
@@ -35,6 +36,21 @@ test('default archived date and explicit report ID return the same complete froz
  }
  assert.equal(liveReads,0);assert.equal(snapshotReads,3);assert.equal(deliveryReads,1);
  const r=await route.POST(new Request(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'read_saved',reportId:frozen.id})}));assert.deepEqual((await r.json()).report,JSON.parse(JSON.stringify(frozen)));assert.equal(liveReads,0);
+});
+
+test('the paginated daily landing selects the newest source dashboard and keeps the pending date selectable', async t => {
+  const previous = archiveDates;
+  const pending = '2026-11-24';
+  archiveDates = [new Date(pending), new Date(frozen.date)];
+  t.after(() => { archiveDates = previous; });
+  const base = url + '?saved=1&archive=1&kind=daily&archivePage=1';
+  const landing = await (await route.GET(new Request(base))).json();
+  assert.equal(landing.report.id, frozen.id);
+  assert.equal(landing.pendingArchiveDate, pending);
+  assert.deepEqual(landing.dates, [pending, frozen.date]);
+  const explicit = await (await route.GET(new Request(base + '&date=' + pending))).json();
+  assert.equal(explicit.report, null);
+  assert.equal(explicit.pendingArchiveDate, undefined);
 });
 test('local archived preview ignores a stale live view without mutating its saved snapshot',async()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'seo-frozen-report-')),previous=process.env.SEO_DIGEST_PREVIEW_DIR;process.env.SEO_DIGEST_PREVIEW_DIR=directory;local=true;

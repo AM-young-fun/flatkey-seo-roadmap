@@ -86,6 +86,7 @@ async function readDigest(request: Request) {
           dates, ...archiveMetadata((allDates?.length ?? 0) > archiveOffset + archivePageSize) }, { headers });
       }
       const scope = { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", payload: { path: ["kind"], equals: kind } };
+      const sourceDashboardScope = { ...scope, AND: [{ payload: { path: ["dailyDashboardBody", "recordOnly"], equals: true } }] };
       const dateRows = archive ? await timedRead("archive-dates", () => prisma.seoReportVersion.groupBy({
         by: ["periodStart"],
         where: scope,
@@ -95,15 +96,22 @@ async function readDigest(request: Request) {
       const dateKey = (day: Date) => day.toISOString().slice(0, 10);
       const dates = dateRows?.map(row => dateKey(row.periodStart));
       const last = dateRows?.at(-1)?.periodStart;
-      const [older, latest] = await Promise.all([
+      const [older, latest, latestSourceDashboard] = await Promise.all([
         archivePage !== null && dateRows?.length === archivePageSize && last
           ? prisma.seoReportVersion.findFirst({ where: { ...scope, periodStart: { lt: last } }, select: { periodStart: true } }) : null,
         archiveOffset > 0 && !requestedDate
           ? prisma.seoReportVersion.findFirst({ where: scope, orderBy: { periodStart: "desc" }, select: { periodStart: true } }) : null,
+        archivePage !== null && kind === "daily" && !requestedDate
+          ? prisma.seoReportVersion.findFirst({ where: sourceDashboardScope,
+            orderBy: [{ periodStart: "desc" }, { createdAt: "desc" }, { id: "desc" }], select: { periodStart: true, payload: true } }) : null,
       ]);
-      const selected = requestedDate ?? (archiveOffset > 0 ? latest && dateKey(latest.periodStart) : dates?.[0]);
-      const selection = { dates, ...archiveMetadata(Boolean(older)) };
+      const latestDate = archiveOffset > 0 ? latest && dateKey(latest.periodStart) : dates?.[0];
+      const sourceDate = latestSourceDashboard && dateKey(latestSourceDashboard.periodStart);
+      const selected = requestedDate ?? sourceDate ?? latestDate;
+      const selection = { dates, ...archiveMetadata(Boolean(older)),
+        ...(sourceDate && latestDate && latestDate > sourceDate ? { pendingArchiveDate: latestDate } : {}) };
       if (!selected) return Response.json({ report: null, ...selection }, { headers });
+      if (latestSourceDashboard) return Response.json({ report: latestSourceDashboard.payload, ...selection }, { headers });
       const delivery = explicitId || archive ? null : await prisma.seoDigestDelivery.findUnique({
         where: { id: `seo-digest-delivery:${kind}:${selected}` }, select: { status: true, reportId: true },
       });
@@ -115,7 +123,7 @@ async function readDigest(request: Request) {
         // A racing or legacy generic preparation cannot obscure a previously
         // saved source dashboard. Explicit IDs still select their exact version.
         const dashboard = !exact && kind === "daily" ? await prisma.seoReportVersion.findFirst({ ...query,
-          where: { ...query.where, AND: [{ payload: { path: ["dailyDashboardBody", "recordOnly"], equals: true } }] },
+          where: { ...query.where, AND: sourceDashboardScope.AND },
         }) : null;
         return dashboard ?? prisma.seoReportVersion.findFirst(query);
       });

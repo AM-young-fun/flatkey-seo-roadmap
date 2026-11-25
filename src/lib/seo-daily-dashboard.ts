@@ -49,7 +49,8 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
       modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable } } : {}),
   };
   const key = reviewedTextHash(canonical(["daily-dashboard-v1", base.id, input.sourceEvidenceSha256, input.moduleShares, input.dashboardEvidence]));
-  const currentTemplate = base.reportTemplateVersion !== undefined && base.reportTemplateVersion >= 9;
+  // Older daily bodies can carry v9 projections without using the v9 body layout.
+  const currentTemplate = (base.reportTemplateVersion ?? 0) >= 9 && base.businessDate === base.date;
   const moduleShareSnapshot: ReportModuleShareSnapshot = { version: 1, period: { start: period.start, end: period.end },
     comparisonPeriod: { start: shift(period.start), end: shift(period.end) }, timezone: "America/Los_Angeles", sourceReportId: base.id, sourceEvidenceSha256: input.sourceEvidenceSha256, values: input.moduleShares };
   const replaceShares = (text: string) => {

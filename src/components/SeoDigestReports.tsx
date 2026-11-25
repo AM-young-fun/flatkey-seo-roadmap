@@ -327,7 +327,7 @@ export function SeoDigestReports() {
   const archivePage = Number.isSafeInteger(requestedArchivePage) && requestedArchivePage > 0 ? requestedArchivePage : 1;
   const query = new URLSearchParams({ kind, saved: "1", archive: "1", archivePage: String(archivePage), ...(selectedDate ? { date: selectedDate } : {}), ...(exact ? { reportId: exact } : {}) });
   if (kind === "weekly") query.set("supplement", "1");
-  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[]; archiveHasNext?: boolean; weeklySupplement?: WeeklySupplementRead }>("/api/seo/digest?" + query);
+  const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[]; archiveHasNext?: boolean; pendingArchiveDate?: string; weeklySupplement?: WeeklySupplementRead }>("/api/seo/digest?" + query);
   const report = result.data?.report;
   const [supplementReadyFor, setSupplementReadyFor] = useState<string | null>(null);
   const needsSupplement = kind === "weekly";
@@ -359,12 +359,13 @@ export function SeoDigestReports() {
           options={dates.length ? dates.map(day => ({ value: day, label: formatPeriod(day) }))
             : [{ value: "", label: result.data ? "暂无归档" : "正在读取…" }]} />
         {showArchivePagination ? <nav className={reportStyles.archivePages} aria-label="报告归档分页">
-          {archivePage > 1 ? <Link href={route(kind, selected || undefined, archivePage - 1, exact ?? undefined)}>上一页</Link> : null}
+          {archivePage > 1 ? <Link href={route(kind, selectedDate ?? undefined, archivePage - 1, exact ?? undefined)}>上一页</Link> : null}
           <span>第 {archivePage} 页</span>
-          {result.data?.archiveHasNext ? <Link href={route(kind, selected || undefined, archivePage + 1, exact ?? undefined)}>下一页</Link> : null}
+          {result.data?.archiveHasNext ? <Link href={route(kind, selectedDate ?? undefined, archivePage + 1, exact ?? undefined)}>下一页</Link> : null}
         </nav> : null}
       </div>
     </section>
+    {result.data?.pendingArchiveDate ? <p className={reportStyles.note}>{formatPeriod(result.data.pendingArchiveDate)}的来源看板待归档。 <Link href={route(kind, result.data.pendingArchiveDate)}>查看预览</Link></p> : null}
     {result.error ? <div className={reportStyles.feedback} role="alert"><p>{result.error}</p><FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div>
       : !result.data ? <ReportLoading label={`正在读取${kindLabel}`} /> : !report
       ? <div className={reportStyles.feedback}>
@@ -374,7 +375,7 @@ export function SeoDigestReports() {
         <header className={reportStyles.reportHeader}><div><h2>{kind === "daily" ? `Flatkey SEO 日报｜${report.businessDate ?? report.reportPeriod?.start ?? shiftDay(report.date, -1)}` : report.title}</h2>
         <p>生成于 {reportStamp(report.generatedAt)}（洛杉矶时间）</p>
         {kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE ? <p>统计周期：{formatPeriod(report.date)}；北京时间周四 16:30 开始整理，供审核。</p> : null}
-        {kind === "daily" ? <p>{report.businessDate ? <>业务日期：{report.businessDate}（北京时间）；流量来源日：{report.sourceDay ?? report.reportPeriod?.start}（洛杉矶时间）</> : <>统计日期：{report.reportPeriod?.start ?? shiftDay(report.date, -1)} · 洛杉矶时间</>}</p> : null}
+        {kind === "daily" ? <p>{report.businessDate ? <>业务日期：{report.businessDate}（北京时间）；流量来源日：{report.sourceDay ?? report.reportPeriod?.start}（洛杉矶时间）</> : <>统计日期：{report.reportPeriod?.start ?? shiftDay(report.date, -1)}{report.reportPeriod ? " · 洛杉矶时间" : ""}</>}</p> : null}
         </div>
         <div className={styles.toolbarActions}>
           {exact ? <Link className={styles.secondary} href={route(kind, report.date)}>查看最新详情</Link> : null}
