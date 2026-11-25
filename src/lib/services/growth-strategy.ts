@@ -57,32 +57,41 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
   };
   if (actor === "collector" && ["decide_direction", "freeze_baseline", "resolve_baseline_identities", "approve_quarter_plan"].includes(command.action)) throw new GrowthStrategyError("human_required", "方向决定、季度清单与身份补充须由已登录用户确认", 403);
   const requestId = `growth:${command.requestId}`;
+  const needsIdentitySnapshot = ["save_quarter_plan", "approve_quarter_plan", "freeze_baseline", "resolve_baseline_identities"].includes(command.action);
+  const needsOutsideWorkspace = localPreview || !needsIdentitySnapshot;
   // Evidence references are read from the real sources; caller-supplied target
   // identities, page versions or task IDs cannot become the source of truth.
-  const [workspace, workflow, sites] = await Promise.all([loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview), localPreview ? Promise.resolve([]) : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_EXECUTION_SITES] } }, select: { domain: true, ga4PropertyId: true } })]);
-  const contextFor = (state: GrowthStrategy, tasks: WorkflowTask[], plans: WorkflowPlan[] = []) => {
+  const [workspace, workflow, sites] = await Promise.all([
+    needsOutsideWorkspace ? loadGrowthWorkspace(localPreview, now) : null,
+    localPreview ? loadWorkflowSnapshot({ allHistory: true }, true) : null,
+    localPreview ? [] : prisma.seoSite.findMany({ where: { domain: { in: [...GROWTH_EXECUTION_SITES] } }, select: { domain: true, ga4PropertyId: true } }),
+  ]);
+  const contextFor = (state: GrowthStrategy, source: GrowthWorkspace, tasks: WorkflowTask[], plans: WorkflowPlan[] = []) => {
     const committed = new Set([...plans.flatMap(plan => isExecutableWorkflowPlan(plan.status) ? plan.taskIds : plan.committedTaskIds ?? []),
       ...(state.quarterPlanning?.plan.reservedOriginalTaskIds ?? [])]);
     const originalCommitments = tasks.filter(task => committed.has(task.id) && !task.deletedAt && !isSeoExtraCapacity(task.capacityClass)
       && ["blog", "landing", "cluster"].includes(task.kind) && (task.kind === "blog" || task.siteDomain !== "flatkey.ai"))
       .map(task => ({ site: task.siteDomain, kind: task.kind === "blog" ? "blog" as const : "cluster_landing" as const,
         deliveryDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(task.dueAt)) }));
-    return { routineApprovedTargetIds: routineApprovedTargetIds(workspace, tasks, state, now),
+    return { routineApprovedTargetIds: routineApprovedTargetIds(source, tasks, state, now),
     // Trusted task identities are loaded from the original workflow records,
     // never accepted from a caller's observation payload.
     taskReferences: tasks.map(({ id, siteDomain, pageUrl, keyword, keywordId, country, language, deletedAt }) => ({ id, siteDomain, pageUrl, keyword, keywordId, country, language, deletedAt })),
     siteProperties: Object.fromEntries(sites.map(site => [site.domain, site.ga4PropertyId])), siteTimezones: growthSourceTimezones(state), originalCommitments };
   };
-  const prepare = (state: GrowthStrategy) => { assertApprovalContract(state); return growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(state, command, actor, workspace, workflow.publications, workflow.tasks.map(task => task.id), now, contextFor(state, workflow.tasks, workflow.plan ? [workflow.plan] : []))); };
   const directory = previewDirectory(localPreview);
   if (directory) {
+    if (!workspace || !workflow) throw new GrowthStrategyError("preview_source_unavailable", "本地预览来源无法读取", 503);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const lock = join(directory, "growth-strategy.lock"), temporary = join(directory, `.growth-${randomUUID()}.json`);
     try { await mkdir(lock); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new GrowthStrategyError("preview_busy", "目标与方向预览正在保存，请稍后重试"); throw error; }
     try {
       const local = await readLocal(directory), replay = local.events.find(event => event.requestId === requestId);
       if (replay) { if (replay.requestHash !== requestHash) throw new GrowthStrategyError("idempotency_conflict", "同一请求编号已用于不同内容或身份"); return { state: replay.state, replay: true, storage: "local_preview" }; }
-      const state = prepare(local.state); local.state = state; local.events.push({ requestId, requestHash, state });
+      assertApprovalContract(local.state);
+      const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(local.state, command, actor, workspace, workflow.publications,
+        workflow.tasks.map(task => task.id), now, contextFor(local.state, workspace, workflow.tasks, workflow.plan ? [workflow.plan] : [])));
+      local.state = state; local.events.push({ requestId, requestHash, state });
       await writeFile(temporary, JSON.stringify(local), { flag: "wx", mode: 0o600 }); await rename(temporary, join(directory, "growth-strategy.json"));
       const readback = (await readLocal(directory)).state;
       if (growthHash(readback) !== growthHash(state)) throw new GrowthStrategyError("readback_failed", "方向记录读回不一致", 503);
@@ -102,11 +111,15 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
     const plans = references.filter(row => row.kind === "plan").map(row => row.payload as unknown as WorkflowPlan);
     // Approval reads identities, TopicMap and task/page sources from the same
     // repeatable-read transaction snapshot. This does not lock future Topic edits.
-    const identityCommands = ["save_quarter_plan", "approve_quarter_plan", "freeze_baseline", "resolve_baseline_identities"];
-    const transactionWorkspace = identityCommands.includes(command.action)
-      ? await loadGrowthWorkspace(false, now, undefined, { db: tx, workflow: workflowSnapshot(references.map(row => ({ kind: row.kind, record: row.payload })) as unknown as WorkflowStoredRow[], { allHistory: true }, "database", now) })
-      : workspace;
-    const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(current, command, actor, transactionWorkspace, publications, tasks.map(task => task.id), now, contextFor(current, tasks, plans)));
+    const isNewQuarterReview = command.action === "save_quarter_plan" && command.plan.version === QUARTER_NEW_WORD_VERSION
+      || command.action === "approve_quarter_plan" && current.quarterPlanning?.plan.version === QUARTER_NEW_WORD_VERSION;
+    const readIdentityWorkspace = isNewQuarterReview ? loadGrowthDashboardWorkspace : loadGrowthWorkspace;
+    const transactionWorkspace = workspace ?? await readIdentityWorkspace(false, now, undefined, {
+      db: tx,
+      workflow: workflowSnapshot(references.map(row => ({ kind: row.kind, record: row.payload })) as unknown as WorkflowStoredRow[], { allHistory: true }, "database", now),
+    });
+    const state = growthStrategyStoredSchema.parse(prepareGrowthStrategyMutation(current, command, actor, transactionWorkspace, publications,
+      tasks.map(task => task.id), now, contextFor(current, transactionWorkspace, tasks, plans)));
     const data = { kind: GROWTH_STRATEGY_KIND, recordId: GROWTH_QUARTER_ID, weekStart: "2026-11-23", siteDomain: null, status: state.baseline ? "frozen" : "draft", version: state.version, payload: json(state) };
     if (current.version === 0) await tx.seoWorkflowRecord.create({ data: { key, ...data } });
     else { const saved = await tx.seoWorkflowRecord.updateMany({ where: { key, version: command.expectedVersion }, data }); if (saved.count !== 1) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试"); }
