@@ -163,11 +163,21 @@ test("registration and payment use user denominators; immature or missing cohort
   const mature=projection();mature.api.firstPayment30d.cohorts=[{...data.api.firstPayment30d.cohorts[0],maturity:"mature",status:"ready",matureRegisteredUsers:8}];
   const verified=render(React.createElement(ConversionCharts,{projection:mature}));assert.match(verified,/class="bar"/);assert.match(verified,/0 \/ 8 人/);
 });
-test("hotspot tab reads only actual research and retains original task identity without growing quarter N",()=>{
-  fixtures.set("/api/seo/growth/hotspots?page=1",{version:"growth-hotspots-v9",generatedAt:"2026-11-24T00:00:00Z",businessWeek:{start:"2026-11-20",end:"2026-11-26"},pagination:{page:1,total:12,pageCount:2},items:[{id:"hot-1",title:"官方新模型",keyword:"new model gpu",site:"flatkey.ai",country:"US",language:"en",topicId:"gpu",inQuarter:false,stage:"scheduled",directionId:"direction1",taskIds:["original-id"],officialEvidence:[{reference:"https://example.com/launch",supports:"官方发布时间"}],demandEvidence:[{reference:"https://example.com/demand"}],tasks:[{id:"original-id",title:"原热点博客",status:"planned",dueAt:"2026-11-25T08:00:00Z"}],admission:{status:"scheduled",reason:"已追加原当周计划"}}]});
-  const html=render(React.createElement(GrowthTopicWorkspace,{initialTab:"hotspots"}));
-  assert.match(html,/季度关键词/);assert.match(html,/1600 · 固定/);assert.match(html,/近期热点词/);assert.match(html,/动态/);assert.match(html,/new model gpu/);
-  assert.match(html,/href="\/work\/original-id"/);assert.match(html,/原交付日.*2026-11-25/);assert.match(html,/季度N不增加/);assert.doesNotMatch(html,/业务词库关系图|规划外机会|待核归属/);
-  assert.match(html,/12 项真实研究记录/);assert.match(html,/第 1 \/ 2 页/);
-  fixtures.clear();
+test("hotspot topics open the saved original terms, evidence and task links without the quarter review editor",()=>{
+  const base={version:"growth-hotspots-v9",generatedAt:"2026-11-24T00:00:00Z",businessWeek:{start:"2026-11-20",end:"2026-11-26"}};
+  const topic={key:"flatkey.ai:topic:gpu",topicId:"gpu",title:"已保存 GPU 话题",site:"flatkey.ai",keywordCount:1,taskCount:1,latestEventAt:"2026-11-24T00:00:00Z"};
+  const item={id:"hot-1",title:"官方新模型",keyword:"new model gpu",site:"flatkey.ai",country:"US",language:"en",topicId:"gpu",stage:"scheduled",directionId:"direction1",taskIds:["original-id"],officialEvidence:[{reference:"https://example.com/launch",supports:"官方发布时间"}],demandEvidence:[{reference:"https://example.com/demand"}],tasks:[{id:"original-id",title:"原热点博客",status:"planned",dueAt:"2026-11-25T08:00:00Z"}],admission:{status:"scheduled",reason:"已追加原当周计划"}};
+  fixtures.set("/api/seo/growth/hotspots?view=topics&page=1",{...base,kind:"topics",topics:[topic],pagination:{page:1,total:12,pageCount:2}});
+  fixtures.set("/api/seo/growth/hotspots?view=topics&page=1&topic=flatkey.ai%3Atopic%3Agpu",{...base,kind:"keywords",topic,items:[item],pagination:{page:1,total:1,pageCount:1}});
+  try {
+    const list=render(React.createElement(GrowthTopicWorkspace,{initialTab:"hotspots"}));
+    assert.match(list,/季度关键词/);assert.match(list,/近期热点词/);assert.match(list,/第 1 \/ 2 页/);
+    assert.match(list,/href="\/opportunities\?tab=hotspots&amp;hotspotTopic=flatkey.ai%3Atopic%3Agpu"[^>]*>已保存 GPU 话题/);
+    assert.doesNotMatch(list,/new model gpu|\/work\/original-id|查看季度审核与方向决定|业务词库关系图/);
+    const detail=render(React.createElement(GrowthTopicWorkspace,{initialTab:"hotspots",hotspotTopic:topic.key}));
+    assert.match(detail,/href="\/opportunities\?tab=hotspots"[^>]*>.*返回热点话题/);
+    assert.match(detail,/new model gpu/);assert.match(detail,/href="https:\/\/example.com\/launch"/);
+    assert.match(detail,/href="\/work\/original-id"/);assert.match(detail,/原交付日.*2026-11-25/);
+    assert.doesNotMatch(detail,/查看季度审核与方向决定|业务词库关系图|规划外机会/);
+  } finally { fixtures.clear(); }
 });
