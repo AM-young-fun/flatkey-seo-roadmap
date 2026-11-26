@@ -1,16 +1,16 @@
 {
-  "verifiedAt": "2026-11-26T03:18:54.623295+00:00",
+  "verifiedAt": "2026-11-26T03:45:46.837633+00:00",
   "timezone": "Asia/Shanghai",
   "tasks": [
     {
       "id": "automation",
-      "name": "SEO 周四 12:30 下周正式排期",
+      "name": "SEO 周四 14:20 下周正式排期",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=12;BYMINUTE=30;BYSECOND=0",
+      "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=14;BYMINUTE=20;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795663112998,
+      "updated_at": 1795664618716,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -29,11 +29,11 @@
       "id": "automation-2",
       "name": "Prompt 10:30 素材核验与自动导入",
       "kind": "cron",
-      "status": "PAUSED",
+      "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30",
       "model": "gpt-5.6-sol",
       "reasoning_effort": "high",
-      "updated_at": 1795660107170,
+      "updated_at": 1795664661644,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
