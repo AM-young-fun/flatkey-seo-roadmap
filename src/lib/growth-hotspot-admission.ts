@@ -11,6 +11,7 @@ import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 import { isSeoWorkday } from "./seo-workday";
 
 export const HOTSPOT_KEYWORD_CONFIRMED = "HOTSPOT_KEYWORD_CONFIRMED";
+export const HOTSPOT_CONFIRMED_REVIEW_STATUS = "HOTSPOT_CONFIRMED";
 
 export const growthHotspotAdmissionSchema = z.object({
   directionId: z.string().trim().min(1).max(200), revision: z.number().int().positive(),
