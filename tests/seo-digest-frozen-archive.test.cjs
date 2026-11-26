@@ -9,10 +9,11 @@ frozen.dailyDashboardBody={version:1,recordOnly:true};
 const newerGeneric={...frozen,id:'seo-digest:2026-11-23:bbbbbbbbbbbbbbbb',dashboard:undefined,dailyDashboardBody:undefined,rankingNotes:['较新通用稿，不应遮盖来源看板']};
 let liveReads=0,snapshotReads=0,deliveryReads=0,local=false,hasSourceDashboard=true;
 let archiveDates = [new Date(frozen.date)], archiveQueries = [];
+let savedWeekly, weeklySectionReads = [];
 const tripwire=()=>{liveReads++;throw Error('saved_archive_must_not_overlay_live_state');};
 Module._load=function(name,...args){
  if(name==='@/lib/services/import-tokens')return{authenticateImportToken:async()=>true};
- if(name==='@/lib/seo-analytics-access')return{authorizeAnalyticsRead:async()=>false,analyticsLocalPreview:()=>local,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
+ if(name==='@/lib/seo-analytics-access')return{authorizeAnalyticsRead:async()=>Boolean(savedWeekly),analyticsLocalPreview:()=>local,privateAnalyticsHeaders:{'cache-control':'private, no-store'}};
  if(name==='@/lib/services/seo-digest')return{DigestError:class extends Error{},generateSeoDigest:tripwire,saveSeoDigest:tripwire};
  if(name==='@/lib/prisma')return{prisma:{seoReportVersion:{groupBy:async({skip = 0, take, where})=>{
    archiveQueries.push({skip, take, kind: where.payload.equals});
@@ -20,11 +21,16 @@ Module._load=function(name,...args){
  },findFirst:async({where,select})=>{
    if(select.periodStart && select.payload) return hasSourceDashboard ? {periodStart:new Date(frozen.date),payload:structuredClone(frozen)} : null;
    if(select.periodStart) { const periodStart = archiveDates.find(day => !where.periodStart?.lt || day < where.periodStart.lt); return periodStart ? { periodStart } : null; }
+   if(savedWeekly && where.payload?.equals === 'weekly') return {payload:structuredClone(savedWeekly)};
    snapshotReads++;
    if (String(where.periodStart) !== String(new Date(frozen.date))) return null;
    return where.id?{payload:structuredClone(where.id===frozen.id?frozen:newerGeneric)}:where.AND?hasSourceDashboard?{payload:structuredClone(frozen)}:null:{payload:structuredClone(newerGeneric)};
  },findUnique:async()=>({kind:'SEO_DIGEST',payload:structuredClone(frozen)})},seoDigestDelivery:{findUnique:async()=>{deliveryReads++;return null;}}}};
- if(name==='@/lib/seo-workflow-http')return{authorizeWorkflow:tripwire};
+ if(name==='@/lib/seo-workflow-http')return{authorizeWorkflow:async()=>savedWeekly ? {actor:'human',localPreview:false} : tripwire()};
+ if(name==='@/lib/services/seo-weekly-supplement')return{loadWeeklySupplementForDate:async(date,localPreview,section='summary')=>{
+   if(!savedWeekly) return tripwire();
+   weeklySectionReads.push({date,localPreview,section});return { revision:1,text:section==='summary'?'本周个人总结':'修改后的流量归因' };
+ }};
  if(name==='@/lib/services/seo-digest-recovery')return{DigestRecoveryError:class extends Error{}};
  if(name.startsWith('@/lib/services/'))return new Proxy({}, {get:()=>tripwire});
  return originalLoad.call(this,name,...args);
@@ -36,6 +42,26 @@ test('default archived date and explicit report ID return the same complete froz
  }
  assert.equal(liveReads,0);assert.equal(snapshotReads,3);assert.equal(deliveryReads,1);
  const r=await route.POST(new Request(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'read_saved',reportId:frozen.id})}));assert.deepEqual((await r.json()).report,JSON.parse(JSON.stringify(frozen)));assert.equal(liveReads,0);
+});
+
+test('weekly editorial fields are separate from the exact archived report payload',async()=>{
+ savedWeekly={...frozen,id:'seo-digest:2026-11-26:cccccccccccccccc',date:'2026-11-26',kind:'weekly'};
+ const expected=JSON.parse(JSON.stringify(savedWeekly));
+ weeklySectionReads=[];
+ try {
+  const base=url+'?saved=1&archive=1&kind=weekly&supplement=1&date=2026-11-26';
+  const latest=await (await route.GET(new Request(base))).json();
+  assert.deepEqual(latest.report,expected);
+  assert.equal(latest.weeklySupplement.supplement.text,'本周个人总结');
+  assert.equal(latest.weeklyAttribution.supplement.text,'修改后的流量归因');
+  assert.equal(latest.weeklyAttribution.editable,true);
+  assert.deepEqual(weeklySectionReads.map(read=>read.section),['summary','attribution']);
+  weeklySectionReads=[];
+  const exact=await (await route.GET(new Request(base+'&reportId='+savedWeekly.id))).json();
+  assert.deepEqual(exact.report,expected);
+  assert.equal(exact.weeklyAttribution,undefined);
+  assert.deepEqual(weeklySectionReads.map(read=>read.section),['summary']);
+ } finally { savedWeekly=undefined; }
 });
 
 test('the paginated daily landing selects the newest source dashboard and keeps the pending date selectable', async t => {

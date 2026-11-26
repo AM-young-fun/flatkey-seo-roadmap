@@ -4,8 +4,11 @@ import { selectGrowthTargets, type GrowthScope } from "../components/growth-topi
 import { isCurrentNativeRanking } from "./current-ranking-summary";
 import type { PublishedKeywordRank } from "./published-keyword-rank";
 import type { GrowthTarget, GrowthWorkspace } from "./growth-types";
-import { growthPublicUrl, growthWordKey } from "./growth-workspace";
+import { growthPublicUrl, growthTargetId, growthWordKey } from "./growth-workspace";
 import { seoTablePage } from "./seo-table-page";
+import type { GrowthHotspotItem } from "./growth-hotspots";
+import { addKeywordTopic, createKeywordLookup, keywordTopic, keywordTopicIndex, numericKeywordOrder,
+  type KeywordCategory, type KeywordTopic, type NumericSort } from "./growth-keyword-lookup";
 
 type PublishedKeywordTarget = GrowthTarget & { maintenancePublishedUrls?: string[] };
 
@@ -69,38 +72,63 @@ export function growthKeywordInventoryPage(workspace: GrowthWorkspace, scope: Gr
 export type GrowthKeywordInventoryPage = ReturnType<typeof growthKeywordInventoryPage>;
 
 
-export function publishedKeywordWords(workspace: GrowthWorkspace, capture: ApprovedCaptureRankedWord[], scope: GrowthScope, page: number, filter: PublishedRankFilter) {
+export function publishedKeywordWords(workspace: GrowthWorkspace, capture: ApprovedCaptureRankedWord[], scope: GrowthScope, page: number,
+  filter: PublishedRankFilter, sort: NumericSort | null = null, hotspots: GrowthHotspotItem[] = []) {
   type Rank = { position: number; country: string | null; language: string | null; checkedAt: string | null; historical: boolean };
-  type Word = { keyword: string; urls: Set<string>; best: Rank | null; outsideOnly: boolean };
+  type Market = Pick<GrowthTarget, "country" | "language">;
+  type Word = { keyword: string; urls: Set<string>; best: Rank | null; outsideOnly: boolean; categories: KeywordCategory[]; topics: KeywordTopic[]; markets: Market[] };
   const words = new Map<string, Word>();
-  const add = (keyword: string, urls: string[], rank: Rank | null, outside: boolean) => {
+  const topics = keywordTopicIndex(workspace.topics);
+  const lookup = createKeywordLookup(scope.search);
+  const candidates = selectGrowthTargets(workspace, { ...scope, search: "" }, undefined, true);
+  const originalMatches = new Set(selectGrowthTargets(workspace, scope, undefined, true).map(target => target.id));
+  const byIdentity = new Map(candidates.map(row => [growthTargetId(row.site, row.keyword, row.country, row.language), row]));
+  const quarter = new Set(workspace.quarter?.targetIds);
+  const satellite = new Set(workspace.satelliteQuarter?.targetIds);
+  const hotspot = new Set([...workspace.hotspotTargetIds ?? [], ...hotspots.map(row => growthTargetId(row.site, row.keyword, row.country, row.language))]);
+  const add = (keyword: string, urls: string[], rank: Rank | null, outside: boolean, market: Market, target?: GrowthTarget) => {
     const key = growthWordKey(keyword);
     if (!key || !urls.length) return;
-    const row = words.get(key) ?? { keyword, urls: new Set<string>(), best: null, outsideOnly: true };
+    const row: Word = words.get(key) ?? { keyword, urls: new Set<string>(), best: null, outsideOnly: true, categories: ["published"], topics: [], markets: [] };
     for (const url of urls) row.urls.add(url);
+    if ((market.country || market.language) && !row.markets.some(item => item.country === market.country && item.language === market.language)) {
+      row.markets.push({ country: market.country, language: market.language });
+    }
+    if (target) {
+      addKeywordTopic(row.topics, keywordTopic(target, topics));
+      for (const [category, ids] of [["quarter", quarter], ["satellite", satellite], ["hotspot", hotspot]] as const) {
+        if (ids.has(target.id) && !row.categories.includes(category)) row.categories.push(category);
+      }
+    }
     row.outsideOnly &&= outside;
     if (rank && (!row.best || Number(rank.historical) < Number(row.best.historical)
       || rank.historical === row.best.historical && (rank.position < row.best.position
       || rank.position === row.best.position && (rank.checkedAt ?? "") > (row.best.checkedAt ?? "")))) row.best = rank;
     words.set(key, row);
   };
-  const candidates = selectGrowthTargets(workspace, scope, undefined, true);
   for (const row of candidates) {
-    const current = isCurrentNativeRanking(row, workspace.generatedAt);
-    add(row.keyword, linkedPublishedKeywordUrls(row, workspace.generatedAt), current ? {
-      position: row.rank!, country: row.country, language: row.language, checkedAt: row.checkedAt, historical: false,
-    } : null, publishedKeywordRank(row, workspace.generatedAt) === "outside100");
+    const urls = linkedPublishedKeywordUrls(row, workspace.generatedAt);
+    const topic = keywordTopic(row, topics);
+    const matchesWord = originalMatches.has(row.id) || lookup.matchText(row.keyword, topic?.name ?? "");
+    const displayed = matchesWord ? urls : urls.filter(lookup.matchPage);
+    const rankMatched = matchesWord || displayed.some(url => publishedPageKey(url, row.site) === publishedPageKey(row.rankUrl ?? "", row.site));
+    const current = rankMatched && isCurrentNativeRanking(row, workspace.generatedAt);
+    const outside = displayed.some(url => publishedKeywordRank(row, workspace.generatedAt, url) === "outside100");
+    add(row.keyword, displayed, current ? { position: row.rank!, country: row.country, language: row.language, checkedAt: row.checkedAt, historical: false } : null,
+      outside, row, row);
   }
   if (scope.site === "all" || scope.site === "flatkey.ai") {
-    const query = growthWordKey(scope.search);
-    const matches = new Set(candidates.filter(row => row.site === "flatkey.ai").map(row => growthWordKey(row.keyword)));
     for (const row of capture) {
-      const key = growthWordKey(row.keyword);
-      if (scope.country !== "all" && scope.country !== row.country || scope.language !== "all" && scope.language !== row.language
-        || query && !key.includes(query) && !matches.has(key)) continue;
-      add(row.keyword, row.pages.map(result => result.url).filter(url => publishedPageKey(url, "flatkey.ai") !== null), {
-        position: row.bestRank, country: row.country, language: row.language, checkedAt: row.checkedAt, historical: true,
-      }, false);
+      if (scope.country !== "all" && scope.country !== row.country || scope.language !== "all" && scope.language !== row.language) continue;
+      const target = byIdentity.get(growthTargetId("flatkey.ai", row.keyword, row.country, row.language));
+      const topic = target && keywordTopic(target, topics);
+      const matchesWord = lookup.matchText(row.keyword, topic?.name ?? "") || Boolean(target && originalMatches.has(target.id));
+      const pages = row.pages.filter(result => publishedPageKey(result.url, "flatkey.ai") !== null && (matchesWord || lookup.matchPage(result.url)));
+      if (!pages.length) continue;
+      add(row.keyword, pages.map(result => result.url), {
+        position: matchesWord ? row.bestRank : Math.min(...pages.map(result => result.rank)), country: row.country, language: row.language,
+        checkedAt: row.checkedAt, historical: true,
+      }, false, row, target);
     }
   }
   const rows = [...words.values()].map(({ urls, outsideOnly, ...word }) => ({ ...word, urls: [...urls].sort(),
@@ -113,7 +141,7 @@ export function publishedKeywordWords(workspace: GrowthWorkspace, capture: Appro
   };
   const counts = Object.fromEntries(publishedRankFilters.map(({ value }) => [value, rows.filter(row => matchesFilter(row, value)).length]));
   const { rows: visible, ...pagination } = seoTablePage(rows.filter(row => matchesFilter(row, filter))
-    .sort((a, b) => a.keyword.localeCompare(b.keyword, "zh-CN")), page);
+    .sort((a, b) => numericKeywordOrder(a.best?.position, b.best?.position, sort) || a.keyword.localeCompare(b.keyword, "zh-CN")), page);
   return { rows: visible, pagination, counts, markets: workspace.markets, sites: workspace.sites };
 }
 export type PublishedKeywordWords = ReturnType<typeof publishedKeywordWords>;

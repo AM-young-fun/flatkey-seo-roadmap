@@ -89,7 +89,7 @@
 .report { display: grid; gap: 14px; margin-top: 16px; }
 .archiveActions { display: flex; justify-content: flex-end; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; margin: 0; }
-.planMetrics { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.metrics.planMetrics { grid-template-columns: minmax(0, 1fr); }
 .planItems { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 5px; }
 .archivePages { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; margin: 5px 0 0; padding: 7px 5px 2px; border-top: 1px solid #e5e9f0; font-size: 12px; color: #52647b; text-align: center; }
 .archivePages a { padding: 4px 3px; color: #2459aa; text-decoration: none; }
@@ -135,7 +135,6 @@
 @media (max-width: 640px) {
   .workspace { padding-top: 18px; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .planMetrics { grid-template-columns: 1fr; }
   .section { padding: 14px; }
 }
 
@@ -177,6 +176,10 @@
 .planGroup h4 small { margin-inline-start:8px; color:#52647b; font-weight:400; }
 
 .supplementLabel { display:block; margin-bottom:8px; color:#52647b; font-size:13px; }
+.supplementHeading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+.supplementHeading :is(h3,h4) { margin:0; color:#152943; }
+.supplementHeading h4 { font-size:15px; }
+.supplementText { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .supplementInput { display:block; box-sizing:border-box; width:100%; min-height:150px; resize:vertical; padding:12px; border:1px solid #dce4ef; border-radius:8px; color:#17243b; background:#fff; font:inherit; font-size:14px; line-height:1.6; }
 .supplementInput:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
 .supplementInput:disabled { background:#f7f9fc; }

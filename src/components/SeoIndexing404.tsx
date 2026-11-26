@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { Indexing404Response } from "@/lib/seo-indexing-404";
+import { indexing404Trend, type Indexing404Response } from "@/lib/seo-indexing-404";
+import { LinePlot } from "./OverviewCharts";
 import { SeoAnchor } from "./SeoAnchor";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
 import styles from "./SeoIndexing404.module.css";
 
-export function SeoIndexing404() {
-  const result = useSeoRead<Indexing404Response>("/api/seo/indexing-404", { showFeedback: false });
+export function SeoIndexing404({ throughDate }: { throughDate?: string } = {}) {
+  const query = throughDate ? `?${new URLSearchParams({ through: throughDate })}` : "";
+  const result = useSeoRead<Indexing404Response>(`/api/seo/indexing-404${query}`, { showFeedback: false });
   const history = result.data?.observations ?? [];
   const latest = history[0];
   const section = useRef<HTMLElement>(null);
@@ -29,6 +31,11 @@ export function SeoIndexing404() {
           <div><span>Google 验证状态</span><strong>{latest.validation ?? "待取得"}</strong></div>
         </div>
         <p>GSC 最新采集于 <time dateTime={latest.observedAt}>{shanghaiStamp(latest.observedAt)}</time>（北京时间）。{latest.decision ?? "尚无本次处置记录。"}</p>
+        <div className={styles.trend}>
+          <h4>404 数量趋势</h4>
+          <small>按北京时间采集日绘制近 30 天的 Google 报告总数。</small>
+          <LinePlot rows={indexing404Trend(history, throughDate)} unit="页" />
+        </div>
         <details className={styles.history}>
           <summary>查看每日记录</summary>
           <div className={styles.scroll}><table>

@@ -260,3 +260,32 @@ test("catalog overview counts exactly the three visible groups and groups linked
   assert.match(html, /4 个关键词/);
   assert.match(html, /data-kind="top100"/);
 });
+
+test("keyword lookup resolves full URLs and partial routes to saved site-topic links without mixing same-word sites", () => {
+  const { growthKeywordCatalog } = require("../src/lib/growth-keyword-catalog.ts");
+  const { publishedKeywordWords } = require("../src/lib/growth-keyword-inventory.ts");
+  const flat = target("flat", { keyword: "GPU rental providers", publishedUrls: ["https://flatkey.ai/blog/gpu-rental"], rankUrl: "https://flatkey.ai/blog/gpu-rental" });
+  const rack = target("rack", { keyword: flat.keyword, site: "rackrate.org", topicId: "rack-prices", topicName: "云 GPU 费率",
+    publishedUrls: ["https://rackrate.org/blog/gpu-rental"], rankUrl: "https://rackrate.org/blog/gpu-rental" });
+  const workspace = data([flat, rack]);
+  const all = search => growthKeywordCatalog(null, [], workspace, [], search, 1).rows;
+  const published = search => publishedKeywordWords(workspace, [], { ...defaultGrowthScope, search }, 1, "all").rows;
+  for (const lookup of [all, published]) {
+    const [exact] = lookup("https://www.flatkey.ai/blog/gpu-rental/?utm_source=test#details");
+    assert.deepEqual(exact.topics.map(row => row.site), ["flatkey.ai"]);
+    assert.deepEqual(exact.urls, flat.publishedUrls);
+    assert.deepEqual(lookup("/blog/gpu-ren")[0].topics.map(row => row.site).sort(), ["flatkey.ai", "rackrate.org"]);
+    assert.equal(lookup("providers gpu")[0].keyword, flat.keyword);
+    assert.equal(lookup("evil.example/blog/gpu-rental").length, 0);
+    assert.equal(lookup("https://flatkey.ai/console").length, 0);
+  }
+});
+
+test("keyword rank sorting happens before pagination and leaves unknown ranks last", () => {
+  const { publishedKeywordWords } = require("../src/lib/growth-keyword-inventory.ts");
+  const fixture = [target("a", { keyword: "a ranked", rank: 58, wordLanguage: "en" }), target("z", { keyword: "z ranked", rank: 3, wordLanguage: "en" }),
+    target("b", { keyword: "b unknown", rank: null, rankEligible: false })];
+  const values = order => publishedKeywordWords(data(fixture), [], defaultGrowthScope, 1, "all", order).rows.map(row => row.best?.position ?? null);
+  assert.deepEqual(values("asc"), [3, 58, null]);
+  assert.deepEqual(values("desc"), [58, 3, null]);
+});

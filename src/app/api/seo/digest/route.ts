@@ -133,12 +133,17 @@ async function readDigest(request: Request) {
       const report = saved?.payload as unknown as SeoDigest | undefined;
       // Saved date views and explicit IDs consume the same frozen payload.
       // Current execution status belongs to the original work pages.
-      const weeklySupplement = report && kind === "weekly" && params.get("supplement") === "1" && await authorizeAnalyticsRead(request)
+      const weeklySections = report && kind === "weekly" && params.get("supplement") === "1" && await authorizeAnalyticsRead(request)
         ? await timedRead("weekly-supplement", async () => {
           const access = await authorizeWorkflow(request);
-          return { supplement: await loadWeeklySupplementForDate(report.date, access.localPreview), editable: access.actor === "human" };
+          const editable = access.actor === "human";
+          const [weeklySupplement, weeklyAttribution] = await Promise.all([
+            loadWeeklySupplementForDate(report.date, access.localPreview).then(supplement => ({ supplement, editable })).catch(() => undefined),
+            explicitId ? undefined : loadWeeklySupplementForDate(report.date, access.localPreview, "attribution").then(supplement => ({ supplement, editable })).catch(() => undefined),
+          ]);
+          return { weeklySupplement, weeklyAttribution };
         }).catch(() => undefined) : undefined;
-      return Response.json({ report: report ?? null, ...selection, ...(weeklySupplement ? { weeklySupplement } : {}) }, { headers });
+      return Response.json({ report: report ?? null, ...selection, ...weeklySections }, { headers });
     }
     return Response.json({ report: await generateSeoDigest(date ?? reportDay(), new Date(), kind) }, { headers });
   } catch (error) { return errorResponse(error); }

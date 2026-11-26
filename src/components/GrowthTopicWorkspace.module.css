@@ -41,6 +41,9 @@
 .table { width:100%; text-align:left; border-collapse:collapse; font-size:12px; }
 .table th,.table td { padding:14px; border-bottom:1px solid #e9edf4; vertical-align:top; line-height:1.7; }
 .table thead th { background:#f5f8fc; color:#5f7087; white-space:nowrap; font-weight:600; }
+.numericHeader { border:0; padding:0; background:none; color:inherit; font:inherit; font-weight:inherit; cursor:pointer; }
+.numericHeader span { margin-left:3px; color:#2f65ab; }
+.numericHeader:focus-visible { outline:2px solid #5288ce; outline-offset:3px; }
 .table tbody th { min-width:170px; max-width:280px; font-weight:500; }
 .table tbody td { min-width:100px; max-width:235px; overflow-wrap:anywhere; }
 .table tbody tr:last-child > * { border-bottom:0; }

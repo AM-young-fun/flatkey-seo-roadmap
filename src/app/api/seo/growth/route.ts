@@ -44,11 +44,14 @@ export async function GET(request: Request) {
     const site = params.get("site") ?? undefined, view = params.get("view");
     const quarter = view === "quarter" || view === "quarter-evidence";
     const library = view === "keywords" || (view === "published" || view === "published-words") ? view : null;
-    const keys = quarter ? quarterKeys : (library === "published" || library === "published-words") ? [...inventoryKeys, "rank"] : library ? ["view", "q", "page"] : ["site", "view"];
+    const keys = quarter ? quarterKeys : library === "published-words" ? [...inventoryKeys, "rank", "sort"]
+      : library === "published" ? [...inventoryKeys, "rank"] : library ? ["view", "q", "page"] : ["site", "view"];
+    const sort = params.get("sort");
     const page = Number(params.get("page") ?? 1);
     const rank = params.get("rank") ?? "all", newOnly = params.get("new");
     if ([...params.keys()].some(key => !keys.includes(key) || params.getAll(key).length > 1)
-      || ((quarter || library) && (!Number.isSafeInteger(page) || page < 1 || [...params.values()].some(value => value.length > 240)))
+      || ((quarter || library) && (!Number.isSafeInteger(page) || page < 1 || [...params].some(([key, value]) => value.length > (key === "q" && (library === "keywords" || library === "published-words") ? 2000 : 240))))
+      || (sort !== null && sort !== "asc" && sort !== "desc")
       || (view === "quarter-evidence" && !params.get("topic"))
       || (newOnly !== null && newOnly !== "1") || !(library === "published-words" ? publishedRankFilters.some(filter => filter.value === rank) : ["all", "outside100", "ranked", "pending"].includes(rank))
       || site && !GROWTH_SITES.some(item => item.domain === site) || view !== null && !quarter && !library && !savedViews.includes(view)) {
@@ -73,11 +76,11 @@ export async function GET(request: Request) {
       const [workspace, capture, hotspots] = await Promise.all([
         loadSnapshot("quarter", local),
         local ? null : loadNovemberSecondKeywordCapture(),
-        view === "all-keyword-overview" ? loadGrowthHotspotView(local) : null,
+        loadGrowthHotspotView(local).catch(() => null),
       ]);
       if (!local && !capture?.complete) return Response.json({ message: "排名采集回执暂未读齐" }, { status: 503, headers: privateAnalyticsHeaders });
       const ranked = capture?.complete ? approvedCaptureRankedWords(capture) : [];
-      if (library === "published-words") return Response.json(publishedKeywordWords(workspace, ranked, readGrowthScope(params), page, rank as PublishedRankFilter), { headers: privateAnalyticsHeaders });
+      if (library === "published-words") return Response.json(publishedKeywordWords(workspace, ranked, readGrowthScope(params), page, rank as PublishedRankFilter, sort, hotspots?.items), { headers: privateAnalyticsHeaders });
       return Response.json(growthDashboardProjection(catalogWorkspace(workspace, hotspots?.items ?? [], ranked), true), { headers: privateAnalyticsHeaders });
     }
     if (view === "quarter-calendar") {

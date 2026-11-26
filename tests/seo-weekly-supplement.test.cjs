@@ -27,9 +27,15 @@ test("saved notes reload across revisions, keep history, and clear explicitly",a
     await service.saveWeeklySupplement({reportId,expectedRevision:0,text:"本周补充 <script>文字</script>"},true);
     const loaded=await service.loadWeeklySupplement("seo-digest:2026-11-20:abcdef1234567890",true);
     assert.equal(loaded.text,"本周补充 <script>文字</script>");
+    const attribution = await service.saveWeeklySupplement({reportId,section:"attribution",expectedRevision:0,text:"按真实来源修订涨跌分析"},true);
+    assert.equal(attribution.revision,1,"each section has an independent revision");
+    assert.equal((await service.loadWeeklySupplement("seo-digest:2026-11-20:abcdef1234567890",true,"attribution")).text,attribution.text);
+    assert.equal((await service.loadWeeklySupplement(reportId,true)).text,loaded.text,"editing attribution preserves existing notes");
     await assert.rejects(service.saveWeeklySupplement({reportId,expectedRevision:0,text:"旧窗口"},true),error=>error.status===409);
+    await assert.rejects(service.saveWeeklySupplement({reportId,section:"attribution",expectedRevision:0,text:"旧窗口"},true),error=>error.status===409);
     await service.saveWeeklySupplement({reportId,expectedRevision:1,text:""},true);
     assert.equal((await service.loadWeeklySupplement(reportId,true)).text,"");
-    assert.equal(fs.readdirSync(directory).length,2,"old saved revision retained");
+    assert.equal((await service.loadWeeklySupplement(reportId,true,"attribution")).text,attribution.text);
+    assert.equal(fs.readdirSync(directory).length,3,"both note revisions and attribution retained");
   }finally{fs.rmSync(directory,{recursive:true,force:true});delete process.env.SEO_WEEKLY_SUPPLEMENT_PREVIEW_DIR;}
 });

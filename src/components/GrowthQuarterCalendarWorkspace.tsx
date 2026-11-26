@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { QuarterCalendarDisplay } from "@/lib/growth-quarter-display";
 import { GROWTH_COUNTRY_LABELS } from "@/lib/seo-growth-markets";
 import { seoTablePage } from "@/lib/seo-table-page";
+import { keywordTextMatches, numericKeywordOrder, type NumericSort } from "@/lib/growth-keyword-lookup";
+import { KeywordNumericHeader } from "./KeywordTableCells";
 import { SeoTablePagination } from "./SeoTablePagination";
 import { UiSelect } from "./UiSelect";
 import styles from "./GrowthTopicWorkspace.module.css";
@@ -16,7 +18,7 @@ export function GrowthQuarterCalendarWorkspace({ plan }: { plan: QuarterCalendar
   const [day, setDay] = useState("all");
   const [country, setCountry] = useState("all");
   const [search, setSearch] = useState("");
-  const query = search.trim().normalize("NFKC").toLowerCase();
+  const [sort, setSort] = useState<NumericSort | null>(null);
   const showSatellite = cohort === "satellite" && plan.satellite;
   const source = showSatellite ? showSatellite.rows : plan.rows;
   const dates = showSatellite ? [...new Set(source.map(row => row.researchDate))].sort() : plan.days;
@@ -24,7 +26,7 @@ export function GrowthQuarterCalendarWorkspace({ plan }: { plan: QuarterCalendar
   const countries = [...new Set(source.map(row => row.country))].sort();
   const { rows, ...pagination } = seoTablePage(source.filter(row => (day === "all" || row.researchDate === day)
     && (country === "all" || row.country === country)
-    && `${row.keyword} ${row.topicName ?? ""}`.normalize("NFKC").toLowerCase().includes(query)), page);
+    && keywordTextMatches(search, row.keyword, row.topicName ?? "")).sort((a, b) => numericKeywordOrder(a.volume, b.volume, sort)), page);
   return <section className={styles.panel} aria-label="季度新词排期">
     <div className={styles.sectionHeading}><div>
       <h2>{showSatellite ? "ModelFit／RackRate 季度词" : "季度关键词"} · {count(showSatellite ? source.length : plan.total)} 词</h2>
@@ -43,7 +45,7 @@ export function GrowthQuarterCalendarWorkspace({ plan }: { plan: QuarterCalendar
       <label className={styles.search}>搜索话题或关键词<input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></label>
     </div>
     {rows.length ? <div className={styles.tableScroll}><table className={styles.table}>
-      <thead><tr><th>原关键词</th><th>话题 / 站点</th><th>目标市场</th><th>Ahrefs 月搜索量</th><th>研究日期</th><th>页面交付</th></tr></thead>
+      <thead><tr><th>原关键词</th><th>话题 / 站点</th><th>目标市场</th><KeywordNumericHeader label="Ahrefs 月搜索量" order={sort} onChange={order => { setSort(order); setPage(1); }} /><th>研究日期</th><th>页面交付</th></tr></thead>
       <tbody>{rows.map(row => <tr key={row.id}>
         <th scope="row"><strong>{row.keyword}</strong></th><td>{row.topicName ?? "待核"}{row.site ? <small>{row.site}</small> : null}</td>
         <td>{GROWTH_COUNTRY_LABELS[row.country]}</td><td>{count(row.volume)}</td><td>{row.researchDate}</td><td>{row.deliveryDate ?? "待核验"}</td>
