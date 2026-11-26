@@ -20,6 +20,7 @@ import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { timedRead } from "@/lib/read-profile";
 import { reservedOriginalIdentity } from "@/lib/reserved-original-keyword";
 import { loadReservedOriginalAdmissions } from "./reserved-original-keyword";
+import { canClaimMoeBlogContinuation, moeBlogPlanId, moeBlogResearchId, moeBlogRunId, moeBlogRunStage, moeBlogTaskId } from "@/lib/moe-blog-continuation";
 
 const legacyKinds = Object.keys(WORKFLOW_SCHEMAS);
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -315,6 +316,20 @@ export async function mutateWorkflowClaim(input: unknown) {
     if (command.action === "claim") {
       if (existing?.status === "completed") return { acquired: false, reason: "completed", runId: existing.runId, status: existing.status };
       if (existing && existing.status === "running" && existing.leaseUntil > now) return { acquired: false, reason: "leased", runId: existing.runId, status: existing.status, leaseUntil: existing.leaseUntil.toISOString() };
+      if (command.runId === moeBlogRunId || command.stage === moeBlogRunStage) {
+        const [taskRow, researchRow, planRow] = await Promise.all([
+          tx.seoWorkflowRecord.findUnique({ where: { key: workflowKey("task", moeBlogTaskId) }, select: { payload: true } }),
+          tx.seoWorkflowRecord.findUnique({ where: { key: workflowKey("task", moeBlogResearchId) }, select: { payload: true } }),
+          tx.seoWorkflowRecord.findUnique({ where: { key: workflowKey("plan", moeBlogPlanId) }, select: { payload: true } }),
+        ]);
+        const task = taskRow?.payload as unknown as WorkflowTask | undefined;
+        if (command.runId !== moeBlogRunId || command.stage !== moeBlogRunStage
+          || !task?.recordedAt || Date.parse(command.scheduledFor) !== Date.parse(task.recordedAt)
+          || !canClaimMoeBlogContinuation(task, researchRow?.payload as unknown as WorkflowTask | undefined,
+            planRow?.payload as unknown as WorkflowPlan | undefined, now)) {
+          throw new WorkflowError("moe_original_slot_unavailable", "MoE 原任务只可在正式周计划保存的续做时段内领取");
+        }
+      }
       const other = await tx.seoWorkflowLease.findUnique({ where: { stage_scheduledFor: { stage: command.stage, scheduledFor: new Date(command.scheduledFor) } } });
       if (other && other.runId !== command.runId) throw new WorkflowError("stage_already_claimed", "同一阶段与计划时间已有运行编号，请续跑原编号");
       const lease = await tx.seoWorkflowLease.upsert({ where: { runId: command.runId }, create: { runId: command.runId, stage: command.stage, scheduledFor: new Date(command.scheduledFor), owner: command.owner, fencingToken: 1, leaseUntil: expires }, update: { owner: command.owner, fencingToken: { increment: 1 }, leaseUntil: expires, status: "running", result: Prisma.DbNull } });

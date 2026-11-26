@@ -12,6 +12,7 @@ import { optimizationComparisonProblems } from "./seo-workflow-comparison";
 import { maintenanceTaskProblems, maintenancePublicationProblems, maintenanceHistoryProblems } from "./seo-maintenance";
 import { legacyMaintenancePlanProblems } from "./seo-legacy-maintenance-plan";
 import { matchesReservedOriginal, type ReservedOriginalIdentity } from "./reserved-original-keyword";
+import { canClaimMoeBlogContinuation, moeBlogPlanId, moeBlogResearchId, moeBlogTaskId } from "./moe-blog-continuation";
 
 export class WorkflowError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); }
@@ -762,11 +763,14 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
   const activeTasks = scheduledTasks.filter(task => {
     if (dueDay(task) > range.end || isCodexTrackedTask(task)) return false;
+    const isMoeContinuation = task.id === moeBlogTaskId && ["ready", "drafting"].includes(task.status);
+    if (isMoeContinuation && !canClaimMoeBlogContinuation(task, tasks.find(row => row.id === moeBlogResearchId),
+      plans.find(plan => plan.id === moeBlogPlanId), now)) return false;
     if (task.kind === "landing" && task.siteDomain === "flatkey.ai" && dueDay(task) >= FLATKEY_LANDING_START
       && !plans.some(plan => flatkeyLandingPlanIncludesTask(plan, task))) return false;
     // Legacy hotspot drafts can be visible in the work list before admission.
     // Only the registered original plan can make a new hotspot deliverable.
-    if (task.kind === "blog" && (task.id.startsWith("seo-hotspot:") || task.capacityClass === "authorized_hotspot_extra")
+    if (!isMoeContinuation && task.kind === "blog" && (task.id.startsWith("seo-hotspot:") || task.capacityClass === "authorized_hotspot_extra")
       && ["planned", "researching", "ready"].includes(task.status)
       && !(task.status === "ready" && matchesReservedOriginal(task, reservedOriginalAdmissions?.get(task.id)))
       && (task.status !== "ready" || task.capacityClass !== "authorized_hotspot_extra" || !plans.some(plan => executablePlanIncludesTask(plan, task)))) return false;
