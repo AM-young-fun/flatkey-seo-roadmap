@@ -1,7 +1,7 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { applyGrowthRankEvidence, applyRelatedGrowthRanks, buildGrowthWorkspace, GROWTH_MARKETS, GROWTH_SITES, growthPublicUrl, growthTargetId, growthWordKey, reviewGrowthLanguage, type GrowthRankEvidence, type GrowthWorkspaceInput } from "@/lib/growth-workspace";
+import { applyGrowthRankEvidence, applyRelatedGrowthRanks, buildGrowthWorkspace, GROWTH_MARKETS, GROWTH_SITES, growthPublicUrl, growthTargetId, growthWordKey, reviewGrowthLanguage, type GrowthRankEvidence, type GrowthWordLanguageEvidence, type GrowthWorkspaceInput } from "@/lib/growth-workspace";
 import { MARKET_ASSIGNMENT_SOURCE_ID } from "@/lib/keyword-market-policy";
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import type { WorkflowSnapshot } from "@/lib/seo-workflow";
@@ -10,6 +10,7 @@ import { approvedDiagnosticWordLanguages } from "@/lib/growth-word-language-evid
 import { siteSourceReadiness } from "@/lib/seo-cluster-sites";
 import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "@/lib/growth-collection";
 import { serpPeriod } from "@/lib/serp-periods";
+import { HOTSPOT_KEYWORD_CONFIRMED } from "@/lib/growth-hotspot-admission";
 import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
 import { satelliteQuarterAppliedAt, satelliteQuarterBound, satelliteQuarterCounts } from "@/lib/satellite-quarter";
@@ -216,7 +217,7 @@ export function loadGrowthWorkspace(localPreview = false, now = new Date(), sele
 async function savedHumanWordLanguages(db: Prisma.TransactionClient, sites: string[]) {
   // The serverless pool serves one database request at a time. Read the source
   // snapshots and their distinct audit receipts together.
-  const [data] = await db.$queryRaw<{ sources: IdentitySourceRow[]; audits: IdentityAudit[] }[]>(Prisma.sql`
+  const [data] = await db.$queryRaw<{ sources: IdentitySourceRow[]; audits: IdentityAudit[]; hotspots: GrowthWordLanguageEvidence[] }[]>(Prisma.sql`
     WITH sources AS (
       SELECT "siteDomain", "sourceId", "rowKey", "snapshotHash", snapshot
       FROM "KeywordSourceRow"
@@ -226,12 +227,26 @@ async function savedHumanWordLanguages(db: Prisma.TransactionClient, sites: stri
       FROM "KeywordCurationAudit"
       WHERE status = ${PRE_FREEZE_IDENTITY_AUDIT}
         AND id IN (SELECT snapshot->>'auditId' FROM sources WHERE jsonb_typeof(snapshot->'auditId') = 'string')
+    ), hotspots AS (
+      SELECT a."siteDomain" AS site, m."keywordId", k.text AS keyword,
+        a.summary->>'language' AS language, a.id AS source,
+        'current-target-only' AS scope, '[]'::jsonb AS evidence
+      FROM "KeywordCurationAudit" a
+      JOIN "SiteKeyword" m ON m."siteDomain" = a."siteDomain" AND m."keywordId" = a.summary->>'keywordId'
+      JOIN "Keyword" k ON k.id = m."keywordId"
+      WHERE a."siteDomain" IN (${Prisma.join(sites)}) AND a.status = ${HOTSPOT_KEYWORD_CONFIRMED}
+        AND a."restoredAt" IS NULL AND a.summary->>'actor' = 'human'
+        AND a.summary->>'kind' = 'hotspot-keyword-confirmation'
+        AND a.summary->>'researchHash' ~ '^[0-9a-f]{64}$'
+        AND m.active AND k.active AND m.pool = 'FORMAL' AND m."reviewStatus" = ${HOTSPOT_KEYWORD_CONFIRMED}
+        AND k.text = a.summary->>'keyword' AND m."topicId" = a.summary->>'topicId'
     )
     SELECT
       COALESCE((SELECT jsonb_agg(to_jsonb(sources)) FROM sources), '[]'::jsonb) AS sources,
-      COALESCE((SELECT jsonb_agg(to_jsonb(audits)) FROM audits), '[]'::jsonb) AS audits
+      COALESCE((SELECT jsonb_agg(to_jsonb(audits)) FROM audits), '[]'::jsonb) AS audits,
+      COALESCE((SELECT jsonb_agg(to_jsonb(hotspots)) FROM hotspots), '[]'::jsonb) AS hotspots
   `);
-  return auditedHumanWordLanguages(data.sources, data.audits);
+  return [...data.hotspots, ...auditedHumanWordLanguages(data.sources, data.audits)];
 }
 
 type GrowthCoreRows = {

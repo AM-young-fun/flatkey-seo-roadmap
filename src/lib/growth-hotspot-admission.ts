@@ -6,7 +6,10 @@ import { assertGrowthDirectionScope, type GrowthStrategy } from "./growth-strate
 import type { GrowthWorkspace } from "./growth-types";
 import { workflowHash } from "./seo-workflow-state";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowSnapshot, type WorkflowTask, type WorkflowRun } from "./seo-workflow";
+import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 import { isSeoWorkday } from "./seo-workday";
+
+export const HOTSPOT_KEYWORD_CONFIRMED = "HOTSPOT_KEYWORD_CONFIRMED";
 
 export const growthHotspotAdmissionSchema = z.object({
   directionId: z.string().trim().min(1).max(200), revision: z.number().int().positive(),
@@ -89,21 +92,23 @@ export function prepareHotspotKeywordConfirmation(context: HotspotAdmissionConte
   const task = context.workflow.tasks.find(row => row.id === command.taskIds[0]);
   const direction = context.strategy.directions.find(row => row.id === command.directionId);
   if (!command.confirmOriginalKeyword || !task || !task.id.startsWith("seo-hotspot:") || task.source !== "human"
-    || !task.keywordId || !task.keyword || !task.topicId || !["planned", "ready"].includes(task.status)
+    || !task.keywordId || !task.keyword || !task.topicId || !task.country || GROWTH_MARKET_LANGUAGES[task.country] !== task.language
+    || !["planned", "ready"].includes(task.status)
     || direction?.weeklyGrowth || direction?.taskIds.length !== 1 || direction.taskIds[0] !== task.id) {
     return { task: null, reason: "仅确认用户已登记、只关联一篇原博客的热点方向和原词" };
   }
   const members = context.workspace.targets.filter(row => row.keywordId === task.keywordId && row.site === task.siteDomain
     && row.topicId === task.topicId && row.country === task.country && row.language === task.language
-    && row.languageStatus === "match" && row.sourceActive === true && word(row.keyword) === word(task.keyword)
+    && row.sourceActive === true && word(row.keyword) === word(task.keyword)
     && (row.sourcePool === "RESEARCH" || row.sourcePool === "FORMAL"));
-  if (members.length !== 1) return { task: null, reason: "须核得唯一、启用且与原任务同站同话题同市场语种的原词" };
+  if (members.length !== 1 || !(members[0].languageStatus === "match"
+    || members[0].languageStatus === "unknown" && members[0].sourcePool === "RESEARCH")) return { task: null, reason: "须核得唯一、启用且与原任务同站同话题同市场语种的原词" };
   const candidate = { ...task, workflowContract: "growth-v1.5" as const, status: "ready" as const,
     capacityClass: "authorized_hotspot_extra" as const };
   const decision = prepareHotspotAdmission({
     ...context,
     workflow: { ...context.workflow, tasks: context.workflow.tasks.map(row => row.id === task.id ? candidate : row) },
-    workspace: { ...context.workspace, targets: context.workspace.targets.map(row => row === members[0] ? { ...row, membership: "formal" } : row) },
+    workspace: { ...context.workspace, targets: context.workspace.targets.map(row => row === members[0] ? { ...row, membership: "formal", languageStatus: "match" } : row) },
   }, command, task.id, now);
   if (decision.status === "pending") return { task: null, reason: decision.reason };
   return { task, candidate, reason: null };
