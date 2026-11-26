@@ -75,7 +75,7 @@ test("actual Codex configuration keeps paused tasks unscheduled and first-weekda
   assert.ok(!rules.some(row => row.id === "seo-09-30"));
   assert.equal(rules.find(row => row.id === "seo-16-00-ga4-search-console").nextAt, observedNext("seo-16-00-ga4-search-console", "2026-11-10T08:00:00.000Z"));
   assert.equal(rules.find(row => row.id === "seo-18-00").nextAt, observedNext("seo-18-00", "2026-11-10T10:00:00.000Z"));
-  assert.equal(rules.find(row => row.id === "automation").nextAt, observedNext("automation", "2026-11-12T04:30:00.000Z"));
+  assert.equal(rules.find(row => row.id === "automation").nextAt, observedNext("automation", "2026-11-12T06:20:00.000Z"));
   assert.equal(nextAutomationTime("FREQ=DAILY;BYHOUR=16;BYMINUTE=0", new Date("2026-09-18T09:00Z"), "ACTIVE", true), "2026-09-20T08:00:00.000Z");
   assert.ok(!rules.some(row => row.id === "seo-14-30"));
   const afterFriday = configuredAutomationPlans(new Date("2026-11-20T15:16:00Z"));
