@@ -305,7 +305,7 @@ function ReportAttribution({ text, weekly, snapshot, period, editor }: {
       .replace(/([。；])(?=\s*\[[^\]\n]+\]\(https:\/\/)/gu, "$1\n- ")} />} />;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, reportTemplateVersion, growthSnapshot, attributionEditor }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; reportTemplateVersion?: number; growthSnapshot?: GrowthReportSnapshot; attributionEditor?: AttributionEditor }) {
+function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, reportTemplateVersion, growthSnapshot, attributionEditor, reportDate }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; reportTemplateVersion?: number; growthSnapshot?: GrowthReportSnapshot; attributionEditor?: AttributionEditor; reportDate?: string }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -342,7 +342,7 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
       <h3>SEO 技术质检</h3>
       <TechnicalIssues text={dashboard?.technicalText || technical?.lines} />
     </section> : null}
-    <SeoIndexing404 />
+    <SeoIndexing404 throughDate={reportDate} />
     {github ? <section className={reportStyles.section}>
       <h3>GitHub 提示词渠道</h3><GithubComparison lines={github} />
     </section> : null}
@@ -459,7 +459,7 @@ export function SeoDigestReports() {
           <div><dt>待审页面版本</dt><dd><Link className={reportStyles.approvalButton} href={executionViewRoutes.approvals}
             aria-label={`查看待审批页面版本：${numberText(report.approvalQueue?.pages)}`}>{numberText(report.approvalQueue?.pages)} <span aria-hidden="true">↗</span></Link></dd></div>
         </dl>
-        <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} growthSnapshot={report.growthSnapshot}
+        <ReportSections reportDate={report.date} text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} growthSnapshot={report.growthSnapshot}
           attributionEditor={kind === "weekly" ? { reportId: report.id, initial: result.data.weeklyAttribution } : undefined}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} />
         {kind === "weekly" && report.workPlan ? <section className={reportStyles.section}>
@@ -471,6 +471,6 @@ export function SeoDigestReports() {
         </>}
         {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}
       </article>}
-    {showArchivedBody || !report && (result.data || result.error) ? <aside className={reportStyles.report}><SeoIndexing404 /></aside> : null}
+    {showArchivedBody || !report && (result.data || result.error) ? <aside className={reportStyles.report}><SeoIndexing404 throughDate={report?.date} /></aside> : null}
   </div>;
 }
