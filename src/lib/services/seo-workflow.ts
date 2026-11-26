@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { requestRead } from "@/lib/request-read-scope";
 import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowRun, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
-import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
+import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowSnapshotOptions, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 import { quarterAllocationProblems } from "@/lib/growth-quarter-planning";
 import { quarterContentMutationTasks, quarterContentProblems } from "@/lib/seo-quarter-content";
@@ -34,7 +34,7 @@ async function readLocal(directory: string): Promise<LocalState> {
 }
 function requireDatabase() { if (!process.env.DATABASE_URL) throw new WorkflowError("storage_unavailable", "执行台账尚未接通数据库，未写入任何生产记录", 503); }
 
-export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean } = {}, localPreview = false) {
+export async function loadWorkflowSnapshot(options: WorkflowSnapshotOptions = {}, localPreview = false) {
   const directory = localDirectory(localPreview);
   if (directory) {
     const rows = (await requestRead(`workflow:local:${directory}`, () => timedRead("local", () => readLocal(directory)))).records;

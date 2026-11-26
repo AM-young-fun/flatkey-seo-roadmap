@@ -43,7 +43,7 @@ export function collectionDateRange(days: number, now: Date, sourceTimeZone = "A
 
 export const defaultRange = (): DateRange => { const end = shiftDay(propertyToday(), -1); return { start: shiftDay(end, -29), end }; };
 export function validRange(r: DateRange) { return [r.start, r.end].every(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d) && r.start <= r.end; }
-export type ListDatePreset = "all" | "week" | "month" | "custom";
+export type ListDatePreset = "all" | "week" | "nextWeek" | "month" | "custom";
 // Task delivery uses a Friday–Thursday business week. Stored plan weekStart
 // values remain Monday keys; this is only the delivery/filtering window.
 export function workWeekDateRange(today: string): DateRange {
@@ -53,6 +53,7 @@ export function workWeekDateRange(today: string): DateRange {
 }
 export function listDateRange(preset: ListDatePreset, today: string, custom: DateRange, week: "calendar" | "work" = "calendar"): DateRange | null {
   if (preset === "custom") return validRange(custom) ? custom : null;
+  if (preset === "nextWeek") return week === "work" ? workWeekDateRange(shiftDay(today, 7)) : null;
   if (preset === "week") {
     if (week === "work") return workWeekDateRange(today);
     const start = shiftDay(today, -((new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7));

@@ -104,18 +104,22 @@ export function SeoDateControl({ value, showComparison = true, pending = false, 
   </div>;
 }
 
-const listPresets = { all: "全部", week: "本周", month: "本月" } as const;
+const listPresets = { all: "全部", week: "本周", nextWeek: "下周", month: "本月" } as const;
 export const listDateParamKeys = ["range", "rangeStart", "rangeEnd"] as const;
 export function useSeoListDateRange(week: "calendar" | "work" = "calendar") {
   const params = useSearchParams();
   const today = seoToday();
   const choice = params.get("range");
-  const preset = choice === "all" || choice === "week" || choice === "month" || choice === "custom" ? choice : week === "work" ? "week" : "all";
+  const nextWorkWeek = week === "work" && (choice === "nextWeek" || choice === null && params.get("week") === "next");
+  const preset = nextWorkWeek ? "nextWeek" : choice === "all" || choice === "week" || choice === "month" || choice === "custom" ? choice : week === "work" ? "week" : "all";
   const range = listDateRange(preset, today, { start: params.get("rangeStart") ?? "", end: params.get("rangeEnd") ?? "" }, week);
   function apply(next: ListDatePreset, custom?: DateRange) {
     const query = new URLSearchParams(location.search);
     listDateParamKeys.forEach(key => query.delete(key));
-    if (week === "work") query.delete("page");
+    if (week === "work") {
+      query.delete("page");
+      if (query.get("week") === "next") query.delete("week");
+    }
     if (next !== "all" || week === "work") query.set("range", next);
     if (next === "custom" && custom) {
       query.set("rangeStart", custom.start);
@@ -123,7 +127,7 @@ export function useSeoListDateRange(week: "calendar" | "work" = "calendar") {
     }
     history.pushState(null, "", location.pathname + (query.size ? "?" + query : "") + location.hash);
   }
-  return { preset, range, today, apply } as const;
+  return { preset, range, today, apply, workWeek: week === "work" } as const;
 }
 
 export function SeoListDateControl({ value, pending = false }: { value: ReturnType<typeof useSeoListDateRange>; pending?: boolean }) {
@@ -156,7 +160,7 @@ export function SeoListDateControl({ value, pending = false }: { value: ReturnTy
       if (!validRange({ start, end })) { setError("请选择有效的起止日期"); return; }
       choose("custom", { start, end });
     }}>
-      <div className={styles.quick}>{(Object.keys(listPresets) as (keyof typeof listPresets)[]).map(key =>
+      <div className={styles.quick}>{(Object.keys(listPresets) as (keyof typeof listPresets)[]).filter(key => key !== "nextWeek" || value.workWeek).map(key =>
         <button type="button" key={key} aria-pressed={preset === key} onClick={() => choose(key)}>{listPresets[key]}</button>)}</div>
       <div className={styles.dates}>
         <label>开始日期<input type="date" value={start} onInput={event => setStart(event.currentTarget.value)} required /></label>

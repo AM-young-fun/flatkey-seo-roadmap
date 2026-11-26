@@ -49,7 +49,7 @@ export function editorialTaskType(task: Pick<WorkflowTask, "kind" | "workClass" 
   return task.kind;
 }
 
-export type WorkflowWorkPage = Pick<WorkflowWorkList, "format" | "weekStart" | "generatedAt" | "storage"> & {
+export type WorkflowWorkPage = Pick<WorkflowWorkList, "format" | "weekStart" | "generatedAt" | "storage"> & Pick<WorkflowSnapshot, "workBoardPlan"> & {
   catchUpDate: string | null;
   pagination: { page: number; pageSize: 10; total: number; pageCount: number };
   tasks: (WorkflowListTask & { delayed: boolean; rollbackPending: boolean })[];
@@ -70,7 +70,7 @@ export function parseWorkflowWorkPageQuery(params: URLSearchParams) {
     || !["all", ...WORKFLOW_SITES].includes(site) || !["all", ...GROWTH_COUNTRIES].includes(country)
     || !["all", ...GROWTH_LANGUAGES].includes(language) || !["all", "API", "GPU", "CLUSTER"].includes(business)
     || !workTaskTypes.some(option => option.value === taskType) || !workTaskStatusOptions.some(option => option.value === status)
-    || !["all", "week", "month", "custom"].includes(preset) || preset === "custom" && !validRange(customRange)) return null;
+    || !["all", "week", "nextWeek", "month", "custom"].includes(preset) || preset === "custom" && !validRange(customRange)) return null;
   return { page, site, country, language, business, taskType, status, query, preset: preset as ListDatePreset, customRange };
 }
 
@@ -158,6 +158,7 @@ export function workflowWorkPage(snapshot: WorkflowSnapshot, filter: NonNullable
   const pageSize = 10, pageCount = Math.max(1, Math.ceil(rows.length / pageSize)), page = Math.min(filter.page, pageCount);
   return {
     format: list.format, weekStart: list.weekStart, generatedAt: list.generatedAt, storage: list.storage,
+    ...(snapshot.workBoardPlan ? { workBoardPlan: snapshot.workBoardPlan } : {}),
     catchUpDate: list.workWeek?.catchUpDate ?? null,
     pagination: { page, pageSize, total: rows.length, pageCount },
     tasks: rows.slice((page - 1) * pageSize, page * pageSize).map(task => ({

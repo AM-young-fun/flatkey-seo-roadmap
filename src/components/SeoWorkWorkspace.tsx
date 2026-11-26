@@ -16,7 +16,7 @@ import { useFeedbackRouter as useRouter } from "./useFeedbackRouter";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, RefreshCw } from "lucide-react";
 import { approvalReviewReadiness, workflowRecordIdSchema } from "@/lib/seo-workflow";
-import type { WorkflowSnapshot, WorkflowTask, WorkflowTaskDetail, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication } from "@/lib/seo-workflow";
+import type { WorkflowSnapshot, WorkflowTask, WorkflowTaskDetail, WorkflowOptimization, WorkflowIssue, WorkflowHistoricalImport, WorkflowApproval, WorkflowPublication, WorkflowWorkBoardPlan } from "@/lib/seo-workflow";
 import { PageDeliveryActions } from "./PageDeliveryActions";
 import { WorkflowEvidence } from "./WorkflowEvidence";
 import { PageHeader } from "./PageHeader";
@@ -74,6 +74,25 @@ export function WorkflowStatus({ status }: { status: string }) {
 function TaskStatus({ status }: { status: string }) {
   const tone = { scheduled: "planned", accepted: "running", review: "review_pending", rejected: "failed", failed: "failed", completed: "completed" }[status];
   return <span className={styles.badge} data-state={tone}>{taskStatusLabel(status)}</span>;
+}
+
+const planGapLabels: Record<NonNullable<WorkflowWorkBoardPlan["plan"]>["gaps"][number]["category"], string> = {
+  apiBlogs: "Flatkey API 源文", gpuBlogs: "Flatkey GPU 源文", modelFitBlogs: "ModelFit 源文", landing: "Flatkey 落地页",
+  clusterLanding: "RackRate／ModelFit 落地页", optimizedPages: "Flatkey 常规优化", contentRefreshPages: "两站旧文翻新",
+  blogEn: "英文源文", blogJa: "日语源文", blogPt: "巴西葡语源文", blogEs: "西语源文", blogZh: "简中源文",
+  blogOther: "其他语种源文", evidence: "证据待补", other: "其他事项",
+};
+const deliveryGapCategories = new Set(["apiBlogs", "gpuBlogs", "modelFitBlogs", "landing", "clusterLanding", "optimizedPages", "contentRefreshPages"]);
+
+function WorkBoardPlan({ range, plan }: WorkflowWorkBoardPlan) {
+  const deliveryGaps = (plan?.gaps ?? []).filter(gap => deliveryGapCategories.has(gap.category)).reduce((total, gap) => total + gap.count, 0);
+  return <aside className={styles.planSummary} aria-label="业务周正式排期">
+    <p><strong>{range.start} — {range.end}</strong> · 北京时间</p>
+    {plan ? <>
+      <p>正式排期 v{plan.version} · 已排 {plan.taskIds.length} 项{deliveryGaps > 0 && <> · {deliveryGaps} 项交付缺口</>}</p>
+      {plan.gaps.length ? <ul aria-label="排期缺口">{plan.gaps.map(gap => <li key={gap.category}>{planGapLabels[gap.category]} {gap.count}</li>)}</ul> : null}
+    </> : <p>该业务周尚无已保存的正式排期。</p>}
+  </aside>;
 }
 
 
@@ -354,6 +373,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     {!embedded ? <div className={workspace.titleRow}>
       <h1 className={workspace.title}>{title}</h1>
       <div className={styles.toolbarActions}>
+        {isTaskList && time.preset !== "nextWeek" ? <Link className={styles.secondary} href="/work?range=nextWeek">下周排期</Link> : null}
         {isTaskList ? <Link className={styles.secondary} href={country === "all" ? "/deliveries" : `/deliveries?country=${country}`}>发布记录</Link> : null}
         {view === "deliveries" ? <Link className={styles.secondary} href={country === "all" ? "/work" : `/work?country=${country}`}>返回工作任务</Link> : null}
         <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={isTaskList ? listResult.hasSettled && listResult.pending && !datePending : result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
@@ -380,6 +400,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       {listResult.error ? <div className={styles.empty} role="alert"><h2>工作任务暂时无法读取</h2><p>{listResult.error}</p><FeedbackButton className={styles.secondary} onClick={listResult.retry} pending={listResult.pending} pendingLabel="正在读取…">重新读取</FeedbackButton></div>
       : !shownList ? !listResult.hasSettled && <ReportLoading label="正在读取工作任务" /> : <div inert={Boolean(listResult.previousData)}>
         {shownList.storage === "local_preview" ? <p className={styles.warning}>本地预览 · 操作仅保存到本地。</p> : null}
+        {listResult.data?.workBoardPlan ? <WorkBoardPlan {...listResult.data.workBoardPlan} /> : null}
         {taskRows.length ? <div className={styles.records}>{taskRows.map(task => {
           const { review, delayed, rollbackPending, displayStatus: rowStatus } = task;
           const delayBadge = delayed ? <span className={styles.badge} data-state="review_pending">延期</span> : null;
