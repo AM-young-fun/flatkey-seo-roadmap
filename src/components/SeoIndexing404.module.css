@@ -7,6 +7,9 @@
 .overview span,.note { color: #5e6d84; font-size: 13px; }
 .overview strong { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .panel p { margin: 14px 0 0; font-size: 13px; line-height: 1.65; }
+.trend { margin-top: 18px; }
+.trend h4 { margin: 0 0 5px; font-size: 14px; color: #152943; }
+.trend small { color: #5e6d84; font-size: 13px; }
 .history { margin-top: 16px; font-size: 13px; }
 .history summary { cursor: pointer; color: var(--ui-primary); }
 .scroll { overflow-x: auto; }

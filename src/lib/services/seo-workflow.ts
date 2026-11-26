@@ -1,6 +1,6 @@
 import { linkedWeeklyHotspot, weeklyHotspotAdmissionProblem } from "@/lib/seo-weekly-hotspot";
 import { isSeoExtraCapacity, seoExtraCapacityProblem, WEEKLY_GROWTH_EXTRA } from "../seo-extra-capacity";
-import { indexing404History, indexing404RunPrefix, type Indexing404Response } from "@/lib/seo-indexing-404";
+import { indexing404History, indexing404HistoryLimit, indexing404RunPrefix, type Indexing404Response } from "@/lib/seo-indexing-404";
 import { isGrowthTopicPlaceholder } from "@/lib/seo-growth-markets";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -47,18 +47,18 @@ export async function loadWorkflowSnapshot(options: { week?: string; pageUrl?: s
   return timedRead("snapshot", async () => workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database"));
 }
 
-export async function loadIndexing404History(localPreview = false): Promise<Indexing404Response> {
+export async function loadIndexing404History(localPreview = false, throughDate?: string): Promise<Indexing404Response> {
   const directory = localDirectory(localPreview);
   if (directory) {
     const runs = (await readLocal(directory)).records.filter(row => row.kind === "run").map(row => row.record as WorkflowRun);
-    return { storage: "local_preview", observations: indexing404History(runs) };
+    return { storage: "local_preview", observations: indexing404History(runs, throughDate) };
   }
   requireDatabase();
   const rows = await prisma.seoWorkflowRecord.findMany({
-    where: { kind: "run", recordId: { startsWith: indexing404RunPrefix } },
-    select: { payload: true }, orderBy: { recordId: "desc" }, take: 30,
+    where: { kind: "run", recordId: { startsWith: indexing404RunPrefix, ...(throughDate ? { lte: indexing404RunPrefix + throughDate } : {}) } },
+    select: { payload: true }, orderBy: { recordId: "desc" }, take: indexing404HistoryLimit,
   });
-  return { storage: "database", observations: indexing404History(rows.map(row => row.payload as unknown as WorkflowRun)) };
+  return { storage: "database", observations: indexing404History(rows.map(row => row.payload as unknown as WorkflowRun), throughDate) };
 }
 
 export async function loadWorkflowTaskDetail(taskId: string, localPreview = false): Promise<WorkflowTaskDetail> {
