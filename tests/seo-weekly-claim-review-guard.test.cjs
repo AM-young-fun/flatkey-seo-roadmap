@@ -11,9 +11,9 @@ const { buildReviewedSeoDigest } = require('../src/lib/seo-reviewed-digest.ts');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const now = new Date('2026-11-26T10:30:00.000Z');
 
-function fixture(kind = 'weekly', legacy = false) {
-  const date = legacy ? '2026-11-19' : kind === 'daily' ? '2026-11-25' : '2026-11-26';
-  const clock = legacy ? new Date('2026-11-19T10:30:00.000Z') : kind === 'daily' ? new Date('2026-11-25T10:30:00.000Z') : now;
+function fixture(kind = 'weekly', legacy = false, dailyDate = '2026-11-25') {
+  const date = legacy ? '2026-11-19' : kind === 'daily' ? dailyDate : '2026-11-26';
+  const clock = legacy ? new Date('2026-11-19T10:30:00.000Z') : kind === 'daily' ? new Date(dailyDate + 'T10:30:00.000Z') : now;
   const base = buildSeoDigest({ date, kind, now: new Date(clock.getTime() - (kind === 'daily' ? 20 : 90) * 60000),
     observations: [], publications: [], optimizations: [], effects: [], priorities: [], issues: [], runNotes: [],
     publicationCoverage: 'missing', optimizationCoverage: 'missing' });
@@ -32,7 +32,7 @@ function fixture(kind = 'weekly', legacy = false) {
   return { base: draft, generic: base, report, clock };
 }
 
-function service({ base, report, clock, transport = 'application-bot', delivered = false }) {
+function service({ base, report, clock, transport = 'application-bot', delivered = false, latest = report }) {
   const rows = new Map(), creates = [], reads = [];
   const record = payload => ({ id: payload.id, kind: 'SEO_DIGEST', siteDomain: 'flatkey.ai',
     periodStart: new Date(payload.date), periodEnd: new Date(payload.date), payload });
@@ -41,7 +41,8 @@ function service({ base, report, clock, transport = 'application-bot', delivered
   const prior = delivered ? { id: `seo-digest-delivery:${report.kind}:${report.date}`, status: 'DELIVERED',
     reportId: report.id, fencingToken: 2, leaseUntil: null } : null;
   const tx = {
-    seoReportVersion: { async findUnique({ where }) { reads.push(where.id); return rows.get(where.id) ?? null; } },
+    seoReportVersion: { async findUnique({ where }) { reads.push(where.id); return rows.get(where.id) ?? null; },
+      async findFirst({ where }) { return where.periodStart.toISOString().slice(0, 10) === latest.date ? record(latest) : null; } },
     async $executeRaw() {}, async $queryRaw() { return [{ now: clock }]; },
     seoDigestDelivery: { async findUnique() { return prior; }, async create({ data }) { creates.push(data); return data; },
       async update() { throw Error('unexpected_delivery_update'); } },
@@ -65,7 +66,9 @@ function service({ base, report, clock, transport = 'application-bot', delivered
     require(name) { return mapped.has(name) ? mapped.get(name) : name === 'node:crypto' ? actual(name) : {}; },
   }, { filename });
   return { claim: () => module.exports.claimDigest(report.id, 'fixture-owner', clock, transport,
-    transport === 'signed-webhook' ? 'actionCard' : undefined), creates, reads, rows };
+    transport === 'signed-webhook' ? 'actionCard' : undefined),
+    claimDaily: (reportHash = report.hash) => module.exports.claimCurrentDailyDigest(report.id, reportHash, 'fixture-owner', clock),
+    creates, reads, rows };
 }
 
 test('same-LA-day generic weekly preparation cannot claim without exact user review', async () => {
@@ -125,8 +128,45 @@ test('a current-week exact review approved after the LA date changes keeps its s
   assert.equal(s.creates.length, 1);
 });
 
-test('daily record-only archives retain their original claim eligibility', async () => {
-  const f = fixture('daily'), s = service(f);
+test('November 25 stays archive only for both the original and manual daily claim', async () => {
+  const f = fixture('daily'), s = service({ ...f, transport: 'signed-webhook' });
+  await assert.rejects(s.claim(), error => error.status === 403 && /日报页面/.test(error.message));
+  await assert.rejects(s.claimDaily(), /只归档/);
+  assert.equal(s.creates.length, 0);
+});
+
+test('authorizing the current exact archive uses the regular daily ledger with manual provenance', async () => {
+  const f = fixture('daily', false, '2026-11-27'), s = service({ ...f, transport: 'signed-webhook' });
+  f.report.generatedAt = '2026-11-27T10:00:00.000Z';
+  await assert.rejects(s.claim(), error => error.status === 403 && /日报页面/.test(error.message));
+  const claimed = await s.claimDaily();
+  assert.equal(claimed.id, 'seo-digest-delivery:daily:2026-11-27');
+  assert.equal(claimed.report.id, f.report.id);
+  assert.equal(s.creates.length, 1);
+  assert.equal(s.creates[0].receipt.manualDaily, true);
+  assert.equal(s.creates[0].reportHash, f.report.hash);
+});
+
+test('gate current daily delivery on the archive date, latest version, and exact body hash', async () => {
+  const f = fixture('daily', false, '2026-11-27');
+  const transport = 'signed-webhook';
+  const stale = service({ ...f, transport, latest: { ...f.report, id: `seo-digest:${f.report.date}:1111111111111111` } });
+  await assert.rejects(stale.claimDaily(), /已有更新/);
+  const wrongDay = service({ ...f, transport, clock: new Date('2026-11-28T00:00:00.000+08:00') });
+  await assert.rejects(wrongDay.claimDaily(), /尚未完成归档/);
+  const wrongHash = service({ ...f, transport });
+  await assert.rejects(wrongHash.claimDaily('0'.repeat(64)), /已有更新/);
+  assert.equal(stale.creates.length + wrongDay.creates.length + wrongHash.creates.length, 0);
+});
+
+test('the manual action also preserves the Thursday archive-only requirement', async () => {
+  const f = fixture('daily', false, '2026-11-26'), s = service({ ...f, transport: 'signed-webhook' });
+  await assert.rejects(s.claimDaily(), /只归档/);
+  assert.equal(s.creates.length, 0);
+});
+
+test('earlier daily archives retain their original claim path', async () => {
+  const f = fixture('daily', false, '2026-11-23'), s = service(f);
   assert.equal((await s.claim()).report.id, f.report.id);
   assert.equal(s.creates.length, 1);
 });
