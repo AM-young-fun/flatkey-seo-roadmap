@@ -10,7 +10,7 @@ import { approvedDiagnosticWordLanguages } from "@/lib/growth-word-language-evid
 import { siteSourceReadiness } from "@/lib/seo-cluster-sites";
 import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "@/lib/growth-collection";
 import { serpPeriod } from "@/lib/serp-periods";
-import { HOTSPOT_KEYWORD_CONFIRMED } from "@/lib/growth-hotspot-admission";
+import { HOTSPOT_CONFIRMED_REVIEW_STATUS, HOTSPOT_KEYWORD_CONFIRMED } from "@/lib/growth-hotspot-admission";
 import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
 import { satelliteQuarterAppliedAt, satelliteQuarterBound, satelliteQuarterCounts } from "@/lib/satellite-quarter";
@@ -238,7 +238,7 @@ async function savedHumanWordLanguages(db: Prisma.TransactionClient, sites: stri
         AND a."restoredAt" IS NULL AND a.summary->>'actor' = 'human'
         AND a.summary->>'kind' = 'hotspot-keyword-confirmation'
         AND a.summary->>'researchHash' ~ '^[0-9a-f]{64}$'
-        AND m.active AND k.active AND m.pool = 'FORMAL' AND m."reviewStatus" = ${HOTSPOT_KEYWORD_CONFIRMED}
+        AND m.active AND k.active AND m.pool = 'FORMAL' AND m."reviewStatus" = ${HOTSPOT_CONFIRMED_REVIEW_STATUS}
         AND k.text = a.summary->>'keyword' AND m."topicId" = a.summary->>'topicId'
     )
     SELECT

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { WorkflowError, workflowHash, type WorkflowActor } from "@/lib/seo-workflow-state";
 import type { WorkflowPlan, WorkflowRecord } from "@/lib/seo-workflow";
 import { buildGrowthHotspotView } from "@/lib/growth-hotspots";
-import { HOTSPOT_KEYWORD_CONFIRMED, growthHotspotAdmissionSchema, prepareHotspotAdmission, prepareHotspotKeywordConfirmation, rawWorkflowRecord, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
+import { HOTSPOT_CONFIRMED_REVIEW_STATUS, HOTSPOT_KEYWORD_CONFIRMED, growthHotspotAdmissionSchema, prepareHotspotAdmission, prepareHotspotKeywordConfirmation, rawWorkflowRecord, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { loadGrowthStrategy, readGrowthStrategy } from "./growth-strategy";
 import { loadGrowthDashboardWorkspace } from "./growth-workspace";
@@ -73,7 +73,7 @@ async function readConfirmedKeywordTask(command: GrowthHotspotAdmissionCommand |
     } }),
     prisma.keywordCurationAudit.findUnique({ where: { id: hotspotKeywordAuditId(command, task.id, task.keywordId) } }),
   ]);
-  if (member?.reviewStatus !== HOTSPOT_KEYWORD_CONFIRMED) return undefined;
+  if (member?.reviewStatus !== HOTSPOT_CONFIRMED_REVIEW_STATUS) return undefined;
   const fail = (part: string): never => {
     throw new WorkflowError("hotspot_confirmation_readback_conflict", `已确认原词的${part}与当前原任务不一致`, 409);
   };
@@ -81,7 +81,7 @@ async function readConfirmedKeywordTask(command: GrowthHotspotAdmissionCommand |
     || member.pool !== "FORMAL") return fail("本站正式成员身份");
   if (!audit || audit.siteDomain !== task.siteDomain || audit.restoredAt || audit.status !== HOTSPOT_KEYWORD_CONFIRMED) return fail("正式成员审核回执");
   if (audit.payloadHash !== workflowHash(command)) return fail("审核请求版本");
-  const expectedMember = { ...link, topicId: task.topicId, pool: "FORMAL", reviewStatus: HOTSPOT_KEYWORD_CONFIRMED };
+  const expectedMember = { ...link, topicId: task.topicId, pool: "FORMAL", reviewStatus: HOTSPOT_CONFIRMED_REVIEW_STATUS };
   const expectedDecision = {
     kind: "hotspot-keyword-confirmation", actor: "human", taskId: task.id, directionId: direction.id,
     revision: direction.revision, keyword: task.keyword, country: task.country, language: task.language,
@@ -152,13 +152,13 @@ async function confirmHotspotKeyword(command: GrowthHotspotAdmissionCommand, loc
     }
     const updated = await tx.siteKeyword.updateMany({
       where: { ...identity, active: true, topicId, pool: "RESEARCH", reviewStatus: "UNREVIEWED", curationId: null },
-      data: { pool: "FORMAL", reviewStatus: "HOTSPOT_CONFIRMED" },
+      data: { pool: "FORMAL", reviewStatus: HOTSPOT_CONFIRMED_REVIEW_STATUS },
     });
     if (updated.count !== 1) throw new WorkflowError("hotspot_keyword_conflict", "研究原词在确认时发生变化", 409);
     await tx.keywordCurationAudit.create({ data: {
       id: auditId, siteDomain, status: HOTSPOT_KEYWORD_CONFIRMED, payloadHash: workflowHash(command),
       before: [{ ...identity, topicId, pool: member.pool, reviewStatus: member.reviewStatus }],
-      after: [{ ...identity, topicId, pool: "FORMAL", reviewStatus: "HOTSPOT_CONFIRMED" }],
+      after: [{ ...identity, topicId, pool: "FORMAL", reviewStatus: HOTSPOT_CONFIRMED_REVIEW_STATUS }],
       summary: { kind: "hotspot-keyword-confirmation", taskId: task.id, directionId: direction.id, revision: direction.revision,
         keywordId, topicId, keyword: task.keyword, country: task.country, language: task.language, actor: "human",
         approvedAt: direction.decision!.decidedAt, researchHash: workflowHash(task.researchReview) },
