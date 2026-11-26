@@ -6,34 +6,70 @@ import type { GrowthWorkspace } from "./growth-types";
 import { growthTargetId, growthWordKey } from "./growth-workspace";
 import type { GrowthTarget } from "./growth-types";
 import { seoTablePage } from "./seo-table-page";
+import { addKeywordTopic, createKeywordLookup, keywordTopic, keywordTopicIndex, keywordTopicKey,
+  type KeywordCategory, type KeywordTopic, type KeywordTopicIdentity } from "./growth-keyword-lookup";
 
-export const catalogGroups = { quarter: "季度关键词", satellite: "ModelFit／RackRate 季度词", hotspot: "近期热点词", published: "已有内容与排名" } as const;
-type Category = keyof typeof catalogGroups;
-type CatalogWord = { keyword: string; categories: Category[]; countries: string[]; urls: string[] };
+type CatalogWord = { keyword: string; categories: KeywordCategory[]; countries: string[]; urls: string[]; topics: KeywordTopic[] };
+type CatalogEntry = CatalogWord & { topicPages: Map<string, Set<string>> };
 
-export function growthKeywordCatalog(quarter: QuarterCalendarDisplay | null, hotspots: GrowthHotspotItem[], workspace: GrowthWorkspace,
-  ranked: ApprovedCaptureRankedWord[], query: string, page: number) {
-  const words = new Map<string, CatalogWord>();
-  const add = (keyword: string, category: Category, country: string | null, urls: readonly string[] = []) => {
+export function buildGrowthKeywordCatalog(quarter: QuarterCalendarDisplay | null, hotspots: GrowthHotspotItem[], workspace: GrowthWorkspace,
+  ranked: ApprovedCaptureRankedWord[]) {
+  const words = new Map<string, CatalogEntry>();
+  const topics = keywordTopicIndex(workspace.topics);
+  const targetsByRankIdentity = new Map<string, GrowthTarget[]>();
+  const add = (keyword: string, category: KeywordCategory, country: string | null, urls: readonly string[] = [], identity?: KeywordTopicIdentity) => {
     const key = growthWordKey(keyword);
-    const entry = words.get(key) ?? { keyword, categories: [], countries: [], urls: [] };
+    const entry: CatalogEntry = words.get(key) ?? { keyword, categories: [], countries: [], urls: [], topics: [], topicPages: new Map() };
     if (!entry.categories.includes(category)) entry.categories.push(category);
     if (country && !entry.countries.includes(country)) entry.countries.push(country);
     for (const url of urls) if (!entry.urls.includes(url)) entry.urls.push(url);
+    const topic = identity && keywordTopic(identity, topics);
+    addKeywordTopic(entry.topics, topic);
+    if (topic && urls.length) {
+      const topicKey = keywordTopicKey(topic.site, topic.topicId);
+      const pages = entry.topicPages.get(topicKey) ?? new Set();
+      for (const url of urls) pages.add(url);
+      entry.topicPages.set(topicKey, pages);
+    }
     words.set(key, entry);
   };
-  for (const row of quarter?.rows ?? []) add(row.keyword, "quarter", row.country);
-  for (const row of hotspots) add(row.keyword, "hotspot", row.country);
+  for (const row of quarter?.rows ?? []) add(row.keyword, "quarter", row.country, [], row);
+  for (const row of quarter?.satellite?.rows ?? []) add(row.keyword, "satellite", row.country, [], row);
+  for (const row of hotspots) add(row.keyword, "hotspot", row.country, [], row);
   const satellite = new Set(workspace.satelliteQuarter?.targetIds);
   for (const row of workspace.targets) {
     const urls = linkedPublishedKeywordUrls(row, workspace.generatedAt);
-    if (satellite.has(row.id)) add(row.keyword, "satellite", row.country, urls);
-    if (urls.length) add(row.keyword, "published", row.country, urls);
+    if (satellite.has(row.id)) add(row.keyword, "satellite", row.country, urls, row);
+    if (urls.length) add(row.keyword, "published", row.country, urls, row);
+    const key = growthTargetId(row.site, row.keyword, row.country, row.language);
+    const bucket = targetsByRankIdentity.get(key) ?? [];
+    bucket.push(row);
+    targetsByRankIdentity.set(key, bucket);
   }
-  for (const row of ranked) add(row.keyword, "published", row.country, row.pages.map(page => page.url));
-  const result = seoTablePage([...words.values()].filter(row => growthWordKey(row.keyword).includes(growthWordKey(query)))
-    .sort((a, b) => a.keyword.localeCompare(b.keyword, "zh-CN")), page);
-  const { rows, ...pagination } = result;
+  for (const row of ranked) {
+    const urls = row.pages.map(page => page.url);
+    const key = growthTargetId("flatkey.ai", row.keyword, row.country, row.language);
+    const originals = targetsByRankIdentity.get(key);
+    if (originals?.length) for (const target of originals) add(row.keyword, "published", row.country, urls, target);
+    else add(row.keyword, "published", row.country, urls);
+  }
+  return words;
+}
+
+export function growthKeywordCatalog(quarter: QuarterCalendarDisplay | null, hotspots: GrowthHotspotItem[], workspace: GrowthWorkspace,
+  ranked: ApprovedCaptureRankedWord[], query: string, page: number) {
+  const words = buildGrowthKeywordCatalog(quarter, hotspots, workspace, ranked);
+  const lookup = createKeywordLookup(query);
+  const visible: CatalogWord[] = [];
+  for (const { topicPages, ...word } of words.values()) {
+    if (lookup.matchText(word.keyword, ...word.topics.map(topic => topic.name))) visible.push(word);
+    else {
+      const urls = word.urls.filter(lookup.matchPage);
+      if (urls.length) visible.push({ ...word, urls, topics: word.topics.filter(topic =>
+        urls.some(url => topicPages.get(keywordTopicKey(topic.site, topic.topicId))?.has(url))) });
+    }
+  }
+  const { rows, ...pagination } = seoTablePage(visible.sort((a, b) => a.keyword.localeCompare(b.keyword, "zh-CN")), page);
   return { rows, pagination };
 }
 

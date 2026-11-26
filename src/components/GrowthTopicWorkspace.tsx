@@ -18,6 +18,8 @@ import { GrowthTopicDirections } from "./GrowthTopicDirections";
 import { GrowthKeywordNetwork } from "./GrowthKeywordNetwork";
 import { GrowthQuarterReview } from "./GrowthGoalSummary";
 import { GrowthKeywordCatalog } from "./GrowthKeywordCatalog";
+import { KeywordCategories, KeywordNumericHeader, KeywordPages, KeywordTopics } from "./KeywordTableCells";
+import type { NumericSort } from "@/lib/growth-keyword-lookup";
 import { GrowthQuarterCalendarWorkspace } from "./GrowthQuarterCalendarWorkspace";
 import { GrowthHotspotWorkspace } from "./GrowthHotspotWorkspace";
 import { BarPlot } from "./OverviewCharts";
@@ -71,14 +73,15 @@ function useGrowthScope() {
   return { scope, change, selectedTarget };
 }
 
-function GrowthFilters({ data, scope, change, fixedSite }: { data: Pick<GrowthWorkspace, "sites" | "markets">; scope: GrowthScope; change: (patch: Partial<GrowthScope>) => void; fixedSite?: boolean }) {
+function GrowthFilters({ data, scope, change, fixedSite, pageLookup = false }: { data: Pick<GrowthWorkspace, "sites" | "markets">; scope: GrowthScope; change: (patch: Partial<GrowthScope>) => void; fixedSite?: boolean; pageLookup?: boolean }) {
   const countries = [...new Set(data.markets.map(market => market.country))];
   const languages = [...new Set(data.markets.filter(market => scope.country === "all" || market.country === scope.country).map(market => market.language))];
+  const searchLabel = pageLookup ? "搜索网址、路由、关键词或话题" : "搜索话题或关键词";
   return <div className={styles.filters}>
     {!fixedSite ? <label>站点<UiSelect aria-label="规划站点" value={scope.site} onChange={site => change({ site })} options={[{ value: "all", label: "全部规划站点" }, ...data.sites.filter(site => site.keywordGoals).map(site => ({ value: site.domain, label: site.name }))]} /></label> : null}
     <label>国家 / 地区<UiSelect aria-label="目标国家或地区" value={scope.country} onChange={country => change({ country, language: "all" })} options={[{ value: "all", label: "全部国家 / 地区" }, ...countries.map(country => ({ value: country, label: data.markets.find(market => market.country === country)?.label.split(" · ")[0] || country }))]} /></label>
     <label>关键词语言<UiSelect aria-label="关键词语言" value={scope.language} onChange={language => change({ language })} options={[{ value: "all", label: "全部语言" }, ...languages.map(language => ({ value: language, label: data.markets.find(market => market.language === language)?.label.split(" · ").slice(1).join(" · ") || language }))]} /></label>
-    <label className={styles.search}>搜索话题或关键词<input aria-label="搜索话题或关键词" value={scope.search} onChange={event => change({ search: event.target.value })} placeholder="按话题方向、关键词查找" /></label>
+    <label className={styles.search}>{searchLabel}<input aria-label={searchLabel} maxLength={pageLookup ? 2000 : 240} value={scope.search} onChange={event => change({ search: event.target.value })} placeholder={pageLookup ? "例如 /blog/gpu、GPU rental" : "按话题方向、关键词查找"} /></label>
   </div>;
 }
 
@@ -106,12 +109,14 @@ export function GrowthTargetTable({ data, targets, scope, topic, selectedTarget,
 
 function KeywordInventory({ scope, change, page, setPage }: { scope: GrowthScope; change: (patch: Partial<GrowthScope>) => void; page: number; setPage: (page: number) => void }) {
   const [rank, setRank] = useState<PublishedRankFilter>("all");
+  const [sort, setSort] = useState<NumericSort | null>(null);
   const params = new URLSearchParams({ view: "published-words", page: String(page) });
   if (rank !== "all") params.set("rank", rank);
+  if (sort) params.set("sort", sort);
   if (scope.site !== "all") params.set("site", scope.site);
   if (scope.country !== "all") params.set("country", scope.country);
   if (scope.language !== "all") params.set("language", scope.language);
-  if (scope.search.trim()) params.set("q", scope.search.trim().slice(0, 240));
+  if (scope.search.trim()) params.set("q", scope.search.trim().slice(0, 2000));
   const { data, previousData, error, retry, retrying } = useSeoRead<PublishedKeywordWords>("/api/seo/growth?" + params, { showFeedback: false, keepPreviousData: true });
   const filters = data ?? previousData;
   const title = "已有内容与排名";
@@ -120,7 +125,7 @@ function KeywordInventory({ scope, change, page, setPage }: { scope: GrowthScope
       <div><h2>{title}</h2><p>选做页面优化或旧文重写前，先核验原词与已上线页面的搜索意图。</p></div>
       <FeedbackButton className={styles.more} onClick={retry} pending={retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
     </div>
-    {filters ? <div className={styles.inventoryFilters}><GrowthFilters data={filters} scope={scope} change={change} /></div> : null}
+    {filters ? <div className={styles.inventoryFilters}><GrowthFilters data={filters} scope={scope} change={change} pageLookup /></div> : null}
     {error ? <p role="alert">关键词暂时无法读取：{error}</p> : !data ? <p role="status">正在读取已存关键词…</p> : <>
       <div className={styles.rankFilter}><label>排名
         <UiSelect aria-label="排名" value={rank} onChange={value => {
@@ -130,13 +135,17 @@ function KeywordInventory({ scope, change, page, setPage }: { scope: GrowthScope
       </label></div>
       <p className={styles.note}>{count(data.pagination.total)} 个关键词</p>
       {data.rows.length ? <div className={styles.tableScroll}><table className={styles.table}>
-        <thead><tr><th>关键词</th><th>排名</th><th>已关联页面</th></tr></thead>
+        <thead><tr><th>关键词</th><KeywordNumericHeader label="排名" order={sort} onChange={order => { setSort(order); setPage(1); }} />
+          <th>话题</th><th>分类</th><th>市场</th><th>关联页面</th></tr></thead>
         <tbody>{data.rows.map(row => <tr key={row.keyword}>
           <th scope="row">{row.keyword}</th>
           <td>{row.best ? <><strong>第 {row.best.position} 名</strong>
             <small>{growthMarketLabel(data, row.best.country, row.best.language)}{row.best.checkedAt ? ` · ${row.best.checkedAt.slice(0, 10)}` : ""}{row.best.historical ? " · 历史实测" : ""}</small>
           </> : publishedKeywordRankLabels[row.status]}</td>
-          <td>{row.urls.map(url => <SeoAnchor key={url} href={url} target="_blank" rel="noreferrer">{url}</SeoAnchor>)}</td>
+          <td><KeywordTopics topics={row.topics} /></td>
+          <td><KeywordCategories categories={row.categories} /></td>
+          <td>{row.markets.map(market => growthMarketLabel(data, market.country, market.language)).join("、") || "—"}</td>
+          <td><KeywordPages urls={row.urls} /></td>
         </tr>)}</tbody>
       </table></div> : <p className={styles.empty}>当前筛选没有关键词。</p>}
       <SeoTablePagination pagination={data.pagination} onPage={setPage} />
