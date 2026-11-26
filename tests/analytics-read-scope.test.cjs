@@ -45,6 +45,7 @@ Module._load = function (name, ...args) {
     returnedBytes = Buffer.byteLength(JSON.stringify(rows));
     return rows;
   } } } };
+  if (name === "@/lib/services/ranking-coverage-access") return { authorizeSavedRankingCoverage: async () => false };
   if (name === "@/lib/services/seo-workflow") return { loadWorkflowSnapshot: async () => ({ tasks: [], publications: [] }) };
   if (name === "@/lib/services/growth-workspace") return { loadGrowthDashboardWorkspace: async (_local, now, site) => {
     priorityWorkspaceReads++;
