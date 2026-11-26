@@ -10,12 +10,21 @@ let activeRange = overviewRange;
 let listQuery = "";
 let listRead;
 let lastTrafficUrl;
+let applyListRange;
+let nextWeekClick;
 Module._load = function(name, parent, ...rest) {
+  if (name === "react/jsx-runtime" && parent?.filename.endsWith("/SeoWorkWorkspace.tsx")) {
+    const runtime = originalLoad.call(this, name, parent, ...rest);
+    return { ...runtime, jsx(type, props, key) {
+      if (type === "button" && props.children === "下周排期") nextWeekClick = props.onClick;
+      return runtime.jsx(type, props, key);
+    } };
+  }
   if (name === "./AppLink" || name === "@/components/AppLink") return { __esModule:true, default:({ children,prefetch,...props }) => React.createElement("a",props,children) };
   if (name === "./PageHeader" || name === "./UiSelect" || name === "./FeedbackButton") return { PageHeader:()=>React.createElement("nav",{ "aria-label":"主导航" }), UiSelect:()=>null, FeedbackButton:()=>null };
   if (name === "./SeoDateControl") return { useSeoRange:()=>({ range:activeRange, comparison:null, ready:rangeReady, isDefault:automaticRange }),
     SeoDateControl:({pending,value})=>React.createElement("button",{"aria-label":"选择时间", "aria-busy":pending||undefined}, value.range.start + " — " + value.range.end),
-    useSeoListDateRange:()=>({ preset:listQuery.includes("range=custom") ? "custom" : "week", range:activeRange }),
+    useSeoListDateRange:()=>({ preset:new URLSearchParams(listQuery).get("range") ?? "week", range:activeRange, apply:applyListRange }),
     SeoListDateControl:({pending})=>React.createElement("button",{"aria-label":"筛选日期", "aria-busy":pending||undefined}) };
   if (name === "next/navigation") return { useSearchParams:()=>new URLSearchParams(listQuery) };
   if (name === "next/link") return { useLinkStatus:()=>({pending:false}) };
@@ -117,6 +126,19 @@ test("work date filtering keeps the filters interactive and only retains stale r
   } finally {listQuery="";listRead=undefined;}
 });
 
+test("the work board shortcut applies next week through the date control", () => {
+  const calls = [];
+  applyListRange = (...args) => calls.push(args);
+  try {
+    const html = render(React.createElement(SeoWorkWorkspace));
+    assert.match(html, /<button type="button"[^>]*>下周排期<\/button>/);
+    nextWeekClick();
+    assert.deepEqual(calls, [["nextWeek"]]);
+    listQuery = "range=nextWeek";
+    assert.doesNotMatch(render(React.createElement(SeoWorkWorkspace)), /<button[^>]*>下周排期<\/button>/);
+  } finally { applyListRange = undefined; nextWeekClick = undefined; listQuery = ""; }
+});
+
 test("work board shows the saved business-week plan without counting language gaps twice", () => {
   listRead = { data: { storage: "database", pagination: { page: 1, pageSize: 10, total: 0, pageCount: 1 }, tasks: [],
     workBoardPlan: { range: { start: "2026-11-27", end: "2026-12-03" }, plan: { id: "original-plan", version: 1, taskIds: ["friday", "thursday"],
@@ -126,7 +148,6 @@ test("work board shows the saved business-week plan without counting language ga
       ] } } } };
   try {
     const html = render(React.createElement(SeoWorkWorkspace));
-    assert.match(html, /href="\/work\?range=nextWeek"[^>]*>下周排期/);
     assert.match(html, /aria-label="业务周正式排期"[\s\S]*?2026-11-27 — 2026-12-03[\s\S]*?已排 (?:<!-- -->)?2(?:<!-- -->)? 项[\s\S]*?17(?:<!-- -->)? 项交付缺口/);
     assert.match(html, /aria-label="排期缺口"[\s\S]*?Flatkey 常规优化[\s\S]*?RackRate／ModelFit 落地页[\s\S]*?英文源文/);
     assert.match(html, /<details[^>]*><summary>每日安排与缺口<\/summary>[\s\S]*?11\/30 核对旧文\n12\/01 核对 &lt;待定&gt; 落地页/);

@@ -387,7 +387,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
     {!embedded ? <div className={workspace.titleRow}>
       <h1 className={workspace.title}>{title}</h1>
       <div className={styles.toolbarActions}>
-        {isTaskList && time.preset !== "nextWeek" ? <Link className={styles.secondary} href="/work?range=nextWeek">下周排期</Link> : null}
+        {isTaskList && time.preset !== "nextWeek" ? <button type="button" className={styles.secondary} onClick={() => time.apply("nextWeek")}>下周排期</button> : null}
         {isTaskList ? <Link className={styles.secondary} href={country === "all" ? "/deliveries" : `/deliveries?country=${country}`}>发布记录</Link> : null}
         {view === "deliveries" ? <Link className={styles.secondary} href={country === "all" ? "/work" : `/work?country=${country}`}>返回工作任务</Link> : null}
         <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={isTaskList ? listResult.hasSettled && listResult.pending && !datePending : result.pending} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton>
