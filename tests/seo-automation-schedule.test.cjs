@@ -46,7 +46,7 @@ test("retired executors stay out of current plans while protected automations ke
   assert.deepEqual(new Set(config.verificationScope), new Set(config.tasks.map(task => task.id)));
 });
 
-test("Beijing schedules expose the two workday queues and only one data and report slot", () => {
+test("Beijing schedules keep the original slots and show that production and collection can overlap", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-21T00:30:00Z")); // Saturday in Beijing.
   for (const id of ["seo-16-00-ga4-search-console", "seo-18-00", "seo"]) {
     const task = config.tasks.find(task => task.id === id);
@@ -61,12 +61,14 @@ test("Beijing schedules expose the two workday queues and only one data and repo
   assert.ok(!config.tasks.some(task => task.id === "seo-09-00-github-traffic"));
   assert.equal(config.tasks.find(task => task.id === "flatkey-5").workdaysOnly, true);
   assert.equal(plans.find(plan => plan.id === "flatkey-5").cadence, "工作日 10:15、14:15");
-  assert.match(plans.find(plan => plan.id === "flatkey-5").note, /原ID.*原会话/);
+  assert.match(plans.find(plan => plan.id === "flatkey-5").note, /独立页面可并行.*逐项.*结租/);
   assert.match(plans.find(plan => plan.id === "seo-16-00-ga4-search-console").note, /三站巡检.*热点/);
-  assert.match(plans.find(plan => plan.id === "seo-18-00").dependencies.join(" "), /同日16:00统一数据采集终态回执/);
+  assert.match(plans.find(plan => plan.id === "seo-16-00-ga4-search-console").note, /16:00 独立采集/);
+  assert.doesNotMatch(plans.find(plan => plan.id === "seo-16-00-ga4-search-console").dependencies.join(" "), /制作/);
+  assert.match(plans.find(plan => plan.id === "seo-18-00").dependencies.join(" "), /前序终态回执/);
 });
 
-test("next-week preparation finishes before Thursday 16:00 and does not depend on the later weekly report", () => {
+test("Thursday planning starts independently and the weekly report waits for its outcome", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-25T06:00:00Z"));
   const finalization = plans.find(plan => plan.id === "automation");
   const weekly = plans.find(plan => plan.id === "seo-09-30-2");
@@ -75,9 +77,12 @@ test("next-week preparation finishes before Thursday 16:00 and does not depend o
     assert.equal(nextAutomationTime(task.rrule, new Date("2026-11-25T06:00:00Z"), "ACTIVE", task.workdaysOnly), date);
     assert.equal(plan.nextAt, task.status === "ACTIVE" ? date : null);
   }
-  assert.match(finalization.note, /16:00前/);
+  assert.match(finalization.note, /14:20 独立/);
+  assert.doesNotMatch(finalization.dependencies.join(" "), /制作批次交接/);
+  assert.match(weekly.note, /排期及采集巡检均有结果后/);
+  assert.ok(weekly.dependencies.includes("下周正式计划或明确缺口"));
   assert.doesNotMatch(finalization.name, /周五/);
-  assert.ok(finalization.dependencies.includes("生产冻结季度词"));
+  assert.match(finalization.dependencies.join(" "), /冻结季度原词/);
 });
 
 test("paused paid queries have no advertised next execution; resumed and emergency-stopped states stay separate", () => {

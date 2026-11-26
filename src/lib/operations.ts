@@ -87,13 +87,13 @@ export function nextAutomationTime(rule: string, now: Date, status: string, work
 }
 
 const automationNotes: Record<string, string> = {
-  "seo-16-00-ga4-search-console": "每天 16:00 入队，制作交接后采集 GA4／GSC、Flatkey 流量和注册，再做当日巡检、404、效果复查及热点。周末数据周一按各来源日补采，延期只核上一日真实缺口。",
-  "flatkey-5": "工作日 10:15、14:15 分批制作和优化。每批默认在触发会话内串行，完成一项先回传并读回，再领下一项。当前批次逐项结算后交给后续定时任务。",
-  "automation": "周四 14:20 入队。制作交接后，核季度原词和原市场搜索意图，覆盖新增、维护、技术及旧任务续做，保存总排期和交付日供同日周报读取。",
-  "seo": "每天09:30轮查5–10篇已上线的 Flatkey 或 ModelFit 旧文。合格项按现有优化和翻新额度排队，候选不足时保留缺口。",
-  "automation-2": "每天 10:30 进入共享队列。核新 Prompt 的来源许可、成品、模型和去重，经原仅新建接口导入并读回。",
-  "seo-09-30-2": "周四 16:30 入队。制作、采集和巡检交接后，读回下周正式排期及来源，归档洛杉矶上周四至本周三的周报。",
-  "seo-18-00": "每天 18:00 入队，同日采集与巡检终态读回后归档日报。周末稿周一按各来源日分别归档。发送由用户在日报页触发。",
+  "seo-16-00-ga4-search-console": "每天 16:00 独立采集 GA4／GSC、Flatkey 流量和注册，同轮完成三站巡检、404、效果复查及热点。周末数据周一按各来源日补采，延期只核上一日真实缺口。",
+  "flatkey-5": "工作日 10:15、14:15 分批制作和优化。独立页面可并行，按原任务逐项领取、回填、读回并结租。",
+  "automation": "周四 14:20 独立核季度原词和原市场搜索意图，覆盖新增、维护、技术及旧任务续做，保存总排期和交付日供同日周报读取。",
+  "seo": "每天 09:30 轮查 5–10 篇已上线的 Flatkey 或 ModelFit 旧文。合格项按现有优化和翻新额度登记，候选不足时保留缺口。",
+  "automation-2": "每天 10:30 核验新 Prompt 的来源许可、成品、模型和去重，经原仅新建接口导入并读回。",
+  "seo-09-30-2": "周四 16:30 启动等待。当日轮查、Prompt、制作、排期及采集巡检均有结果后，归档洛杉矶上周四至本周三的周报。",
+  "seo-18-00": "每天 18:00 启动等待。当日适用的前序工作均有结果后归档日报。周末稿周一按各来源日分别归档。发送由用户在日报页触发。",
 };
 export function automationCadence(rule: string): string {
   const values = Object.fromEntries(rule.split(";").map(part => part.split("=")));
@@ -111,13 +111,13 @@ export function automationCadence(rule: string): string {
 }
 export const automationConfigurationVerifiedAt = automationConfig.verifiedAt;
 const automationDependencies: Record<string, string[]> = {
-  "seo-16-00-ga4-search-console": ["当日制作批次结算", "Google 只读授权与真实来源日", "采集与巡检生产回执"],
+  "seo-16-00-ga4-search-console": ["Google 只读授权与真实来源日", "采集与巡检生产回执"],
   "flatkey-5": ["原任务研究及正式计划资格", "业务周跨桶额度与有效租约", "准确版本审批和生产回执"],
-  "automation": ["制作批次交接", "冻结季度原词及原市场 Top 10／3C", "正式计划生产读回"],
+  "automation": ["冻结季度原词及原市场 Top 10／3C", "正式计划生产读回"],
   "seo": ["真实已上线原页", "原词原市场排名和 GSC 证据", "在途任务去重"],
   "automation-2": ["真实素材与许可证据", "精确模型与成品去重", "create-only导入与生产读回"],
-  "seo-09-30-2": ["同日采集与巡检终态", "洛杉矶周四至周三来源回执", "下周正式计划或明确缺口"],
-  "seo-18-00": ["同日采集与巡检终态", "日报确切版本生产读回"],
+  "seo-09-30-2": ["本轮适用的前序终态回执", "洛杉矶周四至周三来源回执", "下周正式计划或明确缺口"],
+  "seo-18-00": ["本轮适用的前序终态回执", "日报确切版本生产读回"],
 };
 
 export function configurationOnlyOperationsStatus(now = new Date(), note = "执行记录暂不可读取；以下仅为已回读的自动化配置"): OperationsStatus {
