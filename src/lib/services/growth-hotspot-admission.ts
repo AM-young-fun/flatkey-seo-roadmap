@@ -55,11 +55,11 @@ async function readAdmissionContext(localPreview: boolean, now: Date): Promise<H
   const [strategy, workspace, workflow, planRows, leases] = await Promise.all([
     loadGrowthStrategy(localPreview), loadGrowthDashboardWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview),
     localPreview ? Promise.resolve([]) : prisma.seoWorkflowRecord.findMany({ where: { kind: "plan", status: { in: ["scheduled", "reviewed"] } }, select: { payload: true } }),
-    localPreview ? Promise.resolve([]) : prisma.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: now } }, select: { runId: true, status: true, leaseUntil: true } }),
+    localPreview ? Promise.resolve([]) : prisma.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: now } }, select: { runId: true, status: true, stage: true, scheduledFor: true, leaseUntil: true } }),
   ]);
   const plans = planRows.map(row => row.payload as unknown as WorkflowPlan);
   if (localPreview && workflow.plan) plans.push(workflow.plan);
-  return { strategy, workspace, workflow, plans, leases: leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString() })) };
+  return { strategy, workspace, workflow, plans, leases: leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString(), scheduledFor: lease.scheduledFor.toISOString() })) };
 }
 function admissionStore(localPreview: boolean, now: Date): HotspotAdmissionStore {
   return { read: () => readAdmissionContext(localPreview, now), save: (request, actor) => saveWorkflowMutation(request, actor, localPreview) };

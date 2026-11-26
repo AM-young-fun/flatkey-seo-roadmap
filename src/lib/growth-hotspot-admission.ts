@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { seoExtraCapacityProblem } from "./seo-extra-capacity";
 export { seoExtraCapacityProblem as hotspotCapacityProblem } from "./seo-extra-capacity";
 import { z } from "zod";
@@ -20,20 +21,31 @@ export const growthHotspotAdmissionSchema = z.object({
   if (value.confirmOriginalKeyword && value.taskIds.length !== 1) context.addIssue({ code: "custom", path: ["taskIds"], message: "每次只确认一篇原热点博客的原词" });
 });
 export type GrowthHotspotAdmissionCommand = z.infer<typeof growthHotspotAdmissionSchema>;
-export type HotspotLease = { runId: string; status: string; leaseUntil: string };
+export type HotspotLease = { runId: string; status: string; leaseUntil: string; stage?: string; scheduledFor?: string };
 export type HotspotAdmissionContext = { strategy: GrowthStrategy; workspace: GrowthWorkspace; workflow: WorkflowSnapshot; plans: WorkflowPlan[]; leases: HotspotLease[] };
 export type HotspotAdmissionDecision = { taskId: string; status: "pending" | "reuse" | "admit"; reason: string; planId: string | null; task: WorkflowTask | null; plan: WorkflowPlan | null };
 const day = (stamp: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(stamp));
 const word = (value: string | null) => value?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ") ?? "";
 
 /** Unknown leases are not guessed away. Known unrelated task runs can continue. */
-export function hotspotLeaseConflict(taskIds: string[], runs: Pick<WorkflowRun, "id" | "status" | "taskIds">[], leases: HotspotLease[], now = new Date()): string | null {
+export function hotspotLeaseConflict(taskIds: string[], runs: Pick<WorkflowRun, "id" | "status" | "taskIds">[], leases: HotspotLease[],
+  now = new Date(), tasks: Pick<WorkflowTask, "id" | "recordedAt">[] = []): string | null {
   const ids = new Set(taskIds);
   if (runs.some(run => run.status === "running" && run.taskIds.some(id => ids.has(id)))) return "原任务已有进行中的运行，保留原租约和执行状态，不登记或替换在途任务";
+  const originalClaims = new Map(tasks.map(task => {
+    const hash = createHash("sha256").update(task.id).digest("hex").slice(0, 24);
+    return ["task-claim:" + hash, { task, stage: "TASK_" + hash.toUpperCase() }];
+  }));
   for (const lease of leases) {
     if (lease.status !== "running" || Date.parse(lease.leaseUntil) <= now.getTime()) continue;
     const run = runs.find(row => row.id === lease.runId);
-    if (!run || !run.taskIds.length || run.taskIds.some(id => ids.has(id))) return "存在有效租约且无法排除本原任务，待原运行读回后重试，不抢占或推断租约归属";
+    if (run?.taskIds.length && run.taskIds.every(id => !ids.has(id))) continue;
+    const original = originalClaims.get(lease.runId);
+    // An original scanner claim precedes its run receipt. Recognize it only
+    // when the ID, stage and immutable original timestamp all agree.
+    if (!run?.taskIds.length && original && lease.stage === original.stage && lease.scheduledFor
+      && Date.parse(lease.scheduledFor) === Date.parse(original.task.recordedAt) && !ids.has(original.task.id)) continue;
+    return "存在有效租约且无法排除本原任务，待原运行读回后重试，不抢占或推断租约归属";
   }
   return null;
 }
@@ -78,7 +90,7 @@ export function prepareHotspotAdmission(context: HotspotAdmissionContext, comman
     && (task.pageUrl && other.pageUrl === task.pageUrl || other.topicId === task.topicId && word(other.keyword) === word(task.keyword)));
   if (duplicate) return pending(`同页或同意图已有关联原任务 ${duplicate.id}，先核定复用，未重复追加或新造替代任务`);
   if (task.status !== "ready") return pending("仅追加研究完整且ready的原博客任务；在途、已发布或受阻任务不改状态、不替换");
-  const leaseReason = hotspotLeaseConflict([task.id], context.workflow.runs, context.leases, now); if (leaseReason) return pending(leaseReason);
+  const leaseReason = hotspotLeaseConflict([task.id], context.workflow.runs, context.leases, now, context.workflow.tasks); if (leaseReason) return pending(leaseReason);
   const exact = context.plans.filter(plan => isExecutableWorkflowPlan(plan.status) && "executionRange" in plan.targets && plan.targets.executionRange.start === view.businessWeek.start && plan.targets.executionRange.end === view.businessWeek.end);
   const candidates = exact.length ? exact : context.plans.filter(plan => isExecutableWorkflowPlan(plan.status) && plan.weekStart === task.weekStart && !("executionRange" in plan.targets));
   if (candidates.length !== 1) return pending(candidates.length ? "当周存在多个可用原计划，须先核定原计划，不新建第二计划或猜测归属" : "当周尚无可追加的原scheduled/reviewed正式计划，先补原计划，不新建替代调度");
