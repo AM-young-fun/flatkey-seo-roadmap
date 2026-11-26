@@ -442,14 +442,11 @@ export function SeoDigestReports() {
         </dl>
         <ReportSections text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} growthSnapshot={report.growthSnapshot}
           completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} />
-        {(report.workPlan || (kind === "weekly" && report.currentWorkPlan)) ? <section className={reportStyles.section}>
+        {kind === "weekly" && report.workPlan ? <section className={reportStyles.section}>
           <h3>任务安排</h3>
-          {kind === "weekly" ? <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`} aria-label="本周进度与下周计划">
-            <ReportWorkPlan plan={report.currentWorkPlan} weekly={false} />
+          <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`} aria-label="下周工作计划">
             <ReportWorkPlan plan={report.workPlan} weekly />
-          </dl> : <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`}>
-            <ReportWorkPlan plan={report.workPlan} weekly={false} day={report.businessDate ?? report.reportPeriod?.start} />
-          </dl>}
+          </dl>
         </section> : null}
         </>}
         {kind === "weekly" ? <WeeklyReportSupplement key={report.id} reportId={report.id} initial={result.data.weeklySupplement} onReady={setSupplementReadyFor} /> : null}

@@ -75,7 +75,7 @@ test("archive navigation stays in a compact date disclosure next to refresh and 
 });
 
 
-test("a pending weekly review preserves other modules with concise plans and the monthly optimization entry", async () => {
+test("a pending weekly review preserves other modules and shows only next week's plan", async () => {
   const nextTask = {id:"next-blog",weekStart:"2026-11-23",siteDomain:"flatkey.ai",scheduled:true,kind:"blog",title:"知识蒸馏成本比较",keyword:"知識蒸留",country:"JP",language:"ja",status:"ready",dueAt:"2026-11-23T02:00:00Z",pageUrl:null,action:"先读 /Users/private/research.md，然后执行完整内部制作说明"};
   const optimized = (id, before, latest) => ({url:"https://flatkey.ai/blog/"+id,title:id,day:"2026-11-10",change:"optimization",cohort:"previous",
     before:{date:"2026-11-09",property:"sc-domain:flatkey.ai",clicks:before,impressions:100},
@@ -95,8 +95,9 @@ test("a pending weekly review preserves other modules with concise plans and the
   };
   try {
     const html=await renderReport();
-    for(const title of ["新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","SEO 技术质检","暂无问题","本周计划进度","下周工作计划","已排任务","博客关键词 1","2026-11-16","2026-11-23","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
-    assert.match(html,/<dl[^>]+aria-label="本周进度与下周计划"/);
+    for(const title of ["新增博客页面","新增落地页","已上线优化","待审页面版本","SEO 注册人数","自然搜索","流量上涨与下跌原因","SEO 技术质检","暂无问题","下周工作计划","已排任务","博客关键词 1","2026-11-23","近一个月优化效果","查看全部优化效果"]) assert.ok(html.includes(title),title);
+    assert.match(html,/<dl class="metrics planMetrics" aria-label="下周工作计划"/);
+    assert.doesNotMatch(html,/本周计划进度|rangeStart=2026-11-16/);
     assert.match(html,/<h3>自然搜索<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?<h3>近一个月优化效果 · 前 10<\/h3>[\s\S]*?<h3>关键词排名明细<\/h3>[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?id="seo-indexing-404"[\s\S]*?<h3>任务安排<\/h3>/);
     assert.doesNotMatch(html,/2026 收官季|季度目标/);
     assert.match(html,/<h5>上涨文章<\/h5>[\s\S]*?gemini-api-pricing[\s\S]*?点击25→85/);
@@ -132,10 +133,16 @@ test("weekly structured attribution fallback includes only drivers and task link
   } finally {selectedReport=report;}
 });
 
-test("daily report presents only its day in progress and optimization metrics",async()=>{
+test("daily report retains its recap and optimization metrics without a duplicate task card",async()=>{
  selectedKind="daily";
  const task=(title,day)=>({id:title,kind:"blog",title,siteDomain:"flatkey.ai",scheduled:true,status:"ready",dueAt:day+"T10:00:00+08:00",country:"US",language:"en",pageUrl:null,action:""});
  const day={start:"2026-11-18",end:"2026-11-18",timezone:"America/Los_Angeles"};
  selectedReport={...report,kind:"daily",reviewedBody:undefined,reportPeriod:day,conversionSnapshot,growthSnapshot:unavailableGrowthReportSnapshot(day),counts:{originals:0,landingPages:0,optimizedPages:0},recentPages:[],pagePerformance:[],dashboard:{detailText:"日报\n\nSEO 技术质检\n\n暂无问题",attributionText:"本日页面贡献"},workPlan:{weekStart:"2026-11-16",periodStart:"2026-11-13",periodEnd:"2026-11-19",status:"scheduled",tasks:[task("当天任务","2026-11-18"),task("其他日期任务","2026-11-17")]}};
- try {const html=await renderReport();assert.match(html,/当日优化效果|当日任务/);assert.match(html,/博客关键词 0 \/ 1/);assert.match(html,/rangeStart=2026-11-18/);assert.match(html,/<h3>自然搜索<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?本日页面贡献[\s\S]*?<h3>当日优化效果 · 前 10<\/h3>[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?id="seo-indexing-404"[\s\S]*?<h3>任务安排<\/h3>/);assert.doesNotMatch(html,/2026 收官季|当天任务|其他日期任务|明日优先关注|当日工作进度|近一个月优化效果|GA4 行为与转化|四个页面组流量|模块流量占比|GPU业务承接|API自然获客|30天批次/);}finally{selectedKind="weekly";selectedReport=report;}
+ try {
+   const html=await renderReport();
+   assert.match(html,/<dt>新增博客页面<\/dt><dd>[^<]*<small>源文 /);
+   assert.match(html,/<h3>自然搜索<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?本日页面贡献[\s\S]*?<h3>当日优化效果 · 前 10<\/h3>[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?id="seo-indexing-404"/);
+   assert.doesNotMatch(html,/<h3>任务安排<\/h3>|当日任务|博客关键词 0 \/ 1|rangeStart=2026-11-18/);
+   assert.doesNotMatch(html,/2026 收官季|当天任务|其他日期任务|明日优先关注|当日工作进度|近一个月优化效果|GA4 行为与转化|四个页面组流量|模块流量占比|GPU业务承接|API自然获客|30天批次/);
+ } finally {selectedKind="weekly";selectedReport=report;}
 });
