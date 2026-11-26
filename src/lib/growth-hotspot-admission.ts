@@ -8,8 +8,13 @@ import { workflowHash } from "./seo-workflow-state";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowSnapshot, type WorkflowTask, type WorkflowRun } from "./seo-workflow";
 import { isSeoWorkday } from "./seo-workday";
 
-export const growthHotspotAdmissionSchema = z.object({ directionId: z.string().trim().min(1).max(200), revision: z.number().int().positive(), taskIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).strict().superRefine((value, context) => {
+export const growthHotspotAdmissionSchema = z.object({
+  directionId: z.string().trim().min(1).max(200), revision: z.number().int().positive(),
+  taskIds: z.array(z.string().min(1).max(200)).min(1).max(100),
+  confirmOriginalKeyword: z.literal(true).optional(),
+}).strict().superRefine((value, context) => {
   if (new Set(value.taskIds).size !== value.taskIds.length) context.addIssue({ code: "custom", path: ["taskIds"], message: "原任务ID不能重复" });
+  if (value.confirmOriginalKeyword && value.taskIds.length !== 1) context.addIssue({ code: "custom", path: ["taskIds"], message: "每次只确认一篇原热点博客的原词" });
 });
 export type GrowthHotspotAdmissionCommand = z.infer<typeof growthHotspotAdmissionSchema>;
 export type HotspotLease = { runId: string; status: string; leaseUntil: string };
@@ -79,6 +84,29 @@ export function prepareHotspotAdmission(context: HotspotAdmissionContext, comman
 export function rawWorkflowRecord<T extends WorkflowTask | WorkflowPlan>(record: T) {
   const { version: _version, updatedAt: _updatedAt, recordedAt: _recordedAt, ...raw } = record;
   void _version; void _updatedAt; void _recordedAt; return raw;
+}
+export function prepareHotspotKeywordConfirmation(context: HotspotAdmissionContext, command: GrowthHotspotAdmissionCommand, now: Date) {
+  const task = context.workflow.tasks.find(row => row.id === command.taskIds[0]);
+  const direction = context.strategy.directions.find(row => row.id === command.directionId);
+  if (!command.confirmOriginalKeyword || !task || !task.id.startsWith("seo-hotspot:") || task.source !== "human"
+    || !task.keywordId || !task.keyword || !task.topicId || !["planned", "ready"].includes(task.status)
+    || direction?.weeklyGrowth || direction?.taskIds.length !== 1 || direction.taskIds[0] !== task.id) {
+    return { task: null, reason: "仅确认用户已登记、只关联一篇原博客的热点方向和原词" };
+  }
+  const members = context.workspace.targets.filter(row => row.keywordId === task.keywordId && row.site === task.siteDomain
+    && row.topicId === task.topicId && row.country === task.country && row.language === task.language
+    && row.languageStatus === "match" && row.sourceActive === true && word(row.keyword) === word(task.keyword)
+    && (row.sourcePool === "RESEARCH" || row.sourcePool === "FORMAL"));
+  if (members.length !== 1) return { task: null, reason: "须核得唯一、启用且与原任务同站同话题同市场语种的原词" };
+  const candidate = { ...task, workflowContract: "growth-v1.5" as const, status: "ready" as const,
+    capacityClass: "authorized_hotspot_extra" as const };
+  const decision = prepareHotspotAdmission({
+    ...context,
+    workflow: { ...context.workflow, tasks: context.workflow.tasks.map(row => row.id === task.id ? candidate : row) },
+    workspace: { ...context.workspace, targets: context.workspace.targets.map(row => row === members[0] ? { ...row, membership: "formal" } : row) },
+  }, command, task.id, now);
+  if (decision.status === "pending") return { task: null, reason: decision.reason };
+  return { task, candidate, reason: null };
 }
 export function hotspotTaskMutation(task: WorkflowTask, command: GrowthHotspotAdmissionCommand) {
   const record = { ...rawWorkflowRecord(task), capacityClass: "authorized_hotspot_extra" as const };
