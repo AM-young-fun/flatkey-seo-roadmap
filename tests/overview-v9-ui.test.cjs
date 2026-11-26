@@ -144,6 +144,36 @@ test("the daily goal displays concise observation dates in LA without changing s
  ranked.checkedAt='2026-11-23T10:00:00Z';
  assert.match(render(React.createElement(OverviewGoalCharts,{snapshot,workspace})),/数据截至 11月23日/);
 });
+test("the overview displays the verified prior whole window while the latest window is pending", () => {
+  const { unavailableGrowthReportSnapshot, GROWTH_TRAFFIC_SCOPE } = require("../src/lib/growth-strategy.ts");
+  const snapshot = unavailableGrowthReportSnapshot({ start: "2026-11-19", end: "2026-11-25" }, new Date("2026-11-26T09:44:15Z"));
+  const requested = { start: "2026-11-19", end: "2026-11-25" };
+  const previous = { start: "2026-11-18", end: "2026-11-24" };
+  Object.assign(snapshot.goals, {
+    evaluationMode: "live", trafficScope: GROWTH_TRAFFIC_SCOPE, trafficWindowKind: "rolling7day-v1",
+    trafficPeriod: { ...requested, timezone: "America/Los_Angeles" },
+    dailyTrafficObservation: { version: "rolling7day-v1", period: requested, previousPeriod: previous,
+      sessions: null, previousSessions: 1603, difference: null, complete: false, previousComplete: true },
+  });
+  const overview = () => render(React.createElement(OverviewGoalCharts, { snapshot }));
+  const original = JSON.stringify(snapshot);
+  const html = overview();
+  assert.match(html, /最近已核验滚动7日/);
+  assert.match(html, /流量截至 11月24日/);
+  assert.match(html, /1,603/);
+  assert.match(html, /洛杉矶 11月25日 截止窗口待采，当前显示 11月18日–11月24日 的整段会话/);
+  assert.equal(JSON.stringify(snapshot), original);
+
+  snapshot.goals.dailyTrafficObservation.previousSessions = 0;
+  assert.match(overview(), /会话：0次，目标3000次/);
+  snapshot.goals.dailyTrafficObservation.previousComplete = false;
+  assert.match(overview(), /窗口待采/);
+  assert.doesNotMatch(overview(), /会话：0次|流量截至 11月24日/);
+
+  snapshot.goals.dailyTrafficObservation.previousComplete = true;
+  snapshot.goals.evaluationMode = "final";
+  assert.doesNotMatch(overview(), /最近已核验滚动7日|窗口待采/);
+});
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
   assert.equal((html.match(/<circle /g)||[]).length,2);assert.match(html,/d="M42,[^ ]+ {2}M558,/);assert.match(html,/缺失日期保留断点/);

@@ -12,7 +12,12 @@ const shortDay = (day: string) => `${Number(day.slice(5, 7))}月${Number(day.sli
 
 export function OverviewGoalCharts({ snapshot, workspace }: { snapshot: GrowthReportSnapshot; workspace?: GrowthWorkspace | null }) {
   const g = snapshot.goals;
-  const trafficDay = g.trafficScope && g.weeklySessions !== null ? g.trafficPeriod.end : null;
+  const rolling = g.dailyTrafficObservation;
+  const rollingPending = g.trafficScope?.version === "flatkey-only-v3" && g.evaluationMode === "live"
+    && g.trafficWindowKind === "rolling7day-v1" && g.weeklySessions === null && rolling?.complete === false ? rolling : null;
+  const previous = rollingPending?.previousComplete && rollingPending.previousSessions !== null ? rollingPending : null;
+  const trafficValue = g.trafficScope ? g.weeklySessions ?? previous?.previousSessions ?? null : null;
+  const trafficDay = trafficValue === null ? null : previous?.previousPeriod.end ?? g.trafficPeriod.end;
   const total = new Set(workspace?.targets.map(row => growthWordKey(row.keyword)).filter(Boolean)).size;
   const rankSourceReady = workspace && !workspace.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available);
   const ranking = rankSourceReady ? currentRankingSummary(workspace.targets, workspace.generatedAt) : null;
@@ -23,7 +28,9 @@ export function OverviewGoalCharts({ snapshot, workspace }: { snapshot: GrowthRe
   ];
   return <ChartPanel title="2026 收官季目标进度" note={[`剩余 ${g.daysRemaining} 天`, ...dates].join(" · ")}>
     <div className={styles.grid}>
-      <GoalPlot label={g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 日常最新滚动7日自然搜索会话" : "Flatkey 每周自然搜索会话"} value={g.trafficScope ? g.weeklySessions : null} goal={3000} unit="次" />
+      <GoalPlot label={previous ? "Flatkey 最近已核验滚动7日自然搜索会话" : g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 日常最新滚动7日自然搜索会话" : "Flatkey 每周自然搜索会话"}
+        value={trafficValue} goal={3000} unit="次"
+        note={rollingPending ? `洛杉矶 ${shortDay(rollingPending.period.end)} 截止窗口待采${previous ? `，当前显示 ${shortDay(previous.previousPeriod.start)}–${shortDay(previous.previousPeriod.end)} 的整段会话` : ""}。` : undefined} />
       <GoalPlot label="全部关键词前100覆盖" value={ranking && total ? ranking.total / total * 100 : null} goal={60} unit="%"
         denominator={ranking && total ? `${chartNumber(ranking.total)} / ${chartNumber(total)} 词` : undefined}
         empty={workspace ? "暂无可核实的排名覆盖" : "等待全部关键词数据"} />
