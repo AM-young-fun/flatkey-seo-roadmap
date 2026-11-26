@@ -120,12 +120,18 @@ test("work date filtering keeps the filters interactive and only retains stale r
 test("work board shows the saved business-week plan without counting language gaps twice", () => {
   listRead = { data: { storage: "database", pagination: { page: 1, pageSize: 10, total: 0, pageCount: 1 }, tasks: [],
     workBoardPlan: { range: { start: "2026-11-27", end: "2026-12-03" }, plan: { id: "original-plan", version: 1, taskIds: ["friday", "thursday"],
-      gaps: [{ category: "optimizedPages", count: 10 }, { category: "clusterLanding", count: 7 }, { category: "blogEn", count: 3 }] } } } };
+      gaps: [{ category: "optimizedPages", count: 10 }, { category: "clusterLanding", count: 7 }, { category: "blogEn", count: 3 }],
+      notes: "11/30 核对旧文\n12/01 核对 <待定> 落地页", datedGaps: [
+        { date: "2026-11-30", gaps: [{ category: "optimizedPages", count: 2, siteDomain: "flatkey.ai" }] },
+      ] } } } };
   try {
     const html = render(React.createElement(SeoWorkWorkspace));
     assert.match(html, /href="\/work\?range=nextWeek"[^>]*>下周排期/);
     assert.match(html, /aria-label="业务周正式排期"[\s\S]*?2026-11-27 — 2026-12-03[\s\S]*?已排 (?:<!-- -->)?2(?:<!-- -->)? 项[\s\S]*?17(?:<!-- -->)? 项交付缺口/);
     assert.match(html, /aria-label="排期缺口"[\s\S]*?Flatkey 常规优化[\s\S]*?RackRate／ModelFit 落地页[\s\S]*?英文源文/);
+    assert.match(html, /<details[^>]*><summary>每日安排与缺口<\/summary>[\s\S]*?11\/30 核对旧文\n12\/01 核对 &lt;待定&gt; 落地页/);
+    assert.match(html, /aria-label="按日登记的排期缺口"[\s\S]*?<time dateTime="2026-11-30">2026-11-30<\/time>[\s\S]*?Flatkey 常规优化 2/);
+    assert.doesNotMatch(html, /<time dateTime="2026-12-01">/);
   } finally { listRead = undefined; }
 });
 test("1600-word graph is complete, deterministic across reorder/rank updates, and bounded by one circle",()=>{

@@ -91,6 +91,20 @@ function WorkBoardPlan({ range, plan }: WorkflowWorkBoardPlan) {
     {plan ? <>
       <p>正式排期 v{plan.version} · 已排 {plan.taskIds.length} 项{deliveryGaps > 0 && <> · {deliveryGaps} 项交付缺口</>}</p>
       {plan.gaps.length ? <ul aria-label="排期缺口">{plan.gaps.map(gap => <li key={gap.category}>{planGapLabels[gap.category]} {gap.count}</li>)}</ul> : null}
+      {plan.notes || plan.datedGaps?.length ? <details className={styles.planDetails}>
+        <summary>每日安排与缺口</summary>
+        {plan.notes ? <p className={styles.planNotes}>{plan.notes}</p> : null}
+        {plan.datedGaps?.length ? <dl className={styles.planDays} aria-label="按日登记的排期缺口">
+          {plan.datedGaps.map(({ date, gaps }) => <div key={date}>
+            <dt><time dateTime={date}>{date}</time></dt>
+            <dd>{gaps.map(({ category, count, siteDomain }) => {
+              const label = planGapLabels[category];
+              const site = siteDomain ? siteName(siteDomain) : "";
+              return <span key={`${category}:${siteDomain ?? ""}`}>{label} {count}{site && !label.includes(site) ? ` · ${site}` : ""}</span>;
+            })}</dd>
+          </div>)}
+        </dl> : null}
+      </details> : null}
     </> : <p>该业务周尚无已保存的正式排期。</p>}
   </aside>;
 }

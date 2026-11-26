@@ -651,8 +651,21 @@ function workBoardPlan(plans: WorkflowPlan[], tasks: WorkflowTask[], dates: Boar
   const taskIds = tasks.filter(task => task.channel !== "product" && GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain)
     && dateInListRange(task.dueAt, range) && plans.some(plan => executablePlanIncludesTask(plan, task))).map(task => task.id);
   const counts = new Map<WorkflowPlan["gaps"][number]["category"], number>();
-  for (const gap of plan.gaps) counts.set(gap.category, (counts.get(gap.category) ?? 0) + gap.count);
-  return { range, plan: { id: plan.id, version: plan.version, taskIds, gaps: Array.from(counts, ([category, count]) => ({ category, count })) } };
+  const dated = new Map<string, Pick<WorkflowPlan["gaps"][number], "category" | "count" | "siteDomain">[]>();
+  for (const { category, count, date, siteDomain } of plan.gaps) {
+    counts.set(category, (counts.get(category) ?? 0) + count);
+    if (!date || date < range.start || date > range.end) continue;
+    const rows = dated.get(date) ?? [];
+    const saved = rows.find(row => row.category === category && row.siteDomain === siteDomain);
+    if (saved) saved.count += count;
+    else rows.push({ category, count, ...(siteDomain ? { siteDomain } : {}) });
+    dated.set(date, rows);
+  }
+  const datedGaps = [...dated].sort(([a], [b]) => a.localeCompare(b)).map(([date, gaps]) => ({ date, gaps }));
+  return { range, plan: {
+    id: plan.id, version: plan.version, taskIds, gaps: Array.from(counts, ([category, count]) => ({ category, count })),
+    ...(plan.notes?.trim() ? { notes: plan.notes } : {}), ...(datedGaps.length ? { datedGaps } : {}),
+  } };
 }
 
 export function workflowSnapshot(all: WorkflowStoredRow[], options: WorkflowSnapshotOptions, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
