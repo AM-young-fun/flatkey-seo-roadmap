@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-26T04:08:39.273779+00:00",
+  "verifiedAt": "2026-11-26T13:35:55.222535+00:00",
   "timezone": "Asia/Shanghai",
   "tasks": [
     {
@@ -10,7 +10,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=14;BYMINUTE=20;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795664618716,
+      "updated_at": 1795699147510,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -33,7 +33,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30",
       "model": "gpt-5.6-sol",
       "reasoning_effort": "high",
-      "updated_at": 1795664661644,
+      "updated_at": 1795676193066,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -50,13 +50,13 @@
     },
     {
       "id": "flatkey-5",
-      "name": "SEO 工作日 10:15／14:15 串行执行",
+      "name": "SEO 工作日 10:15／14:15 内容制作与优化",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=10,14;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795662371541,
+      "updated_at": 1795699136788,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -79,7 +79,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795661234257,
+      "updated_at": 1795698664174,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -102,7 +102,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=16;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795661239948,
+      "updated_at": 1795698670852,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -125,7 +125,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795666065427,
+      "updated_at": 1795699142026,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -148,7 +148,7 @@
       "rrule": "FREQ=DAILY;BYHOUR=18;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795666072597,
+      "updated_at": 1795698674085,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
