@@ -23,8 +23,9 @@ function isAuthorizedCron(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
-  // This exact SEO-library endpoint validates a human cookie and same-origin writes itself.
-  if (request.nextUrl.pathname === "/api/keywords/quarter-membership" && ["GET", "POST"].includes(request.method)) return NextResponse.next();
+  // These exact handlers enforce their own quarter membership credentials.
+  if (["/api/keywords/quarter-membership", "/api/keywords/quarter-membership/reserved"].includes(request.nextUrl.pathname)
+    && ["GET", "POST"].includes(request.method)) return NextResponse.next();
   // The additive association handler requires its own real human session.
   if (request.nextUrl.pathname === "/api/keywords/topic-associations" && ["GET", "POST"].includes(request.method)) return NextResponse.next();
   // These exact growth handlers authenticate their own cookie/collector credentials
