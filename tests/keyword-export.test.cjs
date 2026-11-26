@@ -10,8 +10,9 @@ const project = (row, select) => row ? Object.fromEntries(Object.keys(select).fi
 const matches = (row, where) => Object.entries(where).every(([key, value]) => (typeof value === "object" && value?.startsWith ? row[key]?.startsWith(value.startsWith) : row[key] === value));
 const db = {
   keyword: { findMany: async ({ where }) => {
-    assert.equal(where, undefined);
-    return [{ id: "unassigned", active: false, topicId: null }];
+    if (where) assert.deepEqual(Object.keys(where), ["id"]);
+    const rows = [{ id: "unassigned", active: false, topicId: null }];
+    return where ? rows.filter(row => row.id === where.id) : rows;
   } },
   topic: { findMany: async ({ where }) => {
     assert.equal(where, undefined);
@@ -377,6 +378,13 @@ test("platform-managed research keys read both full catalogs and revoke without 
     assert.equal((await get(research(path, "invalid"))).status, 401);
     assert.equal((await proxy(research(path, secret, "POST"))).status, 401);
   }
+  const exactKeyword = "/api/keywords?keywordId=unassigned";
+  const exactResult = await keywordRead(research(exactKeyword));
+  assert.equal(exactResult.status, 200);
+  assert.deepEqual((await exactResult.json()).keywords.map(row => row.id), ["unassigned"]);
+  assert.deepEqual((await (await keywordRead(research("/api/keywords?keywordId=missing"))).json()).keywords, []);
+  assert.equal((await keywordRead(research(exactKeyword + "&keywordId=missing"))).status, 400);
+  assert.equal((await keywordRead(new Request("https://example.test" + exactKeyword))).status, 401);
   assert.equal((await endpoint.GET(request(secret))).status, 401);
   assert.equal((await proxy(research("/api/api-keys"))).status, 401);
   assert.equal((await management.GET()).status, 401);

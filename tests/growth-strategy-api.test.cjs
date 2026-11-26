@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict'),{test,beforeEach,afterEach}=require('node:test'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),Module=require('node:module'),ts=require('typescript');
-const originalLoad=Module._load;let session=false,sourceReads=0;
+const originalLoad=Module._load;let session=false,sourceReads=0,dashboardSourceReads=0;
 const target={id:'a',keywordId:'a',site:'flatkey.ai',topicId:'topic-a',topicName:'GPU',keyword:'gpu pricing',country:'US',language:'en',membership:'formal',pageState:'planned',publishedUrls:[],plannedUrls:['https://flatkey.ai/compute'],languageStatus:'match',rank:null,rankSource:null,checkedAt:null,rankEligible:false,observationEligible:false,taskIds:[]};
 const workspace={version:'growth-v1.5',targets:[target,...Array.from({length:1599},(_,i)=>({...target,id:`word-${i}`,keywordId:`keyword-${i}`,keyword:`gpu research topic ${i}`}))],topics:[{topicId:'topic-a',site:'flatkey.ai'}]};
 const workflow={tasks:[],publications:[]};
@@ -9,7 +9,10 @@ Module._load=function(name,parent,...args){
   if(name==='./auth')return {AUTH_COOKIE_NAME:'auth',isAuthEnabled:()=>true,isValidAuthToken:async()=>session};
   if(name==='@/lib/prisma')return {prisma:{}};
   if(name==='./import-credential'||name==='@/lib/import-credential')return {getRankingImportSecret:()=> 'test-workflow-secret'};
-  if(name==='./growth-workspace'&&parent.filename.endsWith('/services/growth-strategy.ts'))return {loadGrowthWorkspace:async()=>{sourceReads++;return workspace;}};
+  if(name==='./growth-workspace'&&parent.filename.endsWith('/services/growth-strategy.ts'))return {
+    loadGrowthWorkspace:async()=>{sourceReads++;return workspace;},
+    loadGrowthDashboardWorkspace:async()=>{dashboardSourceReads++;return workspace;},
+  };
   if(name==='./seo-workflow'&&parent.filename.endsWith('/services/growth-strategy.ts'))return {loadWorkflowSnapshot:async()=>workflow};
   if(name.startsWith('@/'))return originalLoad.call(this,path.resolve(__dirname,'../src',name.slice(2))+'.ts',parent,...args);
   return originalLoad.call(this,name,parent,...args);
@@ -18,7 +21,7 @@ require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.r
 const {GET,POST}=require('../src/app/api/seo/growth/strategy/route.ts');
 const {growthWorkspaceIdentity,growthHash}=require('../src/lib/growth-strategy.ts');
 const saved=Object.fromEntries(['NODE_ENV','SEO_WORKFLOW_PREVIEW_DIR','DATABASE_URL','SEO_PREVIEW_UPSTREAM_TOKEN'].map(key=>[key,process.env[key]]));let directory;
-beforeEach(async()=>{session=false;sourceReads=0;directory=await fs.promises.mkdtemp(path.join(os.tmpdir(),'growth-strategy-api-'));process.env.NODE_ENV='development';process.env.SEO_PREVIEW_UPSTREAM_TOKEN='test-preview';process.env.SEO_WORKFLOW_PREVIEW_DIR=directory;delete process.env.DATABASE_URL;});
+beforeEach(async()=>{session=false;sourceReads=0;dashboardSourceReads=0;directory=await fs.promises.mkdtemp(path.join(os.tmpdir(),'growth-strategy-api-'));process.env.NODE_ENV='development';process.env.SEO_PREVIEW_UPSTREAM_TOKEN='test-preview';process.env.SEO_WORKFLOW_PREVIEW_DIR=directory;delete process.env.DATABASE_URL;});
 afterEach(async()=>{for(const[key,value]of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value;}await fs.promises.rm(directory,{recursive:true,force:true});});
 const url='http://localhost:3104/api/seo/growth/strategy';
 const freeze=(extra={})=>({requestId:'freeze-request-01',expectedVersion:0,action:'freeze_baseline',targetIds:['a'],sourceVersion:growthWorkspaceIdentity(workspace),reason:'Human reviewed exact full cohort',...extra});
@@ -33,6 +36,29 @@ test('strategy API rejects missing login, foreign origins and collector self-app
   assert.equal((await post(freeze(),{origin:'https://evil.test'})).status,403);
   assert.equal((await post(freeze(),{authorization:'Bearer test-workflow-secret'},'https://production.test/api/seo/growth/strategy')).status,403);
   assert.equal(sourceReads,0);
+});
+test("direction writes can save and decide using only the dashboard workspace", async () => {
+  const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+  const direction = {
+    id: "direction-a", title: "GPU sizing", hypothesis: "Planning needs a memory budget",
+    rationale: "Existing sources show sizing questions", counterEvidence: "Search demand is unverified",
+    competitiveGap: "Compare runtime buffers and model size", ownAdvantage: "Existing memory calculator",
+    proposedAction: "Explain sizing in one article", investment: "One article", expiresAt,
+    scope: [{ site: "flatkey.ai", topicId: "topic-a", country: "US", language: "en", kinds: ["blog"], maxTasks: 1, validUntil: expiresAt }],
+    evidence: [{ source: "manual", reference: "saved:topic", observedAt: new Date().toISOString(), supports: "Existing topic" }],
+    drivers: [], taskIds: [], experimentId: "fit-a",
+    experiment: { baseline: "Before delivery", comparison: "Same market", primaryMetric: "Clicks", businessGuardrail: "Keep the existing plan",
+      successCondition: "Verify the original delivery", adjustmentCondition: "Reassess missing evidence", reviewAt: expiresAt },
+  };
+  const saved = await post({ action: "save_direction", requestId: "direction-save-light", expectedVersion: 0, direction });
+  assert.equal(saved.status, 200);
+  assert.equal((await saved.json()).state.directions[0].revision, 1);
+  const decision = await post({ action: "decide_direction", requestId: "direction-hold-light", expectedVersion: 1,
+    directionId: direction.id, revision: 1, decision: "hold", reason: "Verify the research first" });
+  assert.equal(decision.status, 200);
+  assert.equal((await decision.json()).state.directions[0].decision.decision, "hold");
+  assert.equal(dashboardSourceReads, 2);
+  assert.equal(sourceReads, 0);
 });
 test('real preview freeze persists the exact list, replays one request, rejects stale writes and changed idempotency content',async()=>{
   const {command}=await prepareQuarter();const first=await post(command);assert.equal(first.status,200);const saved=await first.json();assert.equal(saved.state.baseline.targets[0].keyword,'gpu pricing');assert.equal(saved.state.version,2);
