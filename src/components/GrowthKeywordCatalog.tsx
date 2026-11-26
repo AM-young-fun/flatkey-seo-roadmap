@@ -7,7 +7,7 @@ import { SeoTablePagination } from "./SeoTablePagination";
 import { useSeoRead } from "./useSeoAnalytics";
 import styles from "./GrowthTopicWorkspace.module.css";
 
-const categoryLabels = { quarter: "季度关键词", hotspot: "近期热点词", published: "已有内容与排名" } as const;
+const categoryLabels = { quarter: "季度关键词", satellite: "ModelFit／RackRate 季度词", hotspot: "近期热点词", published: "已有内容与排名" } as const;
 const countries = new Intl.DisplayNames("zh-CN", { type: "region" });
 
 export function GrowthKeywordCatalog() {

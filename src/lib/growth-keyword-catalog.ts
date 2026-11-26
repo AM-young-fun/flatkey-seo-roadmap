@@ -7,7 +7,7 @@ import { growthTargetId, growthWordKey } from "./growth-workspace";
 import type { GrowthTarget } from "./growth-types";
 import { seoTablePage } from "./seo-table-page";
 
-export const catalogGroups = { quarter: "季度关键词", hotspot: "近期热点词", published: "已有内容与排名" } as const;
+export const catalogGroups = { quarter: "季度关键词", satellite: "ModelFit／RackRate 季度词", hotspot: "近期热点词", published: "已有内容与排名" } as const;
 type Category = keyof typeof catalogGroups;
 type CatalogWord = { keyword: string; categories: Category[]; countries: string[]; urls: string[] };
 
@@ -24,8 +24,10 @@ export function growthKeywordCatalog(quarter: QuarterCalendarDisplay | null, hot
   };
   for (const row of quarter?.rows ?? []) add(row.keyword, "quarter", row.country);
   for (const row of hotspots) add(row.keyword, "hotspot", row.country);
+  const satellite = new Set(workspace.satelliteQuarter?.targetIds);
   for (const row of workspace.targets) {
     const urls = linkedPublishedKeywordUrls(row, workspace.generatedAt);
+    if (satellite.has(row.id)) add(row.keyword, "satellite", row.country, urls);
     if (urls.length) add(row.keyword, "published", row.country, urls);
   }
   for (const row of ranked) add(row.keyword, "published", row.country, row.pages.map(page => page.url));
@@ -45,7 +47,7 @@ const emptyTarget = {
 } satisfies Omit<GrowthTarget, "id" | "keyword" | "site" | "country" | "language" | "workState">;
 
 export function catalogWorkspace(workspace: GrowthWorkspace, hotspots: GrowthHotspotItem[], capture: ApprovedCaptureRankedWord[]): GrowthWorkspace {
-  const quarter = new Set(workspace.quarter?.targetIds);
+  const quarter = new Set([...(workspace.quarter?.targetIds ?? []), ...(workspace.satelliteQuarter?.targetIds ?? [])]);
   const targets = new Map(workspace.targets.map(target => [target.id, target]));
   const included = new Map<string, GrowthTarget>();
   for (const target of workspace.targets) {

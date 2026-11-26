@@ -6,6 +6,7 @@ import { workflowWeek, isExecutableWorkflowPlan, type WorkflowPlan, type Workflo
 import { WorkflowError, type WorkflowStoredRow } from "./seo-workflow-state";
 import { deliveryWeights, type DeliveryBucket } from "./growth-quarter-planning";
 import { ROUTINE_LANGUAGE_GROUPS, ROUTINE_LANGUAGE_START, isRoutineKeywordTask, routineLanguageBudget, routineLanguageGroup, routineLanguageProblems } from "./seo-routine-languages";
+import { SATELLITE_QUARTER_SITES, satelliteProductionTask } from "./satellite-quarter";
 
 function fail(code: string, message: string): never { throw new WorkflowError(code, message); }
 const day = (task: WorkflowTask) => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
@@ -63,9 +64,10 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   }));
   const addedKeywordWork = tasks.some(task => task && isRoutineKeywordTask(task) && !committedIds.has(task.id));
   if (allocation) {
+    if (previous?.strategyAllocation?.satelliteQuarterHash && previous.strategyAllocation.satelliteQuarterHash !== allocation.satelliteQuarterHash) {
+      fail("satellite_allocation_immutable", "保留原计划使用的两站季度词批次");
+    }
     if (all.some(row => row.kind === "plan" && row.record.id !== plan.id && (isExecutableWorkflowPlan(row.record.status) || (row.record as WorkflowPlan).committedTaskIds !== undefined) && (row.record as WorkflowPlan).strategyAllocation && "executionRange" in (row.record as WorkflowPlan).targets && JSON.stringify(((row.record as WorkflowPlan).targets as { executionRange: typeof range }).executionRange) === JSON.stringify(range))) fail("allocation_business_week_duplicate", "同业务周已有投入计划，沿原ID修订，不能跨Monday桶重复分配预算");
-    // The new Flatkey allowance is separate from the approved quarterly delivery budget.
-    const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && !flatkeyLanding(task) && !isSeoExtraCapacity(task.capacityClass);
     const original = new Set<string>();
     const classified = new Map<string, { bucket: DeliveryBucket; workstreamId: string }>();
     for (const row of all) if (row.kind === "plan" && (isExecutableWorkflowPlan(row.record.status) || (row.record as WorkflowPlan).committedTaskIds !== undefined)) {
@@ -74,6 +76,10 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
       for (const id of savedPlan.taskIds) if (!futureIds.has(id)) original.add(id);
       for (const item of savedPlan.strategyAllocation?.tasks ?? []) classified.set(item.taskId, item);
     }
+    const separateSatellite = Boolean(allocation.satelliteQuarterHash);
+    const earlierReservation = new Set(previous?.strategyAllocation?.preservedTaskIds);
+    const delivery = (task: WorkflowTask) => ["blog", "landing", "optimization"].includes(task.kind) && !flatkeyLanding(task) && !isSeoExtraCapacity(task.capacityClass)
+      && (!separateSatellite || !satelliteProductionTask(task) || classified.has(task.id) || earlierReservation.has(task.id));
     const capacityStart = allocation.capacityStart ?? range.start;
     const capacityEnd = allocation.capacityEnd ?? range.end;
     if (capacityStart < range.start || capacityStart > range.end || capacityEnd < capacityStart || capacityEnd > range.end) fail("allocation_capacity_window", "剩余容量窗口须在原业务周内，不改原任务dueAt");
@@ -88,7 +94,13 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
     const future = ownDelivery.filter(task => !original.has(task.id));
     const remainingDays = Array.from({ length: 7 }, (_, index) => shiftDay(range.start, index)).filter(date => date >= capacityStart && date <= capacityEnd && isSeoWorkday(new Date(date + "T00:00:00+08:00"))).length;
     const usedLandings = new Set(all.filter(row => row.kind === "publication" && row.record.status === "verified" && (row.record as import("./seo-workflow").WorkflowPublication).kind === "landing" && ["rackrate.org", "modelfit.cc"].includes((row.record as import("./seo-workflow").WorkflowPublication).siteDomain) && new Date((row.record as import("./seo-workflow").WorkflowPublication).publishedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) >= range.start && new Date((row.record as import("./seo-workflow").WorkflowPublication).publishedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) < capacityStart).map(row => (row.record as import("./seo-workflow").WorkflowPublication).pageUrl)).size;
-    const totalCapacity = remainingDays ? (targets.contentRefreshPages !== undefined ? 10 : 8) * remainingDays + Math.max(0, targets.clusterLanding - usedLandings) : 0;
+    const legacySatellite = new Set([
+      ...ownDelivery.filter(satelliteProductionTask).map(task => task.id),
+      ...allocation.preservedTaskIds.filter(id => { const task = lookup.get(id); return task && satelliteProductionTask(task); }),
+    ]).size;
+    const dailyDeliveryCapacity = (maintenance ? 10 : 8) - Number(separateSatellite);
+    const landingCapacity = separateSatellite ? legacySatellite : Math.max(0, targets.clusterLanding - usedLandings);
+    const totalCapacity = remainingDays ? dailyDeliveryCapacity * remainingDays + landingCapacity : 0;
     if (allocation.futureBudget.total !== Math.max(0, totalCapacity - allocation.preservedTaskIds.length)) fail("allocation_future_capacity", "未来工作包须扣除剩余业务窗口的真实原任务预留及已完成交付，不补跑过去时段");
     if (new Set(allocation.tasks.map(row => row.taskId)).size !== allocation.tasks.length || JSON.stringify(allocation.tasks.map(row => row.taskId).sort()) !== JSON.stringify(future.map(task => task.id).sort())) fail("allocation_task_coverage", "每个未来交付工作包须唯一归入主攻/基础/试验，不把研究名额或译文重复算交付");
     if (allocation.tasks.some(row => classified.has(row.taskId) && (classified.get(row.taskId)!.bucket !== row.bucket || classified.get(row.taskId)!.workstreamId !== row.workstreamId))) fail("allocation_class_immutable", "已排未来任务保留原投入分类，不能在跨桶或修订时换类凑比例");
@@ -99,12 +111,13 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
     }
     if (currentLanguagePolicy && addedKeywordWork) {
       const ownBudgetedIds = new Set(allocation.tasks.map(item => item.taskId));
-      const budgeted = routine.filter(task => ownBudgetedIds.has(task.id) || task.kind === "cluster");
-      const research = routine.filter(task => task.kind === "research");
+      const separate = (task: WorkflowTask) => separateSatellite && satelliteProductionTask(task);
+      const budgeted = routine.filter(task => !separate(task) && (ownBudgetedIds.has(task.id) || task.kind === "cluster"));
+      const research = routine.filter(task => task.kind === "research" && (!separateSatellite || !SATELLITE_QUARTER_SITES.some(site => site === task.siteDomain)));
       const reservedTasks = allocation.preservedTaskIds.flatMap(id => lookup.get(id) ?? []);
       const dailySlots = new Map(dates.filter(date => date >= capacityStart && date <= capacityEnd).map(date => [date,
-        Math.max(0, (maintenance ? 10 : 8) + budgeted.filter(task => task.kind === "landing" && day(task) === date).length
-          - reservedTasks.filter(task => task.kind !== "landing" && day(task) === date).length)]));
+        Math.max(0, dailyDeliveryCapacity + budgeted.filter(task => task.kind === "landing" && day(task) === date).length
+          - reservedTasks.filter(task => !separate(task) && task.kind !== "landing" && day(task) === date).length)]));
       const problems = [...routineLanguageProblems({ tasks: budgeted, committedIds, capacity: allocation.futureBudget.total,
         offset: allocation.futureBudget.offset, dailySlots }), ...routineLanguageProblems({ tasks: research, committedIds,
         capacity: allocation.marketResearchBudget.total, offset: allocation.marketResearchBudget.offset })];

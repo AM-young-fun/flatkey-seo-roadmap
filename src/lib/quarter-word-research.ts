@@ -8,10 +8,7 @@ const sourceLanguages = {
   US: "English", JP: "Japanese", BR: "Portuguese", SG: "Chinese", ES: "Spanish",
   FR: "French", DE: "German", VN: "Vietnamese", ID: "Indonesian",
 };
-export const quarterWordResearchSchema = z.object({
-  action: z.literal("stage_new_words"),
-  requestId: z.string().trim().min(1).max(160),
-  rows: z.array(z.object({
+export const quarterWordResearchRowSchema = z.object({
     siteDomain: z.enum(["flatkey.ai", "modelfit.cc", "rackrate.org"]),
     topicId: z.string().trim().min(1).max(160),
     keyword: z.string().trim().min(1).max(160),
@@ -24,9 +21,13 @@ export const quarterWordResearchSchema = z.object({
     sourceRow: z.number().int().positive(),
     observedAt: z.iso.datetime({ offset: true }),
     excerpt: z.string().min(1).max(5000),
-  }).strict()).min(1).max(150),
 }).strict();
-export type QuarterWordResearchRow = z.infer<typeof quarterWordResearchSchema>["rows"][number];
+export const quarterWordResearchSchema = z.object({
+  action: z.literal("stage_new_words"),
+  requestId: z.string().trim().min(1).max(160),
+  rows: z.array(quarterWordResearchRowSchema).min(1).max(150),
+}).strict();
+export type QuarterWordResearchRow = z.infer<typeof quarterWordResearchRowSchema>;
 
 export function quarterWordResearchProblem(row: QuarterWordResearchRow, now: Date) {
   const url = new URL(row.sourceUrl);

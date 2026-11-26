@@ -4,6 +4,8 @@ import type { GrowthBaselineTarget, GrowthStrategy } from "./growth-strategy";
 import { growthLogicalTargetIdSchema } from "./growth-target-id-schema";
 import { growthPublicUrl, growthWordKey } from "./growth-workspace";
 import { quarterCalendarDatesValid, quarterCalendarRowSchema, QUARTER_NEW_MARKET_SHARES, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
+import { satelliteProductionTask, satelliteQuarterBound, satelliteQuarterTaskMember } from "./satellite-quarter";
+import { isSeoExtraCapacity } from "./seo-extra-capacity";
 
 export const MARKET_RESEARCH_WEIGHTS = { US: 35, JP: 25, BR: 20, SG: 15, other: 5 } as const;
 export const DELIVERY_WEIGHTS = { primary: 60, foundation: 25, experiment: 15 } as const;
@@ -78,6 +80,7 @@ export const quarterPlanningStoredSchema = z.object({
 }).strict();
 export const planStrategyAllocationSchema = z.object({
   version: planningVersionSchema, quarterPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
+  satelliteQuarterHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   capacityStart: z.iso.date().optional(), capacityEnd: z.iso.date().optional(),
   futureBudget: compatibleDeliveryBudgetSchema,
   preservedTaskIds: z.array(id).max(500),
@@ -138,6 +141,22 @@ export function quarterAllocationProblems(plan: WorkflowPlan, strategy: GrowthSt
   if (allocation.version === "quarter-planning-v1" && (!priorWasScheduled || addedWork || !prior?.strategyAllocation)) return ["旧投入比例仅保留既有正式回执；新增常规工作须使用已审quarter-planning-v2，不能恢复旧配额"];
   const errors: string[] = [];
   if (allocation.version && allocation.version !== quarter.plan.version) errors.push("工作包投入版本须与确切已审季度方案一致");
+  const satellite = satelliteQuarterBound(strategy);
+  if (allocation.satelliteQuarterHash && (allocation.version !== QUARTER_NEW_WORD_VERSION
+    || !("executionRange" in plan.targets) || satellite?.baselinePlanHash !== allocation.quarterPlanHash
+    || satellite.selectionHash !== allocation.satelliteQuarterHash)) {
+    errors.push("两站规划须绑定有效的独立季度词批次及原 Flatkey 季度版本");
+  }
+  if (satellite) {
+    const committed = new Set([...versions.flatMap(saved => saved.plan.reservedOriginalTaskIds ?? []),
+      ...existingPlans.flatMap(saved => ["scheduled", "reviewed"].includes(saved.status) ? saved.taskIds : saved.committedTaskIds ?? [])]);
+    const selected = new Set(plan.taskIds);
+    const newSatelliteWork = tasks.filter(task => selected.has(task.id) && !committed.has(task.id)
+      && satelliteProductionTask(task) && !isSeoExtraCapacity(task.capacityClass));
+    if (newSatelliteWork.some(task => !satelliteQuarterTaskMember(task, satellite)) || newSatelliteWork.length && allocation.satelliteQuarterHash !== satellite.selectionHash) {
+      errors.push("两站新增制作任务须沿确切季度词批次排期，保留原任务与原名额");
+    }
+  }
   if (allocation.futureBudget.total + (allocation.futureBudget.offset ?? 0) > quarter.plan.deliveryBudget.total
     || allocation.marketResearchBudget.total + (allocation.marketResearchBudget.offset ?? 0) > quarter.plan.researchBudget.total) errors.push("业务周预算超出已审季度总名额，不自动扩量");
   const allocationRange = (row: WorkflowPlan) => "executionRange" in row.targets ? row.targets.executionRange : "maintenanceRange" in row.targets ? row.targets.maintenanceRange : undefined;

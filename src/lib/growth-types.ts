@@ -48,6 +48,7 @@ export type GrowthWorkspace = {
   version: "growth-v1.5"; generatedAt: string; sites: GrowthSite[]; markets: GrowthMarket[];
   topics: GrowthTopic[]; targets: GrowthTarget[]; opportunities: GrowthTarget[];
   quarter?: { targetIds: string[]; keywordCount: number; hash: string };
+  satelliteQuarter?: { targetIds: string[]; siteCounts: Record<string, number>; selectionHash: string; approvedAt: string; requestId: string };
   /** Approved, still-valid hotspot targets are extra; never grow quarterly N. */
   hotspotTargetIds?: string[];
   /** Original normal QA/liveCheck receipts; inventory itself grants no paid eligibility. */

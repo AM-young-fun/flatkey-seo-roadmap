@@ -8,9 +8,11 @@ import { growthObservationComparisonText } from "./growth-observation-display";
 import { GROWTH_MARKET_LANGUAGES } from "./seo-growth-markets";
 import { quarterPlanningInputSchema, quarterPlanningStoredSchema } from "./growth-quarter-planning";
 import { hasQuarterDelivery, quarterCalendarProblem, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
+import { satelliteQuarterStoredSchema, type SatelliteQuarter } from "./satellite-quarter";
 
 export const GROWTH_STRATEGY_KIND = "growth-strategy";
 export const GROWTH_QUARTER_ID = "2026-close";
+export const GROWTH_STRATEGY_KEY = `${GROWTH_STRATEGY_KIND}:${GROWTH_QUARTER_ID}`;
 export const GROWTH_DEADLINE_CUTOFF = "2027-02-05T15:59:59.999Z";
 export const GROWTH_FINAL_TRAFFIC_PERIOD = { start: "2027-01-28", end: "2027-02-03" } as const;
 export const GROWTH_TRAFFIC_SITES = ["flatkey.ai"] as const;
@@ -68,6 +70,7 @@ export type GrowthStrategy = {
   identityRevisions: GrowthIdentityRevision[];
   quarterPlanning?: z.infer<typeof quarterPlanningStoredSchema> | null;
   quarterPlanningHistory?: z.infer<typeof quarterPlanningStoredSchema>[];
+  satelliteQuarter?: SatelliteQuarter;
 };
 const decisionSchema = z.object({ decision: z.enum(["approve", "hold", "reject"]), reason: text, decidedAt: stamp, actor: z.literal("human"), revision: z.number().int().positive(), scope: z.array(scopeSchema).min(1) }).strict();
 const baselineTargetSchema = z.object({ id: growthLogicalTargetIdSchema, keywordId: id.nullable(), site: z.enum(GROWTH_EXECUTION_SITES), topicId: id, keyword: z.string().min(1), country: z.string().min(2).nullable(), language: z.string().min(2).nullable(), publishedUrls: z.array(z.url()), plannedUrls: z.array(z.url()), pageState: z.enum(["published", "planned", "unmapped"]).optional(), reason: z.string().optional(), languageStatus: z.enum(["match", "mismatch", "unknown"]).optional() }).strict();
@@ -83,6 +86,7 @@ export const growthStrategyStoredSchema = z.object({
   trafficEvidence: z.array(growthExactTrafficSchema).default([]),
   quarterPlanning: quarterPlanningStoredSchema.nullable().optional(),
   quarterPlanningHistory: z.array(quarterPlanningStoredSchema).optional(),
+  satelliteQuarter: satelliteQuarterStoredSchema.optional(),
   identityRevisions: z.array(z.object({ revision: z.number().int().positive(), approvedAt: stamp, actor: z.literal("human"), sourceVersion: id, reason: text, mappings: z.array(identityMappingSchema).min(1) }).strict()).default([]),
 }).strict();
 export const emptyGrowthStrategy = (): GrowthStrategy => ({ id: GROWTH_QUARTER_ID, version: 0, updatedAt: null, deadline: "2027-02-05", coverageGoal: 0.6, qualityGoal: 0.8, weeklySessionsGoal: 3000, baseline: null, batches: [], directions: [], observations: [], trafficEvidence: [], identityRevisions: [] });
