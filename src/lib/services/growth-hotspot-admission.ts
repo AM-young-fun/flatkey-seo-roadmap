@@ -73,19 +73,24 @@ async function readConfirmedKeywordTask(command: GrowthHotspotAdmissionCommand |
     } }),
     prisma.keywordCurationAudit.findUnique({ where: { id: hotspotKeywordAuditId(command, task.id, task.keywordId) } }),
   ]);
-  if (!member?.active || !member.keyword.active || member.keyword.text !== task.keyword || member.topicId !== task.topicId
-    || member.pool !== "FORMAL" || member.reviewStatus !== HOTSPOT_KEYWORD_CONFIRMED
-    || !audit || audit.siteDomain !== task.siteDomain || audit.restoredAt || audit.status !== HOTSPOT_KEYWORD_CONFIRMED
-    || audit.payloadHash !== workflowHash(command)) return undefined;
+  if (member?.reviewStatus !== HOTSPOT_KEYWORD_CONFIRMED) return undefined;
+  const fail = (part: string): never => {
+    throw new WorkflowError("hotspot_confirmation_readback_conflict", `已确认原词的${part}与当前原任务不一致`, 409);
+  };
+  if (!member.active || !member.keyword.active || member.keyword.text !== task.keyword || member.topicId !== task.topicId
+    || member.pool !== "FORMAL") return fail("本站正式成员身份");
+  if (!audit || audit.siteDomain !== task.siteDomain || audit.restoredAt || audit.status !== HOTSPOT_KEYWORD_CONFIRMED) return fail("正式成员审核回执");
+  if (audit.payloadHash !== workflowHash(command)) return fail("审核请求版本");
   const expectedMember = { ...link, topicId: task.topicId, pool: "FORMAL", reviewStatus: HOTSPOT_KEYWORD_CONFIRMED };
   const expectedDecision = {
     kind: "hotspot-keyword-confirmation", actor: "human", taskId: task.id, directionId: direction.id,
     revision: direction.revision, keyword: task.keyword, country: task.country, language: task.language,
   };
-  if (workflowHash(audit.after) !== workflowHash([expectedMember]) || !audit.summary || typeof audit.summary !== "object"
-    || Object.entries(expectedDecision).some(([key, value]) => (audit.summary as Record<string, unknown>)[key] !== value)) return undefined;
+  if (workflowHash(audit.after) !== workflowHash([expectedMember])) return fail("带版本的正式成员快照");
+  if (!audit.summary || typeof audit.summary !== "object"
+    || Object.entries(expectedDecision).some(([key, value]) => (audit.summary as Record<string, unknown>)[key] !== value)) return fail("市场语种或人审范围");
   const summary = audit.summary as Record<string, unknown>;
-  if (summary.researchHash !== undefined && summary.researchHash !== workflowHash(task.researchReview)) return undefined;
+  if (summary.researchHash !== undefined && summary.researchHash !== workflowHash(task.researchReview)) return fail("原研究版本哈希");
   return task.id;
 }
 
