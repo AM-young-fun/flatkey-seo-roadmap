@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { WorkflowPlan, WorkflowTask } from "./seo-workflow";
 import type { GrowthBaselineTarget, GrowthStrategy } from "./growth-strategy";
+import { growthWebsitePageUrl } from "./growth-live-page";
 import { growthLogicalTargetIdSchema } from "./growth-target-id-schema";
 import { growthPublicUrl, growthWordKey } from "./growth-workspace";
 import { quarterCalendarDatesValid, quarterCalendarRowSchema, QUARTER_NEW_MARKET_SHARES, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
@@ -128,6 +129,30 @@ export function quarterTaskBusinessBucket(task: WorkflowTask, plan: QuarterPlann
   return buckets.size === 1 ? [...buckets][0] : null;
 }
 
+type QuarterRevision = z.infer<typeof quarterPlanningStoredSchema>;
+type QuarterWorkstream = QuarterPlanningInput["workstreams"][number];
+
+function hasPriorApiMaintenanceTopic(task: WorkflowTask, stream: QuarterWorkstream, quarter: QuarterRevision, approved: QuarterRevision[]) {
+  const topicId = task.topicId;
+  if (!topicId || quarter.plan.version !== QUARTER_NEW_WORD_VERSION || stream.bucket !== "api"
+    || task.siteDomain !== "flatkey.ai" || task.channel !== "website" || task.business !== "API"
+    || task.kind !== "optimization" || task.pageType !== "blog" || task.workClass
+    || task.capacityClass !== "routine" || task.workflowContract !== "growth-v1.5"
+    || !task.keywordId || !task.keyword || !task.country || !task.language
+    || quarter.plan.workstreams.some(item => item.topicIds.includes(topicId))) return false;
+
+  const page = growthWebsitePageUrl(task.pageUrl, task.siteDomain);
+  if (!page || !/^\/(?:[a-z]{2}\/)?blog\/[^/]+$/u.test(new URL(page).pathname)) return false;
+
+  // The workflow separately verifies the published page, original keyword and market.
+  // Reuse the latest approved attribution only while the current plan has no assignment.
+  const prior = approved.filter(item => item.revision < quarter.revision)
+    .sort((left, right) => right.revision - left.revision)
+    .map(item => item.plan.workstreams.filter(workstream => workstream.topicIds.includes(topicId)))
+    .find(workstreams => workstreams.length > 0);
+  return prior?.length === 1 && prior[0].id === stream.id && prior[0].bucket === "api";
+}
+
 export function quarterAllocationProblems(plan: WorkflowPlan, strategy: GrowthStrategy, tasks: WorkflowTask[], existingPlans: WorkflowPlan[] = []) {
   const allocation = plan.strategyAllocation;
   if (!allocation) return [];
@@ -182,7 +207,9 @@ export function quarterAllocationProblems(plan: WorkflowPlan, strategy: GrowthSt
   if ((allocation.futureBudget.offset ?? 0) !== priorDelivery || (allocation.marketResearchBudget.offset ?? 0) !== priorResearch) errors.push("累计预算须承接原已审业务周实际回执，不可信任调用方重置offset");
   for (const row of allocation.tasks) {
     const task = tasks.find(task => task.id === row.taskId), stream = quarter.plan.workstreams.find(stream => stream.id === row.workstreamId && stream.bucket === row.bucket);
-    if (!task?.topicId || !stream?.topicIds.includes(task.topicId)) errors.push("投入任务须关联已审方案的真实话题方向");
+    if (!task?.topicId || !stream || !stream.topicIds.includes(task.topicId) && !hasPriorApiMaintenanceTopic(task, stream, quarter, versions)) {
+      errors.push("投入任务须关联已审方案的真实话题方向");
+    }
     if (row.bucket === "experiment" && (!task?.directionId || !task.experimentId)) errors.push("机会预留不是热点方向批准；实际试验任务须关联用户已审方向及原实验身份");
     if (task) {
       if (allocation.version !== "quarter-planning-v1" && quarterTaskBusinessBucket(task, quarter.plan, strategy.baseline?.targets ?? []) !== row.bucket) errors.push("预算须按原词及真实已审话题的唯一业务方向归因；CLUSTER仅是旧交付渠道，不改旧business或默认填其他预留");

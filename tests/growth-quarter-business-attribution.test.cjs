@@ -55,3 +55,39 @@ test('allocation validation accepts real GPU CLUSTER work and rejects parking it
   assert.match(quarterAllocationProblems(workflowPlan, strategy, [past]).join(' '), /dueAt/);
   assert.equal(JSON.stringify(task), before);
 });
+
+test('routine Flatkey blog maintenance keeps the exact previously approved API topic under the current plan', () => {
+  const currentHash = 'b'.repeat(64), historicalHash = 'c'.repeat(64);
+  const topicId = 'gemini-pricing-topic';
+  const current = { ...plan, version: 'quarter-planning-v3', executionStart: '2026-11-27' };
+  const active = { revision: 2, hash: currentHash, approval: { hash: currentHash }, plan: current };
+  const previous = { revision: 1, hash: historicalHash, approval: { hash: historicalHash }, plan: {
+    ...plan, workstreams: current.workstreams.map(stream => stream.id === 'api-main'
+      ? { ...stream, topicIds: [...stream.topicIds, topicId] } : stream),
+  } };
+  const strategy = { quarterPlanning: active, quarterPlanningHistory: [previous] };
+  const maintenance = {
+    ...task, id: 'gemini-optimization', topicId, keywordId: 'gemini-price-ja',
+    keyword: 'gemini api 価格', siteDomain: 'flatkey.ai', country: 'JP', language: 'ja',
+    business: 'API', kind: 'optimization', pageType: 'blog', workflowContract: 'growth-v1.5', channel: 'website',
+    capacityClass: 'routine', pageUrl: 'https://flatkey.ai/ja/blog/gemini-api-pricing',
+  };
+  const workflowPlan = { id: 'future-week', targets: { executionRange: { start: '2026-11-27', end: '2026-12-03' } },
+    strategyAllocation: { version: 'quarter-planning-v3', quarterPlanHash: currentHash,
+      tasks: [{ taskId: maintenance.id, bucket: 'api', workstreamId: 'api-main' }],
+      futureBudget: { total: 1 }, marketResearchBudget: { total: 0 } } };
+  const verify = (item = maintenance, state = strategy, week = workflowPlan) => quarterAllocationProblems(week, state, [item]);
+  assert.deepEqual(verify(), []);
+  for (const change of [
+    { topicId: 'never-approved' },
+    { kind: 'blog' },
+    { pageUrl: 'https://console.flatkey.ai/ja/blog/gemini-api-pricing' },
+    { pageUrl: 'https://flatkey.ai/ja/pricing' },
+    { workClass: 'content_refresh' },
+    { capacityClass: 'authorized_hotspot_extra' },
+  ]) assert.match(verify({ ...maintenance, ...change }).join(' '), /真实话题方向/, JSON.stringify(change));
+  assert.match(verify(maintenance, { ...strategy, quarterPlanningHistory: [{ ...previous, approval: null }] }).join(' '), /真实话题方向/);
+  const reclassified = { ...active, plan: { ...current, workstreams: current.workstreams.map(stream => stream.id === 'gpu-main'
+    ? { ...stream, topicIds: [...stream.topicIds, topicId] } : stream) } };
+  assert.match(verify(maintenance, { ...strategy, quarterPlanning: reclassified }).join(' '), /真实话题方向/);
+});
