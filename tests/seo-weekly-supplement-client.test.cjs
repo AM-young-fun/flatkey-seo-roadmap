@@ -55,7 +55,7 @@ function editor(props = {}) {
       if (name === './useBusyIndicator') return { useBusyIndicator() {} };
       if (name === '@/lib/interaction-feedback') return { actionSucceeded() {}, actionFailed() {} };
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
-      if (name.endsWith('.module.css')) return new Proxy({}, { get: (_, key) => String(key) });
+      if (name.endsWith('.module.css')) return { __esModule: true, default: new Proxy({}, { get: (_, key) => String(key) }) };
       throw new Error(`Unexpected component dependency: ${name}`);
     },
   }, { filename: componentFile });
@@ -95,6 +95,7 @@ function editor(props = {}) {
   render();
   return {
     requests, input, button, click, change, reply,
+    savedText: () => nodes(node => node.props?.className === 'supplementText')[0]?.props.children,
     status: () => nodes(node => node.props?.role === 'status')[0]?.props.children,
     alerts: () => nodes(node => node.props?.role === 'alert').map(node => node.props.children),
     cleanup: () => effects.forEach(effect => effect?.cleanup?.()),
@@ -105,8 +106,11 @@ test('a slow retry GET cannot overlap a newer save and restore an older note', a
   const view = editor();
   try {
     await view.reply(0, { supplement: supplement(1, 'previously saved'), editable: true });
+    assert.equal(view.input(), undefined);
+    assert.equal(view.savedText(), 'previously saved');
+    view.click('编辑');
     view.change('draft whose first save fails');
-    view.click('保存补充');
+    view.click('保存');
     await view.reply(1, { message: '保存暂时失败' }, 503);
     assert.deepEqual(view.alerts(), ['保存暂时失败']);
 
@@ -116,11 +120,11 @@ test('a slow retry GET cannot overlap a newer save and restore an older note', a
     assert.equal(view.requests[2].options.method, undefined);
     assert.equal(view.status(), '正在读取…');
     assert.equal(view.input().props.disabled, true);
-    assert.equal(view.button('保存补充').props.disabled, true);
+    assert.equal(view.button('保存').props.disabled, true);
     assert.equal(view.button('重新读取').props.disabled, true);
 
     // Also exercise the handler guard, independently of the disabled DOM button.
-    view.button('保存补充').props.onClick();
+    view.button('保存').props.onClick();
     await tick();
     assert.equal(view.requests.length, 3, 'No POST may race the retry GET');
 
@@ -128,13 +132,13 @@ test('a slow retry GET cannot overlap a newer save and restore an older note', a
     assert.equal(view.input().props.disabled, false);
     assert.equal(view.input().props.value, 'previously saved');
     view.change('new saved text');
-    view.click('保存补充');
+    view.click('保存');
     const command = JSON.parse(view.requests[3].options.body);
     assert.deepEqual(command, { reportId, expectedRevision: 1, text: 'new saved text' });
     await view.reply(3, { supplement: supplement(2, 'new saved text') });
-    assert.equal(view.input().props.value, 'new saved text');
-    assert.equal(view.status(), '已保存');
-    assert.equal(view.button('保存补充').props.disabled, true);
+    assert.equal(view.input(), undefined);
+    assert.equal(view.savedText(), 'new saved text');
+    assert.ok(view.button('编辑'));
     assert.equal(view.requests.length, 4);
   } finally { view.cleanup(); }
 });
@@ -142,7 +146,7 @@ test('a slow retry GET cannot overlap a newer save and restore an older note', a
 test('a failed first read can be retried and then edited without leaving loading stuck', async () => {
   const view = editor();
   try {
-    assert.equal(view.input().props.disabled, true);
+    assert.equal(view.input(), undefined);
     assert.equal(view.status(), '正在读取…');
     await view.reply(0, { message: '读取暂时失败' }, 503);
     assert.deepEqual(view.alerts(), ['读取暂时失败']);
@@ -152,16 +156,17 @@ test('a failed first read can be retried and then edited without leaving loading
     assert.equal(view.status(), '正在读取…');
     assert.equal(view.button('重新读取').props.disabled, true);
     await view.reply(1, { supplement: supplement(0, ''), editable: true });
+    view.click('编辑');
     assert.equal(view.input().props.disabled, false);
     assert.deepEqual(view.alerts(), []);
     view.change('first note after retry');
-    assert.equal(view.button('保存补充').props.disabled, false);
-    view.click('保存补充');
+    assert.equal(view.button('保存').props.disabled, false);
+    view.click('保存');
     assert.deepEqual(JSON.parse(view.requests[2].options.body), {
       reportId, expectedRevision: 0, text: 'first note after retry',
     });
     await view.reply(2, { supplement: supplement(1, 'first note after retry') });
-    assert.equal(view.status(), '已保存');
+    assert.equal(view.savedText(), 'first note after retry');
   } finally { view.cleanup(); }
 });
 
@@ -169,10 +174,11 @@ test('bundled initial note is immediately usable without a second GET and preser
   const view = editor({ initial: { supplement: supplement(3, 'bundled note'), editable: true } });
   try {
     assert.equal(view.requests.length, 0);
-    assert.equal(view.input().props.disabled, false);
+    assert.equal(view.input(), undefined);
+    assert.equal(view.savedText(), 'bundled note');
+    view.click('编辑');
     assert.equal(view.input().props.value, 'bundled note');
-    assert.equal(view.status(), '已保存');
-    view.change('updated note'); view.click('保存补充');
+    view.change('updated note'); view.click('保存');
     assert.deepEqual(JSON.parse(view.requests[0].options.body), { reportId, expectedRevision: 3, text: 'updated note' });
     await view.reply(0, { message: 'conflict' }, 409);
     view.click('重新读取');
@@ -186,21 +192,45 @@ test('bundled read-only note retains disabled editing', () => {
   const view = editor({ initial: { supplement: supplement(1, 'read only'), editable: false } });
   try {
     assert.equal(view.requests.length, 0);
-    assert.equal(view.input().props.value, 'read only');
-    assert.equal(view.input().props.disabled, true);
-    assert.equal(view.button('保存补充').props.disabled, true);
+    assert.equal(view.savedText(), 'read only');
+    assert.equal(view.input(), undefined);
+    assert.equal(view.button('编辑'), undefined);
   } finally { view.cleanup(); }
 });
 
 test('same-frame save clicks send one request and incomplete success receipts remain an error', async () => {
   const view=editor({ initial: { supplement: supplement(2, 'saved'), editable: true } });
   try {
+    view.click('编辑');
     view.change('draft');
-    const save=view.button('保存补充').props.onClick;
+    const save=view.button('保存').props.onClick;
     save();save();save();
     assert.equal(view.requests.length,1);
     await view.reply(0, { supplement: { revision:3 } });
     assert.deepEqual(view.alerts(),['保存回执不完整，请重新读取核对。']);
     assert.equal(view.input().props.value,'draft');
+  } finally { view.cleanup(); }
+});
+
+test('attribution starts in read mode, edits the generated original, and saves only its section', async () => {
+  const originalText = 'generated **evidence**';
+  const attribution = (revision, text) => ({ ...supplement(revision, text), id: 'weekly-attribution:2026-11-12:2026-11-18' });
+  const view = editor({ section: 'attribution', originalText, initial: { supplement: attribution(0, ''), editable: true } });
+  try {
+    assert.equal(view.input(), undefined);
+    assert.equal(view.savedText(), originalText);
+    view.click('编辑');
+    assert.equal(view.input().props.value, originalText);
+    assert.equal(view.button('保存').props.disabled, true);
+    view.change('discard this draft');
+    view.click('取消');
+    assert.equal(view.savedText(), originalText);
+    view.click('编辑');
+    view.change('revised **evidence**');
+    view.click('保存');
+    assert.deepEqual(JSON.parse(view.requests[0].options.body), { reportId, expectedRevision: 0, text: 'revised **evidence**', section: 'attribution' });
+    await view.reply(0, { supplement: attribution(1, 'revised **evidence**') });
+    assert.equal(view.input(), undefined);
+    assert.equal(view.savedText(), 'revised **evidence**');
   } finally { view.cleanup(); }
 });

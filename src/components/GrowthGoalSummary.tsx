@@ -14,7 +14,7 @@ import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } 
 
 export function GrowthReportDirections({ directions, title }: { directions: GrowthReportSnapshot["directions"]; title?: string }) {
   if (!directions.length) return <p className={styles.note}>本窗口尚无足够的可比方向归因证据；先核验页面、市场、来源和实际改动，再决定投入。</p>;
-  return <div className={styles.directions}><h4>{title}</h4>{directions.slice(0, 3).map(direction => <article key={direction.id}>
+  return <div className={styles.directions}>{title ? <h4>{title}</h4> : null}{directions.slice(0, 3).map(direction => <article key={direction.id}>
       <h5>{direction.title}</h5>
       {!direction.drivers.length ? <p className={styles.note}>{direction.recommendation} · {direction.decision}</p> : <ul className={styles.driverList}>
         {direction.drivers.map((driver, index) => {

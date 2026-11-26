@@ -176,6 +176,10 @@
 .planGroup h4 small { margin-inline-start:8px; color:#52647b; font-weight:400; }
 
 .supplementLabel { display:block; margin-bottom:8px; color:#52647b; font-size:13px; }
+.supplementHeading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+.supplementHeading :is(h3,h4) { margin:0; color:#152943; }
+.supplementHeading h4 { font-size:15px; }
+.supplementText { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .supplementInput { display:block; box-sizing:border-box; width:100%; min-height:150px; resize:vertical; padding:12px; border:1px solid #dce4ef; border-radius:8px; color:#17243b; background:#fff; font:inherit; font-size:14px; line-height:1.6; }
 .supplementInput:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
 .supplementInput:disabled { background:#f7f9fc; }
