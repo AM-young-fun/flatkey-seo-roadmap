@@ -70,7 +70,7 @@ test("next-week preparation finishes before Thursday 16:00 and does not depend o
   const plans = configuredAutomationPlans(new Date("2026-11-25T06:00:00Z"));
   const finalization = plans.find(plan => plan.id === "automation");
   const weekly = plans.find(plan => plan.id === "seo-09-30-2");
-  for (const [plan, date] of [[finalization, "2026-11-26T01:00:00.000Z"], [weekly, "2026-11-26T08:30:00.000Z"]]) {
+  for (const [plan, date] of [[finalization, "2026-11-26T04:30:00.000Z"], [weekly, "2026-11-26T08:30:00.000Z"]]) {
     const task = config.tasks.find(task => task.id === plan.id);
     assert.equal(nextAutomationTime(task.rrule, new Date("2026-11-25T06:00:00Z"), "ACTIVE", task.workdaysOnly), date);
     assert.equal(plan.nextAt, task.status === "ACTIVE" ? date : null);

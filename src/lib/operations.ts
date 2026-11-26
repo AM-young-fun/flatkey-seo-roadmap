@@ -89,7 +89,7 @@ export function nextAutomationTime(rule: string, now: Date, status: string, work
 const automationNotes: Record<string, string> = {
   "seo-16-00-ga4-search-console": "北京时间每日16:00先采集 GA4／GSC、Flatkey 流量和注册并生产读回，再完成三站巡检、Flatkey 404、到期效果复查和热点工作。来源延迟按实际统计日补采。",
   "flatkey-5": "实际工作日10:15、14:15分别排队，按原ID和原会话逐项执行。上午未完续入下午，保留原排期、配额、审批和有效租约。",
-  "automation": "周四09:00直接从冻结季度词核验当天待排工作的原市场搜索意图及自然结果，完成下周正式任务与交付排期，16:00前生产读回，供16:30周报读取。",
+  "automation": "周四12:30直接从冻结季度词核验当天待排工作的原市场搜索意图及自然结果，完成下周正式任务与交付排期，16:00前生产读回，供16:30周报读取。",
   "seo": "每天09:30轮查5–10篇已上线的 Flatkey 或 ModelFit 旧文。合格项按现有优化和翻新额度排队，候选不足时保留缺口。",
   "automation-2": "北京时间每日10:30，独立核验新Prompt的来源许可、成品、精确模型和去重，经原create-only内容接口导入并生产读回；不向GitHub或钉钉发送。",
   "seo-09-30-2": "周四16:30只生成洛杉矶上周四至本周三的周报并保存确切版本，读取同日已定稿的下周计划。",
