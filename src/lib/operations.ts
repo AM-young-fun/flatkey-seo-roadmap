@@ -87,13 +87,13 @@ export function nextAutomationTime(rule: string, now: Date, status: string, work
 }
 
 const automationNotes: Record<string, string> = {
-  "seo-16-00-ga4-search-console": "北京时间每日16:00先采集 GA4／GSC、Flatkey 流量和注册并生产读回，再完成三站巡检、Flatkey 404、到期效果复查和热点工作。来源延迟按实际统计日补采。",
+  "seo-16-00-ga4-search-console": "北京时间16:00在周一至周五采集 GA4／GSC、Flatkey 流量和注册。延期仅多核一个来源日，周六、周日数据周一按各原日统一补采。当天完成三站巡检、Flatkey 404 和到期效果，热点仍按周核验。",
   "flatkey-5": "实际工作日10:15、14:15分别排队，按原ID和原会话逐项执行。上午未完续入下午，保留原排期、配额、审批和有效租约。",
   "automation": "周四14:20开始下周正式排期，覆盖新增制作、旧页维护、技术和延期续做。新制作使用冻结季度词并核验原市场搜索意图及自然结果，正式任务与交付日16:00前生产读回，供16:30周报读取。",
   "seo": "每天09:30轮查5–10篇已上线的 Flatkey 或 ModelFit 旧文。合格项按现有优化和翻新额度排队，候选不足时保留缺口。",
   "automation-2": "北京时间每日10:30，独立核验新Prompt的来源许可、成品、精确模型和去重，经原create-only内容接口导入并生产读回；不向GitHub或钉钉发送。",
   "seo-09-30-2": "周四16:30只生成洛杉矶上周四至本周三的周报并保存确切版本，读取同日已定稿的下周计划。",
-  "seo-18-00": "北京时间每日18:00在同日数据采集完成并生产读回后生成和归档日报。群发送由有权限用户在日报页手动触发。",
+  "seo-18-00": "北京时间18:00在同轮数据采集结束并生产读回后生成日报。周末数据的日报周一按各原日期分别归档；延期只核上一日。群发送由有权限用户在日报页手动触发。",
 };
 export function automationCadence(rule: string): string {
   const values = Object.fromEntries(rule.split(";").map(part => part.split("=")));

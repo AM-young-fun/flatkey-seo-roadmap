@@ -25,12 +25,22 @@ function failure(error: unknown) {
 }
 export async function GET(request: Request) {
   try { await authorize(request); const params = new URL(request.url).searchParams;
+    if (params.has("satelliteRequestId")) {
+      const { loadSatelliteQuarterReceipt } = await import("@/lib/services/satellite-quarter");
+      return Response.json(await loadSatelliteQuarterReceipt(z.string().regex(/^[a-zA-Z0-9:_-]{8,160}$/).parse(params.get("satelliteRequestId"))), { headers });
+    }
     if (params.has("identityRequestId")) return Response.json(await loadPreFreezeIdentityReceipt(z.string().min(1).max(200).parse(params.get("identityRequestId")), "human"), { headers });
     if (params.has("membershipRequestId")) return Response.json(await loadQuarterMembershipReceipt(z.string().min(1).max(200).parse(params.get("membershipRequestId"))), { headers });
     const value = params.get("selectionHash"); const hash = value === null ? undefined : z.string().regex(/^[a-f0-9]{64}$/).parse(value); return Response.json(await loadQuarterMembership(hash), { headers }); } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {
   try { await authorize(request, true); const input = await readImportJson(request);
+    if (input && typeof input === "object" && "action" in input && input.action === "apply_satellite_quarter") {
+      const { applySatelliteQuarter } = await import("@/lib/services/satellite-quarter");
+      const result = await applySatelliteQuarter(input);
+      if (!result.replay) await displayDataChanged();
+      return Response.json(result, { headers });
+    }
     if (input && typeof input === "object" && "action" in input && ["preview_identities", "apply_identities"].includes(String(input.action))) {
       const result = await savePreFreezeIdentities(input, "human");
       if (result.status === "IDENTITIES_APPLIED" && !result.replay) await displayDataChanged();

@@ -8,6 +8,97 @@ import styles from "./GrowthGoalSummary.module.css";
 
 const storageKey = "seo-quarter-membership:2026-close";
 type Pending = { command: MembershipApply; original: MembershipPreview };
+
+type SatelliteBatch = {
+  action: "apply_satellite_quarter";
+  requestId: string;
+  expectedVersion: number;
+  rows: { siteDomain: string; keyword: string; researchDate: string }[];
+};
+type SatelliteReceipt = {
+  status: "SATELLITE_QUARTER_APPLIED";
+  readbackVerified: boolean;
+  siteCounts: { "modelfit.cc": number; "rackrate.org": number };
+  pool: { requestId: string; selectionHash: string; members: { siteDomain: string; keyword: string; researchDate: string }[] };
+};
+const satellitePendingKey = "seo-satellite-quarter:pending-request";
+
+export function SatelliteQuarterImport({ currentVersion }: { currentVersion: number }) {
+  const [batch, setBatch] = useState<SatelliteBatch | null>(null);
+  const [requestId, setRequestId] = useState("");
+  const [receipt, setReceipt] = useState<SatelliteReceipt | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const locked = useRef(false);
+  useEffect(() => {
+    try { setRequestId(sessionStorage.getItem(satellitePendingKey) ?? ""); }
+    catch { setMessage("浏览器未能读取原补充请求记录"); }
+  }, []);
+  async function choose(file?: File) {
+    if (!file || locked.current) return;
+    setBatch(null);
+    setReceipt(null);
+    setMessage("");
+    try {
+      if (file.size > 1_900_000) throw Error("季度补充文件须小于 1.9 MB");
+      const value = JSON.parse(await file.text());
+      if (value?.action !== "apply_satellite_quarter" || typeof value.requestId !== "string"
+        || !Number.isSafeInteger(value.expectedVersion) || !Array.isArray(value.rows) || value.rows.length !== 200
+        || value.rows.some((row: SatelliteBatch["rows"][number]) => !row
+          || !["modelfit.cc", "rackrate.org"].includes(row.siteDomain) || typeof row.keyword !== "string" || typeof row.researchDate !== "string")) {
+        throw Error("请选择带版本、原始证据和 200 个补充词的清单");
+      }
+      setBatch(value);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "无法读取季度补充清单"); }
+  }
+  async function verify(id: string) {
+    const result: SatelliteReceipt = await identityJson(identityApi + "?" + new URLSearchParams({ satelliteRequestId: id }));
+    if (result.status !== "SATELLITE_QUARTER_APPLIED" || !result.readbackVerified
+      || result.pool.requestId !== id || result.pool.members.length !== 200
+      || result.siteCounts["modelfit.cc"] + result.siteCounts["rackrate.org"] !== 200) throw Error("未读回完整的 200 个正式补充词");
+    setReceipt(result);
+    setRequestId("");
+    sessionStorage.removeItem(satellitePendingKey);
+    dispatchEvent(new Event("seo-growth-updated"));
+  }
+  async function submit(reconcile = false) {
+    if (locked.current || (!reconcile && (!batch || requestId || batch.expectedVersion !== currentVersion))) return;
+    const id = reconcile ? requestId : batch?.requestId;
+    if (!id) return;
+    locked.current = true;
+    setBusy(true);
+    setMessage("");
+    try {
+      if (!reconcile) {
+        sessionStorage.setItem(satellitePendingKey, id);
+        setRequestId(id);
+        const response = await fetch(identityApi, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(batch), signal: AbortSignal.timeout(90_000) });
+        if (response.status >= 400 && response.status < 500) {
+          const result = await response.json();
+          sessionStorage.removeItem(satellitePendingKey);
+          setRequestId("");
+          throw Error(result.message ?? "补充清单未通过审核");
+        }
+      }
+      await verify(id);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "请先核对原请求回执"); }
+    finally { locked.current = false; setBusy(false); }
+  }
+  return <details><summary>ModelFit 与 RackRate 季度补充词</summary>
+    <label>200 词清单 <input aria-label="两站季度补充词清单" type="file" accept="application/json,.json" disabled={busy || Boolean(requestId)}
+      onChange={event => void choose(event.target.files?.[0])} /></label>
+    {batch ? <><p>ModelFit {batch.rows.filter(row => row.siteDomain === "modelfit.cc").length} 个 · RackRate {batch.rows.filter(row => row.siteDomain === "rackrate.org").length} 个</p>
+      {batch.expectedVersion !== currentVersion ? <p role="alert">季度策略版本已更新，请核对清单版本后重新导入。</p> : null}
+      <details><summary>查看补充原词</summary><div className={styles.scroll}><table><thead><tr><th>站点</th><th>原词</th><th>研究日</th></tr></thead>
+        <tbody>{batch.rows.map(row => <tr key={row.siteDomain + ":" + row.keyword}><td>{row.siteDomain}</td><td>{row.keyword}</td><td>{row.researchDate}</td></tr>)}</tbody></table></div></details>
+      <FeedbackButton pending={busy} disabled={Boolean(requestId || receipt) || batch.expectedVersion !== currentVersion} onClick={() => void submit()}>应用两站季度补充词</FeedbackButton></> : null}
+    {requestId ? <FeedbackButton pending={busy} onClick={() => void submit(true)}>核对原补充请求回执</FeedbackButton> : null}
+    {receipt ? <p role="status">已读回 200 个正式补充词。ModelFit {receipt.siteCounts["modelfit.cc"]} 个 · RackRate {receipt.siteCounts["rackrate.org"]} 个。清单哈希 {receipt.pool.selectionHash}</p> : null}
+    {message ? <p role="alert">{message}</p> : null}
+  </details>;
+}
+
 export function QuarterResearchImport({ onChanged }: { onChanged: () => void | Promise<void> }) {
   const [batch, setBatch] = useState<{ action: "stage_new_words"; requestId: string; rows: unknown[] } | null>(null);
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");

@@ -3,6 +3,7 @@ import type { GrowthStrategy } from "./growth-strategy";
 import { seoToday } from "./seo-date-range";
 import type { WorkflowTask } from "./seo-workflow";
 import type { GrowthTarget } from "./growth-types";
+import { satelliteQuarterBound, satelliteQuarterCounts } from "./satellite-quarter";
 
 export type QuarterDeliveryTask = Pick<WorkflowTask, "siteDomain" | "topicId" | "keywordId" | "keyword" | "country" | "language" | "dueAt">;
 const identityKey = (site: string, topic: string | undefined | null, id: string | null, keyword: string | null, country: string | null, language: string | null) =>
@@ -27,9 +28,18 @@ export function quarterCalendarDisplay(state: GrowthStrategy, targets: GrowthTar
       researchDate: row.researchDate, deliveryDate: actualDate ?? (hasQuarterDelivery(row) ? row.deliveryDate : null),
     };
   });
+  const pool = satelliteQuarterBound(state);
+  const satellite = pool ? {
+    siteCounts: satelliteQuarterCounts(pool),
+    rows: pool.members.map(row => ({
+      id: row.targetId, keyword: row.keyword, country: row.country, volume: row.volume, site: row.siteDomain,
+      topicId: row.topicId, topicName: byId.get(row.targetId)?.topicName ?? null, researchDate: row.researchDate,
+      deliveryDate: committed.get(identityKey(row.siteDomain, row.topicId, row.keywordId, row.keyword, row.country, row.language)) ?? null,
+    })),
+  } : null;
   return { rows, total: review.plan.targetIds.length, start: review.plan.executionStart, end: review.plan.executionEnd,
     frozen: state.baseline?.planHash === review.hash, deliveryPending: rows.filter(row => !row.deliveryDate).length,
-    days: [...new Set(rows.map(row => row.researchDate))].sort() };
+    days: [...new Set(rows.map(row => row.researchDate))].sort(), satellite };
 }
 
 export type QuarterCalendarDisplay = NonNullable<ReturnType<typeof quarterCalendarDisplay>>;

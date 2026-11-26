@@ -7,7 +7,7 @@ import styles from "./GrowthGoalSummary.module.css";
 import { FeedbackButton } from "./FeedbackButton";
 import { SeoAnchor } from "@/components/SeoAnchor";
 import { PreFreezeIdentityReview } from "./PreFreezeIdentityReview";
-import { QuarterMembershipReview, QuarterResearchImport } from "./QuarterMembershipReview";
+import { QuarterMembershipReview, QuarterResearchImport, SatelliteQuarterImport } from "./QuarterMembershipReview";
 import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
 import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "@/lib/growth-quarter-calendar";
 
@@ -138,6 +138,7 @@ export function GrowthQuarterReview({ allowManualOpen = false }: { allowManualOp
       {quarter?.plan.calendar ? <QuarterCalendarByDay calendar={quarter.plan.calendar} /> : null}
       {deliveryPending > 0 ? <p>逐日研究排期已保存。还有 {deliveryPending} 个词待确认意图和交付名额。</p> : null}
       {legacyQuarter ? <QuarterResearchImport onChanged={load} /> : null}
+      {view.state.baseline?.planHash && view.state.baseline.targets.length === QUARTER_NEW_WORD_COUNT ? <SatelliteQuarterImport currentVersion={view.state.version} /> : null}
       {!view.state.baseline || legacyQuarter ? <><QuarterMembershipReview onChanged={load} newQuarterOnly={legacyQuarter} /><PreFreezeIdentityReview onChanged={load} newQuarterOnly={legacyQuarter} /></> : null}
       <p>冻结目标 {view.state.baseline?.targets.length ?? "尚未核定"}；新批次 {view.state.batches.length}；原任务待补效果 {view.dueObservations.length}；历史来源待核 {view.historicalDueObservations?.length ?? 0}。新增批次不会改变季度原始分母。</p>
       {!view.state.baseline ? <details><summary>审阅候选底账（{formalTargets.length}，不是季度规划完成量）</summary><div className={styles.scroll}><table><thead><tr><th>话题</th><th>目标关键词</th><th>站点 / 国家 / 语言</th><th>页面</th></tr></thead><tbody>{formalTargets.map(row => <tr key={row.id}><td>{row.topicName ?? "未归类"}</td><td>{row.keyword}</td><td>{row.site} · {row.country ?? "未知"} / {row.language ?? "未知"}</td><td>{row.pageState === "published" ? "已建页面" : row.pageState === "planned" ? "规划中" : "未关联"}</td></tr>)}</tbody></table></div><p>候选底账仅说明现有来源。完整季度方案须明确主攻话题、本地研究预算、实际投入和缺口；待核身份仍留N、不计R。</p>{!quarter ? <p>尚未保存完整季度方案，不能直接把候选底账冻结为季度目标。</p> : null}</details> : null}

@@ -85,6 +85,35 @@ test("prior commitments and qualified extra work survive the new routine ceiling
   assert.equal(routineLanguageProblems({ ...options, capacity: 10, tasks: [original("new-fr", "fr"), original("new-de", "de")] })[0].code, "routine_daily_language_capacity");
 });
 
+test("two-site production links the supplement without borrowing Flatkey workstreams or growing caps", () => {
+  const hash = "d".repeat(64), satelliteHash = "e".repeat(64);
+  const original = { ...task, id: "old-model-promise", kind: "blog", siteDomain: "modelfit.cc", keyword: "existing original promise" };
+  const blog = { ...original, id: "new-model-blog", topicId: "local-models", keywordId: "model-guide", keyword: "model compatibility guide", dueAt: dates[0] + "T06:00:00Z" };
+  const rack = { ...blog, id: "new-rack-landing", siteDomain: "rackrate.org", kind: "landing", topicId: "rental", keywordId: "rental-prices", keyword: "gpu rental pricing" };
+  const records = [original, blog, rack].map(record => ({ kind: "task", record }));
+  const strategy = {
+    baseline: { planHash: hash },
+    quarterPlanning: { revision: 1, hash, approval: { hash }, plan: { version: "quarter-planning-v3", executionStart: dates[0], executionEnd: "2027-02-05",
+      deliveryBudget: { total: 100 }, researchBudget: { total: 1000 }, workstreams: [], reservedOriginalTaskIds: [original.id] } },
+    satelliteQuarter: { baselinePlanHash: hash, selectionHash: satelliteHash, members: [blog, rack] },
+  };
+  const counts = allocateIntegerBudget(45, BUSINESS_DELIVERY_WEIGHTS);
+  const allocation = { version: "quarter-planning-v3", quarterPlanHash: hash, satelliteQuarterHash: satelliteHash,
+    futureBudget: { total: 45, counts }, preservedTaskIds: [], tasks: [], marketResearchBudget: { total: 0 },
+    gaps: Object.entries(counts).map(([bucket, count]) => ({ bucket, count })) };
+  const base = plan();
+  const record = plan({ taskIds: [original.id, blog.id, rack.id], strategyAllocation: allocation,
+    targets: { ...base.targets, blogLanguages: { en: 5, ja: 5, "pt-BR": 5, "zh-CN": 5, "es-ES": 5, fr: 0, de: 0, ru: 0, vi: 0, id: 0 } } });
+  assert.doesNotThrow(() => assertGrowthPlan(record, undefined, records));
+  assert.deepEqual(quarterAllocationProblems(record, strategy, [original, blog, rack]), []);
+  assert.match(quarterAllocationProblems({ ...record, strategyAllocation: { ...allocation, satelliteQuarterHash: undefined } }, strategy, [original, blog, rack]).join(" "), /确切季度词批次/);
+  assert.match(quarterAllocationProblems(record, strategy, [original, { ...blog, topicId: "wrong" }, rack]).join(" "), /确切季度词批次/);
+  assert.throws(() => assertGrowthPlan(record, undefined, [{ ...records[0], record: { ...original, dueAt: blog.dueAt } }, ...records.slice(1)]),
+    { code: "growth_plan_daily_capacity" });
+  assert.throws(() => assertGrowthPlan({ ...record, strategyAllocation: { ...allocation, satelliteQuarterHash: hash } }, record, records),
+    { code: "satellite_allocation_immutable" });
+});
+
 test("formal growth save accepts new Spanish and pooled languages under the new budgets and preserves a legacy plan on extra-only append", () => {
   const newRows = ["zh-CN", "ja", "en", "es-ES", "fr"].map((language, index) => ({ ...task, id: `blog-${index}`, kind: "blog", business: "GPU", keyword: `original ${index}`, language }));
   const empty = plan(), taskIds = newRows.map(row => row.id), records = newRows.map(record => ({ kind: "task", record }));

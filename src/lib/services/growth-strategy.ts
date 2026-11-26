@@ -11,7 +11,7 @@ import { latestClosedLa7DayRange, shiftDay, weeklyReportRange } from "../seo-dat
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { loadGrowthDashboardHistory, loadGrowthDashboardWorkspace, loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
-import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
+import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_STRATEGY_KEY, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
 import type { GrowthWorkspace } from "../growth-types";
 import { workflowSnapshot, type WorkflowStoredRow } from "../seo-workflow-state";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask, type WorkflowSnapshot } from "../seo-workflow";
@@ -19,7 +19,7 @@ import { QUARTER_NEW_WORD_VERSION } from "../growth-quarter-calendar";
 import { growthExactTrafficSchema, growthTrafficHasCompleteHostScope } from "../growth-exact-traffic";
 import { growthDueObservationInventory } from "../growth-due-observations";
 
-const key = `${GROWTH_STRATEGY_KIND}:${GROWTH_QUARTER_ID}`;
+const key = GROWTH_STRATEGY_KEY;
 type Reader = Pick<Prisma.TransactionClient, "seoWorkflowRecord">;
 type LocalState = { state: GrowthStrategy; events: { requestId: string; requestHash: string; state: GrowthStrategy }[] };
 const json = (value: unknown) => value as Prisma.InputJsonValue;

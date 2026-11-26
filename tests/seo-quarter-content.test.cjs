@@ -63,3 +63,59 @@ test('a fully researched word can fill one fixed workday slot without waiting fo
  assert.equal(projected.rows[1].deliveryDate,null);
  assert.equal(projected.deliveryPending,999);
 });
+
+test('the separate two-site pool keeps original commitments and requires exact identity and research before production', () => {
+ const approved = state();
+ approved.baseline.targets = approved.baseline.targets.slice(0, 1000);
+ approved.baseline.planHash = approved.quarterPlanning.hash;
+ approved.quarterPlanning.plan = { version: 'quarter-planning-v3', targetIds: approved.baseline.targets.map(target => target.id),
+  executionStart: '2026-11-27', executionEnd: '2027-02-05', reservedOriginalTaskIds: ['old-model'], calendar: [] };
+ const rowModel = { siteDomain: 'modelfit.cc', keywordId: 'model-id', targetId: 'model-target', topicId: 'model-topic',
+  keyword: 'model compatibility guide', country: 'US', language: 'en', volume: 90, researchDate: '2026-11-30' };
+ const rowRack = { ...rowModel, siteDomain: 'rackrate.org', keywordId: 'rack-id', targetId: 'rack-target', topicId: 'rack-topic', keyword: 'gpu rental pricing options' };
+ approved.satelliteQuarter = { baselinePlanHash: approved.baseline.planHash, members: [rowModel, rowRack] };
+ const model = { ...task, ...rowModel, id: 'model-new', dueAt: '2026-12-02T06:00:00Z', workflowContract: 'growth-v1.5',
+  research: { intent: 'choosing a compatible runtime' },
+  researchReview: { keyword: rowModel.keyword, country: 'US', language: 'en', evidence: [{}] } };
+ const rack = { ...model, ...rowRack, id: 'rack-new', kind: 'landing', researchReview: { ...model.researchReview, keyword: rowRack.keyword } };
+ assert.deepEqual(quarterContentProblems([model, rack], approved, []), []);
+ for (const bad of [{ ...model, topicId: rowRack.topicId }, { ...model, keywordId: rowRack.keywordId }, { ...model, researchReview: undefined },
+  { ...model, dueAt: '2026-11-27T06:00:00Z' }, { ...rack, kind: 'blog' }, { ...rack, kind: 'cluster' }]) {
+  assert.equal(quarterContentProblems([bad], approved, []).length, 1);
+ }
+ assert.equal(quarterContentProblems([model], approved, [row('task', { ...model, id: 'model-duplicate' })]).length, 1);
+ const original = { ...model, id: 'old-model', keyword: 'already promised outside the new pool' };
+ assert.deepEqual(quarterContentProblems([original], approved, [row('task', original)]), []);
+ const { quarterCalendarDisplay } = require('../src/lib/growth-quarter-display.ts');
+ const projected = quarterCalendarDisplay(approved, [], [model]);
+ assert.equal(projected.total, 1000);
+ assert.deepEqual(projected.satellite.siteCounts, { 'modelfit.cc': 1, 'rackrate.org': 1 });
+ assert.equal(projected.satellite.rows[0].deliveryDate, '2026-12-02');
+ assert.equal(projected.satellite.rows[1].deliveryDate, null);
+});
+
+test('supplement intake requires 200 unique cross-site words with immutable Ahrefs provenance and actual research dates', () => {
+ const { satelliteQuarterCommandSchema, satelliteQuarterHash, satelliteQuarterProblem } = require('../src/lib/satellite-quarter.ts');
+ const approved = state();
+ approved.baseline.targets = approved.baseline.targets.slice(0, 1000);
+ approved.baseline.planHash = approved.quarterPlanning.hash;
+ approved.quarterPlanning.plan = { version: 'quarter-planning-v3', targetIds: approved.baseline.targets.map(target => target.id),
+  executionStart: '2026-11-27', executionEnd: '2027-02-05', calendar: [] };
+ const now = new Date('2026-11-26T04:00:00Z');
+ const rows = Array.from({ length: 200 }, (_, index) => {
+  const keyword = 'verified fixture keyword ' + index, sourceRow = index + 1;
+  return { siteDomain: index < 100 ? 'modelfit.cc' : 'rackrate.org', topicId: 'site-topic', keyword, country: 'US', language: 'en', volume: 30,
+   sourceUrl: 'https://app.ahrefs.com/keywords-explorer/google/us/matching-terms', sourceFile: 'fixture.csv', sourceSha256: 'a'.repeat(64),
+   sourceRow, observedAt: now.toISOString(), researchDate: '2026-11-30',
+   excerpt: `#,Keyword,Country,Volume,Languages\n${sourceRow},${keyword},us,30,English` };
+ });
+ const command = satelliteQuarterCommandSchema.parse({ action: 'apply_satellite_quarter', requestId: 'test-fixture-200', expectedVersion: 30, rows });
+ assert.equal(satelliteQuarterProblem(command, approved, now), null);
+ assert.equal(satelliteQuarterHash(rows), satelliteQuarterHash([...rows].reverse()));
+ assert.equal(satelliteQuarterCommandSchema.safeParse({ ...command, rows: rows.slice(1) }).success, false);
+ const problem = patch => satelliteQuarterProblem({ ...command, rows: [...rows.slice(0, -1), { ...rows.at(-1), ...patch }] }, approved, now);
+ assert.match(problem({ researchDate: '2026-11-29' }), /真实工作日/);
+ assert.match(problem({ volume: 40 }), /原始导出行/);
+ assert.match(problem({ ...rows[0], siteDomain: 'rackrate.org' }), /重复/);
+ assert.match(satelliteQuarterProblem({ ...command, rows: rows.map(row => ({ ...row, siteDomain: 'modelfit.cc' })) }, approved, now), /涵盖/);
+});

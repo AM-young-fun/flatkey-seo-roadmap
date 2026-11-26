@@ -12,6 +12,7 @@ import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "
 import { serpPeriod } from "@/lib/serp-periods";
 import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
+import { satelliteQuarterBound, satelliteQuarterCounts } from "@/lib/satellite-quarter";
 import { HUMAN_WORD_LANGUAGE_SOURCE_ID, PRE_FREEZE_IDENTITY_AUDIT, auditedHumanWordLanguages, type IdentityAudit, type IdentitySourceRow } from "@/lib/pre-freeze-market-identities";
 import { projectAppliedQuarterManifestTopics } from "@/lib/applied-quarter-manifest";
 import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
@@ -309,10 +310,17 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
     }
   });
   const assignmentById = new Map(assignments.map(row => [`${row.siteDomain}:${row.rowKey}`, row.snapshot]));
+  const parsedStrategy = growthStrategyStoredSchema.safeParse(quarterRow?.payload);
+  const satellite = parsedStrategy.success ? satelliteQuarterBound(parsedStrategy.data) : null;
+  const satelliteLanguages = (satellite?.members ?? []).map(row => ({
+    site: row.siteDomain, keywordId: row.keywordId, keyword: row.keyword, language: row.language,
+    source: `Ahrefs ${row.sourceSha256}:${row.sourceRow}`, scope: "current-target-only" as const,
+    evidence: [{ text: row.keyword, start: 0, end: row.keyword.length }],
+  }));
   const input: GrowthWorkspaceInput = { generatedAt: now.toISOString(), topics: topics.map(topic => ({ id: topic.id, text: topic.text, active: topic.active, parentId: topic.parentId, parentIds: topic.childEdges.map(edge => edge.parentId), sites: topic.sites.map(site => site.siteDomain) })),
     memberships: members.map(row => ({ site: row.siteDomain, keywordId: row.keywordId, keyword: row.keyword.text, keywordActive: row.keyword.active, active: row.active, topicId: row.topicId, topicIds: row.topicAssignments.map(assignment => assignment.topicId), pool: row.pool, origin: row.origin,
       targetUrls: row.targetUrls, sourceUrl: row.sourceUrl, mappingStatus: row.mappingStatus, marketAssignment: assignmentById.get(`${row.siteDomain}:keyword:${row.keywordId}`) })),
-    inventory: inventory.map(row => ({ url: row.url, lastSeen: row.lastSeen.toISOString() })), tasks: workflow.tasks, publications: workflow.publications, plans,wordLanguageEvidence:[...approvedDiagnosticWordLanguages(), ...humanLanguages],ranks, sources };
+    inventory: inventory.map(row => ({ url: row.url, lastSeen: row.lastSeen.toISOString() })), tasks: workflow.tasks, publications: workflow.publications, plans,wordLanguageEvidence:[...approvedDiagnosticWordLanguages(), ...humanLanguages, ...satelliteLanguages],ranks, sources };
   const currentTopics = projectAppliedQuarterManifestTopics(input, membershipAudit, savedSites);
   sources.push({ name: "当前季度已应用人审主话题清单", available: Boolean(currentTopics.applied),
     reason: currentTopics.applied
@@ -334,6 +342,10 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
   const approvedHash = typeof baseline.planHash === "string" ? baseline.planHash
     : typeof quarterPlan.hash === "string" && approved.hash === quarterPlan.hash ? quarterPlan.hash : approvedHistory?.hash ?? baseline.sourceVersion;
   if (quarterTargets.length && typeof approvedHash === "string") workspace.quarter = { targetIds: quarterTargets, keywordCount: quarterTargets.length, hash: approvedHash };
+  if (satellite) workspace.satelliteQuarter = {
+    targetIds: satellite.members.map(row => row.targetId), siteCounts: satelliteQuarterCounts(satellite),
+    selectionHash: satellite.selectionHash, approvedAt: satellite.approvedAt, requestId: satellite.requestId,
+  };
   workspace.sites = workspace.sites.map(site => {
     const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;
     return { ...site, dataReadiness: siteSourceReadiness(site.domain, savedProperty) };
@@ -346,7 +358,6 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
     .sort((a, b) => JSON.stringify([a.site, a.keywordId, a.url, a.checkedAt, a.source]).localeCompare(JSON.stringify([b.site, b.keywordId, b.url, b.checkedAt, b.source])));
   workspace.pageLiveEvidenceComplete = pageAuditAvailable;
   workspace.reconciliation.sources.push({ name: "现有逐页上线验收及反证", available: pageAuditAvailable, reason: pageAuditAvailable ? "仅复用正常page-audit/liveCheck回执；库存不代表当前HTTP200。缺少新24小时真实证据不授付费资格，不影响季度N/已有排名事实。" : "逐页QA来源未读齐；普通目标/历史保留，新的付费候选全部暂缓。" });
-  const parsedStrategy = growthStrategyStoredSchema.safeParse(quarterRow?.payload);
   const authorizedHotTaskIds = new Set(parsedStrategy.success ? [...buildGrowthHotspotView(parsedStrategy.data, workflow, plans, now).items.filter(item => item.researchComplete && item.admission.status === "scheduled").flatMap(item => item.taskIds), ...publishedGrowthHotspotTaskIds(parsedStrategy.data, workflow, plans, now)] : []);
   const extraTasks = workflow.tasks.filter(task => task.capacityClass === "authorized_hotspot_extra" && !task.deletedAt && authorizedHotTaskIds.has(task.id));
   workspace.hotspotTargetIds = workspace.targets.filter(target => extraTasks.some(task => target.site === task.siteDomain && target.keywordId === task.keywordId && target.country === task.country && target.language === task.language && growthWordKey(target.keyword) === growthWordKey(task.keyword ?? ""))).map(target => target.id);
