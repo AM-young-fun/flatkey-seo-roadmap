@@ -33,6 +33,8 @@ export async function proxy(request: NextRequest) {
   if (growth && (request.method === "GET" || request.method === "POST" && request.nextUrl.pathname !== "/api/seo/growth")) return NextResponse.next();
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
+  if (request.nextUrl.pathname === "/api/seo/analytics" && request.method === "GET"
+    && request.nextUrl.searchParams.get("view") === "old-post-shortlist") return NextResponse.next();
   // The fixed historical export authenticates the same saved-ranking read scope.
   if (request.nextUrl.pathname === "/api/seo/trends/history-export" && request.method === "GET") return NextResponse.next();
   // This exact POST authenticates the human cookie and same-origin write itself.

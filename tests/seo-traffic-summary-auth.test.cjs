@@ -4,6 +4,7 @@ const Module = require("node:module");
 require("./register-ui-modules.cjs");
 const original = Module._load;
 Module._load = function(name, parent, ...args) {
+  if (name === "@/lib/auth") return { AUTH_COOKIE_NAME: "test-auth", isAuthEnabled: () => true, isValidAuthToken: async () => false };
   if (name === "@/lib/services/import-tokens") return {
     authenticateImportToken: async request => request.headers.get("authorization") === "Bearer verified-collector",
   };
@@ -42,4 +43,13 @@ test("the collector reaches the exact route and the handler independently checks
     ["2026-11-18", null], ["2026-11-19", null], ["2026-11-20", null],
   ]);
   assert.equal((await route.GET(new Request(url + "?start=2026-11-18", { headers: collector }))).status, 400);
+});
+
+test("only the saved old-post view reaches its own collector authenticator", async () => {
+  const endpoint = "https://example.com/api/seo/analytics";
+  const headers = { authorization: "Bearer verified-collector" };
+  const shortlist = endpoint + "?view=old-post-shortlist";
+  assert.equal((await proxy(new NextRequest(shortlist, { headers }))).headers.get("x-middleware-next"), "1");
+  assert.equal((await proxy(new NextRequest(shortlist, { method: "POST", headers }))).status, 401);
+  assert.equal((await proxy(new NextRequest(endpoint + "?view=traffic-overview", { headers }))).status, 401);
 });
