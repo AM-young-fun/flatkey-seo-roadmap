@@ -1,3 +1,4 @@
+import { formatCtr } from "./seo-page-effects";
 import type { ReportDashboardEvidence } from "./seo-report-dashboard";
 
 type Evidence = Pick<ReportDashboardEvidence, "sites" | "countries" | "modules">;
@@ -20,5 +21,15 @@ export function dailyTrafficSection(evidence: Evidence, sourceDay: string) {
 export function replaceDailyTrafficSection(text: string, evidence: Evidence, sourceDay: string) {
   const pattern = /\*\*各站与四国流量\*\*[\s\S]*?(?=\*\*流量涨跌原因\*\*)/u;
   if (!pattern.test(text)) throw new Error("日报流量正文与原来源快照不一致，须按当前模板重新生成基础版本");
-  return text.replace(pattern, dailyTrafficSection(evidence, sourceDay).join("\n") + "\n\n");
+  const revised = text.replace(pattern, dailyTrafficSection(evidence, sourceDay).join("\n") + "\n\n");
+  const flatkey = evidence.sites.find(row => row.name === "flatkey.ai");
+  if (!flatkey || flatkey.clicks.current === null) return revised;
+
+  const ctr = (side: "previous" | "current") => {
+    const clicks = flatkey.clicks[side], impressions = flatkey.impressions[side];
+    return formatCtr(clicks !== null && impressions !== null && impressions > 0 ? clicks / impressions : null);
+  };
+  const headline = /(\*\*1\. 全站自然搜索\*\*\s+GA4自然搜索会话 [^\r\n]+\s+)Google点击 [^\r\n]+；曝光 [^\r\n]+；CTR [^\r\n]+。(?:\s+GSC \d{4}-\d{2}-\d{2}尚无有效结果；\d{4}-\d{2}-\d{2}仅作已标日期的上期数据，不替代本日。)?/u;
+  return revised.replace(headline, (_matched, intro: string) =>
+    `${intro}Google点击 ${pair(flatkey.clicks)}；曝光 ${pair(flatkey.impressions)}；CTR ${ctr("previous")} → ${ctr("current")}。`);
 }

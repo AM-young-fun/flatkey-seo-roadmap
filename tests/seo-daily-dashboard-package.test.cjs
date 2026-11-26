@@ -49,6 +49,32 @@ test('a partial later revision retains proven same-day metrics and attribution w
  assert.equal(pkg.command.dashboardEvidence.sites[0].sessions.current,202);assert.equal(pkg.command.moduleShares.current.all,160);assert.equal(pkg.complete,false);assert.ok(pkg.provenance.retained.length);
  assert.equal(next.dashboard.attributionText,saved.dashboard.attributionText);assert.equal(next.dashboard.technicalText,saved.dashboard.technicalText);assert.equal(pkg.command.dashboardEvidence.sites.find(r=>r.name==='modelfit.cc').sessions.current,null);
 }));
+test('late GSC evidence updates the daily headline and traffic table while preserving unrelated text',async()=>withFixture(async({scalarEvidence})=>{
+ const original=base();
+ const manualNote='人工复核：按原任务回查页面，保留 GSC 来源限制。';
+ original.text+=`\n\n${manualNote}`;
+ original.hash=sha(original.text);
+ original.detailText+=`\n\n${manualNote}`;
+ original.dashboard.detailText=original.detailText;
+ const first=assemble(scalarEvidence,original);
+ const saved=buildDailyDashboardSeoDigest(first.baseReport,first.command,now);
+ assert.match(saved.text,/Google点击 待更新/);
+ assert.match(saved.text,/GSC 2026-11-23尚无有效结果/);
+
+ const rows=analytics().map(row=>row.kind==='gsc-site'&&row.date===day
+  ? {...row,complete:true,clicks:160,impressions:17013,position:16} : row);
+ const revision=assemble(scalarEvidence,saved,rows);
+ const result=buildDailyDashboardSeoDigest(revision.baseReport,revision.command,now);
+ for(const text of [result.text,result.detailText,result.dashboard.detailText]){
+  assert.match(text,/Google点击 — → 160；曝光 — → 17,013；CTR — → 0\.94%/);
+  assert.match(text,/\| flatkey\.ai \| 145 → 202 \| — → 160 \| — → 17,013 \|/);
+  assert.doesNotMatch(text,/GSC 2026-11-23尚无有效结果/);
+  assert.ok(text.endsWith(manualNote));
+ }
+ assert.equal(revision.command.dashboardEvidence.gscComparable,false);
+ assert.deepEqual(result.workPlan,saved.workPlan);
+ assert.equal(result.dashboard.attributionText,saved.dashboard.attributionText);
+}));
 test('missing actual source time cannot overwrite a good archive or turn missing evidence into zero',async()=>withFixture(async({scalarEvidence})=>{
  scalarEvidence.moduleShares.observedAt=null;assert.throws(()=>assemble(scalarEvidence),/actual_scalar_source_time/);
  scalarEvidence.sourceDay='2026-11-21';assert.throws(()=>assemble(scalarEvidence),/window_mismatch/);
