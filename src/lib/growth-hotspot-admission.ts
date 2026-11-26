@@ -22,7 +22,7 @@ export const growthHotspotAdmissionSchema = z.object({
 });
 export type GrowthHotspotAdmissionCommand = z.infer<typeof growthHotspotAdmissionSchema>;
 export type HotspotLease = { runId: string; status: string; leaseUntil: string; stage?: string; scheduledFor?: string };
-export type HotspotAdmissionContext = { strategy: GrowthStrategy; workspace: GrowthWorkspace; workflow: WorkflowSnapshot; plans: WorkflowPlan[]; leases: HotspotLease[] };
+export type HotspotAdmissionContext = { strategy: GrowthStrategy; workspace: GrowthWorkspace; workflow: WorkflowSnapshot; plans: WorkflowPlan[]; leases: HotspotLease[]; confirmedKeywordTaskId?: string };
 export type HotspotAdmissionDecision = { taskId: string; status: "pending" | "reuse" | "admit"; reason: string; planId: string | null; task: WorkflowTask | null; plan: WorkflowPlan | null };
 const day = (stamp: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(stamp));
 const word = (value: string | null) => value?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ") ?? "";
@@ -81,7 +81,8 @@ export function prepareHotspotAdmission(context: HotspotAdmissionContext, comman
   const sourceTasks = context.workflow.tasks.filter(row => item.taskIds.includes(row.id));
   if (!sourceTasks.some(source => activeGrowthHotspot(source, now))) return pending("热点源证据已过期或无法独立对平，须重新核验，不自动刷新事件时间");
   const member = context.workspace.targets.find(target => target.membership === "formal" && target.sourceActive !== false && target.keywordId === task.keywordId && target.site === task.siteDomain && target.topicId === task.topicId && target.country === task.country && target.language === task.language && word(target.keyword) === word(task.keyword));
-  if (!member || member.languageStatus !== "match" || !context.workspace.topics.some(topic => topic.site === task.siteDomain && topic.topicId === task.topicId)) return pending("原词、原国家语种与本站真实TopicMap正式成员尚未核齐，不借用发现词或跨语种排名");
+  if ((member?.languageStatus !== "match" && (member?.languageStatus === "mismatch" || context.confirmedKeywordTaskId !== task.id))
+    || !context.workspace.topics.some(topic => topic.site === task.siteDomain && topic.topicId === task.topicId)) return pending("原词、原国家语种与本站真实TopicMap正式成员尚未核齐，不借用发现词或跨语种排名");
   const dueDay = day(task.dueAt);
   if (dueDay < view.businessWeek.start || dueDay > view.businessWeek.end || !isSeoWorkday(new Date(task.dueAt))) return pending("原交付日不在本北京时间周五至周四的实际工作日内，保留原日期并报告冲突，不擅挪下周");
   if (Date.parse(task.dueAt) < Date.parse(item.eventAt) || Date.parse(task.dueAt) > Date.parse(item.validUntil)) {
@@ -121,8 +122,9 @@ export function prepareHotspotKeywordConfirmation(context: HotspotAdmissionConte
     && row.topicId === task.topicId && row.country === task.country && row.language === task.language
     && row.sourceActive === true && word(row.keyword) === word(task.keyword)
     && (row.sourcePool === "RESEARCH" || row.sourcePool === "FORMAL"));
-  if (members.length !== 1 || !(members[0].languageStatus === "match"
-    || members[0].languageStatus === "unknown" && members[0].sourcePool === "RESEARCH")) return { task: null, reason: "须核得唯一、启用且与原任务同站同话题同市场语种的原词" };
+  if (members.some(row => row.languageStatus === "mismatch") || context.confirmedKeywordTaskId !== task.id
+    && (members.length !== 1 || !(members[0].languageStatus === "match"
+      || members[0].languageStatus === "unknown" && members[0].sourcePool === "RESEARCH"))) return { task: null, reason: "须核得唯一、启用且与原任务同站同话题同市场语种的原词" };
   const candidate = { ...task, workflowContract: "growth-v1.5" as const, status: "ready" as const,
     capacityClass: "authorized_hotspot_extra" as const };
   const decision = prepareHotspotAdmission({

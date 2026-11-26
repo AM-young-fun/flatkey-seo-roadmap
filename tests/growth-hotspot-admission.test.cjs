@@ -37,6 +37,18 @@ test("explicit confirmation preflights one approved legacy original and leaves r
   assert.equal(prepareHotspotKeywordConfirmation(context, confirm, now).task, null);
   assert.equal(growthHotspotAdmissionSchema.safeParse({ ...confirm, taskIds: [original.id, "another"] }).success, false);
 });
+test("admission can resume from an exact persisted keyword confirmation despite an incomplete projection", () => {
+  const context = fixture();
+  context.workspace.targets[0].languageStatus = "unknown";
+  assert.equal(prepareHotspotAdmission(context, command, "blog", now).status, "pending");
+  context.confirmedKeywordTaskId = "blog";
+  assert.equal(prepareHotspotAdmission(context, command, "blog", now).status, "admit");
+  context.workspace.targets[0].languageStatus = "mismatch";
+  assert.equal(prepareHotspotAdmission(context, command, "blog", now).status, "pending");
+  context.workspace.targets[0].languageStatus = "unknown";
+  context.workspace.topics = [];
+  assert.equal(prepareHotspotAdmission(context, command, "blog", now).status, "pending");
+});
 test("only the exact active article work may checkpoint a human hotspot's revised draft hash", () => {
   const context = fixture(), id = "seo-hotspot:original:blog", contentVersion = "sha256:" + "a".repeat(64);
   const original = { ...context.workflow.tasks[1], id, source: "human", status: "drafting",
