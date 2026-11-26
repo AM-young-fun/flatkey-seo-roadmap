@@ -297,7 +297,7 @@ test("renaming a report source cannot duplicate the same snapshot evidence", asy
   assert.equal(next.commands[0].record.evidence.filter(row => !row.label.includes("review-manifest")).length, 1);
 });
 
-test("product, cancelled, unsupported sites and paused Flatkey new pages remain blocked", () => {
+test("product, cancelled, unsupported sites and unqualified Flatkey page candidates remain blocked", () => {
   const manifest = fixture(), state = snapshot(), task = original();
   task.channel = "product"; state.tasks.push(task);
   Object.assign(manifest.findings[0], { existingTaskId: task.id, linkReason: "来源中明确记录了该生产原任务的引用和页面。" });
@@ -306,7 +306,7 @@ test("product, cancelled, unsupported sites and paused Flatkey new pages remain 
   delete manifest.findings[0].existingTaskId; delete manifest.findings[0].linkReason;
   manifest.findings[0].changeType = "new_content"; manifest.findings[0].pageType = "landing";
   plan = buildReviewPlan(manifest, snapshot(), options(manifest));
-  assert.equal(plan.canApply, false); assert.match(plan.decisions[0].reason, /flatkey_new_landing_paused/);
+  assert.equal(plan.canApply, false); assert.match(plan.decisions[0].reason, /flatkey_landing_quarter_candidate_required/);
   manifest.findings[0].siteDomain = "jev-llm.com";
   assert.throws(() => buildReviewPlan(manifest, snapshot(), options(manifest)));
 });

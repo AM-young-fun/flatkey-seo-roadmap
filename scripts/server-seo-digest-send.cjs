@@ -48,6 +48,11 @@ async function run() {
   const revision = reportSelection?.startsWith('revision:') ?? false;
   const reportId = revision ? reportSelection.slice('revision:'.length) : reportSelection;
   if (revision && !/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/.test(reportId)) throw Error('revision_requires_exact_report');
+  const manualOwner = flag('manual-owner'), manualFence = flag('manual-fence');
+  const manualDaily = manualOwner !== undefined || manualFence !== undefined;
+  if (manualDaily && (kind !== 'daily' || revision || !reportId || process.env.GITHUB_WORKFLOW_REF !== REPO + '/.github/workflows/seo-report-manual-send.yml@refs/heads/main'
+    || !process.argv.includes('--send') || !/^web-daily-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(manualOwner || '')
+    || !/^[1-9]\d{0,9}$/.test(manualFence || ''))) throw Error('invalid_manual_report_authorization');
 
   const { report } = await api('/api/seo/digest', reportId ? { action: 'read_saved', reportId } : { action: 'prepare', date, kind });
   if (!validReportBinding(report, date, kind, reportId)) throw Error('report_binding_mismatch');
@@ -70,7 +75,7 @@ async function run() {
   if (!process.argv.includes('--send')) { console.log(JSON.stringify({ status: 'preflight_only', reportId: report.id, webhookConfigSha256: config.fingerprint, transport: 'signed-webhook' })); return; }
   const { control } = await api('/api/seo/reporting-control');
   if (!control.enabled || control.transport !== 'signed-webhook' || control.destination !== GROUP || control.robotCode !== BOT || control.webhookConfigSha256 !== config.fingerprint) throw Error('webhook_control_binding_unverified');
-  if (kind === 'daily') {
+  if (kind === 'daily' && !manualDaily) {
     const propertyToday = new Intl.DateTimeFormat('en-CA', {timeZone:'America/Los_Angeles'}).format(new Date());
     const end = new Date(Date.parse(propertyToday+'T00:00:00Z')-3*86400000).toISOString().slice(0,10);
     const start = new Date(Date.parse(end+'T00:00:00Z')-7*86400000).toISOString().slice(0,10);
@@ -79,13 +84,22 @@ async function run() {
     const readiness = verifyDailySendReadiness(report,daily,pages,end);
     await write('.source-readiness.json',{verifiedAt:new Date().toISOString(),...readiness});
   }
-  const owner = `github-webhook-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
-  const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook', messageFormat: 'actionCard', ...(revision ? { revision: true } : {}) });
-  if (revision && claim.id !== `seo-digest-delivery:${kind}:${date}:revision`) throw Error('revision_claim_binding_mismatch');
-  if (claim.messageFormat !== 'actionCard' || claim.payloadSha256 !== payloadSha256 || claim.transport !== 'signed-webhook' || claim.destination !== GROUP || claim.robotCode !== BOT || claim.webhookConfigSha256 !== config.fingerprint || claim.report?.hash !== report.hash) throw Error('webhook_claim_binding_mismatch');
-  const context = { id: claim.id, owner, fencingToken: claim.fencingToken, reportId: report.id, reportHash: report.hash, destination: GROUP, robotCode: BOT };
+  const owner = manualDaily ? manualOwner : `github-webhook-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
+  let id = `seo-digest-delivery:${kind}:${date}`, fencingToken = Number(manualFence);
+  if (!manualDaily) {
+    const claim = await api('/api/seo/digest', { action: 'claim', reportId: report.id, owner, transport: 'signed-webhook', messageFormat: 'actionCard', ...(revision ? { revision: true } : {}) });
+    if (claim.id !== id + (revision ? ':revision' : '') || claim.messageFormat !== 'actionCard' || claim.payloadSha256 !== payloadSha256
+      || claim.transport !== 'signed-webhook' || claim.destination !== GROUP || claim.robotCode !== BOT || claim.webhookConfigSha256 !== config.fingerprint
+      || claim.report?.hash !== report.hash) throw Error('webhook_claim_binding_mismatch');
+    id = claim.id;
+    fencingToken = claim.fencingToken;
+  }
+  const context = { id, owner, fencingToken, reportId: report.id, reportHash: report.hash, destination: GROUP, robotCode: BOT };
   await write('.claim.json', { version: 1, origin: ORIGIN, ...context, webhookConfigSha256: config.fingerprint });
-  await api('/api/seo/digest', { action: 'begin', id: context.id, owner, fencingToken: context.fencingToken, transport: 'signed-webhook' });
+  const begin = manualDaily
+    ? { action: 'begin_daily_manual', id, owner, fencingToken, reportId: report.id, reportHash: report.hash, payloadSha256 }
+    : { action: 'begin', id, owner, fencingToken, transport: 'signed-webhook' };
+  await api('/api/seo/digest', begin);
   try {
     // No retry after this request: uncertain delivery stays UNKNOWN until evidence-based reconciliation.
     const response = await fetch(signedWebhook(config.webhook, config.secret), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) });

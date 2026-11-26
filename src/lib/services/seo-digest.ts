@@ -16,10 +16,10 @@ import { unavailableConversionProjection } from "../seo-conversion";
 import { loadReportModuleShares } from "./report-module-shares";
 import { getSeoReportingControl } from "./seo-reporting-control";
 import { webhookReceiptSchema, type WebhookReceipt } from "../seo-webhook-receipt";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { reportDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
+import { beijingDay, reportDay, buildSeoDigest, digestClaimable, digestWindow, digestOptimizationEffect, DAILY_BUSINESS_DATE_SWITCH, SEO_REPORT_GROUP, type DigestKind, type DigestInput, type DigestObservation, type SeoDigest } from "@/lib/seo-digest";
 import { dailyReportArchiveOnly, reportDayStart } from "@/lib/seo-report-time.cjs";
 import { gscDate, gscPeriodEnd, OPTIMIZATION_BASELINE_DAYS, OPTIMIZATION_HISTORY_DAYS, optimizationReportRows, verifiedPagePublications } from "../seo-page-effects";
 import { technicalQaReport } from "../seo-technical-qa-report";
@@ -243,22 +243,54 @@ export async function saveSeoDigest(digest: SeoDigest) {
   return saved;
 }
 
-export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot", messageFormat?: "actionCard", revision = false) {
+export function currentDailyReportArchiveOnly(date: string, now = new Date()) {
+  return date === "2026-11-25" || dailyReportArchiveOnly(date, now);
+}
+
+async function requireCurrentDailyArchive(db: Pick<Prisma.TransactionClient, "seoReportVersion">, reportId: string, reportHash: string, now: Date) {
+  const date = beijingDay(now);
+  if (currentDailyReportArchiveOnly(date, now)) throw new DigestError("今天的日报只归档");
+  const saved = await db.seoReportVersion.findFirst({
+    where: { kind: "SEO_DIGEST", siteDomain: "flatkey.ai", periodStart: new Date(date), periodEnd: new Date(date),
+      AND: [{ payload: { path: ["kind"], equals: "daily" } }, { payload: { path: ["dailyDashboardBody", "recordOnly"], equals: true } }] },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, payload: true },
+  });
+  if (!saved) throw new DigestError("今天的日报尚未完成归档");
+  const report = saved.payload as unknown as SeoDigest;
+  if (saved.id !== reportId || report.id !== reportId || report.hash !== reportHash) throw new DigestError("日报已有更新，请刷新并查看最新正文");
+  if (report.date !== date || report.businessDate !== date || report.kind !== "daily" || report.draftBody || report.reviewedBody
+      || report.preliminary || !Number.isFinite(Date.parse(report.generatedAt)) || Date.parse(report.generatedAt) > now.getTime()
+      || typeof report.text !== "string" || createHash("sha256").update(report.text).digest("hex") !== reportHash) {
+    throw new DigestError("今天的日报尚未生成可发送的正式版本");
+  }
+  return report;
+}
+
+export function validateCurrentDailyArchive(reportId: string, reportHash: string, now = new Date()) {
+  return requireCurrentDailyArchive(prisma, reportId, reportHash, now);
+}
+
+export function claimCurrentDailyDigest(reportId: string, reportHash: string, owner: string, now = new Date()) {
+  return claimDigest(reportId, owner, now, "signed-webhook", "actionCard", false, reportHash);
+}
+
+export async function claimDigest(reportId: string, owner: string, now = new Date(), transport: "application-bot" | "signed-webhook" = "application-bot", messageFormat?: "actionCard", revision = false, manualDailyHash?: string) {
   if (revision && transport !== "signed-webhook") throw new DigestError("修订版须通过原群机器人发送", 400);
   const control = await requireReportingEnabled(transport);
   if (transport === "signed-webhook" && messageFormat !== "actionCard") throw new DigestError("Webhook 发送必须使用已绑定的详情卡片", 400);
   return prisma.$transaction(async tx => {
-    const saved = await tx.seoReportVersion.findUnique({ where: { id: reportId } });
-    if (!saved || saved.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
-    const report = saved.payload as unknown as SeoDigest;
+    const saved = manualDailyHash ? null : await tx.seoReportVersion.findUnique({ where: { id: reportId } });
+    if (!manualDailyHash && saved?.kind !== "SEO_DIGEST") throw new DigestError("缺少报告快照", 404);
+    const report = manualDailyHash ? await requireCurrentDailyArchive(tx, reportId, manualDailyHash, now) : saved!.payload as unknown as SeoDigest;
     if (report.draftBody) throw new DigestError("周报待审核；须先批准确切全文并另存已审版本", 409);
     if (report.kind === "daily" && dailyReportArchiveOnly(report.date, now)) throw new DigestError("洛杉矶周四日报只归档，不发送群消息");
+    if (report.kind === "daily" && report.date >= DAILY_BUSINESS_DATE_SWITCH && !manualDailyHash) throw new DigestError("请在当天日报页面点击发送到钉钉群", 403);
     let approvedCurrentWeek = false;
     if (report.kind === "weekly") {
       const approved = report.reviewedBody;
       if (!approved) throw new DigestError("周报须先批准确切全文并另存已审版本", 409);
       const baseSaved = await tx.seoReportVersion.findUnique({ where: { id: approved.baseReportId } });
-      if (saved.id !== report.id || saved.siteDomain !== "flatkey.ai"
+      if (!saved || saved.id !== report.id || saved.siteDomain !== "flatkey.ai"
         || saved.periodStart.toISOString().slice(0, 10) !== report.date || saved.periodEnd.toISOString().slice(0, 10) !== report.date
         || baseSaved?.kind !== "SEO_DIGEST" || baseSaved.siteDomain !== "flatkey.ai"
         || baseSaved.periodStart.toISOString().slice(0, 10) !== report.date || baseSaved.periodEnd.toISOString().slice(0, 10) !== report.date) {
@@ -277,7 +309,7 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
       }
       approvedCurrentWeek = transport === "signed-webhook" && currentCanonicalWeeklyDraft(base, now);
     }
-    if (report.date !== reportDay(now) && !approvedCurrentWeek) {
+    if (!manualDailyHash && report.date !== reportDay(now) && !approvedCurrentWeek) {
       throw new DigestError("自动通知仅发送洛杉矶当天报告；跨日仅允许本期周四确切待审稿的已审版本");
     }
     if (report.deliveryProtocol !== 2) throw new DigestError("旧版通知快照已过期，请按日报或周报重新生成");
@@ -295,23 +327,31 @@ export async function claimDigest(reportId: string, owner: string, now = new Dat
     const previous = await tx.seoDigestDelivery.findUnique({ where: { id } });
     const recovered = previous?.status === "REJECTED_CONFIRMED" && previous.reportId === reportId;
     if (previous?.status === "REJECTED_CONFIRMED" && !recovered) throw new DigestError("已核验拒绝仅允许恢复原报告快照");
-    if (!recovered && ((!revision && now.getTime() - Date.parse(report.generatedAt) > 15 * 60000) || Date.parse(report.generatedAt) > now.getTime())) throw new DigestError("请在发送前刷新报告");
+    if (!recovered && ((!manualDailyHash && !revision && now.getTime() - Date.parse(report.generatedAt) > 15 * 60000) || Date.parse(report.generatedAt) > now.getTime())) throw new DigestError("请在发送前刷新报告");
     if (previous && !digestClaimable(previous, clock.now)) throw new DigestError(previous.status === "DELIVERED" ? "当天该类报告已发送" : "发送已被领取或结果未核实，禁止重复发送");
     const payloadSha256 = transport === "signed-webhook" ? messageHash(actionCardPayload(report, revision)) : undefined;
     const data = { reportId, reportHash: report.hash, destination: control.destination, robotCode: control.robotCode, status: "CLAIMED", claimedBy: owner, fencingToken: (previous?.fencingToken ?? 0) + 1, leaseUntil: new Date(clock.now.getTime() + 5 * 60000), errorCode: null,
-      receipt: json({ transport, ...(payloadSha256 ? { messageFormat, payloadSha256 } : {}), controlVersion: control.version, ...(control.webhookConfigSha256 ? { webhookConfigSha256: control.webhookConfigSha256 } : {}) }) };
+      receipt: json({ transport, ...(manualDailyHash ? { manualDaily: true } : {}), ...(payloadSha256 ? { messageFormat, payloadSha256 } : {}), controlVersion: control.version, ...(control.webhookConfigSha256 ? { webhookConfigSha256: control.webhookConfigSha256 } : {}) }) };
     const receipt = previous ? await tx.seoDigestDelivery.update({ where: { id }, data }) : await tx.seoDigestDelivery.create({ data: { id, ...data } });
     return { id, fencingToken: receipt.fencingToken, destination: receipt.destination, robotCode: receipt.robotCode, transport, messageFormat, payloadSha256, webhookConfigSha256: control.webhookConfigSha256, report };
   });
 }
 
-export async function beginDigestAttempt(id: string, owner: string, fencingToken: number, transport: "application-bot" | "signed-webhook" = "application-bot") {
+export async function beginDigestAttempt(id: string, owner: string, fencingToken: number, transport: "application-bot" | "signed-webhook" = "application-bot",
+    manualDaily?: { reportId: string; reportHash: string; payloadSha256: string }) {
   const control = await requireReportingEnabled(transport);
   return prisma.$transaction(async tx => {
     const prior = await tx.seoDigestDelivery.findUnique({ where: { id } });
-    const binding = prior?.receipt as { transport?: string; controlVersion?: number; webhookConfigSha256?: string } | null;
+    const binding = prior?.receipt as { transport?: string; controlVersion?: number; webhookConfigSha256?: string; manualDaily?: boolean; payloadSha256?: string } | null;
     if (!prior || prior.destination !== control.destination || prior.robotCode !== control.robotCode || binding?.transport !== transport || binding.webhookConfigSha256 !== control.webhookConfigSha256) throw new DigestError("通知渠道或绑定已变化，禁止使用旧发送令牌");
     const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
+    const dailyDate = /^seo-digest-delivery:daily:(\d{4}-\d{2}-\d{2})(?::revision)?$/.exec(id)?.[1];
+    if (dailyDate && dailyDate >= DAILY_BUSINESS_DATE_SWITCH && !manualDaily) throw new DigestError("请在当天日报页面点击发送到钉钉群", 403);
+    if (manualDaily) {
+      if (!binding.manualDaily || id !== `seo-digest-delivery:daily:${beijingDay(clock.now)}` || prior.reportId !== manualDaily.reportId
+        || prior.reportHash !== manualDaily.reportHash || binding.payloadSha256 !== manualDaily.payloadSha256) throw new DigestError("日报发送授权与对应正文不匹配", 403);
+      await requireCurrentDailyArchive(tx, manualDaily.reportId, manualDaily.reportHash, clock.now);
+    }
     const result = await tx.seoDigestDelivery.updateMany({ where: { id, claimedBy: owner, fencingToken, status: "CLAIMED", attemptedAt: null, leaseUntil: { gt: clock.now } }, data: { status: "SENDING", attemptedAt: clock.now } });
     if (result.count !== 1) throw new DigestError("发送令牌已过期或已使用");
     return { attempted: true };

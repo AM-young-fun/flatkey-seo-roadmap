@@ -14,6 +14,7 @@ import { parseReportComparisons, type ReportMetric } from "@/lib/seo-report-comp
 import { ReportCountryShares } from "./ReportCountryShares";
 import { ReportLoading } from "./ReportLoading";
 import { SeoIndexing404 } from "./SeoIndexing404";
+import { DailyReportSendButton } from "./DailyReportSendButton";
 // Render with the report response, without another body-module download.
 import { ReviewedReportBody } from "./ReviewedReportBody";
 import { WeeklyReportSupplement } from "./WeeklyReportSupplement";
@@ -384,6 +385,7 @@ export function SeoDigestReports() {
   const route = (period: typeof kind, day?: string, page = 1, reportId?: string) => "/reports?" + new URLSearchParams({ period, ...(day ? { date: day } : {}), ...(page > 1 ? { archivePage: String(page) } : {}), ...(reportId ? { reportId } : {}) });
   const showArchivedBody = Boolean(report && (kind === "weekly" && exact || report.reviewedBody && (exact || !report.dashboard)));
   const showArchivePagination = archivePage > 1 || result.data?.archiveHasNext;
+  const canSelectForSend = kind === "daily" && report && report.businessDate === new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
   return <div className={reportStyles.workspace}>
     <header className={reportStyles.pageHeader}>
       <h1>日周效果</h1>
@@ -410,6 +412,7 @@ export function SeoDigestReports() {
           </div>
         </details>
         {result.data || result.error ? <FeedbackButton type="button" className={styles.secondary} onClick={result.retry} pending={result.retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton> : null}
+        {canSelectForSend && <DailyReportSendButton key={report.id} reportId={report.id} reportHash={report.hash} />}
       </div>
     </header>
     <nav className={reportStyles.periods} aria-label="报告周期">

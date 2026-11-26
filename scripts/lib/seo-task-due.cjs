@@ -12,8 +12,10 @@ const businessWeekEnd = date => {
 // User scope, 2026-11-19: public websites only; analytics configuration is excluded.
 function websiteTaskAllowed(task) {
   if (!task || task.deletedAt || !["flatkey.ai", "rackrate.org", "modelfit.cc"].includes(task.siteDomain)) return false;
-  // User 2026-11-19: stop new Flatkey landing work; retain already-live history for verification.
-  if (task.siteDomain === "flatkey.ai" && task.kind === "landing" && !["published", "verified", "observing"].includes(task.status)) return false;
+  if (task.siteDomain === "flatkey.ai" && task.kind === "landing" && !["published", "verified", "observing"].includes(task.status)) {
+    const dueAt = new Date(task.dueAt);
+    if (task.workflowContract !== "growth-v1.5" || !Number.isFinite(dueAt.getTime()) || dayFormat.format(dueAt) < "2026-11-27") return false;
+  }
   if (task.channel && task.channel !== "website") return false;
   // An article can legitimately discuss API backends, GA4 or instrumentation.
   // Scope follows the actual channel/site/target, not words in the article's

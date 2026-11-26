@@ -1,14 +1,17 @@
 import { analyticsLocalPreview, authorizeAnalyticsRead, privateAnalyticsHeaders as headers } from "@/lib/seo-analytics-access";
+import { authorizeSavedRankingCoverage } from "@/lib/services/ranking-coverage-access";
 import { analyticsKinds, analyticsObservationSchema, analyticsStorageKind, analyticsView, landingTrafficDays, observedPageUrls, pageDailyView, pageQueryView, rangeDays, safeAnalyticsUrl } from "@/lib/seo-analytics";
 import { readAnalyticsEvidence } from "@/lib/seo-analytics-files";
 import { prisma } from "@/lib/prisma";
 import { seoCountry } from "@/lib/seo";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
-import { optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
+import { gscPeriodEnd, optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
 import { pageOptimizationPriorities, pagePrioritySignals, type PagePriorityFilters } from "@/lib/seo-page-priority";
 import { publishedKeywordRankLabels } from "@/lib/published-keyword-rank";
 import { GROWTH_EXECUTION_SITES } from "@/lib/seo-growth-markets";
-import { loadGrowthDashboardWorkspace } from "@/lib/services/growth-workspace";
+import { loadGrowthDashboardHistory, loadGrowthDashboardWorkspace } from "@/lib/services/growth-workspace";
+import { oldPostMarkets, oldPostShortlist } from "@/lib/seo-old-post-shortlist";
+import { withRequestReads } from "@/lib/request-read-scope";
 import { loadWorkflowSnapshot } from "@/lib/services/seo-workflow";
 import { previousRange, propertyToday, seoToday, shiftDay, validRange } from "@/lib/seo-date-range";
 import { overviewModule } from "@/lib/seo-overview-scope";
@@ -19,9 +22,36 @@ import { overviewModuleAnalytics, overviewTrafficAnalytics } from "@/lib/seo-ove
 
 export const dynamic = "force-dynamic";
 
+async function readOldPostShortlist(request: Request, search: URLSearchParams) {
+  if (!await authorizeAnalyticsRead(request) && !await authorizeSavedRankingCoverage(request)) {
+    return Response.json({ message: "请先登录或使用只读采集凭据" }, { status: 401, headers });
+  }
+  if ([...search.keys()].length !== 1) return Response.json({ message: "旧文扫描不接受其他筛选参数" }, { status: 400, headers });
+  return withRequestReads(async () => {
+    try {
+      const now = new Date(), local = analyticsLocalPreview(request), end = gscPeriodEnd(now);
+      // For a recent complete day, its two matching weekday windows fit in 18 days.
+      const range = { start: shiftDay(end, -17), end };
+      const scopes = oldPostMarkets.map(({ country, site }) => ({ country, site: site === "flatkey.ai" ? undefined : site }));
+      const source = local ? Promise.all(scopes.map(({ country, site }) => readAnalyticsEvidence(range, country, site, ["gsc-pages"]))).then(rows => rows.flat())
+        : prisma.seoAnalyticsDay.findMany({ where: { complete: true, date: { gte: range.start, lte: range.end },
+          kind: { in: scopes.map(({ country, site }) => analyticsStorageKind("gsc-pages", country, site)) } }, select: { payload: true } })
+          .then(rows => rows.map(row => analyticsObservationSchema.parse(row.payload)));
+      const [observations, workflow, workspace, inventory] = await Promise.all([
+        source, loadGrowthDashboardHistory(local), loadGrowthDashboardWorkspace(local, now),
+        local ? [] : prisma.seoPageInventory.findMany({ where: { category: "blog" }, select: { url: true, firstSeen: true } }),
+      ]);
+      return Response.json(oldPostShortlist({ observations, workflow, targets: workspace.targets, inventory, now }), { headers });
+    } catch {
+      return Response.json({ message: "旧文扫描来源读取未完成，请重试" }, { status: 503, headers });
+    }
+  });
+}
+
 export async function GET(request: Request) {
-  if (!await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
   const search = new URL(request.url).searchParams;
+  if (search.get("view") === "old-post-shortlist") return readOldPostShortlist(request, search);
+  if (!await authorizeAnalyticsRead(request)) return Response.json({ message: "请先登录" }, { status: 401, headers });
   const requestedCountry = search.get("country");
   const country = seoCountry(requestedCountry);
   if (requestedCountry !== null && requestedCountry !== country) {

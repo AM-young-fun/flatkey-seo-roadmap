@@ -15,6 +15,7 @@ Module._load = function (name, ...args) {
   return load.call(this, name.startsWith("@/") ? path.resolve(__dirname, "../src", name.slice(2)) + ".ts" : name, ...args);
 };
 const { pageOptimizationPriorities } = require("../src/lib/seo-page-priority.ts");
+const { oldPostShortlist } = require("../src/lib/seo-old-post-shortlist.ts");
 Module._load = load;
 const { buildSeoDigest } = require("../src/lib/seo-digest.ts");
 
@@ -117,6 +118,25 @@ test("recommends only published targets, prioritizes verified outside 100, and k
   assert.equal(unknown.length, 11);
   assert.deepEqual(unknown.filter(row => row.url === secondUrl).map(row => [row.url, row.rankStatus, row.checkedAt]), [[secondUrl, "pending", null]]);
   assert.ok([...page.rows, ...second.rows].every(row => !row.url.endsWith("orphan")));
+});
+
+test("daily old-post scan selects known articles once, excludes concurrent work, and keeps true gaps", () => {
+  const posts = Array.from({ length: 14 }, (_, index) => `https://flatkey.ai/es/blog/gpu-${index}`);
+  const words = posts.map((page, index) => target({ id: `post-${index}`, sourceActive: true, keywordId: `word-${index}`,
+    maintenancePublishedUrls: [page], publishedUrls: [page] }));
+  const inventory = posts.slice(0, 13).map(url => ({ url, firstSeen: new Date("2026-11-01T00:00:00Z") }));
+  const publications = [{ siteDomain: "flatkey.ai", country: "US", pageUrl: posts[1], status: "verified", publishedAt: "2026-11-18T09:00:00Z" }];
+  const tasks = [{ siteDomain: "flatkey.ai", country: "US", pageUrl: posts[0], status: "blocked", kind: "optimization" }];
+  const duplicate = target({ ...words[2], id: "duplicate", keywordId: "another-word",
+    maintenancePublishedUrls: ["https://www.flatkey.ai/es/blog/gpu-2/"], publishedUrls: [posts[2]] });
+  const scan = targets => oldPostShortlist({ observations: [], workflow: { publications, tasks }, targets, inventory, now });
+  const result = scan([...words, duplicate]);
+  assert.equal(result.eligiblePages, 11);
+  assert.equal(result.rows.length, 10);
+  assert.equal(result.shortfall, 0);
+  assert.equal(new Set(result.rows.map(row => row.url)).size, 10);
+  assert.ok(result.rows.every(row => row.rankStatus === "outside100" && ![posts[0], posts[1], posts[13]].includes(row.url)));
+  assert.equal(scan([...words.slice(0, 3), duplicate, target({ ...words[3], checkedAt: "2026-10-01T10:00:00Z" })]).shortfall, 4);
 });
 
 test("daily and weekly report variants agree with the two points and show CTR change in percentage points", () => {

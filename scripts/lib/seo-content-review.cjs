@@ -166,7 +166,12 @@ function assertFindingScope(finding) {
     ? [GROWTH_MARKET_LANGUAGES[finding.country]] : WORKFLOW_SITE_LANGUAGES[finding.siteDomain] ?? [];
   if (finding.language && !languages.includes(finding.language)) throw Error("country_or_site_language_mismatch");
   if (finding.pageType === "blog" && finding.siteDomain === "rackrate.org") throw Error("rackrate_blog_outside_authorized_scope");
-  if (finding.changeType === "new_content" && finding.siteDomain === "flatkey.ai" && finding.pageType !== "blog") throw Error("flatkey_new_landing_paused");
+  if (finding.changeType === "new_content" && finding.siteDomain === "flatkey.ai" && finding.pageType !== "blog") {
+    const candidate = finding.candidate;
+    const dueAt = candidate && new Date(candidate.dueAt);
+    const day = dueAt && Number.isFinite(dueAt.getTime()) && dueAt.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
+    if (!day || day < "2026-11-27" || candidate.kind !== "landing" || !finding.keywordId || !finding.pageUrl) throw Error("flatkey_landing_quarter_candidate_required");
+  }
 }
 
 function buildReviewPlan(raw, snapshot, options = {}) {

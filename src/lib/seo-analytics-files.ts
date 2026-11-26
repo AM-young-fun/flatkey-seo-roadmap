@@ -3,7 +3,7 @@ import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { analyticsObservationSchema, type AnalyticsKind, type AnalyticsObservation } from "./seo-analytics";
 import type { DateRange } from "./seo-date-range";
-import type { SeoCountry } from "./seo";
+import type { GrowthAnalysisCountry } from "./seo-growth-markets";
 import { clusterDomainForProperty, type ClusterDomain } from "./seo-cluster-sites";
 
 export function analyticsDirectory() {
@@ -31,7 +31,7 @@ export async function writeAnalyticsEvidence(input: unknown) {
   }
 }
 
-export async function readAnalyticsEvidence(range: DateRange, country: SeoCountry = "all", site?: ClusterDomain, kinds?: readonly AnalyticsKind[]) {
+export async function readAnalyticsEvidence(range: DateRange, country: GrowthAnalysisCountry = "all", site?: ClusterDomain, kinds?: readonly AnalyticsKind[]) {
   const directory = analyticsDirectory();
   const names = await readdir(directory).catch(error => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];

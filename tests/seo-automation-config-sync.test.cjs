@@ -9,7 +9,7 @@ function fixture(t, restored = false) {
  const before = new Map();
  for (const id of ids) {
   const folder = path.join(source, id); fs.mkdirSync(folder);
-  const status = restored && id !== "seo-10-00-2" ? "ACTIVE" : "PAUSED";
+  const status = restored && id !== "automation-2" ? "ACTIVE" : "PAUSED";
   const raw = `id=${JSON.stringify(id)}\nname=${JSON.stringify("Observed " + id)}\nkind="cron"\nstatus=${JSON.stringify(status)}\nrrule="FREQ=DAILY;BYHOUR=10;BYMINUTE=30"\nmodel="observed-model"\nreasoning_effort="low"\nupdated_at=1795500000000\ncwds=["/observed/project"]\nprompt="PRIVATE_PROMPT_NEVER_EXPORT"\nmodel_prompt_sha256="PRIVATE_INTERNAL_HASH_NEVER_EXPORT"\n[target]\ntype="project"\nproject_id="observed-project"\n`;
   fs.writeFileSync(path.join(folder, "automation.toml"), raw);before.set(id, raw);
  }
@@ -20,7 +20,7 @@ const option = { skip: !python && "Python 3.11+ is required for the read-only lo
 test("metadata copies actual paused states and original fields without private prompts or job writes", option, t => {
  const f = fixture(t), result = run(f, "--expect-paused");assert.equal(result.status, 0, result.stderr);
  const raw = fs.readFileSync(f.output, "utf8"), data = JSON.parse(raw);
- assert.equal(data.tasks.length, 14);assert.deepEqual(new Set(data.verificationScope), new Set(ids));
+ assert.equal(data.tasks.length, 7);assert.deepEqual(new Set(data.verificationScope), new Set(ids));
  assert.ok(data.tasks.every(task => task.status === "PAUSED"));assert.ok(!data.tasks.some(task => task.id === "seo-09-00-github-traffic"));
  assert.ok(!raw.includes("PRIVATE_"));assert.ok(!raw.includes('"prompt"'));assert.ok(!raw.includes("model_prompt_sha256"));
  for (const task of data.tasks) {
@@ -29,11 +29,11 @@ test("metadata copies actual paused states and original fields without private p
   assert.deepEqual(task.cwds, ["/observed/project"]);assert.equal(fs.readFileSync(path.join(f.source, task.id, "automation.toml"), "utf8"), f.before.get(task.id));
  }
 });
-test("future ACTIVE metadata is refused until 13 actual entries are active and retired Friday remains paused", option, t => {
+test("future ACTIVE metadata needs all six SEO entries and mirrors an independently paused Prompt", option, t => {
  const f = fixture(t);const result = run(f, "--expect-restored");assert.notEqual(result.status, 0);assert.equal(fs.existsSync(f.output), false);
  const actual = fixture(t, true);assert.equal(run(actual, "--expect-restored").status, 0);
  const rows = JSON.parse(fs.readFileSync(actual.output, "utf8")).tasks;
- assert.equal(rows.filter(row => row.status === "ACTIVE").length, 13);assert.equal(rows.find(row => row.id === "seo-10-00-2").status, "PAUSED");
+ assert.equal(rows.filter(row => row.status === "ACTIVE").length, 6);assert.equal(rows.find(row => row.id === "automation-2").status, "PAUSED");
 });
 test("a missing original entry, symlink or resurrected GitHub automation cannot produce a verified snapshot", option, t => {
  const absent = fixture(t);fs.unlinkSync(path.join(absent.source, ids[0], "automation.toml"));assert.notEqual(run(absent, "--expect-paused").status, 0);

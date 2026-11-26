@@ -30,59 +30,54 @@ const render = () => renderToStaticMarkup(React.createElement(SeoAutomationSched
 
 test("retired executors stay out of current plans while protected automations keep their configured status", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-23T06:00:00Z"));
-  const retired = ["seo-09-30", "seo-13-30", "seo-14-30", "seo-15-00", "seo-16-00", "seo-09-00-github-traffic"];
+  const retired = ["seo-09-30", "seo-13-30", "seo-14-30", "seo-15-00", "seo-16-00", "seo-09-00-github-traffic", "seo-09-10-flatkey", "seo-10-00", "seo-10-00-2", "seo-14-00", "seo-16-25", "seo-17-30", "seo-2"];
   for (const id of retired) {
     assert.ok(!config.tasks.some(task => task.id === id), `${id} must not return to the snapshot`);
     assert.ok(!plans.some(plan => plan.id === id));
     assert.ok(!config.verificationScope.includes(id));
   }
   assert.ok(config.tasks.every(task => task.kind === "cron"));
-  assert.equal(config.tasks.length, 14);
+  assert.equal(config.tasks.length, 7);
   for (const id of ["automation-2", "flatkey-5"]) {
     const status = config.tasks.find(task => task.id === id).status;
     assert.ok(["ACTIVE", "PAUSED"].includes(status));
     assert.equal(plans.find(plan => plan.id === id).state.startsWith("配置已启用"), status === "ACTIVE");
   }
-  for (const id of ["seo-10-00-2"]) {
-    assert.equal(config.tasks.find(task => task.id === id).status, "PAUSED");
-    assert.equal(plans.find(plan => plan.id === id).nextAt, null);
-  }
   assert.deepEqual(new Set(config.verificationScope), new Set(config.tasks.map(task => task.id)));
 });
 
-test("Beijing schedules retain Monday backfill gates and source timezones", () => {
+test("Beijing schedules expose the two workday queues and only one data and report slot", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-21T00:30:00Z")); // Saturday in Beijing.
-  for (const id of ["seo-16-00-ga4-search-console", "seo-09-10-flatkey", "seo-16-25", "seo-17-30"]) {
+  for (const id of ["seo-16-00-ga4-search-console", "seo-18-00", "seo"]) {
     const task = config.tasks.find(task => task.id === id);
     const plan = plans.find(plan => plan.id === id);
-    assert.equal(task.workdaysOnly, false, "Beijing workday filtering cannot represent the LA or Monday gates");
-    assert.match(plan.cadence, /^候选唤醒：每日 /);
-    assert.match(plan.note, /北京时间\d{2}:\d{2}/);
-    assert.match(plan.note, /周一/);
+    assert.equal(task.workdaysOnly, false);
+    assert.match(plan.cadence, /^每日 /);
+    assert.match(plan.note, /\d{2}:\d{2}/);
     assert.doesNotMatch(plan.note, /真实DST/);
     assert.ok(nextAutomationTime(task.rrule, new Date("2026-11-21T00:30:00Z"), "ACTIVE", task.workdaysOnly).startsWith("2026-11-21"), "candidate wakeups are not proof that business work may run");
     assert.equal(plan.nextAt !== null, task.status === "ACTIVE");
   }
   assert.ok(!config.tasks.some(task => task.id === "seo-09-00-github-traffic"));
   assert.equal(config.tasks.find(task => task.id === "flatkey-5").workdaysOnly, true);
+  assert.equal(plans.find(plan => plan.id === "flatkey-5").cadence, "工作日 10:15、14:15");
   assert.match(plans.find(plan => plan.id === "flatkey-5").note, /原ID.*原会话/);
-  assert.match(plans.find(plan => plan.id === "seo-10-00").note, /近24小时.*近7天/);
+  assert.match(plans.find(plan => plan.id === "seo-16-00-ga4-search-console").note, /三站巡检.*热点/);
+  assert.match(plans.find(plan => plan.id === "seo-18-00").dependencies.join(" "), /同日16:00统一数据采集终态回执/);
 });
 
 test("next-week preparation finishes before Thursday 16:00 and does not depend on the later weekly report", () => {
   const plans = configuredAutomationPlans(new Date("2026-11-25T06:00:00Z"));
-  const candidate = plans.find(plan => plan.id === "seo-14-00");
   const finalization = plans.find(plan => plan.id === "automation");
   const weekly = plans.find(plan => plan.id === "seo-09-30-2");
-  for (const [plan, date] of [[candidate, "2026-11-25T07:30:00.000Z"], [finalization, "2026-11-26T07:00:00.000Z"], [weekly, "2026-11-26T08:30:00.000Z"]]) {
+  for (const [plan, date] of [[finalization, "2026-11-26T04:30:00.000Z"], [weekly, "2026-11-26T08:30:00.000Z"]]) {
     const task = config.tasks.find(task => task.id === plan.id);
     assert.equal(nextAutomationTime(task.rrule, new Date("2026-11-25T06:00:00Z"), "ACTIVE", task.workdaysOnly), date);
     assert.equal(plan.nextAt, task.status === "ACTIVE" ? date : null);
   }
   assert.match(finalization.note, /16:00前/);
   assert.doesNotMatch(finalization.name, /周五/);
-  assert.ok(finalization.dependencies.includes("截止时最新已完成的复盘和研究证据"));
-  assert.equal(config.tasks.find(task => task.id === "seo-10-00-2").status, "PAUSED");
+  assert.ok(finalization.dependencies.includes("生产冻结季度词"));
 });
 
 test("paused paid queries have no advertised next execution; resumed and emergency-stopped states stay separate", () => {
@@ -103,10 +98,11 @@ test("paused paid queries have no advertised next execution; resumed and emergen
 
 test("schedule renders only the requested page and preserves arrangement groups across pages", () => {
   const status = makeStatus();
+  for (let i = 1; i <= 4; i++) status.plans.push({ ...status.plans.find(plan => plan.id === "seo"), id: `local-${i}`, name: `额外测试任务 ${i}` });
   const first = automationSchedulePage(status, 1), second = automationSchedulePage(status, 2);
   assert.equal(first.rows.length, 10);
-  assert.equal(second.rows.length, status.plans.length - first.rows.length);
-  assert.equal(first.total, status.plans.length);
+  assert.equal(second.rows.length, status.plans.length + 1 - first.rows.length);
+  assert.equal(first.total, status.plans.length + 1);
   assert.deepEqual(automationSchedulePage(status, 99), second);
   assert.ok(first.rows.every(row => row.executionLocation === "computer"));
   const rows = [...first.rows, ...second.rows];
@@ -126,7 +122,7 @@ test("schedule renders only the requested page and preserves arrangement groups 
   assert.match(secondHtml, /隔周周四/); assert.match(secondHtml, /服务器调度检查与续跑/);
   for (const html of [firstHtml, secondHtml]) {
     assert.doesNotMatch(html, /查看费用|查看回执|开启并执行|暂停新的付费提交|采集与调度回执|最近开始|最近完成|<details|<form|role="switch"/);
-    assert.doesNotMatch(html, new RegExp(config.tasks.find(task => task.id === "seo-10-00-2").name));
+    assert.doesNotMatch(html, /周五11:30 钉钉周报/);
     assert.equal((html.match(/<button/g) ?? []).length, 3);
   }
 });

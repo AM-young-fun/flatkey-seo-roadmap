@@ -22,6 +22,9 @@
   margin-inline-start: auto;
   min-width: 0;
 }
+.sendAction { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.sendAction small { color: #52647b; }
+.sendAction small[role="alert"] { color: #a41d2d; }
 .periods {
   display: flex;
   align-items: center;

@@ -1,16 +1,16 @@
 {
-  "verifiedAt": "2026-11-24T18:35:34.374647+00:00",
+  "verifiedAt": "2026-11-26T03:18:54.623295+00:00",
   "timezone": "Asia/Shanghai",
   "tasks": [
     {
       "id": "automation",
-      "name": "SEO 周四15:00 下周计划定稿",
+      "name": "SEO 周四 12:30 下周正式排期",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
+      "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=12;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795544722222,
+      "updated_at": 1795663112998,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -29,11 +29,11 @@
       "id": "automation-2",
       "name": "Prompt 10:30 素材核验与自动导入",
       "kind": "cron",
-      "status": "ACTIVE",
+      "status": "PAUSED",
       "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30",
       "model": "gpt-5.6-sol",
       "reasoning_effort": "high",
-      "updated_at": 1795544929169,
+      "updated_at": 1795660107170,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -50,13 +50,13 @@
     },
     {
       "id": "flatkey-5",
-      "name": "Flatkey SEO 每小时统一执行",
+      "name": "SEO 工作日 10:15／14:15 串行执行",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=10,11,14,15,16,17,18;BYMINUTE=15;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYHOUR=10,14;BYMINUTE=15;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795544997756,
+      "updated_at": 1795662371541,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -73,36 +73,13 @@
     },
     {
       "id": "seo",
-      "name": "SEO 周二推广研究与周四旧文轮查",
+      "name": "SEO 09:30 旧文轮查",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=15;BYMINUTE=30;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795544987729,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": false
-    },
-    {
-      "id": "seo-09-10-flatkey",
-      "name": "SEO 北京时间16:15 Flatkey 自然搜索注册转化日采",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=9,16;BYMINUTE=15;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "medium",
-      "updated_at": 1795545064685,
+      "updated_at": 1795661234257,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -119,82 +96,13 @@
     },
     {
       "id": "seo-09-30-2",
-      "name": "SEO 周四16:30 周报整理与审核预览",
+      "name": "SEO 周四 16:30 生成周报",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=16;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795545070578,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": true
-    },
-    {
-      "id": "seo-10-00",
-      "name": "SEO 10:30 近期热点与三站巡检",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=10;BYMINUTE=30;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795545119117,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": false
-    },
-    {
-      "id": "seo-10-00-2",
-      "name": "SEO 周五11:30 钉钉周报",
-      "kind": "cron",
-      "status": "PAUSED",
-      "rrule": "FREQ=WEEKLY;BYDAY=FR;BYHOUR=11;BYMINUTE=30;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795490810115,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": false
-    },
-    {
-      "id": "seo-14-00",
-      "name": "SEO 周三15:30 下周关键词与页面候选",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=WEEKLY;BYDAY=WE;BYHOUR=15;BYMINUTE=30;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795545123544,
+      "updated_at": 1795661239948,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -211,59 +119,13 @@
     },
     {
       "id": "seo-16-00-ga4-search-console",
-      "name": "SEO 北京时间16:00 五站 GA4 与 Search Console 本机采集",
+      "name": "SEO 16:00 统一数据采集、三站巡检与热点",
       "kind": "cron",
       "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=9,16;BYMINUTE=0;BYSECOND=0",
+      "rrule": "FREQ=DAILY;BYHOUR=16;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795545095269,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": false
-    },
-    {
-      "id": "seo-16-25",
-      "name": "SEO 北京时间16:25 本机采集对照验收",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=9,16;BYMINUTE=25;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795545084410,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": false
-    },
-    {
-      "id": "seo-17-30",
-      "name": "SEO 北京时间17:30 日报汇总预览",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=DAILY;BYHOUR=9,17;BYMINUTE=30;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795545246786,
+      "updated_at": 1795661200853,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -280,13 +142,13 @@
     },
     {
       "id": "seo-18-00",
-      "name": "SEO 北京时间18:00 钉钉日报",
+      "name": "SEO 18:00 日报生成与线上归档",
       "kind": "cron",
       "status": "ACTIVE",
       "rrule": "FREQ=DAILY;BYHOUR=18;BYMINUTE=0;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795545262044,
+      "updated_at": 1795661181463,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
@@ -300,29 +162,6 @@
         "/Users/mantou/project/front/rouge-cue"
       ],
       "workdaysOnly": false
-    },
-    {
-      "id": "seo-2",
-      "name": "SEO 月初业务与渠道投入复盘",
-      "kind": "cron",
-      "status": "ACTIVE",
-      "rrule": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1;BYHOUR=15;BYMINUTE=0;BYSECOND=0",
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "low",
-      "updated_at": 1795545278251,
-      "target": {
-        "type": "project",
-        "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"
-      },
-      "cwds": [
-        "/Users/mantou/project/front/flatkey-seo-roadmap",
-        "/Users/mantou/project/front/flatkey",
-        "/Users/mantou/project/front/rackrate",
-        "/Users/mantou/project/front/modelfit",
-        "/Users/mantou/project/front/blogger",
-        "/Users/mantou/project/front/rouge-cue"
-      ],
-      "workdaysOnly": true
     }
   ],
   "verificationScope": [
@@ -330,15 +169,8 @@
     "automation-2",
     "flatkey-5",
     "seo",
-    "seo-09-10-flatkey",
     "seo-09-30-2",
-    "seo-10-00",
-    "seo-10-00-2",
-    "seo-14-00",
     "seo-16-00-ga4-search-console",
-    "seo-16-25",
-    "seo-17-30",
-    "seo-18-00",
-    "seo-2"
+    "seo-18-00"
   ]
 }

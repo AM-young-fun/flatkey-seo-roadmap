@@ -10,8 +10,8 @@ const languages = { en: 8, ja: 6, "pt-BR": 5, "zh-CN": 5, "es-ES": 1, fr: 0, de:
 const dates = ["2026-11-27", "2026-11-30", "2026-12-01", "2026-12-02", "2026-12-03"];
 function plan(patch = {}) {
   return { id: "quarter-independent-plan", weekStart: "2026-11-30", title: "Preserve original task and approved quarter contract", status: "scheduled", taskIds: [], owner: "AI", preparedAt: "2026-11-24T05:00:00Z", reviewedAt: null, reviewedBy: null,
-    targets: { cadence: "growth", executionRange: { start: dates[0], end: dates[4] }, landing: 0, clusterLanding: 7, apiBlogs: 10, gpuBlogs: 15, optimizedPages: 10, maintenanceVersion: "seo-maintenance-v1", contentRefreshPages: 10, blogLanguages: languages },
-    gaps: [...dates.flatMap(date => [{ category: "modelFitBlogs", date, siteDomain: "modelfit.cc", count: 1, reason: "Original local demand research is not complete" }, { category: "contentRefreshPages", date, count: 2, reason: "No qualified original page evidence yet" }]), ...[["apiBlogs", 10], ["gpuBlogs", 15], ["optimizedPages", 10], ["clusterLanding", 7]].map(([category, count]) => ({ category, count, reason: "Keep actual research gap without fabricated delivery" }))], evidence: [], notes: "", ...patch };
+    targets: { cadence: "growth", executionRange: { start: dates[0], end: dates[4] }, landing: 2, clusterLanding: 7, apiBlogs: 10, gpuBlogs: 15, optimizedPages: 10, maintenanceVersion: "seo-maintenance-v1", contentRefreshPages: 10, blogLanguages: languages },
+    gaps: [...dates.flatMap(date => [{ category: "modelFitBlogs", date, siteDomain: "modelfit.cc", count: 1, reason: "Original local demand research is not complete" }, { category: "contentRefreshPages", date, count: 2, reason: "No qualified original page evidence yet" }]), ...[["apiBlogs", 10], ["gpuBlogs", 15], ["optimizedPages", 10], ["clusterLanding", 7], ["landing", 2]].map(([category, count]) => ({ category, count, reason: "Keep actual research gap without fabricated delivery" }))], evidence: [], notes: "", ...patch };
 }
 const task = { id: "already-scheduled-original", dueAt: "2026-12-01T06:00:00Z", siteDomain: "flatkey.ai", kind: "optimization", pageUrl: "https://flatkey.ai/blog/original", country: "US", language: "en", status: "ready" };
 test("saving a draft before scheduling does not bypass the required quarter allocation", () => {
@@ -96,6 +96,16 @@ test("formal growth save accepts new Spanish and pooled languages under the new 
   const next = plan({ taskIds, targets, strategyAllocation: allocation });
   assert.doesNotThrow(() => assertGrowthPlan(next, undefined, records));
   assert.throws(() => assertGrowthPlan({ ...next, targets: empty.targets }, undefined, records), { code: "growth_plan_language_targets" });
+
+  const page = (id, date) => ({ ...task, id, kind: "landing", keyword: id, workflowContract: "growth-v1.5", pageUrl: `https://flatkey.ai/gpu/${id}`, dueAt: `${date}T06:00:00Z` });
+  const landings = [page("first-page", dates[0]), page("second-page", dates[4])];
+  const withLanding = { ...next, taskIds: [...next.taskIds, ...landings.map(row => row.id)], gaps: next.gaps.filter(gap => gap.category !== "landing") };
+  const landingRecords = [...records, ...landings.map(record => ({ kind: "task", record }))];
+  assert.doesNotThrow(() => assertGrowthPlan(withLanding, undefined, landingRecords));
+  const third = page("third-page", dates[1]);
+  assert.throws(() => assertGrowthPlan({ ...withLanding, taskIds: [...withLanding.taskIds, third.id] }, undefined,
+    [...landingRecords, { kind: "task", record: third }]), { code: "flatkey_landing_capacity" });
+  assert.throws(() => assertGrowthPlan({ ...withLanding, targets: { ...targets, landing: 0 } }, undefined, landingRecords), { code: "flatkey_landing_capacity" });
 
   const previous = plan({ taskIds, strategyAllocation: allocation });
   const hotspot = { ...newRows[0], id: "hotspot-extra", capacityClass: "authorized_hotspot_extra" };

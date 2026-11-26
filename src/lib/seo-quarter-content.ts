@@ -5,10 +5,12 @@ import { growthResolvedIdentity, type GrowthStrategy } from "./growth-strategy";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowPublication, type WorkflowTask } from "./seo-workflow";
 import type { WorkflowStoredRow } from "./seo-workflow-state";
 import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
+import { FLATKEY_LANDING_START } from "./seo-growth-markets";
 
 const word = (value: string | null) => (value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 const content = (task: WorkflowTask) => ["blog", "landing", "cluster"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
 const execution = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
+const newFlatkeyLanding = (task: WorkflowTask) => task.kind === "landing" && task.siteDomain === "flatkey.ai" && seoToday(new Date(task.dueAt)) >= FLATKEY_LANDING_START;
 export function quarterContentMutationTasks(kind: string, record: { id: string }, all: WorkflowStoredRow[]): WorkflowTask[] {
   if (kind === "task") { const task = record as WorkflowTask; return execution.has(task.status) && content(task) ? [task] : []; }
   if (kind !== "plan" || !isExecutableWorkflowPlan((record as WorkflowPlan).status)) return [];
@@ -36,7 +38,7 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
       return publication.taskId === task.id && publication.status === "verified" && publication.siteDomain === task.siteDomain
         && publication.pageUrl === task.pageUrl && publication.language === task.language && publication.contentVersion === task.contentVersion;
     });
-    return !(sameOriginal && (committed.has(task.id) || reserved.has(task.id) || published));
+    return !(sameOriginal && (committed.has(task.id) || published || !newFlatkeyLanding(task) && reserved.has(task.id)));
   });
   if (!fresh.length) return [];
   const targets = strategy.baseline?.targets ?? [];
@@ -51,6 +53,7 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
   const calendar = new Map(quarter.plan.calendar?.map(row => [row.targetId, row]));
   const allTasks = [...all.flatMap(row => row.kind === "task" ? [row.record as WorkflowTask] : []), ...tasks];
   return fresh.flatMap(task => targets.some(target => {
+    if (newFlatkeyLanding(task) && !modern) return false;
     const identity = growthResolvedIdentity(strategy, target);
     const matches = identity.country && identity.language && target.site === task.siteDomain && target.topicId === task.topicId && target.keywordId === task.keywordId && target.keywordId
       && word(target.keyword) === word(task.keyword) && identity.country === task.country && identity.language === task.language;

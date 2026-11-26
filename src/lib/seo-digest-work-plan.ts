@@ -45,6 +45,7 @@ export function summarizeDigestWorkPlan(snapshots: WorkflowSnapshot[], weekStart
       || !relevant.some(snapshot => snapshot.weekStart === task.weekStart)
       || !period.workdays.includes(day)
       || task.siteDomain === "flatkey.ai" && task.kind === "landing" && weekStart >= "2026-11-23"
+        && !plans.some(plan => plan.taskIds.includes(task.id) && "cadence" in plan.targets && plan.targets.cadence === "growth" && plan.targets.landing > 0)
       || day < period.start || day > period.end) return [];
     const kind = task.kind === "blog" || task.kind === "optimization" || task.kind === "research" ? task.kind
       : task.kind === "landing" ? task.siteDomain === "flatkey.ai" ? "landing" : "cluster_landing"
