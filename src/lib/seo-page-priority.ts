@@ -6,7 +6,7 @@ import type { GrowthTarget } from "./growth-types";
 import { growthWordKey } from "./growth-workspace";
 import { completeGscReports, gscDate } from "./seo-page-effects";
 import { shiftDay } from "./seo-date-range";
-import type { SeoCountry } from "./seo";
+import type { GrowthAnalysisCountry } from "./seo-growth-markets";
 import { seoTablePage } from "./seo-table-page";
 import type { WorkflowSnapshot } from "./seo-workflow";
 
@@ -20,9 +20,9 @@ const rankOrder: Record<PublishedKeywordRank, number> = { outside100: 0, ranked:
 
 export type PagePriorityFilters = { rank: PublishedKeywordRank | "all"; signal: PagePrioritySignal | "all"; page: number };
 
-export function pageOptimizationPriorities(
+export function pageOptimizationPriorityRows(
   observations: AnalyticsObservation[], workflow: Pick<WorkflowSnapshot, "tasks" | "publications">, targets: GrowthTarget[],
-  site: string, country: SeoCountry, now: Date, filters: PagePriorityFilters = { rank: "all", signal: "all", page: 1 },
+  site: string, country: GrowthAnalysisCountry, now: Date, filters: Omit<PagePriorityFilters, "page"> = { rank: "all", signal: "all" },
 ) {
   const asOf = now.toISOString();
   const candidates = targets.filter(target => target.site === site && target.country === country && target.sourceActive !== false).flatMap(target => {
@@ -154,6 +154,14 @@ export function pageOptimizationPriorities(
     || pagePrioritySignals.indexOf(a.priority) - pagePrioritySignals.indexOf(b.priority)
     || b.score - a.score || (b.current?.impressions ?? 0) - (a.current?.impressions ?? 0)
     || a.url.localeCompare(b.url) || a.targetId.localeCompare(b.targetId));
+  return { site, country, latestDay: latestDay ?? null, property: property ?? null, pairedDays: pairs.length, recommendations, counts };
+}
+
+export function pageOptimizationPriorities(
+  observations: AnalyticsObservation[], workflow: Pick<WorkflowSnapshot, "tasks" | "publications">, targets: GrowthTarget[],
+  site: string, country: GrowthAnalysisCountry, now: Date, filters: PagePriorityFilters = { rank: "all", signal: "all", page: 1 },
+) {
+  const { recommendations, ...view } = pageOptimizationPriorityRows(observations, workflow, targets, site, country, now, filters);
   const { rows, ...pagination } = seoTablePage(recommendations, filters.page);
-  return { site, country, latestDay: latestDay ?? null, property: property ?? null, pairedDays: pairs.length, rows, pagination, counts };
+  return { ...view, rows, pagination };
 }

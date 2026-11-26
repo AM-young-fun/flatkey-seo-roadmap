@@ -87,21 +87,13 @@ export function nextAutomationTime(rule: string, now: Date, status: string, work
 }
 
 const automationNotes: Record<string, string> = {
-  "seo-16-25": "北京时间16:25起45分钟内，对照本机采集与生产归档核验真实日期、覆盖和缺口。北京时间09:25仅周一补采验收；常规执行按北京时间原工作日门槛过滤，不代表每次唤醒均执行。",
-  "seo-16-00-ga4-search-console": "北京时间16:00起45分钟内，沿原Google只读授权采集五站自然搜索、页面和搜索词，写回并核对生产归档。北京时间09:00仅周一分别补采周末已闭合日；常规执行按北京时间原工作日门槛过滤，未发布留待补。",
-  "flatkey-5": "统一接续研究、制作、优化、审批发布和7／14／28天效果复查。有效且研究合格热点P0优先，其余延期按原ID及原会话在下个实际工作日补齐。业务周为北京时间周五至周四，跨两Monday桶只核一次额度；不抢租约、不替换正式任务。Flatkey新落地页及其专属关键词挖掘已取消；博客和旧页优化继续。",
-  "automation": "周四15:00开始定稿，16:00前完成下个周五至周四业务周的原任务排期及生产读回；跨两Monday桶只核一次额度。消费最新已完成复盘和有效热点P0证据，保留延期原ID、dueAt及在途任务；16:30新结论补原任务或后续候选。",
-  "seo-09-10-flatkey": "北京时间16:15起45分钟内，同步Flatkey首次自然搜索获客的sign_up_success去重用户并读回；全渠道UTC账户注册来源独立保留。北京时间09:15仅周一补采；常规执行按北京时间原工作日门槛过滤，不将缺数填0。",
-  "seo-10-00": "每日含周末发现近24小时新事件及近7天真实升温主题，核验官方事实与独立需求证据，扩当地关键词并完整去重。有效热点P0沿原任务补研究和最早合法空额，正式制作仍守实际工作日与原额度。Flatkey、RackRate、ModelFit原技术、GSC、404及PSI巡检继续。",
-  "seo-14-00": "周三15:30准备下个周五至周四业务周的研究、意图去重与页面候选，供周四16:00前定稿。不开展Flatkey新落地页专属挖词；保留博客及旧页研究。复用原任务与有效热点P0证据，核跨两Monday桶的实际工作日及一次额度；缺项明确保留。",
-  "seo": "周二准备推广和内链；周四轮查其他旧文。历史待补证据持续保留。",
-  "seo-2": "月初首个工作日复盘业务转化、市场投入和付费查询成本；形成任务，不另发月报群消息。",
-  "seo-17-30": "北京时间17:30起45分钟内，用实际统计日生成、保存并读回独立日报预览；缺来源保存真实缺口。北京时间09:30仅周一分别补出周末日报；常规执行按北京时间原工作日门槛过滤，不能合并周末数字。",
+  "seo-16-00-ga4-search-console": "北京时间每日16:00先采集 GA4／GSC、Flatkey 流量和注册并生产读回，再完成三站巡检、Flatkey 404、到期效果复查和热点工作。来源延迟按实际统计日补采。",
+  "flatkey-5": "实际工作日10:15、14:15分别排队，按原ID和原会话逐项执行。上午未完续入下午，保留原排期、配额、审批和有效租约。",
+  "automation": "周四09:00直接从冻结季度词核验当天待排工作的原市场搜索意图及自然结果，完成下周正式任务与交付排期，16:00前生产读回，供16:30周报读取。",
+  "seo": "每天09:30轮查5–10篇已上线的 Flatkey 或 ModelFit 旧文。合格项按现有优化和翻新额度排队，候选不足时保留缺口。",
   "automation-2": "北京时间每日10:30，独立核验新Prompt的来源许可、成品、精确模型和去重，经原create-only内容接口导入并生产读回；不向GitHub或钉钉发送。",
-  "seo-09-30-2": "周四16:30开始整理洛杉矶上周四至本周三的周报，保存版本供用户审核，注明真实覆盖及下周计划状态。",
-  "seo-10-00-2": "原周五11:30自动发送已暂停；用户对具体周报版本明确批准后才沿原群和账本发送。",
-  "seo-18-00": "北京时间18:00起45分钟内，沿原日报快照验收、群发送门槛和幂等账本处理；全年固定北京时间，不随DST移动。周四日报仅归档不群发、不在次日补发，周末补档不新增发送授权。",
-  "seo-3": "独立检查并归档已结束且业务结果成功的SEO运行；当前暂停，保留配置和历史，不把归档当作业务交付完成。",
+  "seo-09-30-2": "周四16:30只生成洛杉矶上周四至本周三的周报并保存确切版本，读取同日已定稿的下周计划。",
+  "seo-18-00": "北京时间每日18:00在同日数据采集完成并生产读回后生成和归档日报。群发送由有权限用户在日报页手动触发。",
 };
 export function automationCadence(rule: string): string {
   const values = Object.fromEntries(rule.split(";").map(part => part.split("=")));
@@ -118,18 +110,14 @@ export function automationCadence(rule: string): string {
   return "时段待核实";
 }
 export const automationConfigurationVerifiedAt = automationConfig.verifiedAt;
-const automationWindowGates = new Set(["seo-16-00-ga4-search-console", "seo-09-10-flatkey", "seo-16-25", "seo-17-30", "seo-18-00"]);
 const automationDependencies: Record<string, string[]> = {
-  "seo-16-00-ga4-search-console": ["北京时间窗口及周一补采门控", "Google 只读授权", "来源真实闭合日与生产读回"],
-  "seo-09-10-flatkey": ["同批采集与北京时间窗口", "首次自然搜索注册口径", "生产逐日读回"],
-  "seo-16-25": ["同批采集与注册回执", "来源日期和覆盖证据", "生产归档逐项核验"],
+  "seo-16-00-ga4-search-console": ["Google 只读授权", "来源真实闭合日与生产读回", "三站巡检和效果回执"],
   "flatkey-5": ["原任务研究及正式计划资格", "业务周跨桶额度与有效租约", "准确版本审批和生产回执"],
-  "automation": ["截止时最新已完成的复盘和研究证据", "产能与关键词缺口确认", "周四16:00前正式计划生产读回"],
-  "seo-17-30": ["当天采集回执", "跨周任务与审批台账"],
+  "automation": ["生产冻结季度词", "原市场 Top 10 及前 5 页对比", "周四16:00前正式计划生产读回"],
+  "seo": ["真实已上线原页", "原词原市场排名和 GSC 证据", "在途任务去重"],
   "automation-2": ["真实素材与许可证据", "精确模型与成品去重", "create-only导入与生产读回"],
-  "seo-09-30-2": ["洛杉矶周四至周三的来源回执", "真实数据覆盖与缺口", "下周候选或正式计划状态"],
-  "seo-10-00-2": ["用户明确批准的具体周报版本", "平台发送门控已验收", "周报独立防重锁"],
-  "seo-18-00": ["日报最终快照", "平台发送门控已验收", "防重复发送锁"],
+  "seo-09-30-2": ["洛杉矶周四至周三的来源回执", "本周四已定稿的下周计划"],
+  "seo-18-00": ["同日16:00统一数据采集终态回执", "日报确切版本生产读回"],
 };
 
 export function configurationOnlyOperationsStatus(now = new Date(), note = "执行记录暂不可读取；以下仅为已回读的自动化配置"): OperationsStatus {
@@ -145,8 +133,8 @@ export function configuredAutomationPlans(now: Date): OperationsStatus["plans"] 
     return minute(a.rrule) - minute(b.rrule) || a.id.localeCompare(b.id);
   });
   return ordered.map(task => ({ id: task.id, name: task.name, location: "Codex · 本机在线执行",
-    cadence: automationWindowGates.has(task.id) ? `候选唤醒：${automationCadence(task.rrule)}`
-      : task.workdaysOnly ? automationCadence(task.rrule).replace(/^每日 /, "工作日 ") : automationCadence(task.rrule), state: task.status === "ACTIVE" ? "配置已启用 · 成功待回执" : "配置已暂停",
+    cadence: task.workdaysOnly ? automationCadence(task.rrule).replace(/^每日 /, "工作日 ") : automationCadence(task.rrule),
+    state: task.status === "ACTIVE" ? "配置已启用 · 成功待回执" : "配置已暂停",
     nextAt: nextAutomationTime(task.rrule, now, task.status, task.workdaysOnly),
     dependencies: automationDependencies[task.id] ?? [],
     note: `${automationNotes[task.id] ?? "以执行回执核对结果。"} 配置核对于 ${automationConfig.verifiedAt}，实时启停以 Codex 为准。`,

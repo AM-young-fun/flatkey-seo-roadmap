@@ -10,10 +10,9 @@ try:
 except ModuleNotFoundError:
  print('This metadata reader requires Python 3.11 or later.',file=sys.stderr);sys.exit(1)
 
-IDS=['automation','automation-2','flatkey-5','seo','seo-09-10-flatkey','seo-09-30-2','seo-10-00','seo-10-00-2','seo-14-00','seo-16-00-ga4-search-console','seo-16-25','seo-17-30','seo-18-00','seo-2']
-FRIDAY='seo-10-00-2'
-DELETED='seo-09-00-github-traffic'
-ROOT=Path(__file__).resolve().parent.parent
+IDS=['automation','automation-2','flatkey-5','seo','seo-09-30-2','seo-16-00-ga4-search-console','seo-18-00']
+RETIRED=['seo-09-00-github-traffic','seo-09-10-flatkey','seo-10-00','seo-10-00-2','seo-14-00','seo-16-25','seo-17-30','seo-2']
+WORKDAYS_ONLY={'flatkey-5'}
 FIELDS=['id','name','kind','status','rrule','model','reasoning_effort','updated_at','target','cwds']
 sha=lambda data:hashlib.sha256(data).hexdigest()
 
@@ -30,23 +29,21 @@ def main():
   return file.suffix=='.json' and not file.is_symlink() and not file.resolve().is_relative_to(args.automations_dir.resolve())
  if not safe_output(args.output):raise ValueError('unsafe_metadata_output')
  if args.proof_output and (not safe_output(args.proof_output) or args.proof_output.resolve()==args.output.resolve()):raise ValueError('unsafe_proof_output')
- baseline=json.loads((ROOT/'src/lib/data/seo-automation-config.json').read_text())
- prior={task['id']:task for task in baseline['tasks']}
- if (args.automations_dir/DELETED/'automation.toml').exists():raise ValueError('deleted_github_entry_still_present')
+ for aid in RETIRED:
+  if (args.automations_dir/aid/'automation.toml').exists():raise ValueError('retired_entry_still_present:'+aid)
  tasks=[];observed=[]
  for aid in IDS:
   file=args.automations_dir/aid/'automation.toml'
   if not file.is_file() or file.is_symlink() or file.stat().st_size>2*1024*1024:raise ValueError('invalid_metadata_file:'+aid)
   raw=file.read_bytes();item=tomllib.loads(raw.decode())
-  expected='PAUSED' if args.expect_paused or aid==FRIDAY else 'ACTIVE'
-  if item.get('id')!=aid or item.get('kind')!='cron' or item.get('status')!=expected:raise ValueError('actual_status_or_identity_not_confirmed:'+aid)
-  if aid not in prior:raise ValueError('original_business_gate_missing:'+aid)
+  expected={'PAUSED'} if args.expect_paused else {'ACTIVE','PAUSED'} if aid=='automation-2' else {'ACTIVE'}
+  if item.get('id')!=aid or item.get('kind')!='cron' or item.get('status') not in expected:raise ValueError('actual_status_or_identity_not_confirmed:'+aid)
   if not all(key in item for key in FIELDS):raise ValueError('original_metadata_field_missing:'+aid)
   task={key:item[key] for key in FIELDS}
-  task['workdaysOnly']=prior[aid]['workdaysOnly']
-  tasks.append(task);observed.append({'id':aid,'sourceFile':str(file),'sourceSha256':sha(raw),'status':expected})
+  task['workdaysOnly']=aid in WORKDAYS_ONLY
+  tasks.append(task);observed.append({'id':aid,'sourceFile':str(file),'sourceSha256':sha(raw),'status':item['status']})
  at=datetime.datetime.now(datetime.timezone.utc).isoformat()
- output={'verifiedAt':at,'timezone':baseline['timezone'],'tasks':tasks,'verificationScope':IDS}
+ output={'verifiedAt':at,'timezone':'Asia/Shanghai','tasks':tasks,'verificationScope':IDS}
  text=json.dumps(output,ensure_ascii=False,indent=2)+'\n'
  args.output.parent.mkdir(parents=True,exist_ok=True)
  temporary=args.output.parent/('.'+args.output.name+'.'+str(os.getpid()))
@@ -55,7 +52,7 @@ def main():
   os.replace(temporary,args.output)
  finally:
   if temporary.exists():temporary.unlink()
- proof={'status':'OBSERVED_LOCAL_METADATA_SNAPSHOT_ONLY','observedAt':at,'expectedMode':'restored13' if args.expect_restored else 'paused14','entries':observed,'output':str(args.output),'outputSha256':sha(text.encode()),'deletedGithubExcluded':True,'retiredFridayPaused':True,'privatePromptsExported':False,'automationMutations':0,'networkRequests':0,'businessRuns':0}
+ proof={'status':'OBSERVED_LOCAL_METADATA_SNAPSHOT_ONLY','observedAt':at,'expectedMode':'active' if args.expect_restored else 'paused','entries':observed,'output':str(args.output),'outputSha256':sha(text.encode()),'retiredIdsAbsent':RETIRED,'privatePromptsExported':False,'automationMutations':0,'networkRequests':0,'businessRuns':0}
  if args.proof_output:
   args.proof_output.parent.mkdir(parents=True,exist_ok=True);args.proof_output.write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n')
  print(json.dumps({key:proof[key] for key in ['status','expectedMode','output','outputSha256','privatePromptsExported','automationMutations','networkRequests']}))
