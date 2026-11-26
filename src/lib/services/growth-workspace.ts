@@ -12,7 +12,7 @@ import { buildGrowthCollectionManifest, growthCollectionMonitoringQuote } from "
 import { serpPeriod } from "@/lib/serp-periods";
 import { buildGrowthHotspotView, publishedGrowthHotspotTaskIds } from "@/lib/growth-hotspots";
 import { growthStrategyStoredSchema } from "@/lib/growth-strategy";
-import { satelliteQuarterBound, satelliteQuarterCounts } from "@/lib/satellite-quarter";
+import { satelliteQuarterAppliedAt, satelliteQuarterBound, satelliteQuarterCounts } from "@/lib/satellite-quarter";
 import { HUMAN_WORD_LANGUAGE_SOURCE_ID, PRE_FREEZE_IDENTITY_AUDIT, auditedHumanWordLanguages, type IdentityAudit, type IdentitySourceRow } from "@/lib/pre-freeze-market-identities";
 import { projectAppliedQuarterManifestTopics } from "@/lib/applied-quarter-manifest";
 import { QUARTER_MEMBERSHIP_STATUS } from "@/lib/quarter-membership";
@@ -344,7 +344,7 @@ async function readGrowthWorkspace(localPreview: boolean, now: Date, selectedSit
   if (quarterTargets.length && typeof approvedHash === "string") workspace.quarter = { targetIds: quarterTargets, keywordCount: quarterTargets.length, hash: approvedHash };
   if (satellite) workspace.satelliteQuarter = {
     targetIds: satellite.members.map(row => row.targetId), siteCounts: satelliteQuarterCounts(satellite),
-    selectionHash: satellite.selectionHash, approvedAt: satellite.approvedAt, requestId: satellite.requestId,
+    selectionHash: satellite.selectionHash, appliedAt: satelliteQuarterAppliedAt(satellite), requestId: satellite.requestId,
   };
   workspace.sites = workspace.sites.map(site => {
     const savedProperty = savedSites.find(saved => saved.domain === site.domain)?.ga4PropertyId;

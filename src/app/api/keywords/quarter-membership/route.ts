@@ -5,6 +5,9 @@ import { ImportRequestError, readImportJson } from "@/lib/ranking-import";
 import { QuarterMembershipError } from "@/lib/quarter-membership";
 import { loadQuarterMembership, loadQuarterMembershipReceipt, saveQuarterMembership } from "@/lib/services/quarter-membership";
 import { displayDataChanged } from "@/lib/services/display-change";
+import { authenticateImportToken } from "@/lib/services/import-tokens";
+import { readWorkflowBody } from "@/lib/seo-workflow-http";
+import { WorkflowError } from "@/lib/seo-workflow-state";
 import { PreFreezeIdentityError } from "@/lib/pre-freeze-market-identities";
 import { savePreFreezeIdentities, loadPreFreezeIdentityReceipt } from "@/lib/services/pre-freeze-market-identities";
 export const runtime = "nodejs";
@@ -16,30 +19,47 @@ async function authorize(request: Request, write = false) {
   const origin = request.headers.get("origin");
   if (write ? origin !== new URL(request.url).origin : origin && origin !== new URL(request.url).origin) throw new QuarterMembershipError("invalid_origin", "请求须来自当前平台同源页面", 403);
 }
+async function authorizeSatellite(request: Request, write = false) {
+  if (!request.headers.has("authorization")) {
+    await authorize(request, write);
+    return "human" as const;
+  }
+  if (request.headers.has("origin") || !await authenticateImportToken(request)) {
+    throw new QuarterMembershipError("unauthorized", "两站季度补充词需要已授权的自动化凭据", 403);
+  }
+  return "collector" as const;
+}
 function failure(error: unknown) {
   if (error instanceof PreFreezeIdentityError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers });
-  if (error instanceof QuarterMembershipError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers });
+  if (error instanceof QuarterMembershipError || error instanceof WorkflowError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers });
   if (error instanceof ImportRequestError) return Response.json({ message: error.message }, { status: error.status, headers });
   if (error instanceof ZodError || error instanceof SyntaxError) return Response.json({ code: "invalid_record", message: "季度清单字段、原词数量或哈希无效" }, { status: 400, headers });
   return Response.json({ code: "storage_unavailable", message: "季度成员存储暂不可用；请保留确切请求并先读回，不重复改写" }, { status: 503, headers });
 }
 export async function GET(request: Request) {
-  try { await authorize(request); const params = new URL(request.url).searchParams;
+  try { const params = new URL(request.url).searchParams;
     if (params.has("satelliteRequestId")) {
+      await authorizeSatellite(request);
       const { loadSatelliteQuarterReceipt } = await import("@/lib/services/satellite-quarter");
       return Response.json(await loadSatelliteQuarterReceipt(z.string().regex(/^[a-zA-Z0-9:_-]{8,160}$/).parse(params.get("satelliteRequestId"))), { headers });
     }
+    await authorize(request);
     if (params.has("identityRequestId")) return Response.json(await loadPreFreezeIdentityReceipt(z.string().min(1).max(200).parse(params.get("identityRequestId")), "human"), { headers });
     if (params.has("membershipRequestId")) return Response.json(await loadQuarterMembershipReceipt(z.string().min(1).max(200).parse(params.get("membershipRequestId"))), { headers });
     const value = params.get("selectionHash"); const hash = value === null ? undefined : z.string().regex(/^[a-f0-9]{64}$/).parse(value); return Response.json(await loadQuarterMembership(hash), { headers }); } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {
-  try { await authorize(request, true); const input = await readImportJson(request);
+  try {
+    const actor = await authorizeSatellite(request, true);
+    const input = actor === "collector" ? await readWorkflowBody(request) : await readImportJson(request);
     if (input && typeof input === "object" && "action" in input && input.action === "apply_satellite_quarter") {
       const { applySatelliteQuarter } = await import("@/lib/services/satellite-quarter");
-      const result = await applySatelliteQuarter(input);
+      const result = await applySatelliteQuarter(input, actor);
       if (!result.replay) await displayDataChanged();
       return Response.json(result, { headers });
+    }
+    if (actor === "collector") {
+      throw new QuarterMembershipError("human_required", "自动化凭据仅可处理两站季度补充词", 403);
     }
     if (input && typeof input === "object" && "action" in input && ["preview_identities", "apply_identities"].includes(String(input.action))) {
       const result = await savePreFreezeIdentities(input, "human");
