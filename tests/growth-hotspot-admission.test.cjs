@@ -2,7 +2,7 @@ const assert=require("node:assert/strict"),{test}=require("node:test"),fs=requir
 const root=path.resolve(__dirname,".."),old=Module._load;
 Module._load=function(name,parent,...rest){if(name==="server-only")return{};if(name==="@/lib/prisma")return{prisma:{}};if(parent?.filename.endsWith("/services/growth-hotspot-admission.ts")&&["./growth-strategy","./growth-workspace","./seo-workflow"].includes(name))return{};return old.call(this,name.startsWith("@/")?path.join(root,"src",name.slice(2)):name,parent,...rest)};
 require.extensions[".ts"]=(m,file)=>m._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
-const {prepareHotspotAdmission,hotspotLeaseConflict,hotspotTaskMutation,hotspotPlanMutation}=require("../src/lib/growth-hotspot-admission.ts");
+const {prepareHotspotAdmission,prepareHotspotKeywordConfirmation,growthHotspotAdmissionSchema,hotspotLeaseConflict,hotspotTaskMutation,hotspotPlanMutation}=require("../src/lib/growth-hotspot-admission.ts");
 const {runGrowthHotspotAdmission}=require("../src/lib/services/growth-hotspot-admission.ts");
 const {prepareWorkflowMutation}=require("../src/lib/seo-workflow-state.ts");
 const now=new Date("2026-11-24T07:00:00Z"),stamp="2026-11-24T01:00:00Z",event="2026-11-23T00:00:00Z";
@@ -14,6 +14,37 @@ const dates=["2026-11-20","2026-11-23","2026-11-24","2026-11-25","2026-11-26"];
 const plan=()=>({id:"original-plan",weekStart:"2026-11-23",title:"原计划",status:"scheduled",taskIds:["ordinary"],committedTaskIds:["ordinary"],owner:"AI",preparedAt:stamp,reviewedAt:null,reviewedBy:null,targets:{cadence:"growth",executionRange:{start:"2026-11-20",end:"2026-11-26"},landing:0,clusterLanding:7,apiBlogs:10,gpuBlogs:15,optimizedPages:10,maintenanceVersion:"seo-maintenance-v1",contentRefreshPages:10,blogLanguages:{en:8,ja:6,"pt-BR":5,"zh-CN":5,"es-ES":1,fr:0,de:0,ru:0,vi:0,id:0}},gaps:[...dates.flatMap(date=>[{category:"modelFitBlogs",date,siteDomain:"modelfit.cc",count:1,reason:"独立需求证据待补"},{category:"contentRefreshPages",date,count:2,reason:"原文候选待核"}]),...[ ["apiBlogs",10],["gpuBlogs",15],["optimizedPages",10],["clusterLanding",7] ].map(([category,count])=>({category,count,reason:"原计划真实缺口"}))],evidence,notes:"原计划记录不改",version:5,recordedAt:stamp,updatedAt:stamp});
 function fixture(){const scope={site:"flatkey.ai",topicId:"gpu",country:"US",language:"en",kinds:["blog","research"],maxTasks:20,validUntil:"2026-11-29T00:00:00Z"};const direction={id:"direction",revision:2,title:"GPU事件方向",updatedAt:stamp,expiresAt:"2026-11-29T00:00:00Z",experimentId:"experiment",scope:[scope],taskIds:["research","blog"],decision:{actor:"human",decision:"approve",revision:2,decidedAt:stamp,scope:[scope]}};return{strategy:{baseline:{targets:[]},directions:[direction],observations:[]},workspace:{targets:[{id:"target",keywordId:"kw",keyword:"gpu rental opportunity",site:"flatkey.ai",topicId:"gpu",country:"US",language:"en",membership:"formal",languageStatus:"match",sourceActive:true}],topics:[{id:"gpu",topicId:"gpu",site:"flatkey.ai",name:"GPU"}]},workflow:{tasks:[task("research",{kind:"research",status:"verified"}),task("blog",{dependencies:["research"]}),task("ordinary",{kind:"research",keyword:"other term",keywordId:"other",topicId:"other",evidence:[]})],publications:[],runs:[]},plans:[plan()],leases:[]};}
 const command={directionId:"direction",revision:2,taskIds:["blog"]};
+test("explicit confirmation preflights one approved legacy original and leaves research and plan data unchanged", () => {
+  const context = fixture(), original = context.workflow.tasks[1];
+  Object.assign(original, { id: "seo-hotspot:original:blog", source: "human", status: "planned", workflowContract: undefined });
+  context.strategy.directions[0].taskIds = [original.id];
+  Object.assign(context.workspace.targets[0], { membership: "review", sourcePool: "RESEARCH" });
+  const confirm = { ...command, taskIds: [original.id], confirmOriginalKeyword: true };
+  const before = structuredClone(context);
+  const result = prepareHotspotKeywordConfirmation(context, growthHotspotAdmissionSchema.parse(confirm), now);
+  assert.equal(result.candidate?.status, "ready");
+  assert.equal(result.candidate?.workflowContract, "growth-v1.5");
+  assert.equal(result.candidate?.capacityClass, "authorized_hotspot_extra");
+  assert.deepEqual(context, before);
+  assert.equal(prepareHotspotKeywordConfirmation(context, { ...confirm, revision: 1 }, now).task, null);
+  context.workspace.targets[0].country = "GB";
+  assert.equal(prepareHotspotKeywordConfirmation(context, confirm, now).task, null);
+  assert.equal(growthHotspotAdmissionSchema.safeParse({ ...confirm, taskIds: [original.id, "another"] }).success, false);
+});
+test("only the exact active article work may checkpoint a human hotspot's revised draft hash", () => {
+  const context = fixture(), id = "seo-hotspot:original:blog", contentVersion = "sha256:" + "a".repeat(64);
+  const original = { ...context.workflow.tasks[1], id, source: "human", status: "drafting",
+    capacityClass: "authorized_hotspot_extra", pageUrl: "https://flatkey.ai/blog/rental-guide" };
+  const { version, recordedAt, updatedAt, ...fields } = original;
+  const record = { ...fields, contentVersion, evidence: [...fields.evidence, { label: contentVersion, artifact: "quality-report", observedAt: stamp }] };
+  const request = { requestId: "revised-original-draft", action: "save_task", expectedVersion: version, record };
+  const rows = [...context.workflow.tasks.filter(task => task.id !== "blog"), original].map(record => ({ kind: "task", record }));
+  assert.throws(() => prepareWorkflowMutation(request, rows, "collector", now), { code: "human_field_conflict" });
+  assert.throws(() => prepareWorkflowMutation(request, rows, "collector", now, "other-task"), { code: "human_field_conflict" });
+  assert.equal(prepareWorkflowMutation(request, rows, "collector", now, id).record.contentVersion, contentVersion);
+  assert.throws(() => prepareWorkflowMutation({ ...request, record: { ...record, owner: "other" } }, rows, "collector", now, id),
+    { code: "human_field_conflict" });
+});
 test("the extra cap counts real scheduled pages across plans, and preserves old entries", () => {
   const { hotspotCapacityProblem } = require("../src/lib/growth-hotspot-admission.ts");
   const extra = (id, date) => task(id, { dueAt: date + "T06:00:00Z", capacityClass: "authorized_hotspot_extra" });

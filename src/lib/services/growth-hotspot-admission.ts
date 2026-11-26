@@ -1,10 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { WorkflowError, type WorkflowActor } from "@/lib/seo-workflow-state";
+import { WorkflowError, workflowHash, type WorkflowActor } from "@/lib/seo-workflow-state";
 import type { WorkflowPlan, WorkflowRecord } from "@/lib/seo-workflow";
 import { buildGrowthHotspotView } from "@/lib/growth-hotspots";
-import { growthHotspotAdmissionSchema, prepareHotspotAdmission, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
-import { loadGrowthStrategy } from "./growth-strategy";
+import { growthHotspotAdmissionSchema, prepareHotspotAdmission, prepareHotspotKeywordConfirmation, rawWorkflowRecord, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
+import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
+import { loadGrowthStrategy, readGrowthStrategy } from "./growth-strategy";
 import { loadGrowthDashboardWorkspace } from "./growth-workspace";
 import { loadWorkflowSnapshot, saveWorkflowMutation } from "./seo-workflow";
 
@@ -64,7 +65,73 @@ function admissionStore(localPreview: boolean, now: Date): HotspotAdmissionStore
   return { read: () => readAdmissionContext(localPreview, now), save: (request, actor) => saveWorkflowMutation(request, actor, localPreview) };
 }
 export async function saveGrowthHotspotAdmission(raw: unknown, actor: WorkflowActor, localPreview = false, now = new Date()) {
-  return runGrowthHotspotAdmission(raw, actor, admissionStore(localPreview, now), now);
+  if (actor !== "human") throw new WorkflowError("human_hotspot_admission_required", "热点额外目标登记只接受已登录用户同源操作", 403);
+  const command = growthHotspotAdmissionSchema.parse(raw);
+  const confirmation = command.confirmOriginalKeyword
+    ? await confirmHotspotKeyword(command, localPreview, now)
+    : null;
+  return { ...await runGrowthHotspotAdmission(command, actor, admissionStore(localPreview, now), now), ...(confirmation ? { keywordConfirmation: confirmation } : {}) };
+}
+
+async function confirmHotspotKeyword(command: GrowthHotspotAdmissionCommand, localPreview: boolean, now: Date) {
+  if (localPreview) throw new WorkflowError("hotspot_confirmation_production_required", "原词确认须使用当前生产任务和词库", 403);
+  const context = await readAdmissionContext(false, now);
+  const prepared = prepareHotspotKeywordConfirmation(context, command, now);
+  if (!prepared.task || !prepared.candidate) throw new WorkflowError("hotspot_keyword_not_ready", prepared.reason, 409);
+  const { task, candidate } = prepared;
+  const siteDomain = task.siteDomain, keywordId = task.keywordId!, topicId = task.topicId!;
+  const auditId = "hotspot-keyword:" + workflowHash([task.id, keywordId, command.directionId, command.revision]);
+  const identity = { siteDomain, keywordId };
+  const confirmed = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('flatkey-seo-workflow-v1'))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${siteDomain}`}))`;
+    const stored = await tx.seoWorkflowRecord.findFirst({ where: { kind: "task", recordId: task.id }, select: { version: true } });
+    const state = await readGrowthStrategy(tx);
+    const direction = state.directions.find(row => row.id === command.directionId);
+    if (stored?.version !== task.version || direction?.revision !== command.revision) {
+      throw new WorkflowError("hotspot_confirmation_changed", "原任务或已批准方向版本已变化，请重读后再确认", 409);
+    }
+    assertGrowthDirectionScope(state, task, new Date());
+    const member = await tx.siteKeyword.findUnique({
+      where: { siteDomain_keywordId: identity },
+      select: { active: true, pool: true, reviewStatus: true, curationId: true, topicId: true,
+        keyword: { select: { active: true, text: true } },
+        topic: { select: { active: true, sites: { select: { siteDomain: true } } } } },
+    });
+    if (!member?.active || !member.keyword.active || member.keyword.text !== task.keyword || member.topicId !== topicId
+      || !member.topic?.active || !member.topic.sites.some(site => site.siteDomain === siteDomain)) {
+      throw new WorkflowError("hotspot_keyword_identity_changed", "本站原词或主话题已变化，请重新核对", 409);
+    }
+    if (member.pool === "FORMAL") return { ...identity, topicId, pool: member.pool, changed: false };
+    if (member.pool !== "RESEARCH" || member.reviewStatus !== "UNREVIEWED" || member.curationId) {
+      throw new WorkflowError("hotspot_keyword_review_changed", "仅确认仍启用且未被其他审核处置的本站研究原词", 409);
+    }
+    const updated = await tx.siteKeyword.updateMany({
+      where: { ...identity, active: true, topicId, pool: "RESEARCH", reviewStatus: "UNREVIEWED", curationId: null },
+      data: { pool: "FORMAL", reviewStatus: "HOTSPOT_CONFIRMED" },
+    });
+    if (updated.count !== 1) throw new WorkflowError("hotspot_keyword_conflict", "研究原词在确认时发生变化", 409);
+    await tx.keywordCurationAudit.create({ data: {
+      id: auditId, siteDomain, status: "HOTSPOT_KEYWORD_CONFIRMED", payloadHash: workflowHash(command),
+      before: [{ ...identity, topicId, pool: member.pool, reviewStatus: member.reviewStatus }],
+      after: [{ ...identity, topicId, pool: "FORMAL", reviewStatus: "HOTSPOT_CONFIRMED" }],
+      summary: { kind: "hotspot-keyword-confirmation", taskId: task.id, directionId: direction.id, revision: direction.revision,
+        keyword: task.keyword, country: task.country, language: task.language, actor: "human" },
+    } });
+    return { ...identity, topicId, pool: "FORMAL", changed: true, auditId };
+  });
+  const readback = await prisma.siteKeyword.findUnique({
+    where: { siteDomain_keywordId: identity }, select: { active: true, pool: true, topicId: true },
+  });
+  if (!readback?.active || readback.pool !== "FORMAL" || readback.topicId !== topicId) {
+    throw new WorkflowError("hotspot_keyword_readback_failed", "正式原词读回未核实，原计划暂不追加", 503);
+  }
+  if (task.status !== candidate.status || task.workflowContract !== candidate.workflowContract || task.capacityClass !== candidate.capacityClass) {
+    const record = rawWorkflowRecord(candidate);
+    await saveWorkflowMutation({ action: "save_task", expectedVersion: task.version,
+      requestId: "hotspot-keyword-ready:" + workflowHash([auditId, task.version, record]), record }, "human", false);
+  }
+  return confirmed;
 }
 /** This is invoked only after an exact human direction approval was saved.
  * Ordinary attribution directions do not produce hotspot candidates. */

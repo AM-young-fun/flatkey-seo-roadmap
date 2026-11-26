@@ -80,7 +80,7 @@ function maintenanceHistory(all: WorkflowStoredRow[]): Parameters<typeof mainten
   ];
 }
 
-function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor, now: Date) {
+function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all: WorkflowStoredRow[], actor: WorkflowActor, now: Date, articleLeaseTaskId?: string) {
   const changingExecution = !previous || task.status !== previous.status;
   if (changingExecution && (task.channel === "product" || task.channel !== "github" && !GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain))) reject("task_scope_excluded", "该站点或产品渠道仅保留历史，不进入SEO执行队列");
   if (changingExecution && task.kind === "blog" && !GROWTH_BLOG_SITES.some(site => site === task.siteDomain)) reject("blog_scope_excluded", "博客制作仅限 Flatkey 和 ModelFit");
@@ -168,7 +168,13 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
     for (const dependency of task.dependencies) if (!["verified", "observing"].includes(lookup.get(dependency)!.status)) reject("dependency_incomplete", `前置任务尚未验收：${dependency}`);
   }
   if (previous && actor === "collector" && (previous.source === "human" || previous.approval?.kind === "explicit")) {
+    const versionedArticle = articleLeaseTaskId === previous.id && previous.id.startsWith("seo-hotspot:")
+      && previous.capacityClass === "authorized_hotspot_extra" && previous.source === "human" && !previous.approval
+      && previous.status === "drafting" && task.status === "drafting" && automaticTaskPolicy(previous) === "auto_blog"
+      && /^sha256:[a-f0-9]{64}$/.test(task.contentVersion ?? "")
+      && task.evidence.some(row => row.artifact && row.label.includes(task.contentVersion!));
     for (const key of ["title", "keyword", "keywordId", "country", "language", "business", "pageType", "pageUrl", "owner", "dueAt", "dependencies", "acceptanceCriteria", "contentVersion", "artifactUrl", "codeSource"] as const) {
+      if (key === "contentVersion" && versionedArticle) continue;
       if (!same(previous[key], task[key])) reject("human_field_conflict", `人工确认字段发生冲突：${key}；请保留双方版本供审核`);
     }
   }
@@ -542,7 +548,7 @@ function assertOptimization(value: WorkflowOptimization, previous: WorkflowOptim
   }
 }
 
-export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[], actor: WorkflowActor, now = new Date()) {
+export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[], actor: WorkflowActor, now = new Date(), articleLeaseTaskId?: string) {
   const mutation = workflowMutationSchema.parse(input), kind = ACTION_KIND[mutation.action];
   const parsed = WORKFLOW_SCHEMAS[kind].parse(mutation.record);
   const checkTimes = (value: unknown) => {
@@ -587,7 +593,7 @@ export function prepareWorkflowMutation(input: unknown, all: WorkflowStoredRow[]
       task.progress = [...progress.values()]
         .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt) || a.id.localeCompare(b.id)).slice(-100);
     }
-    assertTask(task, oldTask, all, actor, now);
+    assertTask(task, oldTask, all, actor, now, articleLeaseTaskId);
   }
   if (kind === "plan") {
     const plan = record as WorkflowPlan, prior = previous as WorkflowPlan | undefined;

@@ -4,7 +4,7 @@ import { indexing404History, indexing404HistoryLimit, indexing404RunPrefix, type
 import { isGrowthTopicPlaceholder } from "@/lib/seo-growth-markets";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requestRead } from "@/lib/request-read-scope";
@@ -158,17 +158,27 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('flatkey-seo-workflow-claims-v1'))`;
     const rawRecord = request.record as Record<string, unknown> | null;
     const associatedRun = request.claim?.runId ?? (request.action === "record_run" ? rawRecord?.id : request.action === "record_publication" ? rawRecord?.runId : undefined);
+    let articleLease: { taskId: string; scheduledFor: Date } | undefined;
     if (request.claim && (request.action === "record_run" && rawRecord?.id !== request.claim.runId || request.action === "record_publication" && rawRecord?.runId !== request.claim.runId)) throw new WorkflowError("claim_record_mismatch", "回执记录与阶段租约编号不一致");
     if (typeof associatedRun === "string") {
       const lease = await tx.seoWorkflowLease.findUnique({ where: { runId: associatedRun } });
       if (lease || request.claim) {
         const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
         if (!request.claim || !lease || lease.status !== "running" || lease.owner !== request.claim.owner || lease.fencingToken !== request.claim.fencingToken || lease.leaseUntil <= clock.now) throw new WorkflowError("lease_lost", "当前阶段租约无效；不能由旧执行器覆盖新回执");
+        if (request.action === "save_task" && typeof rawRecord?.id === "string" && rawRecord.id.startsWith("seo-hotspot:")) {
+          const hash = createHash("sha256").update(rawRecord.id).digest("hex").slice(0, 24);
+          if (lease.runId === `task-claim:${hash}` && lease.stage === `TASK_${hash.toUpperCase()}`) {
+            articleLease = { taskId: rawRecord.id, scheduledFor: lease.scheduledFor };
+          }
+        }
       }
     }
     const rows = await tx.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } } });
     const all = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
-    const prepared = prepareWorkflowMutation(request, all, actor);
+    const leaseTask = articleLease && all.find(row => row.kind === "task" && row.record.id === articleLease.taskId)?.record;
+    const leasedArticleId = leaseTask && articleLease
+      && new Date(leaseTask.recordedAt).getTime() === articleLease.scheduledFor.getTime() ? leaseTask.id : undefined;
+    const prepared = prepareWorkflowMutation(request, all, actor, new Date(), leasedArticleId);
     const newMaintenance = publishedMaintenanceMutationTasks(prepared.kind, prepared.record, all);
     await assertPublishedMaintenanceTasks(tx, newMaintenance, all, new Date(prepared.record.updatedAt));
     const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, all);
