@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-26T03:06:41.481036+00:00",
+  "verifiedAt": "2026-11-26T03:18:54.623295+00:00",
   "timezone": "Asia/Shanghai",
   "tasks": [
     {
@@ -10,7 +10,7 @@
       "rrule": "FREQ=WEEKLY;BYDAY=TH;BYHOUR=12;BYMINUTE=30;BYSECOND=0",
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "updated_at": 1795662266034,
+      "updated_at": 1795663112998,
       "target": {
         "type": "project",
         "project_id": "20f99098-7cb7-4a9c-9c38-e30b9b3e249b"

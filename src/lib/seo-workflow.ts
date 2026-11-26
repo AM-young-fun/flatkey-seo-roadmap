@@ -122,7 +122,7 @@ export const workflowPlanSchema = z.object({
   targets: z.union([
     z.object({ cadence: z.literal("growth"),
       executionRange: z.object({ start: z.iso.date(), end: z.iso.date() }).strict(),
-      landing: z.literal(0), clusterLanding: z.number().int().min(0).max(9),
+      landing: z.number().int().min(0).max(2), clusterLanding: z.number().int().min(0).max(9),
       apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35),
       optimizedPages: z.number().int().min(0).max(14),
       maintenanceVersion: z.literal("seo-maintenance-v1").optional(), contentRefreshPages: z.number().int().min(0).max(14).optional(),

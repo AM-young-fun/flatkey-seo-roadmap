@@ -1,6 +1,6 @@
 import { weeklyHotspotAdmissionProblem } from "./seo-weekly-hotspot";
 import { isSeoExtraCapacity, WEEKLY_GROWTH_EXTRA } from "./seo-extra-capacity";
-import { GROWTH_EXECUTION_SITES, GROWTH_BLOG_SITES } from "./seo-growth-markets";
+import { FLATKEY_LANDING_START, GROWTH_EXECUTION_SITES, GROWTH_BLOG_SITES } from "./seo-growth-markets";
 import { assertGrowthPlan } from "./seo-growth-plan";
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
 import { isSeoWorkday, seoCatchUpDate } from "./seo-workday";
@@ -48,6 +48,11 @@ function executablePlanIncludesTask(plan: WorkflowPlan, task: WorkflowTask) {
   const storageWeeks = [workflowWeek(new Date(range.start + "T00:00:00+08:00")), workflowWeek(new Date(range.end + "T00:00:00+08:00"))];
   const dueDay = seoToday(new Date(task.dueAt));
   return range.start === expected.start && range.end === expected.end && storageWeeks.includes(plan.weekStart) && dueDay >= range.start && dueDay <= range.end;
+}
+function flatkeyLandingPlanIncludesTask(plan: WorkflowPlan, task: WorkflowTask) {
+  const targets = plan.targets;
+  return Boolean(targets && "cadence" in targets && targets.cadence === "growth" && targets.executionRange.start >= FLATKEY_LANDING_START
+    && targets.landing > 0 && executablePlanIncludesTask(plan, task));
 }
 const contentKinds = new Set(["blog", "landing", "optimization", "cluster"]);
 const beforePublication = new Set(["planned", "researching", "ready", "drafting", "review_pending", "approved", "blocked", "failed"]);
@@ -120,7 +125,15 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   }
   if (task.weekStart >= clusterOnlyLandingWeek && task.siteDomain === "flatkey.ai" && task.kind === "landing"
     && productionStates.has(task.status) && previous?.status !== task.status) {
-    reject("flatkey_new_landing_stopped", "Flatkey 暂停新建落地页；保留原任务历史，不能换站点或新建替代任务");
+    if (seoToday(new Date(task.dueAt)) < FLATKEY_LANDING_START) reject("flatkey_new_landing_stopped", "暂停期的原Flatkey落地页保留历史");
+    if (!task.pageUrl || task.language === "ru" || isSeoExtraCapacity(task.capacityClass) || task.workflowContract !== "growth-v1.5") reject("flatkey_landing_quarter_contract", "Flatkey新落地页须绑定真实目标页、季度原词及同市场研究");
+    if (task.status !== "ready" && !all.some(row => row.kind === "plan" && flatkeyLandingPlanIncludesTask(row.record as WorkflowPlan, task))) {
+      reject("flatkey_landing_plan_required", "Flatkey新落地页须进入有效正式周计划才可制作");
+    }
+  }
+  if (previous?.kind === "landing" && previous.siteDomain === "flatkey.ai" && (previous.dueAt !== task.dueAt || previous.weekStart !== task.weekStart)
+    && all.some(row => row.kind === "plan" && flatkeyLandingPlanIncludesTask(row.record as WorkflowPlan, previous))) {
+    reject("flatkey_landing_due_immutable", "保留已排Flatkey落地页的原交付日和容量归属");
   }
   if (actor !== "human" && task.source === "human" && previous?.source !== "human") reject("human_task_source_required", "只有用户操作可创建明确人工目标，采集器不能伪造人工来源");
   if (previous?.branchObservation && (!task.branchObservation || Date.parse(task.branchObservation.observedAt) < Date.parse(previous.branchObservation.observedAt))) reject("branch_observation_stale", "请保留最近一次分支核对结果");
@@ -707,6 +720,8 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
   const activeTasks = scheduledTasks.filter(task => {
     if (dueDay(task) > range.end || isCodexTrackedTask(task)) return false;
+    if (task.kind === "landing" && task.siteDomain === "flatkey.ai" && dueDay(task) >= FLATKEY_LANDING_START
+      && !plans.some(plan => flatkeyLandingPlanIncludesTask(plan, task))) return false;
     // Legacy hotspot drafts can be visible in the work list before admission.
     // Only the registered original plan can make a new hotspot deliverable.
     if (task.kind === "blog" && (task.id.startsWith("seo-hotspot:") || task.capacityClass === "authorized_hotspot_extra")
