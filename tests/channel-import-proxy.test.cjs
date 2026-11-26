@@ -18,10 +18,24 @@ Module._load=function(name,...rest){
  if(name.includes('services/seo-registration-period'))return {loadRegistrationPeriods:async()=>[],saveRegistrationPeriod:async input=>require('../src/lib/seo-registration-period.ts').registrationPeriodSchema.parse(input)};
  if(name.includes('services/seo-business-analytics'))return {loadBusinessAnalytics:async()=>[],loadRecentMatureCohortPeriods:async()=>[],saveBusinessAnalytics:async input=>require('../src/lib/seo-business-analytics.ts').businessAnalyticsSchema.parse(input)};
  if(name.includes('services/seo-github-channel'))return {loadGithubChannels:async()=>[],saveGithubChannel:async input=>require('../src/lib/seo-github-channel.ts').githubChannelSchema.parse(input)};
+ if(name.includes('services/reserved-original-keyword'))return {applyReservedOriginalKeyword:async (_,actor)=>({actor,replay:true}),loadReservedOriginalReceipt:async()=>({readbackVerified:true})};
  return name==='server-only'?{}:load.call(this,name,...rest);
 };
 require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
 const {NextRequest}=require('next/server'),{proxy}=require('../src/proxy.ts');
+test('the exact reserved membership path delegates to its own credential checks',async()=>{
+ const url='https://flatkey.test/api/keywords/quarter-membership/reserved';
+ const route=require('../src/app/api/keywords/quarter-membership/reserved/route.ts');
+ const authorization={authorization:'Bearer fixture'};
+ const post=headers=>route.POST(new Request(url,{method:'POST',headers,body:'{}'}));
+ for(const method of ['GET','POST'])assert.equal((await proxy(new NextRequest(url,{method,headers:authorization}))).headers.get('x-middleware-next'),'1');
+ assert.equal((await proxy(new NextRequest(url+'/admin',{headers:authorization}))).status,401);
+ assert.equal((await proxy(new NextRequest(url,{method:'DELETE',headers:authorization}))).status,401);
+ assert.equal((await post({})).status,401);
+ assert.equal((await post({authorization:'Bearer wrong'})).status,401);
+ assert.equal((await post({...authorization,origin:'https://flatkey.test'})).status,403);
+ assert.equal((await (await post(authorization)).json()).actor,'collector');
+});
 for(const channel of ['business','github'])test(`${channel} import reaches its own token authentication without a browser session`,async()=>{
  const endpoint='https://flatkey.test/api/seo/'+channel,route=require('../src/app/api/seo/'+channel+'/route.ts');
  assert.equal((await proxy(new NextRequest(endpoint))).headers.get('x-middleware-next'),'1');
