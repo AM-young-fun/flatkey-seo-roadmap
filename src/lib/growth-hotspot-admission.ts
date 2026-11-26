@@ -29,23 +29,31 @@ const word = (value: string | null) => value?.normalize("NFKC").trim().toLowerCa
 
 /** Unknown leases are not guessed away. Known unrelated task runs can continue. */
 export function hotspotLeaseConflict(taskIds: string[], runs: Pick<WorkflowRun, "id" | "status" | "taskIds">[], leases: HotspotLease[],
-  now = new Date(), tasks: Pick<WorkflowTask, "id" | "recordedAt">[] = []): string | null {
+  now = new Date(), tasks: Pick<WorkflowTask, "id" | "recordedAt" | "version">[] = []): string | null {
   const ids = new Set(taskIds);
   if (runs.some(run => run.status === "running" && run.taskIds.some(id => ids.has(id)))) return "原任务已有进行中的运行，保留原租约和执行状态，不登记或替换在途任务";
-  const originalClaims = new Map(tasks.map(task => {
-    const hash = createHash("sha256").update(task.id).digest("hex").slice(0, 24);
-    return ["task-claim:" + hash, { task, stage: "TASK_" + hash.toUpperCase() }];
-  }));
   for (const lease of leases) {
     if (lease.status !== "running" || Date.parse(lease.leaseUntil) <= now.getTime()) continue;
     const run = runs.find(row => row.id === lease.runId);
     if (run?.taskIds.length && run.taskIds.every(id => !ids.has(id))) continue;
-    const original = originalClaims.get(lease.runId);
-    // An original scanner claim precedes its run receipt. Recognize it only
-    // when the ID, stage and immutable original timestamp all agree.
-    if (!run?.taskIds.length && original && lease.stage === original.stage && lease.scheduledFor
-      && Date.parse(lease.scheduledFor) === Date.parse(original.task.recordedAt) && !ids.has(original.task.id)) continue;
-    return "存在有效租约且无法排除本原任务，待原运行读回后重试，不抢占或推断租约归属";
+    // The original scanner can acquire a versioned retry before its run
+    // receipt exists. Only versions on the same immutable task timestamp can
+    // identify that lease. A versioned identity survives later task updates.
+    const match = /^task-claim:([a-f0-9]{24})$/.exec(lease.runId);
+    if (!run?.taskIds.length && match && lease.stage === "TASK_" + match[1].toUpperCase() && lease.scheduledFor) {
+      const scheduledFor = Date.parse(lease.scheduledFor);
+      const matchingTasks = tasks.filter(task => {
+        if (Date.parse(task.recordedAt) !== scheduledFor) return false;
+        const digest = (identity: string) => createHash("sha256").update(identity).digest("hex").slice(0, 24);
+        if (digest(task.id) === match[1]) return true;
+        for (let version = 1; version <= task.version; version++) {
+          if (digest(JSON.stringify([task.id, version])) === match[1]) return true;
+        }
+        return false;
+      });
+      if (matchingTasks.length === 1 && !ids.has(matchingTasks[0].id)) continue;
+    }
+    return `有效租约 ${lease.runId}（${lease.stage ?? "阶段待核"}）的原任务归属待核实，请沿原运行读回后重试`;
   }
   return null;
 }
