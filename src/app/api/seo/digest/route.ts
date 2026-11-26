@@ -35,6 +35,9 @@ const mutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prepare"), date: digestDateSchema, kind: digestKindSchema.default("daily") }).strict(),
   z.object({ action: z.literal("claim"), reportId: z.string().min(1).max(200), owner: z.string().min(1).max(200), transport: z.enum(["application-bot", "signed-webhook"]).optional(), messageFormat: z.literal("actionCard").optional(), revision: z.literal(true).optional() }).strict(),
   z.object({ action: z.literal("begin"), id: z.string().min(1).max(200), owner: z.string().min(1).max(200), fencingToken: z.number().int().positive(), transport: z.enum(["application-bot", "signed-webhook"]).optional() }).strict(),
+  z.object({ action: z.literal("begin_daily_manual"), id: z.string().regex(/^seo-digest-delivery:daily:\d{4}-\d{2}-\d{2}$/),
+    owner: z.string().regex(/^web-daily-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/), fencingToken: z.number().int().positive(),
+    reportId, reportHash: z.string().regex(/^[a-f0-9]{64}$/), payloadSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ action: z.literal("finish"), reportId: z.string().min(1).max(200), reportHash: z.string().regex(/^[a-f0-9]{64}$/), destination: z.string().min(1).max(200), robotCode: z.string().min(1).max(200), id: z.string().min(1).max(200), owner: z.string().min(1).max(200), fencingToken: z.number().int().positive(), status: z.enum(["DELIVERED", "UNKNOWN"]), processQueryKey: z.string().min(1).max(2000).optional(), webhookReceipt: webhookReceiptSchema.optional(), errorCode: z.string().max(1000).optional() }).strict(),
 ]);
 function errorResponse(error: unknown) {
@@ -164,6 +167,8 @@ export async function POST(request: Request) {
     }
     if (input.action === "claim") return Response.json(await claimDigest(input.reportId, input.owner, new Date(), input.transport, input.messageFormat, input.revision), { headers });
     if (input.action === "begin") return Response.json(await beginDigestAttempt(input.id, input.owner, input.fencingToken, input.transport), { headers });
+    if (input.action === "begin_daily_manual") return Response.json(await beginDigestAttempt(input.id, input.owner, input.fencingToken, "signed-webhook",
+      { reportId: input.reportId, reportHash: input.reportHash, payloadSha256: input.payloadSha256 }), { headers });
     return Response.json(await finishDigestAttempt(input), { headers });
   } catch (error) { return errorResponse(error); }
 }

@@ -1,0 +1,54 @@
+name: Send daily SEO report from platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_id:
+        description: Exact daily report selected on the platform
+        type: string
+        required: true
+      owner:
+        description: Fenced claim created by the authenticated platform action
+        type: string
+        required: true
+      fencing_token:
+        description: Exact claim version created by the platform action
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deliver the claimed daily report
+        env:
+          SEO_IMPORT_TOKEN: ${{ secrets.SEO_IMPORT_TOKEN }}
+          SEO_DINGTALK_CONFIG: ${{ secrets.SEO_DINGTALK_CONFIG }}
+          SEO_REPORT_ID: ${{ inputs.report_id }}
+          SEO_REPORT_OWNER: ${{ inputs.owner }}
+          SEO_REPORT_FENCE: ${{ inputs.fencing_token }}
+          SEO_DIGEST_OUTPUT_DIR: ${{ runner.temp }}/seo-digest
+        run: |
+          date="${SEO_REPORT_ID#seo-digest:}"
+          date="${date%%:*}"
+          node scripts/server-seo-digest-send.cjs --kind=daily --date="$date" \
+            --report-id="$SEO_REPORT_ID" --manual-owner="$SEO_REPORT_OWNER" --manual-fence="$SEO_REPORT_FENCE" --send
+      - name: Archive delivery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-delivery
+          path: ${{ runner.temp }}/seo-digest
+          if-no-files-found: ignore
+          retention-days: 30
