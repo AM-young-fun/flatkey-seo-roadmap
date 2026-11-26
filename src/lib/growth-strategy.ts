@@ -420,6 +420,10 @@ export function evaluateGrowthGoals(state: GrowthStrategy, workspace: GrowthWork
 }
 
 export type GrowthReportSnapshot = { version: "growth-v1.5"; strategyVersion: number; sourceVersion: string; generatedAt: string; period: { start: string; end: string; timezone: "America/Los_Angeles" }; goals: GrowthGoalEvaluation; directions: { id: string; title: string; experimentId: string; recommendation: string; decision: string; taskIds: string[]; drivers: GrowthDriver[]; kind?: "decision" | "attribution"; scope?: GrowthDirectionInput["scope"] }[]; observations: GrowthObservation[] };
+export type GrowthDashboardView = {
+  snapshot: GrowthReportSnapshot;
+  lastVerifiedRollingTraffic?: { start: string; end: string; sessions: number };
+};
 /** A decision card is not a historic traffic driver. Keep valid real scopes in
  * the decision summary, while every numeric driver still belongs to its window. */
 export function growthReportDirections(state: GrowthStrategy, workspace: GrowthWorkspace, period: { start: string; end: string }, now = new Date()): GrowthReportSnapshot["directions"] {

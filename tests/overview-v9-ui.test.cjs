@@ -155,7 +155,7 @@ test("the overview displays the verified prior whole window while the latest win
     dailyTrafficObservation: { version: "rolling7day-v1", period: requested, previousPeriod: previous,
       sessions: null, previousSessions: 1603, difference: null, complete: false, previousComplete: true },
   });
-  const overview = () => render(React.createElement(OverviewGoalCharts, { snapshot }));
+  const overview = (lastVerifiedRollingTraffic) => render(React.createElement(OverviewGoalCharts, { snapshot, lastVerifiedRollingTraffic }));
   const original = JSON.stringify(snapshot);
   const html = overview();
   assert.match(html, /最近已核验滚动7日/);
@@ -170,9 +170,15 @@ test("the overview displays the verified prior whole window while the latest win
   assert.match(overview(), /窗口待采/);
   assert.doesNotMatch(overview(), /会话：0次|流量截至 11月24日/);
 
+  const older = { start: "2026-11-17", end: "2026-11-23", sessions: 1557 };
+  assert.match(overview(older), /流量截至 11月23日/);
+  assert.match(overview(older), /洛杉矶 11月25日 截止窗口待采，当前显示 11月17日–11月23日 的整段会话/);
+  assert.match(overview(older), /1,557/);
+
   snapshot.goals.dailyTrafficObservation.previousComplete = true;
+  assert.doesNotMatch(overview(older), /1,557/);
   snapshot.goals.evaluationMode = "final";
-  assert.doesNotMatch(overview(), /最近已核验滚动7日|窗口待采/);
+  assert.doesNotMatch(overview(older), /最近已核验滚动7日|窗口待采|1,557/);
 });
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
