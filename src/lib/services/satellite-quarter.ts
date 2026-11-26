@@ -8,7 +8,7 @@ import { MARKET_ASSIGNMENT_SOURCE_ID, readKeywordMarketAssignment } from "../key
 import { QuarterMembershipError, quarterMembershipHash, quarterWordKey } from "../quarter-membership";
 import { quarterWordResearchProblem } from "../quarter-word-research";
 import { SATELLITE_QUARTER_SITES, SATELLITE_QUARTER_VERSION, satelliteQuarterBound, satelliteQuarterCommandSchema,
-  satelliteQuarterCounts, satelliteQuarterHash, satelliteQuarterInputRowSchema, satelliteQuarterProblem,
+  satelliteQuarterAppliedAt, satelliteQuarterCounts, satelliteQuarterHash, satelliteQuarterInputRowSchema, satelliteQuarterProblem,
   satelliteQuarterStoredSchema, type SatelliteQuarter } from "../satellite-quarter";
 import { GROWTH_EXECUTION_SITES, isGrowthTopicPlaceholder } from "../seo-growth-markets";
 import { readGrowthStrategy } from "./growth-strategy";
@@ -76,14 +76,14 @@ export async function loadSatelliteQuarterReceipt(requestId: string) {
     if (growthHash(verifiedSelection(current, requestId)) !== growthHash(pool)) {
       throw new QuarterMembershipError("satellite_receipt_changed", "生产两站补充批次与原确切回执不一致");
     }
-    return { ...await verifyReadback(tx, pool, new Date(pool.approvedAt)), strategyVersion: event.version, currentVersion: current.version };
+    return { ...await verifyReadback(tx, pool, new Date(satelliteQuarterAppliedAt(pool))), strategyVersion: event.version, currentVersion: current.version };
   }, { ...txOptions, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 
-export async function applySatelliteQuarter(input: unknown, now = new Date()) {
+export async function applySatelliteQuarter(input: unknown, actor: SatelliteQuarter["actor"], now = new Date()) {
   const command = satelliteQuarterCommandSchema.parse(input);
   const requestId = eventId(command.requestId);
-  const requestHash = growthHash({ actor: "human", command });
+  const requestHash = growthHash({ actor, command });
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('flatkey-seo-workflow-v1'))`;
     const replay = await tx.seoWorkflowEvent.findUnique({ where: { requestId } });
@@ -96,7 +96,7 @@ export async function applySatelliteQuarter(input: unknown, now = new Date()) {
       if (growthHash(verifiedSelection(current, command.requestId)) !== growthHash(pool)) {
         throw new QuarterMembershipError("satellite_receipt_changed", "生产两站补充批次与原确切回执不一致");
       }
-      return { ...await verifyReadback(tx, pool, new Date(pool.approvedAt)), strategyVersion: replay.version, replay: true };
+      return { ...await verifyReadback(tx, pool, new Date(satelliteQuarterAppliedAt(pool))), strategyVersion: replay.version, replay: true };
     }
     if (current.version !== command.expectedVersion) throw new QuarterMembershipError("version_conflict", "季度策略已更新，请先重新读取当前生产版本");
     if (current.satelliteQuarter) throw new QuarterMembershipError("satellite_already_applied", "两站季度词批次已确认，沿原回执查证");
@@ -131,8 +131,9 @@ export async function applySatelliteQuarter(input: unknown, now = new Date()) {
         { ...identity, sourceId: MARKET_ASSIGNMENT_SOURCE_ID, snapshot: assignment, snapshotHash: quarterMembershipHash(assignment), observedAt: now },
       ];
     }) });
+    const actorStamp = actor === "collector" ? { actor, appliedAt: now.toISOString() } : { actor, approvedAt: now.toISOString() };
     const pool = satelliteQuarterStoredSchema.parse({ version: SATELLITE_QUARTER_VERSION, requestId: command.requestId,
-      actor: "human", approvedAt: now.toISOString(), baselinePlanHash: current.baseline!.planHash,
+      ...actorStamp, baselinePlanHash: current.baseline!.planHash,
       selectionHash: satelliteQuarterHash(command.rows), members: rows.map(({ row: { excerpt: _excerpt, ...row }, keywordId }) => ({
         ...row, keywordId, targetId: growthTargetId(row.siteDomain, row.keyword, row.country, row.language),
       })) });

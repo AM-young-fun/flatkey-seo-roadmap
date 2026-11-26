@@ -27,13 +27,20 @@ export type SatelliteQuarterCommand = z.infer<typeof satelliteQuarterCommandSche
 const satelliteMemberSchema = satelliteQuarterInputRowSchema.omit({ excerpt: true }).extend({
   targetId: growthLogicalTargetIdSchema, keywordId: id,
 });
-export const satelliteQuarterStoredSchema = z.object({
-  version: z.literal(SATELLITE_QUARTER_VERSION), requestId: id, actor: z.literal("human"),
-  approvedAt: z.iso.datetime({ offset: true }), baselinePlanHash: sha256,
+const satelliteStoredFields = {
+  version: z.literal(SATELLITE_QUARTER_VERSION), requestId: id, baselinePlanHash: sha256,
   selectionHash: sha256, members: z.array(satelliteMemberSchema).length(SATELLITE_QUARTER_COUNT),
-}).strict();
+};
+export const satelliteQuarterStoredSchema = z.discriminatedUnion("actor", [
+  z.strictObject({ ...satelliteStoredFields, actor: z.literal("human"), approvedAt: z.iso.datetime({ offset: true }) }),
+  z.strictObject({ ...satelliteStoredFields, actor: z.literal("collector"), appliedAt: z.iso.datetime({ offset: true }) }),
+]);
 export type SatelliteQuarter = z.infer<typeof satelliteQuarterStoredSchema>;
 export type SatelliteQuarterMember = SatelliteQuarter["members"][number];
+
+export function satelliteQuarterAppliedAt(pool: SatelliteQuarter) {
+  return pool.actor === "collector" ? pool.appliedAt : pool.approvedAt;
+}
 
 export function satelliteQuarterProblem(command: SatelliteQuarterCommand, strategy: GrowthStrategy, now: Date) {
   const baseline = strategy.baseline;
