@@ -18,7 +18,7 @@ test("explicit confirmation preflights one approved legacy original and leaves r
   const context = fixture(), original = context.workflow.tasks[1];
   Object.assign(original, { id: "seo-hotspot:original:blog", source: "human", status: "planned", workflowContract: undefined });
   context.strategy.directions[0].taskIds = [original.id];
-  Object.assign(context.workspace.targets[0], { membership: "review", sourcePool: "RESEARCH" });
+  Object.assign(context.workspace.targets[0], { membership: "review", sourcePool: "RESEARCH", languageStatus: "unknown" });
   const confirm = { ...command, taskIds: [original.id], confirmOriginalKeyword: true };
   const before = structuredClone(context);
   const result = prepareHotspotKeywordConfirmation(context, growthHotspotAdmissionSchema.parse(confirm), now);
@@ -27,7 +27,13 @@ test("explicit confirmation preflights one approved legacy original and leaves r
   assert.equal(result.candidate?.capacityClass, "authorized_hotspot_extra");
   assert.deepEqual(context, before);
   assert.equal(prepareHotspotKeywordConfirmation(context, { ...confirm, revision: 1 }, now).task, null);
+  context.workspace.targets[0].languageStatus = "mismatch";
+  assert.equal(prepareHotspotKeywordConfirmation(context, confirm, now).task, null);
+  context.workspace.targets[0].languageStatus = "unknown";
   context.workspace.targets[0].country = "GB";
+  assert.equal(prepareHotspotKeywordConfirmation(context, confirm, now).task, null);
+  context.workspace.targets[0].country = "US";
+  original.researchReview.openedResults = [];
   assert.equal(prepareHotspotKeywordConfirmation(context, confirm, now).task, null);
   assert.equal(growthHotspotAdmissionSchema.safeParse({ ...confirm, taskIds: [original.id, "another"] }).success, false);
 });

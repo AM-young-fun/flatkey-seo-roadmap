@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { WorkflowError, workflowHash, type WorkflowActor } from "@/lib/seo-workflow-state";
 import type { WorkflowPlan, WorkflowRecord } from "@/lib/seo-workflow";
 import { buildGrowthHotspotView } from "@/lib/growth-hotspots";
-import { growthHotspotAdmissionSchema, prepareHotspotAdmission, prepareHotspotKeywordConfirmation, rawWorkflowRecord, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
+import { HOTSPOT_KEYWORD_CONFIRMED, growthHotspotAdmissionSchema, prepareHotspotAdmission, prepareHotspotKeywordConfirmation, rawWorkflowRecord, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { loadGrowthStrategy, readGrowthStrategy } from "./growth-strategy";
 import { loadGrowthDashboardWorkspace } from "./growth-workspace";
@@ -112,11 +112,12 @@ async function confirmHotspotKeyword(command: GrowthHotspotAdmissionCommand, loc
     });
     if (updated.count !== 1) throw new WorkflowError("hotspot_keyword_conflict", "研究原词在确认时发生变化", 409);
     await tx.keywordCurationAudit.create({ data: {
-      id: auditId, siteDomain, status: "HOTSPOT_KEYWORD_CONFIRMED", payloadHash: workflowHash(command),
+      id: auditId, siteDomain, status: HOTSPOT_KEYWORD_CONFIRMED, payloadHash: workflowHash(command),
       before: [{ ...identity, topicId, pool: member.pool, reviewStatus: member.reviewStatus }],
       after: [{ ...identity, topicId, pool: "FORMAL", reviewStatus: "HOTSPOT_CONFIRMED" }],
       summary: { kind: "hotspot-keyword-confirmation", taskId: task.id, directionId: direction.id, revision: direction.revision,
-        keyword: task.keyword, country: task.country, language: task.language, actor: "human" },
+        keywordId, topicId, keyword: task.keyword, country: task.country, language: task.language, actor: "human",
+        approvedAt: direction.decision!.decidedAt, researchHash: workflowHash(task.researchReview) },
     } });
     return { ...identity, topicId, pool: "FORMAL", changed: true, auditId };
   });
