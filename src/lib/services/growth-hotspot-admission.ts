@@ -5,7 +5,7 @@ import type { WorkflowPlan, WorkflowRecord } from "@/lib/seo-workflow";
 import { buildGrowthHotspotView } from "@/lib/growth-hotspots";
 import { growthHotspotAdmissionSchema, prepareHotspotAdmission, hotspotTaskMutation, hotspotPlanMutation, preservedHotspotTask, preservedHotspotPlan, type GrowthHotspotAdmissionCommand, type HotspotAdmissionContext } from "@/lib/growth-hotspot-admission";
 import { loadGrowthStrategy } from "./growth-strategy";
-import { loadGrowthWorkspace } from "./growth-workspace";
+import { loadGrowthDashboardWorkspace } from "./growth-workspace";
 import { loadWorkflowSnapshot, saveWorkflowMutation } from "./seo-workflow";
 
 export type HotspotAdmissionReceipt = { taskId: string; status: "scheduled" | "reused" | "pending"; taskRegistered: boolean; planAppended: boolean; planId: string | null; reason: string };
@@ -52,7 +52,7 @@ export async function runGrowthHotspotAdmission(raw: unknown, actor: WorkflowAct
 }
 async function readAdmissionContext(localPreview: boolean, now: Date): Promise<HotspotAdmissionContext> {
   const [strategy, workspace, workflow, planRows, leases] = await Promise.all([
-    loadGrowthStrategy(localPreview), loadGrowthWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview),
+    loadGrowthStrategy(localPreview), loadGrowthDashboardWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview),
     localPreview ? Promise.resolve([]) : prisma.seoWorkflowRecord.findMany({ where: { kind: "plan", status: { in: ["scheduled", "reviewed"] } }, select: { payload: true } }),
     localPreview ? Promise.resolve([]) : prisma.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: now } }, select: { runId: true, status: true, leaseUntil: true } }),
   ]);

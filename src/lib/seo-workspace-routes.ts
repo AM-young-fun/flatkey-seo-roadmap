@@ -26,6 +26,11 @@ export function workspaceRedirectHref(destination: string, params: WorkspaceSear
 
 const taskFilterKeys = ["country", "site", "business", "language", "taskType", "status", "q", "range", "rangeStart", "rangeEnd", "page"] as const;
 
+export function workTaskIdFromRoute(segment: string) {
+  // The Next client transition can retain encoded colons in a route segment.
+  return segment.replace(/%3a/gi, ":");
+}
+
 export function workTaskHref(task: { id: string; weekStart?: string }, filters?: URLSearchParams) {
   const query = new URLSearchParams(task.weekStart ? { week: task.weekStart } : undefined);
   for (const key of taskFilterKeys) {

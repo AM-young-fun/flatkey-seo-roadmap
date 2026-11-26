@@ -18,6 +18,12 @@ const createKeywordSchema = z.object({
 export async function GET(request: Request) {
   const research = await researchReadAccess(request);
   if (research instanceof Response) return research;
+  const keywordIds = new URL(request.url).searchParams.getAll("keywordId");
+  const keywordId = keywordIds[0];
+  if (keywordIds.length && !research) return NextResponse.json({ message: "Research read key required" }, { status: 401 });
+  if (keywordIds.length > 1 || (keywordId !== undefined && !/^[a-zA-Z0-9_.:-]{1,160}$/.test(keywordId))) {
+    return NextResponse.json({ message: "Invalid keyword ID" }, { status: 400 });
+  }
   if (!isDatabaseConfigured()) {
     return NextResponse.json({
       usingDemoData: true,
@@ -26,7 +32,7 @@ export async function GET(request: Request) {
   }
 
   const keywords = await prisma.keyword.findMany({
-    where: research ? undefined : {
+    where: research ? keywordId === undefined ? undefined : { id: keywordId } : {
       active: true,
       topicId: {
         not: null

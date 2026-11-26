@@ -3,7 +3,7 @@ const { test } = require("node:test");
 const fs = require("node:fs");
 const ts = require("typescript");
 require.extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-const { workspaceRedirectHref, executionViewRoutes, workTaskHref, workTaskListHref, workPlanTaskFilters } = require("../src/lib/seo-workspace-routes.ts");
+const { workspaceRedirectHref, executionViewRoutes, workTaskHref, workTaskIdFromRoute, workTaskListHref, workPlanTaskFilters } = require("../src/lib/seo-workspace-routes.ts");
 
 test("legacy execution views return to their actionable workspace", () => {
   assert.equal(executionViewRoutes.deliveries, "/deliveries");
@@ -53,6 +53,8 @@ test("task detail uses its recorded week and restores the available list filters
   const detail = new URL(workTaskHref({ id: "task:es", weekStart: "2026-11-09" },
     new URLSearchParams({ week: "current", site: "flatkey.ai", country: "ES", taskType: "optimization", q: "servidor gpu", range: "custom", rangeStart: "2026-11-16", rangeEnd: "2026-11-20", page: "2" })), "https://test.invalid");
   assert.equal(detail.pathname, "/work/task%3Aes");
+  assert.equal(workTaskIdFromRoute("task%3Aes"), "task:es");
+  assert.equal(workTaskIdFromRoute("task:es"), "task:es");
   assert.equal(detail.searchParams.get("week"), "2026-11-09");
   const list = workTaskListHref(Object.fromEntries(detail.searchParams));
   assert.equal(list, "/work?country=ES&site=flatkey.ai&taskType=optimization&q=servidor+gpu&range=custom&rangeStart=2026-11-16&rangeEnd=2026-11-20&page=2");

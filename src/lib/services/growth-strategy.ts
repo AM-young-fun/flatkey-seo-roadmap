@@ -59,7 +59,9 @@ export async function saveGrowthStrategy(raw: unknown, actor: "human" | "collect
   const requestId = `growth:${command.requestId}`;
   const needsIdentitySnapshot = ["save_quarter_plan", "approve_quarter_plan", "freeze_baseline", "resolve_baseline_identities"].includes(command.action);
   const needsOutsideWorkspace = localPreview || !needsIdentitySnapshot;
-  const readOutsideWorkspace = command.action === "record_traffic" ? loadGrowthDashboardWorkspace : loadGrowthWorkspace;
+  const readOutsideWorkspace = command.action === "record_traffic" || command.action === "save_direction" || command.action === "decide_direction"
+    ? loadGrowthDashboardWorkspace
+    : loadGrowthWorkspace;
   // Evidence references are read from the real sources; caller-supplied target
   // identities, page versions or task IDs cannot become the source of truth.
   const [workspace, workflow, sites] = await Promise.all([
