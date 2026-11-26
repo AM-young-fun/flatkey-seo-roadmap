@@ -220,7 +220,7 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
         // The claims advisory lock is already held. A lease cannot be acquired
         // between this check and the normal task/plan CAS write.
         const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT CURRENT_TIMESTAMP AS now`;
-        const leases = await tx.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: clock.now } }, select: { runId: true, status: true, leaseUntil: true } });
+        const leases = await tx.seoWorkflowLease.findMany({ where: { status: "running", leaseUntil: { gt: clock.now } }, select: { runId: true, status: true, stage: true, scheduledFor: true, leaseUntil: true } });
         if (plan && actor === "collector" && isExecutableWorkflowPlan(plan.status)) {
           for (const extra of extraTasks.filter(row => row.capacityClass === "authorized_hotspot_extra" && row.source === "automation" && !row.directionId)) {
             const problem = weeklyHotspotAdmissionProblem(extra, storedTasks, clock.now);
@@ -235,7 +235,7 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
           }
         }
         const { hotspotLeaseConflict } = await import("../growth-hotspot-admission");
-        const conflict = hotspotLeaseConflict(extraIds, all.filter(row => row.kind === "run").map(row => row.record as import("../seo-workflow").WorkflowRun), leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString() })), clock.now);
+        const conflict = hotspotLeaseConflict(extraIds, all.filter(row => row.kind === "run").map(row => row.record as import("../seo-workflow").WorkflowRun), leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString(), scheduledFor: lease.scheduledFor.toISOString() })), clock.now, storedTasks);
         if (conflict) throw new WorkflowError("hotspot_in_flight", conflict);
       }
       const tasks = prepared.kind === "task" ? [prepared.record as WorkflowTask] : all.filter(row => row.kind === "task" && (prepared.record as WorkflowPlan).taskIds.includes(row.record.id)).map(row => row.record as WorkflowTask);
