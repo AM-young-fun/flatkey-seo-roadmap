@@ -18,6 +18,8 @@ import { publishedMaintenanceMutationTasks } from "@/lib/seo-published-maintenan
 import { assertPublishedMaintenanceTasks } from "./seo-published-maintenance";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
 import { timedRead } from "@/lib/read-profile";
+import { reservedOriginalIdentity } from "@/lib/reserved-original-keyword";
+import { loadReservedOriginalAdmissions } from "./reserved-original-keyword";
 
 const legacyKinds = Object.keys(WORKFLOW_SCHEMAS);
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -44,7 +46,16 @@ export async function loadWorkflowSnapshot(options: WorkflowSnapshotOptions = {}
   // Keep the canonical graph intact and avoid rewriting every JSON document in
   // PostgreSQL. The explicit list response is compacted after snapshot rules run.
   const rows = await requestRead("workflow:database", () => timedRead("database", () => prisma.seoWorkflowRecord.findMany({ where: { kind: { in: legacyKinds } }, select: { kind: true, payload: true }, orderBy: { updatedAt: "desc" } })));
-  return timedRead("snapshot", async () => workflowSnapshot(rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord })), options, "database"));
+  const records = rows.map(row => ({ kind: row.kind as WorkflowKind, record: row.payload as unknown as WorkflowRecord }));
+  if (options.operational) {
+    const candidates = records.flatMap(row => {
+      if (row.kind !== "task" || row.record.status !== "ready") return [];
+      const task = row.record as WorkflowTask;
+      return reservedOriginalIdentity(task) ? [task] : [];
+    });
+    if (candidates.length) options = { ...options, reservedOriginalAdmissions: await loadReservedOriginalAdmissions(candidates) };
+  }
+  return timedRead("snapshot", async () => workflowSnapshot(records, options, "database"));
 }
 
 export async function loadIndexing404History(localPreview = false, throughDate?: string): Promise<Indexing404Response> {

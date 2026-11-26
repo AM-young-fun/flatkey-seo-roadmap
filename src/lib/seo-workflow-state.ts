@@ -11,6 +11,7 @@ import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, sh
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
 import { maintenanceTaskProblems, maintenancePublicationProblems, maintenanceHistoryProblems } from "./seo-maintenance";
 import { legacyMaintenancePlanProblems } from "./seo-legacy-maintenance-plan";
+import { matchesReservedOriginal, type ReservedOriginalIdentity } from "./reserved-original-keyword";
 
 export class WorkflowError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); }
@@ -636,7 +637,8 @@ function isCodexTrackedTask(task: WorkflowTask) {
 }
 
 type BoardDates = { preset: ListDatePreset; customRange: DateRange };
-export type WorkflowSnapshotOptions = { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean; boardDates?: BoardDates };
+export type WorkflowSnapshotOptions = { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean; boardDates?: BoardDates;
+  reservedOriginalAdmissions?: ReadonlyMap<string, ReservedOriginalIdentity> };
 
 function workBoardPlan(plans: WorkflowPlan[], tasks: WorkflowTask[], dates: BoardDates, today: string): WorkflowWorkBoardPlan | undefined {
   const range = listDateRange(dates.preset, today, dates.customRange, "work");
@@ -705,10 +707,11 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: WorkflowSnap
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,
   } };
   if (!options.operational) return snapshot;
-  return operationalWorkflowSnapshot(snapshot, all, options.workList === true, now, options.boardDates);
+  return operationalWorkflowSnapshot(snapshot, all, options.workList === true, now, options.boardDates, options.reservedOriginalAdmissions);
 }
 
-function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean, now: Date, boardDates?: BoardDates): WorkflowSnapshot {
+function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean, now: Date, boardDates?: BoardDates,
+  reservedOriginalAdmissions?: ReadonlyMap<string, ReservedOriginalIdentity>): WorkflowSnapshot {
   const today = seoToday(now);
   const range = workWeekDateRange(today);
   const finalPlanWeek = workflowWeek(new Date(range.end + "T00:00:00+08:00"));
@@ -759,6 +762,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
     // Only the registered original plan can make a new hotspot deliverable.
     if (task.kind === "blog" && (task.id.startsWith("seo-hotspot:") || task.capacityClass === "authorized_hotspot_extra")
       && ["planned", "researching", "ready"].includes(task.status)
+      && !(task.status === "ready" && matchesReservedOriginal(task, reservedOriginalAdmissions?.get(task.id)))
       && (task.status !== "ready" || task.capacityClass !== "authorized_hotspot_extra" || !plans.some(plan => executablePlanIncludesTask(plan, task)))) return false;
     if (task.capacityClass === WEEKLY_GROWTH_EXTRA && !plans.some(plan => executablePlanIncludesTask(plan, task))) return false;
     const version = JSON.stringify([task.id, task.contentVersion]);
