@@ -17,6 +17,13 @@
 .planSummary p { margin:0; }
 .planSummary p + p,.planSummary ul { margin-top:4px; }
 .planSummary ul { display:flex; flex-wrap:wrap; gap:4px 16px; margin-bottom:0; padding:0; list-style:none; }
+.planDetails { margin-top:8px; }
+.planDetails summary { cursor:pointer; color:#2459aa; }
+.planDetails .planNotes { margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.planDays { display:grid; gap:6px; margin:8px 0 0; }
+.planDays > div { display:flex; flex-wrap:wrap; gap:2px 12px; }
+.planDays dt { font-weight:600; }
+.planDays dd { display:flex; flex-wrap:wrap; gap:2px 12px; margin:0; }
 .count { color:#64748b; font-size:12px; font-variant-numeric:tabular-nums; }
 .listNote { margin:14px 0 0; color:#64748b; font-size:12px; }
 .listNote summary { cursor:pointer; width:fit-content; }
