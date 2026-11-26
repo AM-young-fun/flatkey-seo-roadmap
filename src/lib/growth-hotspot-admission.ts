@@ -122,8 +122,9 @@ export function prepareHotspotKeywordConfirmation(context: HotspotAdmissionConte
     && row.topicId === task.topicId && row.country === task.country && row.language === task.language
     && row.sourceActive === true && word(row.keyword) === word(task.keyword)
     && (row.sourcePool === "RESEARCH" || row.sourcePool === "FORMAL"));
-  if (members.some(row => row.languageStatus === "mismatch") || context.confirmedKeywordTaskId !== task.id
-    && (members.length !== 1 || !(members[0].languageStatus === "match"
+  const mismatch = members.find(row => row.languageStatus === "mismatch");
+  if (mismatch) return { task: null, reason: "原词语种存在冲突：" + (mismatch.languageReason ?? "需读回已存原词语言审核") };
+  if (context.confirmedKeywordTaskId !== task.id && (members.length !== 1 || !(members[0].languageStatus === "match"
       || members[0].languageStatus === "unknown" && members[0].sourcePool === "RESEARCH"))) return { task: null, reason: "须核得唯一、启用且与原任务同站同话题同市场语种的原词" };
   const candidate = { ...task, workflowContract: "growth-v1.5" as const, status: "ready" as const,
     capacityClass: "authorized_hotspot_extra" as const };
