@@ -44,11 +44,3 @@ jobs:
           date="${date%%:*}"
           node scripts/server-seo-digest-send.cjs --kind=daily --date="$date" \
             --report-id="$SEO_REPORT_ID" --manual-owner="$SEO_REPORT_OWNER" --manual-fence="$SEO_REPORT_FENCE" --send
-      - name: Archive delivery evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-report-delivery
-          path: ${{ runner.temp }}/seo-digest
-          if-no-files-found: ignore
-          retention-days: 30
