@@ -1,5 +1,5 @@
 "use client";
-import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
+import type { GrowthDashboardView } from "@/lib/growth-strategy";
 import type { GrowthWorkspace } from "@/lib/growth-types";
 import type { SeoReadState } from "./useSeoAnalytics";
 import { growthWordKey } from "@/lib/growth-workspace";
@@ -10,14 +10,16 @@ import { reportDay } from "@/lib/seo-report-time.cjs";
 
 const shortDay = (day: string) => `${Number(day.slice(5, 7))}月${Number(day.slice(8, 10))}日`;
 
-export function OverviewGoalCharts({ snapshot, workspace }: { snapshot: GrowthReportSnapshot; workspace?: GrowthWorkspace | null }) {
+export function OverviewGoalCharts({ snapshot, lastVerifiedRollingTraffic, workspace }: GrowthDashboardView & { workspace?: GrowthWorkspace | null }) {
   const g = snapshot.goals;
   const rolling = g.dailyTrafficObservation;
   const rollingPending = g.trafficScope?.version === "flatkey-only-v3" && g.evaluationMode === "live"
     && g.trafficWindowKind === "rolling7day-v1" && g.weeklySessions === null && rolling?.complete === false ? rolling : null;
-  const previous = rollingPending?.previousComplete && rollingPending.previousSessions !== null ? rollingPending : null;
-  const trafficValue = g.trafficScope ? g.weeklySessions ?? previous?.previousSessions ?? null : null;
-  const trafficDay = trafficValue === null ? null : previous?.previousPeriod.end ?? g.trafficPeriod.end;
+  const previous = rollingPending?.previousComplete && rollingPending.previousSessions !== null
+    ? { ...rollingPending.previousPeriod, sessions: rollingPending.previousSessions } : null;
+  const fallback = rollingPending ? previous ?? lastVerifiedRollingTraffic : null;
+  const trafficValue = g.trafficScope ? g.weeklySessions ?? fallback?.sessions ?? null : null;
+  const trafficDay = trafficValue === null ? null : fallback?.end ?? g.trafficPeriod.end;
   const total = new Set(workspace?.targets.map(row => growthWordKey(row.keyword)).filter(Boolean)).size;
   const rankSourceReady = workspace && !workspace.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available);
   const ranking = rankSourceReady ? currentRankingSummary(workspace.targets, workspace.generatedAt) : null;
@@ -28,9 +30,9 @@ export function OverviewGoalCharts({ snapshot, workspace }: { snapshot: GrowthRe
   ];
   return <ChartPanel title="2026 收官季目标进度" note={[`剩余 ${g.daysRemaining} 天`, ...dates].join(" · ")}>
     <div className={styles.grid}>
-      <GoalPlot label={previous ? "Flatkey 最近已核验滚动7日自然搜索会话" : g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 日常最新滚动7日自然搜索会话" : "Flatkey 每周自然搜索会话"}
+      <GoalPlot label={fallback ? "Flatkey 最近已核验滚动7日自然搜索会话" : g.trafficWindowKind === "rolling7day-v1" ? "Flatkey 日常最新滚动7日自然搜索会话" : "Flatkey 每周自然搜索会话"}
         value={trafficValue} goal={3000} unit="次"
-        note={rollingPending ? `洛杉矶 ${shortDay(rollingPending.period.end)} 截止窗口待采${previous ? `，当前显示 ${shortDay(previous.previousPeriod.start)}–${shortDay(previous.previousPeriod.end)} 的整段会话` : ""}。` : undefined} />
+        note={rollingPending ? `洛杉矶 ${shortDay(rollingPending.period.end)} 截止窗口待采${fallback ? `，当前显示 ${shortDay(fallback.start)}–${shortDay(fallback.end)} 的整段会话` : ""}。` : undefined} />
       <GoalPlot label="全部关键词前100覆盖" value={ranking && total ? ranking.total / total * 100 : null} goal={60} unit="%"
         denominator={ranking && total ? `${chartNumber(ranking.total)} / ${chartNumber(total)} 词` : undefined}
         empty={workspace ? "暂无可核实的排名覆盖" : "等待全部关键词数据"} />
@@ -63,10 +65,10 @@ export function OverviewReadFailure({ title, error, retry }: { title: string; er
 }
 
 export function OverviewGoalSection({ strategy, growth }: {
-  strategy: SeoReadState<{ snapshot: GrowthReportSnapshot }>;
+  strategy: SeoReadState<GrowthDashboardView>;
   growth: SeoReadState<GrowthWorkspace>;
 }) {
-  return strategy.data?.snapshot ? <OverviewGoalCharts snapshot={strategy.data.snapshot} workspace={growth.data} />
+  return strategy.data?.snapshot ? <OverviewGoalCharts {...strategy.data} workspace={growth.data} />
     : strategy.loading ? <ChartPanel title="2026 收官季目标进度"><p role="status">正在重读季度目标…</p></ChartPanel>
     : <OverviewReadFailure title="2026 收官季目标进度" error={strategy.error ?? "季度目标未返回，请重试"} retry={strategy.retry} />;
 }

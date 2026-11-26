@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
+import type { GrowthDashboardView } from "@/lib/growth-strategy";
 import type { GrowthWorkspace } from "@/lib/growth-types";
 import { PageHeader } from "./PageHeader";
 import { useSeoRange } from "./SeoDateControl";
@@ -21,7 +21,7 @@ export function SeoOverview() {
   const context = useSeoRange("America/Los_Angeles");
   const [country] = useSeoCountry();
   const [module, setModule] = useState<OverviewPageModule>("all");
-  const strategy = useOverviewRead<{ snapshot: GrowthReportSnapshot }>("/api/seo/growth/strategy?view=dashboard");
+  const strategy = useOverviewRead<GrowthDashboardView>("/api/seo/growth/strategy?view=dashboard");
   const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=all-keyword-overview", 90_000);
   const traffic = useTrafficSummaryTrend(context);
   const loading = !traffic.hasSettled && (!context.ready || traffic.loading);

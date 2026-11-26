@@ -11,7 +11,7 @@ import { latestClosedLa7DayRange, shiftDay, weeklyReportRange } from "../seo-dat
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { loadGrowthDashboardHistory, loadGrowthDashboardWorkspace, loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
-import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_STRATEGY_KEY, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
+import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_STRATEGY_KEY, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthDashboardView, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
 import type { GrowthWorkspace } from "../growth-types";
 import { workflowSnapshot, type WorkflowStoredRow } from "../seo-workflow-state";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask, type WorkflowSnapshot } from "../seo-workflow";
@@ -199,7 +199,7 @@ export async function loadGrowthStrategyOverview(localPreview = false, now = new
   return { snapshot };
 }
 
-export async function loadGrowthStrategyDashboard(localPreview = false, now = new Date()) {
+export async function loadGrowthStrategyDashboard(localPreview = false, now = new Date()): Promise<GrowthDashboardView> {
   if (localPreview) return loadGrowthStrategyOverview(true, now);
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
   const [state, workspace, workflow] = await Promise.all([loadGrowthStrategy(), loadGrowthDashboardWorkspace(false, now), loadGrowthDashboardHistory()]);
@@ -207,6 +207,18 @@ export async function loadGrowthStrategyDashboard(localPreview = false, now = ne
   if (snapshot.goals.evaluationMode === "live" && workspace.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available)) {
     Object.assign(snapshot.goals, { rankedCount: null, top50Count: null, coverage: null, quality: null,
       coverageGap: null, qualityGap: null, rankingReasons: ["近期SERP暂时无法读取，已冻结分母保留"] });
+  }
+  const { dailyTrafficObservation: rolling, evaluationMode } = snapshot.goals;
+  if (evaluationMode === "live" && rolling && !rolling.complete && !rolling.previousComplete) {
+    // Stored whole-interval scalars require the original Flatkey property,
+    // Los Angeles dates, and all three production hosts.
+    const lastVerified = state.trafficEvidence
+      .filter(row => row.method === "whole_interval_scalar" && row.end < rolling.period.end && Date.parse(row.observedAt) <= now.getTime())
+      .sort((a, b) => b.end.localeCompare(a.end) || Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
+    if (lastVerified) {
+      const { start, end, sessions } = lastVerified;
+      return { snapshot, lastVerifiedRollingTraffic: { start, end, sessions } };
+    }
   }
   return { snapshot };
 }
