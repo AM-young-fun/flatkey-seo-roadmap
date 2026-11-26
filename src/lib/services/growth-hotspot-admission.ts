@@ -51,7 +51,45 @@ export async function runGrowthHotspotAdmission(raw: unknown, actor: WorkflowAct
   }
   return { version: "growth-hotspot-admission-v1" as const, directionId: command.directionId, revision: command.revision, items, createdTasks: 0, createdPlans: 0, paidRequests: 0 };
 }
-async function readAdmissionContext(localPreview: boolean, now: Date): Promise<HotspotAdmissionContext> {
+function hotspotKeywordAuditId(command: GrowthHotspotAdmissionCommand, taskId: string, keywordId: string) {
+  return "hotspot-keyword:" + workflowHash([taskId, keywordId, command.directionId, command.revision]);
+}
+
+/** Resume an exact approved confirmation from the normal persisted member and
+ * its immutable audit, even while a broader target projection is incomplete. */
+async function readConfirmedKeywordTask(command: GrowthHotspotAdmissionCommand | undefined,
+  workflow: HotspotAdmissionContext["workflow"], strategy: HotspotAdmissionContext["strategy"], now: Date) {
+  if (!command?.confirmOriginalKeyword) return undefined;
+  const task = workflow.tasks.find(row => row.id === command.taskIds[0]);
+  if (!task?.keywordId || !task.topicId || !task.keyword || !task.country || !task.language
+    || task.directionId !== command.directionId || !["planned", "ready"].includes(task.status)) return undefined;
+  const link = { siteDomain: task.siteDomain, keywordId: task.keywordId };
+  const direction = strategy.directions.find(row => row.id === command.directionId);
+  if (!direction?.decision || direction.revision !== command.revision) return undefined;
+  assertGrowthDirectionScope(strategy, task, now);
+  const [member, audit] = await Promise.all([
+    prisma.siteKeyword.findUnique({ where: { siteDomain_keywordId: link }, select: {
+      active: true, pool: true, reviewStatus: true, topicId: true, keyword: { select: { text: true, active: true } },
+    } }),
+    prisma.keywordCurationAudit.findUnique({ where: { id: hotspotKeywordAuditId(command, task.id, task.keywordId) } }),
+  ]);
+  if (!member?.active || !member.keyword.active || member.keyword.text !== task.keyword || member.topicId !== task.topicId
+    || member.pool !== "FORMAL" || member.reviewStatus !== HOTSPOT_KEYWORD_CONFIRMED
+    || !audit || audit.siteDomain !== task.siteDomain || audit.restoredAt || audit.status !== HOTSPOT_KEYWORD_CONFIRMED
+    || audit.payloadHash !== workflowHash(command)) return undefined;
+  const expectedMember = { ...link, topicId: task.topicId, pool: "FORMAL", reviewStatus: HOTSPOT_KEYWORD_CONFIRMED };
+  const expectedDecision = {
+    kind: "hotspot-keyword-confirmation", actor: "human", taskId: task.id, directionId: direction.id,
+    revision: direction.revision, keyword: task.keyword, country: task.country, language: task.language,
+  };
+  if (workflowHash(audit.after) !== workflowHash([expectedMember]) || !audit.summary || typeof audit.summary !== "object"
+    || Object.entries(expectedDecision).some(([key, value]) => (audit.summary as Record<string, unknown>)[key] !== value)) return undefined;
+  const summary = audit.summary as Record<string, unknown>;
+  if (summary.researchHash !== undefined && summary.researchHash !== workflowHash(task.researchReview)) return undefined;
+  return task.id;
+}
+
+async function readAdmissionContext(localPreview: boolean, now: Date, command?: GrowthHotspotAdmissionCommand): Promise<HotspotAdmissionContext> {
   const [strategy, workspace, workflow, planRows, leases] = await Promise.all([
     loadGrowthStrategy(localPreview), loadGrowthDashboardWorkspace(localPreview, now), loadWorkflowSnapshot({ allHistory: true }, localPreview),
     localPreview ? Promise.resolve([]) : prisma.seoWorkflowRecord.findMany({ where: { kind: "plan", status: { in: ["scheduled", "reviewed"] } }, select: { payload: true } }),
@@ -59,10 +97,11 @@ async function readAdmissionContext(localPreview: boolean, now: Date): Promise<H
   ]);
   const plans = planRows.map(row => row.payload as unknown as WorkflowPlan);
   if (localPreview && workflow.plan) plans.push(workflow.plan);
-  return { strategy, workspace, workflow, plans, leases: leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString(), scheduledFor: lease.scheduledFor.toISOString() })) };
+  const confirmedKeywordTaskId = localPreview ? undefined : await readConfirmedKeywordTask(command, workflow, strategy, now);
+  return { strategy, workspace, workflow, plans, confirmedKeywordTaskId, leases: leases.map(lease => ({ ...lease, leaseUntil: lease.leaseUntil.toISOString(), scheduledFor: lease.scheduledFor.toISOString() })) };
 }
-function admissionStore(localPreview: boolean, now: Date): HotspotAdmissionStore {
-  return { read: () => readAdmissionContext(localPreview, now), save: (request, actor) => saveWorkflowMutation(request, actor, localPreview) };
+function admissionStore(localPreview: boolean, now: Date, command?: GrowthHotspotAdmissionCommand): HotspotAdmissionStore {
+  return { read: () => readAdmissionContext(localPreview, now, command), save: (request, actor) => saveWorkflowMutation(request, actor, localPreview) };
 }
 export async function saveGrowthHotspotAdmission(raw: unknown, actor: WorkflowActor, localPreview = false, now = new Date()) {
   if (actor !== "human") throw new WorkflowError("human_hotspot_admission_required", "热点额外目标登记只接受已登录用户同源操作", 403);
@@ -70,17 +109,17 @@ export async function saveGrowthHotspotAdmission(raw: unknown, actor: WorkflowAc
   const confirmation = command.confirmOriginalKeyword
     ? await confirmHotspotKeyword(command, localPreview, now)
     : null;
-  return { ...await runGrowthHotspotAdmission(command, actor, admissionStore(localPreview, now), now), ...(confirmation ? { keywordConfirmation: confirmation } : {}) };
+  return { ...await runGrowthHotspotAdmission(command, actor, admissionStore(localPreview, now, command), now), ...(confirmation ? { keywordConfirmation: confirmation } : {}) };
 }
 
 async function confirmHotspotKeyword(command: GrowthHotspotAdmissionCommand, localPreview: boolean, now: Date) {
   if (localPreview) throw new WorkflowError("hotspot_confirmation_production_required", "原词确认须使用当前生产任务和词库", 403);
-  const context = await readAdmissionContext(false, now);
+  const context = await readAdmissionContext(false, now, command);
   const prepared = prepareHotspotKeywordConfirmation(context, command, now);
   if (!prepared.task || !prepared.candidate) throw new WorkflowError("hotspot_keyword_not_ready", prepared.reason, 409);
   const { task, candidate } = prepared;
   const siteDomain = task.siteDomain, keywordId = task.keywordId!, topicId = task.topicId!;
-  const auditId = "hotspot-keyword:" + workflowHash([task.id, keywordId, command.directionId, command.revision]);
+  const auditId = hotspotKeywordAuditId(command, task.id, keywordId);
   const identity = { siteDomain, keywordId };
   const confirmed = await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('flatkey-seo-workflow-v1'))`;
