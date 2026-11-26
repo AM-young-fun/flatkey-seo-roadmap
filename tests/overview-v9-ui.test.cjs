@@ -116,6 +116,18 @@ test("work date filtering keeps the filters interactive and only retains stale r
     assert.match(html,/每页 10 项/);
   } finally {listQuery="";listRead=undefined;}
 });
+
+test("work board shows the saved business-week plan without counting language gaps twice", () => {
+  listRead = { data: { storage: "database", pagination: { page: 1, pageSize: 10, total: 0, pageCount: 1 }, tasks: [],
+    workBoardPlan: { range: { start: "2026-11-27", end: "2026-12-03" }, plan: { id: "original-plan", version: 1, taskIds: ["friday", "thursday"],
+      gaps: [{ category: "optimizedPages", count: 10 }, { category: "clusterLanding", count: 7 }, { category: "blogEn", count: 3 }] } } } };
+  try {
+    const html = render(React.createElement(SeoWorkWorkspace));
+    assert.match(html, /href="\/work\?range=nextWeek"[^>]*>下周排期/);
+    assert.match(html, /aria-label="业务周正式排期"[\s\S]*?2026-11-27 — 2026-12-03[\s\S]*?已排 (?:<!-- -->)?2(?:<!-- -->)? 项[\s\S]*?17(?:<!-- -->)? 项交付缺口/);
+    assert.match(html, /aria-label="排期缺口"[\s\S]*?Flatkey 常规优化[\s\S]*?RackRate／ModelFit 落地页[\s\S]*?英文源文/);
+  } finally { listRead = undefined; }
+});
 test("1600-word graph is complete, deterministic across reorder/rank updates, and bounded by one circle",()=>{
   const topics=Array.from({length:64},(_,i)=>({id:`topic:${i}`,site:"flatkey.ai",topicId:`t${i}`,name:`Topic ${i}`}));
   const targets=Array.from({length:1600},(_,i)=>({id:`w${i}`,keyword:`keyword ${i}`,site:"flatkey.ai",topicId:`t${i%64}`,rank:i%100+1}));

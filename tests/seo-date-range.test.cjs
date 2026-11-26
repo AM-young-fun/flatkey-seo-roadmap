@@ -41,3 +41,11 @@ test("task business week spans Friday through Thursday without changing calendar
   assert.equal(dateInListRange("2026-11-26T16:00:00Z",range),false,"next Friday belongs to the next work week");
   assert.equal(seoToday(new Date("2026-11-26T16:00:00Z")),"2026-11-27");
 });
+
+test("next task week advances Friday through Thursday at the Beijing boundary", () => {
+  const empty = { start: "", end: "" };
+  const next = utc => listDateRange("nextWeek", seoToday(new Date(utc)), empty, "work");
+  assert.deepEqual(next("2026-11-26T15:59:59Z"), { start: "2026-11-27", end: "2026-12-03" });
+  assert.deepEqual(next("2026-11-26T16:00:00Z"), { start: "2026-12-04", end: "2026-12-10" });
+  assert.equal(listDateRange("nextWeek", "2026-11-26", empty), null);
+});

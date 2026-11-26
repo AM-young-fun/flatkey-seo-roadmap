@@ -436,7 +436,11 @@ export type WorkflowWorkWeek = {
   dependencyStatuses: Record<string, WorkflowTask["status"]>;
   activeApprovalItems: Record<string, string[]>;
 };
-export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; workWeek?: WorkflowWorkWeek; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; refreshedPages?: number; openIssues: number; lastRunAt: string | null }; };
+export type WorkflowWorkBoardPlan = {
+  range: { start: string; end: string };
+  plan: { id: string; version: number; taskIds: string[]; gaps: Pick<WorkflowPlan["gaps"][number], "category" | "count">[] } | null;
+};
+export type WorkflowSnapshot = { weekStart: string; weekEnd: string; plan: WorkflowPlan | null; approvals: WorkflowApproval[]; tasks: WorkflowTask[]; runs: WorkflowRun[]; publications: WorkflowPublication[]; historicalImports: WorkflowHistoricalImport[]; optimizations: WorkflowOptimization[]; issues: WorkflowIssue[]; generatedAt: string; storage: "database" | "local_preview"; workWeek?: WorkflowWorkWeek; workBoardPlan?: WorkflowWorkBoardPlan; summary: { tasks: number; blocked: number; reviewPending: number; pendingApprovalItems: number; pendingApprovals: number; verifiedSourceBlogs: number; verifiedTranslations: number; verifiedLandingPages: number; optimizedPages: number; refreshedPages?: number; openIssues: number; lastRunAt: string | null }; };
 export type WorkflowTaskDetail = Pick<WorkflowSnapshot, "approvals" | "publications" | "optimizations" | "storage"> & {
   task: WorkflowTask;
   dependencies: WorkflowTask[];

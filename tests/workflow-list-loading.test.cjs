@@ -106,6 +106,35 @@ test("paginated work list groups a multilingual review once across pages and sea
   assert.equal(page("page=1&range=custom&rangeStart=2026-11-24&rangeEnd=2026-11-24").pagination.total, 0);
 });
 
+test("next business-week board shows actual cross-bucket tasks and only the saved plan's gaps", () => {
+  const friday = task({ id: "original-friday", source: "automation", status: "ready", dueAt: "2026-11-27T11:00:00+08:00" });
+  const thursday = task({ id: "new-thursday", weekStart: "2026-11-30", source: "automation", status: "ready", dueAt: "2026-12-03T11:00:00+08:00" });
+  const overdue = task({ id: "overdue", source: "automation", status: "ready" });
+  const previousPlan = record("plan", { ...stored, id: "old-plan", weekStart: "2026-11-23", status: "scheduled",
+    targets: { cadence: "workdays" }, taskIds: [friday.id, overdue.id], gaps: [{ category: "optimizedPages", count: 99 }] });
+  const range = { start: "2026-11-27", end: "2026-12-03" };
+  const nextPlan = record("plan", { ...stored, id: "next-plan", version: 1, weekStart: "2026-11-30", status: "scheduled",
+    targets: { cadence: "growth", executionRange: range }, taskIds: [friday.id, thursday.id], gaps: [
+      { category: "modelFitBlogs", date: "2026-11-30", count: 1 }, { category: "modelFitBlogs", date: "2026-12-01", count: 1 },
+      { category: "optimizedPages", count: 10 },
+    ] });
+  const rows = [previousPlan, nextPlan, ...[friday, thursday, overdue].map(value => record("task", value))];
+  const page = (query, records = rows) => {
+    const filter = parseWorkflowWorkPageQuery(new URLSearchParams(query));
+    const snapshot = workflowSnapshot(records, { operational: true, workList: true, boardDates: filter }, "database", now);
+    return workflowWorkPage(snapshot, filter);
+  };
+  const next = page("page=1&range=nextWeek");
+  assert.deepEqual(next.tasks.map(row => row.id), [friday.id, thursday.id]);
+  assert.deepEqual(next.workBoardPlan, { range, plan: { id: "next-plan", version: 1, taskIds: [friday.id, thursday.id],
+    gaps: [{ category: "modelFitBlogs", count: 2 }, { category: "optimizedPages", count: 10 }] } });
+  assert.deepEqual(page("page=1&range=custom&rangeStart=2026-11-27&rangeEnd=2026-12-03").workBoardPlan, next.workBoardPlan);
+  assert.deepEqual(page("page=1&range=nextWeek&q=none").workBoardPlan, next.workBoardPlan);
+  assert.equal(page("page=1&range=month").workBoardPlan, undefined);
+  assert.deepEqual(page("page=1&range=nextWeek", rows.filter(row => row !== nextPlan)).workBoardPlan, { range, plan: null });
+  assert.equal(workflowSnapshot(rows, { operational: true }, "database", now).tasks.some(row => row.id === friday.id), false);
+});
+
 test("list/full service reads use the original simple select and preserve canonical details", async t => {
   const calls = [], rows = sourceRows();
   const prismaPath = require.resolve("../src/lib/prisma.ts");

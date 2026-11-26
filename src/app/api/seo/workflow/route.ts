@@ -49,7 +49,7 @@ export async function GET(request: Request) {
       const materialQueue = params.get("materialQueue") === "1";
       const operational = !rollbackQueue && (releaseQueue || materialQueue || params.get("operational") === "1");
       const workList = !releaseQueue && !materialQueue && params.get("workList") === "1";
-      const snapshot = await loadWorkflowSnapshot(operational ? { operational: true, workList } : {
+      const snapshot = await loadWorkflowSnapshot(operational ? { operational: true, workList, ...(page ? { boardDates: { preset: page.preset, customRange: page.customRange } } : {}) } : {
         week, pageUrl, allHistory: rollbackQueue || params.get("allHistory") === "true",
       }, auth.localPreview);
       if (format === "list") return workflowJson(await timedRead("list", async () => page ? workflowWorkPage(snapshot, page) : workflowWorkList(snapshot)));

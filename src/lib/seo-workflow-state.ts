@@ -4,10 +4,10 @@ import { FLATKEY_LANDING_START, GROWTH_EXECUTION_SITES, GROWTH_BLOG_SITES } from
 import { assertGrowthPlan } from "./seo-growth-plan";
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
 import { isSeoWorkday, seoCatchUpDate } from "./seo-workday";
-import { seoToday, workWeekDateRange } from "./seo-date-range";
+import { dateInListRange, listDateRange, seoToday, workWeekDateRange, type DateRange, type ListDatePreset } from "./seo-date-range";
 import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, pageBelongsToSite, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
-import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
+import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, type WorkflowWorkBoardPlan, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
 import { maintenanceTaskProblems, maintenancePublicationProblems, maintenanceHistoryProblems } from "./seo-maintenance";
 import { legacyMaintenancePlanProblems } from "./seo-legacy-maintenance-plan";
@@ -635,7 +635,27 @@ function isCodexTrackedTask(task: WorkflowTask) {
     task.sourceRowId === task.id && /^codex-thread:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(task.id);
 }
 
-export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean }, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
+type BoardDates = { preset: ListDatePreset; customRange: DateRange };
+export type WorkflowSnapshotOptions = { week?: string; pageUrl?: string; allHistory?: boolean; operational?: boolean; workList?: boolean; boardDates?: BoardDates };
+
+function workBoardPlan(plans: WorkflowPlan[], tasks: WorkflowTask[], dates: BoardDates, today: string): WorkflowWorkBoardPlan | undefined {
+  const range = listDateRange(dates.preset, today, dates.customRange, "work");
+  if (!range) return;
+  const businessWeek = workWeekDateRange(range.start);
+  if (range.start !== businessWeek.start || range.end !== businessWeek.end) return;
+
+  const plan = plans.find(plan => "executionRange" in plan.targets && plan.targets.executionRange.start === range.start
+    && plan.targets.executionRange.end === range.end && isExecutableWorkflowPlan(plan.status));
+  if (!plan) return dates.preset === "week" ? undefined : { range, plan: null };
+
+  const taskIds = tasks.filter(task => task.channel !== "product" && GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain)
+    && dateInListRange(task.dueAt, range) && plans.some(plan => executablePlanIncludesTask(plan, task))).map(task => task.id);
+  const counts = new Map<WorkflowPlan["gaps"][number]["category"], number>();
+  for (const gap of plan.gaps) counts.set(gap.category, (counts.get(gap.category) ?? 0) + gap.count);
+  return { range, plan: { id: plan.id, version: plan.version, taskIds, gaps: Array.from(counts, ([category, count]) => ({ category, count })) } };
+}
+
+export function workflowSnapshot(all: WorkflowStoredRow[], options: WorkflowSnapshotOptions, storage: WorkflowSnapshot["storage"], now = new Date()): WorkflowSnapshot {
   const current = workflowWeek(now);
   const weekStart = options.week === "next" ? shiftWorkflowDay(current, 7) : options.week === "latest" ? all.filter(row => row.kind === "plan").map(row => row.record.weekStart).sort().at(-1) ?? current : !options.week || options.week === "current" ? current : options.week;
   const belongs = (row: WorkflowStoredRow) => options.pageUrl ? "pageUrl" in row.record && row.record.pageUrl === options.pageUrl : options.allHistory || row.record.weekStart === weekStart;
@@ -672,10 +692,10 @@ export function workflowSnapshot(all: WorkflowStoredRow[], options: { week?: str
     openIssues: issues.filter(issue => issue.status !== "resolved").length, lastRunAt: runs[0]?.startedAt ?? null,
   } };
   if (!options.operational) return snapshot;
-  return operationalWorkflowSnapshot(snapshot, all, options.workList === true, now);
+  return operationalWorkflowSnapshot(snapshot, all, options.workList === true, now, options.boardDates);
 }
 
-function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean, now: Date): WorkflowSnapshot {
+function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowStoredRow[], workList: boolean, now: Date, boardDates?: BoardDates): WorkflowSnapshot {
   const today = seoToday(now);
   const range = workWeekDateRange(today);
   const finalPlanWeek = workflowWeek(new Date(range.end + "T00:00:00+08:00"));
@@ -734,6 +754,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
   });
   const ids = new Set(activeTasks.map(task => task.id));
   const visibleTasks = workList ? scheduledTasks : activeTasks;
+  const boardPlan = workList && boardDates ? workBoardPlan(plans, scheduledTasks, boardDates, today) : undefined;
   const visibleTaskIds = new Set(visibleTasks.map(task => task.id));
   const dependencies = new Set(activeTasks.flatMap(task => task.dependencies));
   const linkedApprovals = new Set(originalApprovals.filter(approval => approval.items.some(item => ids.has(item.taskId))).map(approval => approval.id));
@@ -758,6 +779,7 @@ function operationalWorkflowSnapshot(snapshot: WorkflowSnapshot, all: WorkflowSt
   const pendingCount = pending.reduce((total, count) => total + count, 0);
   return {
     ...snapshot,
+    ...(boardPlan ? { workBoardPlan: boardPlan } : {}),
     tasks: visibleTasks,
     approvals: relevantApprovals,
     publications: originalPublications.filter(row => visibleTaskIds.has(row.taskId)),
