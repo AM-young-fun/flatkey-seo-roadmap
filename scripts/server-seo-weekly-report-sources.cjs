@@ -11,6 +11,7 @@ const moduleIds = ["home", "blog", "models", "gpu", "prompts"];
 const gaEndpoint = "https://analyticsdata.googleapis.com/v1beta/properties/";
 const gscEndpoint = "https://www.googleapis.com/webmasters/v3/sites/";
 const sha = data => createHash("sha256").update(data).digest("hex");
+const evidenceKey = ({ side, source, key }) => [side, source, key].join("-");
 const count = n => Number.isSafeInteger(n) && n >= 0;
 const gaCount = value => /^\d+$/.test(value ?? "") && count(Number(value)) ? Number(value) : null;
 const exact = (fieldName, value) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value, caseSensitive: true } } });
@@ -114,7 +115,7 @@ async function collectWeeklySources(date, outputFolder, { now = new Date(), refr
     }
     for (const { kind, key, metric, request } of definitions) {
       const filters = request.dimensionFilter.andGroup.expressions;
-      ga(key, filters, { metric });
+      ga(kind === "share" ? "share-" + key : key, filters, { metric });
       if (kind === "module") gsc(key, sites[0].gsc, { aggregationType: "byPage",
         filters: filters.filter(row => (row.notExpression ?? row).filter?.fieldName === "landingPage").map(pageFilter) });
     }
@@ -122,6 +123,7 @@ async function collectWeeklySources(date, outputFolder, { now = new Date(), refr
     ga("entry-pages", [...organic, inList("hostName", ["flatkey.ai", "www.flatkey.ai"])], { dimensions: ["hostName", "landingPage"] });
   }
 
+  if (new Set(jobs.map(evidenceKey)).size !== jobs.length) throw Error("duplicate_weekly_source_scope");
   await fs.mkdir(outputFolder, { recursive: true, mode: 0o700 });
   const results = new Map();
   const readJobs = async list => {
@@ -129,7 +131,7 @@ async function collectWeeklySources(date, outputFolder, { now = new Date(), refr
     await Promise.all(Array.from({ length: 4 }, async () => {
       while (cursor < list.length) {
         const job = list[cursor++];
-        const key = [job.side, job.source, job.key].join("-");
+        const key = evidenceKey(job);
         const file = path.join(outputFolder, key + ".json");
         let saved;
         if (!refresh) {
@@ -161,14 +163,14 @@ async function collectWeeklySources(date, outputFolder, { now = new Date(), refr
     }));
   };
   await readJobs(jobs);
-  const receipt = (side, source, key) => results.get([side, source, key].join("-"));
+  const receipt = (side, source, key) => results.get(evidenceKey({ side, source, key }));
   const source = (side, provider, key) => {
     const row = receipt(side, provider, key);
     if (row?.status !== 200 || !row.data) return null;
     return provider === "ga4" ? gaValues(row.job, row.data) : row.data.responseAggregationType === row.job.query.aggregationType ? row.data : null;
   };
   const pair = lookup => Object.fromEntries(Object.keys(sides).map(side => [side, lookup(side)]));
-  const sessions = key => pair(side => {
+  const gaCountPair = key => pair(side => {
     const data = source(side, "ga4", key);
     const rows = data?.rows?.length ? data.rows : data?.totals;
     return rows?.length === 1 ? gaCount(rows[0].metricValues?.[0]?.value) : null;
@@ -178,7 +180,7 @@ async function collectWeeklySources(date, outputFolder, { now = new Date(), refr
     const value = data?.rows?.length === 1 ? data.rows[0][metric] : null;
     return count(value) ? value : null;
   });
-  const metrics = key => ({ sessions: sessions(key), clicks: gscCount(key, "clicks"), impressions: gscCount(key, "impressions") });
+  const metrics = key => ({ sessions: gaCountPair(key), clicks: gscCount(key, "clicks"), impressions: gscCount(key, "impressions") });
   const coverage = Object.keys(sides).flatMap(side => sites.map(site => source(side, "gsc", site.domain + "-coverage")));
   const incompleteDates = coverage.flatMap(data => {
     const day = data?.metadata?.firstIncompleteDate ?? data?.metadata?.first_incomplete_date;
@@ -189,10 +191,11 @@ async function collectWeeklySources(date, outputFolder, { now = new Date(), refr
   const fullFlatkeyDays = Object.entries(sides).every(([side, window]) =>
     Array.from({ length: 7 }, (_, day) => shiftDay(window.startDate, day)).every(day => flatkeyCoverage[side]?.includes(day)));
   const observedAt = [...results.values()].map(result => result.observedAt).sort().at(-1);
-  const shares = pair(side => Object.fromEntries(["all", "modelDetail", "prompts"].map(key => [key, sessions(key)[side]])));
+  const sharePairs = ["all", "modelDetail", "prompts"].map(key => [key, gaCountPair("share-" + key)]);
+  const shares = pair(side => Object.fromEntries(sharePairs.map(([key, values]) => [key, values[side]])));
   const dashboardEvidence = reportDashboardEvidenceSchema.parse({
     scope: "website-console", timezone: TIMEZONE, observedAt, gscComparable: fullFlatkeyDays && coverage.every(Boolean) && !incompleteDates.length,
-    gscProvisionalFrom, sites: sites.map(({ domain }) => ({ name: domain, ...metrics(domain), ...(domain === "flatkey.ai" ? { registrations: sessions("registrations") } : {}) })),
+    gscProvisionalFrom, sites: sites.map(({ domain }) => ({ name: domain, ...metrics(domain), ...(domain === "flatkey.ai" ? { registrations: gaCountPair("registrations") } : {}) })),
     countries: Object.keys(countries).map(name => ({ name, ...metrics(name) })),
     modules: moduleIds.map(id => ({ id, ...metrics(id) })), moduleShares: { ...shares, observedAt },
   });
