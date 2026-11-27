@@ -110,16 +110,19 @@ test("next business-week board shows actual cross-bucket tasks and only the save
   const friday = task({ id: "original-friday", source: "automation", status: "ready", dueAt: "2026-11-27T11:00:00+08:00" });
   const thursday = task({ id: "new-thursday", weekStart: "2026-11-30", source: "automation", status: "ready", dueAt: "2026-12-03T11:00:00+08:00" });
   const overdue = task({ id: "overdue", source: "automation", status: "ready" });
+  const report = task({ id: "weekly-report", kind: "review", weekStart: "2026-11-30", source: "automation", status: "ready", dueAt: "2026-12-03T16:30:00+08:00" });
+  const collection = { ...report, id: "collect-data", kind: "technical" };
   const previousPlan = record("plan", { ...stored, id: "old-plan", weekStart: "2026-11-23", status: "scheduled",
     targets: { cadence: "workdays" }, taskIds: [friday.id, overdue.id], gaps: [{ category: "optimizedPages", count: 99 }] });
   const range = { start: "2026-11-27", end: "2026-12-03" };
   const nextPlan = record("plan", { ...stored, id: "next-plan", version: 1, weekStart: "2026-11-30", status: "scheduled",
-    targets: { cadence: "growth", executionRange: range }, taskIds: [friday.id, thursday.id], notes: "11/30 核对证据\n12/01 补证后安排", gaps: [
+    targets: { cadence: "growth", executionRange: range }, taskIds: [friday.id, thursday.id, report.id, collection.id], notes: "12/03 数据采集与周报", gaps: [
       { category: "modelFitBlogs", date: "2026-12-01", count: 1, siteDomain: "modelfit.cc" },
       { category: "modelFitBlogs", date: "2026-11-30", count: 1, siteDomain: "modelfit.cc" },
       { category: "optimizedPages", count: 10 },
+      { category: "other", count: 1, date: "2026-12-03" },
     ] });
-  const rows = [previousPlan, nextPlan, ...[friday, thursday, overdue].map(value => record("task", value))];
+  const rows = [previousPlan, nextPlan, ...[friday, thursday, overdue, report, collection].map(value => record("task", value))];
   const page = (query, records = rows) => {
     const filter = parseWorkflowWorkPageQuery(new URLSearchParams(query));
     const snapshot = workflowSnapshot(records, { operational: true, workList: true, boardDates: filter }, "database", now);
@@ -128,13 +131,14 @@ test("next business-week board shows actual cross-bucket tasks and only the save
   const next = page("page=1&range=nextWeek");
   assert.deepEqual(next.tasks.map(row => row.id), [friday.id, thursday.id]);
   assert.deepEqual(next.workBoardPlan, { range, plan: { id: "next-plan", version: 1, taskIds: [friday.id, thursday.id],
-    gaps: [{ category: "modelFitBlogs", count: 2 }, { category: "optimizedPages", count: 10 }], notes: nextPlan.record.notes,
+    gaps: [{ category: "modelFitBlogs", count: 2 }, { category: "optimizedPages", count: 10 }],
     datedGaps: ["2026-11-30", "2026-12-01"].map(date => ({ date, gaps: [{ category: "modelFitBlogs", count: 1, siteDomain: "modelfit.cc" }] })) } });
   assert.deepEqual(page("page=1&range=custom&rangeStart=2026-11-27&rangeEnd=2026-12-03").workBoardPlan, next.workBoardPlan);
   assert.deepEqual(page("page=1&range=nextWeek&q=none").workBoardPlan, next.workBoardPlan);
   assert.equal(page("page=1&range=month").workBoardPlan, undefined);
   assert.deepEqual(page("page=1&range=nextWeek", rows.filter(row => row !== nextPlan)).workBoardPlan, { range, plan: null });
   assert.equal(workflowSnapshot(rows, { operational: true }, "database", now).tasks.some(row => row.id === friday.id), false);
+  assert.ok(workflowSnapshot(rows, { allHistory: true }, "database", now).tasks.some(row => row.id === report.id));
 });
 
 test("list/full service reads use the original simple select and preserve canonical details", async t => {
