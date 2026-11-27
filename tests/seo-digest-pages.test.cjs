@@ -60,6 +60,19 @@ test("unsafe or foreign hosts and source records fetched in the future cannot en
  assert.equal(rank([gs("2026-11-10",[[url("a"),4]],{observedAt:"2026-11-12T10:00:00Z"})])[0].date,null);
 });
 
+test("a legitimate legacy HTTP row cannot hide fully covered HTTPS module traffic", () => {
+ const result=digestTopPages([
+  gs("2026-11-09",[[url("blog/a"),4]]),
+  gs("2026-11-10",[[url("blog/a"),6],["http://flatkey.ai/blog/legacy",90]]),
+ ],"2026-11-11",now,{start:"2026-11-10",end:"2026-11-10"})[0];
+ assert.deepEqual(result.coveredSites,["flatkey.ai"]);
+ assert.deepEqual(result.flatkey.comparisonDates,["2026-11-10"]);
+ const blog=result.flatkey.modules.find(row=>row.id==="blog");
+ assert.equal(blog.current,6);
+ assert.deepEqual(blog.impressions,{current:60,previous:40});
+ assert.deepEqual(result.pages.map(page=>page.url),[url("blog/a")]);
+});
+
 const properties = [["flatkey.ai","541304395"],["mochichatbot.com","561876347"],["jev-llm.com","555043733"],["rackrate.org","558899190"],["modelfit.cc","558978062"],["rougecue.org","565596386"]];
 test("10:30 Beijing mixed timezones prefer the latest common six-site day rather than hiding Flatkey", () => {
  const collectedAt="2026-11-11T02:30:00Z";
