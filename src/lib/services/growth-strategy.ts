@@ -12,6 +12,7 @@ import { loadWorkflowSnapshot } from "./seo-workflow";
 import { loadGrowthDashboardHistory, loadGrowthDashboardWorkspace, loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
 import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_STRATEGY_KEY, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthDaysRemaining, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthDashboardView, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
+import { closeoutTrafficMilestones } from "../seo-quarter-targets";
 import type { OverviewTrafficGoal } from "../overview-summary";
 import type { GrowthWorkspace } from "../growth-types";
 import { workflowSnapshot, type WorkflowStoredRow } from "../seo-workflow-state";
@@ -225,7 +226,18 @@ export async function loadOverviewTrafficGoal(localPreview = false, now = new Da
   const sessions = flatkeySessions(traffic), priorSessions = flatkeySessions(prior);
   const fallback = final || sessions !== null ? null
     : priorSessions !== null ? { ...previous, sessions: priorSessions } : lastSavedRollingTraffic(state, period.end, now);
-  return { daysRemaining: growthDaysRemaining(state.deadline, now), mode: final ? "final" : "rolling", period, sessions, fallback };
+  const saved = state.trafficEvidence.filter(row => row.site === "flatkey.ai" && growthTrafficHasCompleteHostScope(row)
+    && Date.parse(row.observedAt) <= now.getTime()).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
+  const milestones = closeoutTrafficMilestones.map(week => {
+    const exact = week.start === period.start && week.end === period.end ? sessions : null;
+    const archived = saved.find(row => row.start === week.start && row.end === week.end && row.method === "whole_interval_scalar");
+    const total = exact ?? archived?.sessions ?? null;
+    return { ...week, actual: total === null ? null : total / 7 };
+  });
+  const reference = final ? period.end : shiftDay(period.end, 1);
+  const activeMilestoneEnd = milestones.find(week => week.start <= reference && week.end >= reference)?.end;
+  return { daysRemaining: growthDaysRemaining(state.deadline, now), mode: final ? "final" : "rolling",
+    period, sessions, fallback, milestones, activeMilestoneEnd };
 }
 
 export async function loadGrowthStrategyDashboard(localPreview = false, now = new Date()): Promise<GrowthDashboardView> {

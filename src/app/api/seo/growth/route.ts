@@ -75,10 +75,13 @@ export async function GET(request: Request) {
       const [{ loadGrowthHotspotView }, { loadNovemberSecondKeywordCapture }, { approvedCaptureRankedWords }] = await Promise.all([
         import("@/lib/services/growth-hotspots"), import("@/lib/services/approved-weekly-keyword-capture"), import("@/lib/approved-weekly-keyword-capture"),
       ]);
-      const [workspace, capture, hotspots] = await Promise.all([
+      const closeout = view === "overview-summary" && !site && !params.has("country") && !params.has("language")
+        ? import("@/lib/services/seo-closeout-overview") : null;
+      const [workspace, capture, hotspots, closeoutData] = await Promise.all([
         loadSnapshot("quarter", local),
         local ? null : loadNovemberSecondKeywordCapture(),
         loadGrowthHotspotView(local).catch(() => null),
+        closeout?.then(service => service.loadCloseoutOverview(local)).catch(() => null),
       ]);
       if (!local && !capture?.complete) return Response.json({ message: "排名采集回执暂未读齐" }, { status: 503, headers: privateAnalyticsHeaders });
       const ranked = capture?.complete ? approvedCaptureRankedWords(capture) : [];
@@ -86,6 +89,11 @@ export async function GET(request: Request) {
       const catalog = catalogWorkspace(workspace, hotspots?.items ?? [], ranked);
       if (view === "overview-summary") {
         const summary = summarizeOverviewKeywords(catalog, readGrowthScope(params));
+        if (closeout && closeoutData) {
+          const service = await closeout;
+          summary.core = service.closeoutCoreRead(catalog, closeoutData.metrics);
+          summary.ordinary = service.ordinaryKeywordCoverage(closeoutData.plans, closeoutData.tasks, closeoutData.publications, new Date());
+        }
         return Response.json(summary, { headers: { ...privateAnalyticsHeaders, "Server-Timing": `overview-keywords;dur=${(performance.now() - started).toFixed(1)}` } });
       }
       return Response.json(growthDashboardProjection(catalog, true), { headers: privateAnalyticsHeaders });

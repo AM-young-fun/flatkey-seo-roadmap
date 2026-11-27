@@ -31,3 +31,12 @@
 .lineTooltipMetric i{width:7px;height:7px;flex:none;border-radius:50%;background:#3478ca}
 .lineTooltipMetric[data-secondary] i{background:#087e76}
 .lineTooltipMetric dd{margin:0;text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.closeoutDetails { margin: 14px 0; color: #445a75; }
+.closeoutDetails summary { width: fit-content; color: #3168af; cursor: pointer; }
+.closeoutTable { overflow-x: auto; margin-top: 18px; }
+.closeoutDetails table, .closeoutTable table { width: 100%; border-collapse: collapse; color: #344c69; }
+.closeoutDetails th, .closeoutDetails td, .closeoutTable th, .closeoutTable td { padding: 9px 10px; border-bottom: 1px solid #e9eef5; text-align: start; }
+.closeoutTable th a { color: #315f99; font-weight: 500; text-decoration: none; }
+.closeoutTable th a:hover { text-decoration: underline; }
+.closeoutTable td small { display: block; color: #6b7f98; margin-top: 3px; }
