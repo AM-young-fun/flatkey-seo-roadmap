@@ -137,7 +137,8 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
         </tbody>
       </table>
     </div>
-    {countries ? <ReportCountryShares groups={countries} /> : null}
+    {provisional ? <p className={reportStyles.note}>GSC 自 {provisional} 起为初步数据（洛杉矶时间），本期暂不计算 GSC 周环比。</p> : null}
+    {countries ? <ReportCountryShares groups={countries} weekly={completeWeekRequired} /> : null}
   </section>;
 }
 
@@ -315,12 +316,37 @@ const rankingCountries: Record<string, string> = {
 const rankingShare = (count: number, total: number) => total ? `${(100 * count / total).toFixed(1)}%` : "—";
 
 function WeeklyRankingOverview({ summary }: { summary: WeeklyRankingSummary }) {
+  const mark = (value: number, total: number) => (
+    <span className={reportStyles.rankingTrack} aria-hidden="true">
+      <span style={{ width: total ? `${100 * value / total}%` : "0%" }} />
+    </span>
+  );
   return <>
     <dl className={reportStyles.rankingTotals}>
       <div><dt>前 100 上榜率</dt><dd>{rankingShare(summary.ranked, summary.total)} <small>{numberText(summary.ranked)} / {numberText(summary.total)} 词</small></dd></div>
       <div><dt>确认前 100 外</dt><dd>{numberText(summary.verifiedOutside)} <small>词</small></dd></div>
       <div><dt>排名待确认</dt><dd>{numberText(summary.unresolved)} <small>词</small></dd></div>
     </dl>
+    <div className={reportStyles.rankingCharts}>
+      <figure>
+        <figcaption>各国前 100 上榜率</figcaption>
+        <ul>{summary.countries.map(row => <li key={row.country}>
+          <span>{rankingCountries[row.country] ?? row.country}</span>
+          {mark(row.ranked, row.target)}
+          <span className={reportStyles.rankingValue}><strong>{rankingShare(row.ranked, row.target)}</strong><small>{numberText(row.ranked)} / {numberText(row.target)} 词</small></span>
+        </li>)}</ul>
+      </figure>
+      <figure>
+        <figcaption>前 100 名次分布<small>占上榜词</small></figcaption>
+        <ul>{summary.bands.map(row => <li key={row.from}>
+          <span>{row.from}–{row.to} 名</span>
+          {mark(row.count, summary.ranked)}
+          <span className={reportStyles.rankingValue}><strong>{numberText(row.count)} 词</strong><small>{rankingShare(row.count, summary.ranked)}</small></span>
+        </li>)}</ul>
+      </figure>
+    </div>
+    <details className={reportStyles.rankingDetails}>
+    <summary>查看排名数据表</summary>
     <div className={reportStyles.rankingTables}>
       <div className={reportStyles.tableScroll}><table className={reportStyles.comparison}>
         <caption>国家分布</caption>
@@ -341,6 +367,7 @@ function WeeklyRankingOverview({ summary }: { summary: WeeklyRankingSummary }) {
         </tr>)}</tbody>
       </table></div>
     </div>
+    </details>
   </>;
 }
 

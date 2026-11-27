@@ -190,7 +190,19 @@
 .rankingTotals dt { font-size: .8rem; color: #52647d; margin-bottom: 4px; }
 .rankingTotals dd { margin: 0; font-weight: 650; color: #152943; font-variant-numeric: tabular-nums; }
 .rankingTotals small { font-weight: 400; color: #52647d; white-space: nowrap; }
+.rankingCharts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.rankingCharts figure { min-width: 0; margin: 0; padding: 14px; border: 1px solid #e5eaf1; border-radius: 8px; }
+.rankingCharts figcaption { font-weight: 650; color: #152943; }
+.rankingCharts figcaption small { margin-left: 8px; color: #52647d; font-weight: 400; }
+.rankingCharts ul { list-style: none; padding: 0; margin: 12px 0 0; }
+.rankingCharts li { display: grid; grid-template-columns: minmax(54px, 5.5rem) minmax(32px, 1fr) minmax(75px, 6rem); gap: 10px; align-items: center; min-height: 38px; font-size: .825rem; }
+.rankingTrack { display: block; height: 8px; border-radius: 4px; overflow: hidden; background: #eef2f8; }
+.rankingTrack > span { display: block; height: 100%; border-radius: inherit; background: #3164cb; }
+.rankingCharts figure + figure .rankingTrack > span { background: #138370; }
+.rankingValue { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
+.rankingValue small { color: #52647d; }
 .rankingTables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.rankingDetails > .rankingTables { margin-top: 12px; }
 .rankingTables table { min-width: 0; font-variant-numeric: tabular-nums; }
 .rankingTables caption { caption-side: top; text-align: left; font-size: .875rem; font-weight: 650; color: #152943; padding: 0 0 8px; }
 .rankingTables th, .rankingTables td { white-space: nowrap; }
@@ -199,4 +211,8 @@
 .rankingDetails { margin-top: 13px; font-size: .825rem; }
 .rankingDetails summary { color: var(--ui-primary); cursor: pointer; }
 .planDate { display: block; margin-top: 3px; }
-@media (max-width: 820px) { .rankingTables { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 820px) { .rankingCharts, .rankingTables { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) {
+  .rankingTotals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rankingTotals > div:first-child { grid-column: 1 / -1; }
+}

@@ -15,9 +15,12 @@ function sharePath(start: number, share: number) {
   return `M 50 50 L ${point(start)} A 48 48 0 ${share > .5 ? 1 : 0} 1 ${point(start + share)} Z`;
 }
 
-function MetricShare({ groups, metric, label }: { groups: ReportComparisonGroups; metric: string; label: string }) {
+function MetricShare({ groups, metric, label, weekly }: { groups: ReportComparisonGroups; metric: string; label: string; weekly: boolean }) {
   const [active, setActive] = useState<string | null>(null);
   const rows = reportCountryShares(groups, metric);
+  const values = REPORT_MARKETS.map(({ code }) => groups.find(group => group.name === code)?.metrics.find(row => row.label === metric));
+  const missing = REPORT_MARKETS.filter((_, index) => values[index]?.current == null);
+  const samePeriod = values.every(row => row?.period && row.period === values[0]?.period);
   const hovered = rows?.find(row => row.code === active);
   let start = 0;
   return <div className={styles.countryMetric}>
@@ -40,14 +43,16 @@ function MetricShare({ groups, metric, label }: { groups: ReportComparisonGroups
         })}
       </svg>
       {hovered ? <span role="tooltip" className={styles.countryTooltip}>{hovered.label} · {numberText(hovered.value)} · {(hovered.share * 100).toFixed(1)}%</span> : null}
-    </div> : <p className={styles.countryMissing}>四国同日数据待齐，或合计为 0。</p>}
+    </div> : <p className={styles.countryMissing}>{missing.length
+      ? `${missing.map(({ label }) => label).join("、")}的${weekly ? "本周" : "当日"}数据待齐。`
+      : samePeriod ? "四国合计为 0。" : "四国数据统计区间尚未对齐。"}</p>}
   </div>;
 }
 
-export function ReportCountryShares({ groups }: { groups: ReportComparisonGroups }) {
+export function ReportCountryShares({ groups, weekly = false }: { groups: ReportComparisonGroups; weekly?: boolean }) {
   return <section className={styles.countrySection} aria-label="Flatkey 四国占比">
     <h4>Flatkey 四国占比 <small>以四国本期合计为分母</small></h4>
-    <div className={styles.countryCharts}>{metrics.map(([metric, label]) => <MetricShare key={metric} {...{ groups, metric, label }} />)}</div>
+    <div className={styles.countryCharts}>{metrics.map(([metric, label]) => <MetricShare key={metric} {...{ groups, metric, label, weekly }} />)}</div>
     <ul className={styles.countryLegend}>
       {REPORT_MARKETS.map(({ label, color }) => <li key={label} style={{ "--market-color": color } as CSSProperties}>{label}</li>)}
     </ul>
