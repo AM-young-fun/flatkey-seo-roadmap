@@ -201,7 +201,14 @@ test("the closeout displays daily averages, ten weekly goals and all approved co
   assert.match(html,/流量截至 11月25日/);
   assert.match(html,/238\.4/);
   assert.match(html,/1,075 次\/天/);
-  assert.match(html,/本周目标 (?:<!-- -->)?275/);
+  assert.match(html,/<dt>本周目标<\/dt><dd>275 /);
+  assert.match(html,/季度目标达成率 <b>22\.2%<\/b>/);
+  assert.match(html,/距目标 836\.6 次\/天/);
+  assert.match(html,/data-current="true"[\s\S]*?进行中[\s\S]*?未到期/);
+  assert.equal((html.match(/<tr/g) || []).length, 23);
+  assert.match(html,/待实查<\/strong><small[^>]*>目标前 5/);
+  assert.match(html,/暂无数据<\/strong><small[^>]*>目标 69/);
+  assert.match(html,/暂无数据<\/strong><small[^>]*>目标待定/);
   assert.match(html,/<details[^>]*open=""[^>]*><summary>预估周目标与实际/);
   assert.match(html,/api gemini preço/);
   assert.match(html,/google gemini api free tier rate limits 2026/);
@@ -224,7 +231,8 @@ test("the overview displays the verified prior whole window while the latest win
   assert.match(initial,/229/);
   assert.match(initial,/洛杉矶 11月25日 截止窗口待采，当前显示 11月18日–11月24日 日均/);
   traffic.fallback.sessions=0;
-  assert.match(overview(),/0次\/天，目标1075次\/天/);
+  assert.match(overview(),/<dt>上次归档 7 日实际<\/dt><dd[^>]*>0 <small>次\/天/);
+  assert.match(overview(),/<progress[^>]*value="0"/);
   traffic.fallback=null;
   assert.match(overview(),/窗口待采/);
   assert.doesNotMatch(overview(),/流量截至 11月24日/);
