@@ -59,7 +59,7 @@ export function OverviewGoalCharts({ traffic, keywords, trafficStatus, keywordSt
         <tbody>{core.map(word => <tr key={word.country + word.keyword}>
           <th scope="row"><SeoAnchor href={word.url}>{word.keyword}</SeoAnchor></th>
           <td>{word.country} · {word.language}</td><td>{word.rank ?? "—"} / 前 {word.rankTarget}</td>
-          <td>{chartNumber(word.metrics?.impressions)} / {chartNumber(word.goal.impressions)}{word.baseline && <small>基线 {chartNumber(word.baseline.impressions)}</small>}</td>
+          <td>{chartNumber(word.metrics?.impressions)} / {chartNumber(word.goal.impressions)}{word.metrics && <small>截至 {shortDay(word.metrics.end)}</small>}{word.baseline && <small>基线 {chartNumber(word.baseline.impressions)}</small>}</td>
           <td>{chartNumber(word.metrics?.clicks)} / {chartNumber(word.goal.clicks)}{word.baseline && <small>基线 {chartNumber(word.baseline.clicks)}</small>}</td>
           <td>{word.metrics?.ctr == null ? "—" : `${chartNumber(word.metrics.ctr)}%`} / {word.goal.ctr === null ? "—" : `${chartNumber(word.goal.ctr)}%`}</td>
         </tr>)}</tbody>

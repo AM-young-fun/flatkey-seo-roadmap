@@ -124,3 +124,20 @@ test("capacity-derived closeout balances 270 Flatkey slots across accepted marke
   brTwo.record.language = "ru";
   assert.throws(() => assertQuarterContentCapacity(plan, undefined, [br, brTwo], days, now), { code: "quarter_content_market" });
 });
+
+test("core keyword snapshots require the fixed query, market, page and full window", () => {
+  const { coreKeywordArchiveSchema } = require("../src/lib/seo-core-keyword-evidence.ts");
+  const { closeoutCoreKeywords, CLOSEOUT_CORE_BASELINE } = require("../src/lib/seo-quarter-targets.ts");
+  const rows = closeoutCoreKeywords.map(({ keyword, country, language, path }) => ({
+    keyword, country, language, url: "https://flatkey.ai" + path, clicks: null, impressions: null,
+  }));
+  const snapshot = { ...CLOSEOUT_CORE_BASELINE, source: "gsc-search-analytics-final", property: "sc-domain:flatkey.ai",
+    observedAt: "2026-11-27T08:00:00Z", sourceHash: "c".repeat(64), rows };
+  assert.ok(coreKeywordArchiveSchema.safeParse(snapshot).success);
+  assert.ok(!coreKeywordArchiveSchema.safeParse({ ...snapshot, end: "2026-11-25" }).success);
+  assert.ok(!coreKeywordArchiveSchema.safeParse({ ...snapshot, rows: [...rows.slice(1), rows[1]] }).success);
+  rows[0] = { ...rows[0], clicks: 0, impressions: 46 };
+  assert.ok(coreKeywordArchiveSchema.safeParse(snapshot).success);
+  rows[0].url = "https://example.com";
+  assert.ok(!coreKeywordArchiveSchema.safeParse(snapshot).success);
+});

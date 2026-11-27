@@ -72,8 +72,7 @@ export function closeoutCoreKey(country: string | null, language: string | null,
   return [country, language, keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase()].join(":");
 }
 
-export function closeoutCoreGoals(word: typeof closeoutCoreKeywords[number]) {
-  const baseline = "baseline" in word ? word.baseline : null;
+export function closeoutCoreGoals(word: typeof closeoutCoreKeywords[number], baseline = ("baseline" in word ? word.baseline : null) as { impressions: number; clicks: number } | null) {
   const ctr = baseline?.impressions ? 100 * baseline.clicks / baseline.impressions : null;
   return { impressions: baseline ? Math.ceil(1.5 * baseline.impressions) : null,
     clicks: Math.max(word.clickFloor, Math.ceil(1.5 * (baseline?.clicks ?? 0))),
