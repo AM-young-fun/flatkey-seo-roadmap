@@ -5,7 +5,8 @@ import { isCurrentNativeRanking } from "../current-ranking-summary";
 import type { GrowthWorkspace } from "../growth-types";
 import { latestClosedLa7DayRange, seoToday, shiftDay, workWeekDateRange } from "../seo-date-range";
 import { isSeoExtraCapacity } from "../seo-extra-capacity";
-import { closeoutBusinessWeeks, closeoutCoreGoals, closeoutCoreKey, closeoutCoreKeywords, closeoutMarketTargets } from "../seo-quarter-targets";
+import { coreKeywordArchiveKind, coreKeywordArchiveSchema } from "../seo-core-keyword-evidence";
+import { CLOSEOUT_CORE_BASELINE, closeoutBusinessWeeks, closeoutCoreGoals, closeoutCoreKey, closeoutCoreKeywords, closeoutMarketTargets } from "../seo-quarter-targets";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask } from "../seo-workflow";
 import { loadGrowthDashboardHistory } from "./growth-workspace";
 
@@ -23,10 +24,11 @@ const pathKey = (value: string | null) => {
 const coreKeys = new Set<string>(closeoutCoreKeywords.map(word => closeoutCoreKey(word.country, word.language, word.keyword)));
 
 export async function loadCloseoutOverview(localPreview: boolean, now = new Date()) {
-  if (localPreview) return { plans: [], tasks: [], publications: [], metrics: new Map<string, QueryMetric>() };
+  const baselines = new Map<string, QueryMetric>();
+  if (localPreview) return { plans: [], tasks: [], publications: [], metrics: new Map<string, QueryMetric>(), baselines };
   const end = latestClosedLa7DayRange(now).end, start = shiftDay(end, -27);
   const countries = [...new Set(closeoutCoreKeywords.map(word => word.country))];
-  const [history, planRows, queryRows] = await Promise.all([
+  const [history, planRows, queryRows, receipts] = await Promise.all([
     loadGrowthDashboardHistory(),
     prisma.seoWorkflowRecord.findMany({ where: { kind: "plan", status: { in: ["scheduled", "reviewed"] } },
       select: { payload: true } }),
@@ -58,6 +60,8 @@ export async function loadCloseoutOverview(localPreview: boolean, now = new Date
       FROM wanted LEFT JOIN complete USING (country)
       LEFT JOIN totals ON totals.keyword = wanted.keyword AND totals.country = wanted.country AND totals.path = wanted.path
     `).catch((): QueryRow[] => []),
+    prisma.seoAnalyticsDay.findMany({ where: { kind: coreKeywordArchiveKind, date: { lte: end } },
+      orderBy: { date: "desc" }, take: 1, select: { payload: true } }),
   ]);
   const metrics = new Map<string, QueryMetric>();
   for (const row of queryRows) {
@@ -66,19 +70,32 @@ export async function loadCloseoutOverview(localPreview: boolean, now = new Date
         ctr: row.impressions ? 100 * row.clicks / row.impressions : null });
     }
   }
-  return { ...history, plans: planRows.map(row => row.payload as unknown as WorkflowPlan), metrics };
+  const baselineReceipt = await prisma.seoAnalyticsDay.findUnique({ where: { kind_date: { kind: coreKeywordArchiveKind, date: CLOSEOUT_CORE_BASELINE.end } }, select: { payload: true } });
+  for (const [target, receipt] of [[metrics, receipts[0]], [baselines, baselineReceipt]] as const) {
+    const parsed = coreKeywordArchiveSchema.safeParse(receipt?.payload);
+    if (!parsed.success) continue;
+    for (const row of parsed.data.rows) {
+      const key = `${row.country}:${row.keyword}`;
+      if (target.has(key) || row.impressions === null || row.clicks === null) continue;
+      const { start, end } = parsed.data;
+      target.set(key, { start, end, impressions: row.impressions, clicks: row.clicks,
+        ctr: row.impressions ? 100 * row.clicks / row.impressions : null });
+    }
+  }
+  return { ...history, plans: planRows.map(row => row.payload as unknown as WorkflowPlan), metrics, baselines };
 }
 
-export function closeoutCoreRead(data: GrowthWorkspace, metrics: ReadonlyMap<string, QueryMetric>) {
+export function closeoutCoreRead(data: GrowthWorkspace, metrics: ReadonlyMap<string, QueryMetric>, baselines: ReadonlyMap<string, QueryMetric>) {
   return closeoutCoreKeywords.map(word => {
     const candidates = data.targets.filter(target => target.site === "flatkey.ai" && target.keyword === word.keyword
       && target.country === word.country && target.language === word.language && pathKey(target.rankUrl) === word.path
       && isCurrentNativeRanking(target, data.generatedAt));
     const sample = candidates.sort((a, b) => (b.checkedAt ?? "").localeCompare(a.checkedAt ?? "") || a.rank! - b.rank!)[0];
+    const key = `${word.country}:${word.keyword}`;
+    const baseline = baselines.get(key) ?? ("baseline" in word ? word.baseline : null);
     return { keyword: word.keyword, country: word.country, language: word.language, url: "https://flatkey.ai" + word.path,
       rank: sample?.rank ?? null, rankObservedAt: sample?.checkedAt ?? null, rankTarget: word.rankTarget,
-      baseline: "baseline" in word ? word.baseline : null, goal: closeoutCoreGoals(word),
-      metrics: metrics.get(`${word.country}:${word.keyword}`) ?? null };
+      baseline, goal: closeoutCoreGoals(word, baseline), metrics: metrics.get(key) ?? null };
   });
 }
 
