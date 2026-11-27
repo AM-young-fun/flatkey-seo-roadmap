@@ -1,7 +1,7 @@
 import { groupApprovalPages, pendingTaskApproval } from "./seo-approval-display";
 import { dateInListRange, listDateRange, seoToday, validRange, type ListDatePreset } from "./seo-date-range";
 import { GROWTH_COUNTRIES, GROWTH_LANGUAGES } from "./seo-growth-markets";
-import { approvalItemNeedsHuman, approvalReviewReadiness, workflowApprovalEffectiveItemStatus, workflowTaskHasProgress, WORKFLOW_SITES, type WorkflowSnapshot, type WorkflowTask } from "./seo-workflow";
+import { approvalItemNeedsHuman, approvalReviewReadiness, isContentWorkBoardTask, workflowApprovalEffectiveItemStatus, workflowTaskHasProgress, WORKFLOW_SITES, type WorkflowSnapshot, type WorkflowTask } from "./seo-workflow";
 
 export type WorkflowListReview = { id: string; title: string; key: string; languages: string[] };
 export type WorkflowListTask = Pick<WorkflowTask, "id" | "weekStart" | "title" | "siteDomain" | "business" | "country" | "language" | "kind" | "workClass" | "pageType" | "pageUrl" | "keyword" | "owner" | "dueAt" | "nextAction" | "failureReason"> & {
@@ -27,6 +27,9 @@ export const workTaskTypes = [
   { value: "promotion", label: "推广与内链" },
   { value: "review", label: "复盘" },
 ];
+
+export const contentWorkTaskTypes = workTaskTypes.filter(option =>
+  !["research", "technical", "promotion", "review"].includes(option.value));
 
 export const workTaskStatusOptions = [
   { value: "active", label: "未验收" },
@@ -140,7 +143,7 @@ export function workflowWorkPage(snapshot: WorkflowSnapshot, filter: NonNullable
   const range = listDateRange(filter.preset, seoToday(new Date(list.generatedAt)), filter.customRange, "work");
   const overdue = new Set(list.workWeek?.overdueTaskIds);
   const pendingRollback = new Set(list.workWeek?.pendingRollbackTaskIds);
-  const scoped = list.tasks.filter(task => (filter.site === "all" || task.siteDomain === filter.site)
+  const scoped = list.tasks.filter(task => isContentWorkBoardTask(task) && (filter.site === "all" || task.siteDomain === filter.site)
     && (filter.country === "all" || task.country === filter.country) && (filter.language === "all" || task.language === filter.language)
     && (filter.business === "all" || task.business === filter.business));
   const overdueGroups = new Set(scoped.flatMap(task => task.review && overdue.has(task.id) ? [task.review.key] : []));

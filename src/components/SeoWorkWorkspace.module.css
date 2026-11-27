@@ -19,7 +19,6 @@
 .planSummary ul { display:flex; flex-wrap:wrap; gap:4px 16px; margin-bottom:0; padding:0; list-style:none; }
 .planDetails { margin-top:8px; }
 .planDetails summary { cursor:pointer; color:#2459aa; }
-.planDetails .planNotes { margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .planDays { display:grid; gap:6px; margin:8px 0 0; }
 .planDays > div { display:flex; flex-wrap:wrap; gap:2px 12px; }
 .planDays dt { font-weight:600; }

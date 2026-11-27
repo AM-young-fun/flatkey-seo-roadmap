@@ -5,7 +5,7 @@ import { assertGrowthPlan } from "./seo-growth-plan";
 import { taskNeedsChineseBrief, workflowTaskBriefProblems } from "./seo-task-brief";
 import { isSeoWorkday, seoCatchUpDate } from "./seo-workday";
 import { dateInListRange, listDateRange, seoToday, workWeekDateRange, type DateRange, type ListDatePreset } from "./seo-date-range";
-import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isExecutableWorkflowPlan, pageBelongsToSite, workflowClusterRollbackCandidates } from "./seo-workflow";
+import { approvalReviewReadiness, automaticTaskPolicy, approvalItemNeedsHuman, isContentWorkBoardTask, isExecutableWorkflowPlan, pageBelongsToSite, workflowClusterRollbackCandidates } from "./seo-workflow";
 import { createHash } from "node:crypto";
 import { ACTION_KIND, WORKFLOW_SCHEMAS, workflowMutationSchema, workflowWeek, shiftWorkflowDay, type WorkflowKind, type WorkflowRecord, type WorkflowTask, type WorkflowPlan, type WorkflowPublication, type WorkflowOptimization, type WorkflowSnapshot, type WorkflowRun, type WorkflowIssue, type WorkflowHistoricalImport, type WorkflowApproval, type WorkflowApprovalCheck, type WorkflowWorkBoardPlan, workflowApprovalEffectiveItemStatus, workflowApprovalItemStatus } from "./seo-workflow";
 import { optimizationComparisonProblems } from "./seo-workflow-comparison";
@@ -662,11 +662,12 @@ function workBoardPlan(plans: WorkflowPlan[], tasks: WorkflowTask[], dates: Boar
     && plan.targets.executionRange.end === range.end && isExecutableWorkflowPlan(plan.status));
   if (!plan) return dates.preset === "week" ? undefined : { range, plan: null };
 
-  const taskIds = tasks.filter(task => task.channel !== "product" && GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain)
+  const taskIds = tasks.filter(task => isContentWorkBoardTask(task) && task.channel !== "product" && GROWTH_EXECUTION_SITES.some(site => site === task.siteDomain)
     && dateInListRange(task.dueAt, range) && plans.some(plan => executablePlanIncludesTask(plan, task))).map(task => task.id);
   const counts = new Map<WorkflowPlan["gaps"][number]["category"], number>();
   const dated = new Map<string, Pick<WorkflowPlan["gaps"][number], "category" | "count" | "siteDomain">[]>();
   for (const { category, count, date, siteDomain } of plan.gaps) {
+    if (category === "other" || category === "evidence") continue;
     counts.set(category, (counts.get(category) ?? 0) + count);
     if (!date || date < range.start || date > range.end) continue;
     const rows = dated.get(date) ?? [];
@@ -678,7 +679,7 @@ function workBoardPlan(plans: WorkflowPlan[], tasks: WorkflowTask[], dates: Boar
   const datedGaps = [...dated].sort(([a], [b]) => a.localeCompare(b)).map(([date, gaps]) => ({ date, gaps }));
   return { range, plan: {
     id: plan.id, version: plan.version, taskIds, gaps: Array.from(counts, ([category, count]) => ({ category, count })),
-    ...(plan.notes?.trim() ? { notes: plan.notes } : {}), ...(datedGaps.length ? { datedGaps } : {}),
+    ...(datedGaps.length ? { datedGaps } : {}),
   } };
 }
 

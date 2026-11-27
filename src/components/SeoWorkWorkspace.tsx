@@ -22,7 +22,7 @@ import { WorkflowEvidence } from "./WorkflowEvidence";
 import { PageHeader } from "./PageHeader";
 import { SeoAutomationSchedule } from "./SeoAutomationSchedule";
 import { workTaskHref } from "@/lib/seo-workspace-routes";
-import { editorialTaskType, workTaskStatus, workTaskStatusOptions as taskStatusOptions, workTaskTypes, type WorkflowWorkPage } from "@/lib/seo-workflow-list";
+import { contentWorkTaskTypes, editorialTaskType, workTaskStatus, workTaskStatusOptions as taskStatusOptions, workTaskTypes, type WorkflowWorkPage } from "@/lib/seo-workflow-list";
 import { UiSelect } from "./UiSelect";
 import { useSeoCountry } from "./useSeoCountry";
 import { numberText, shanghaiStamp, useSeoRead } from "./useSeoAnalytics";
@@ -91,9 +91,8 @@ function WorkBoardPlan({ range, plan }: WorkflowWorkBoardPlan) {
     {plan ? <>
       <p>正式排期 v{plan.version} · 已排 {plan.taskIds.length} 项{deliveryGaps > 0 && <> · {deliveryGaps} 项交付缺口</>}</p>
       {plan.gaps.length ? <ul aria-label="排期缺口">{plan.gaps.map(gap => <li key={gap.category}>{planGapLabels[gap.category]} {gap.count}</li>)}</ul> : null}
-      {plan.notes || plan.datedGaps?.length ? <details className={styles.planDetails}>
-        <summary>每日安排与缺口</summary>
-        {plan.notes ? <p className={styles.planNotes}>{plan.notes}</p> : null}
+      {plan.datedGaps?.length ? <details className={styles.planDetails}>
+        <summary>每日交付缺口</summary>
         {plan.datedGaps?.length ? <dl className={styles.planDays} aria-label="按日登记的排期缺口">
           {plan.datedGaps.map(({ date, gaps }) => <div key={date}>
             <dt><time dateTime={date}>{date}</time></dt>
@@ -300,7 +299,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
   const status = isTaskList ? taskFilterStatus(requestedStatus) : requestedStatus;
   const Container = embedded ? "section" : "main";
   const requestedTaskType = params.get("taskType");
-  const taskType = workTaskTypes.find(option => option.value === requestedTaskType)?.value ?? "all";
+  const taskType = contentWorkTaskTypes.find(option => option.value === requestedTaskType)?.value ?? "all";
   const title = workViews[view], detailedFilters = !["issues", "runs"].includes(view);
   const [query, setQuery] = useState(params.get("q") ?? ""), [monday] = useState(currentMonday);
   const taskQuery = (params.get("q") ?? "").slice(0, 250);
@@ -404,7 +403,7 @@ export function SeoWorkWorkspace({ view = "tasks", embedded = false }: { view?: 
       <div className={styles.sectionHeading}><h2 id="work-list-title">任务列表</h2>{pagination ? <span className={styles.count}>{pagination.total} 项</span> : null}</div>
       <p className={styles.muted}>任务排期、日期筛选与执行时间均按北京时间（UTC+8），工作周为周五至周四。{!datePending && time.preset === "week" && time.range ? `本周 ${time.range.start} — ${time.range.end}，另含此前未完成的延期任务。` : ""}</p>
       <div className={styles.taskFilters}>
-        <UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={workTaskTypes} />
+        <UiSelect aria-label="任务类型筛选" value={taskType} onChange={value => filter("taskType", value)} options={contentWorkTaskTypes} />
         <UiSelect aria-label="任务站点筛选" value={site} onChange={value => filter("site", value)} options={[{ value: "all", label: "全部五站" }, ...sites]} />
         <input aria-label="搜索工作任务" value={searchText} maxLength={250} onChange={event => setDraft({ source: taskQuery, value: event.target.value })} placeholder="搜索关键词、页面、任务或负责人" />
         <SeoListDateControl value={time} pending={datePending} />
