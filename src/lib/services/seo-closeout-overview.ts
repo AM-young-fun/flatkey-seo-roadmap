@@ -10,7 +10,8 @@ import { CLOSEOUT_CORE_BASELINE, closeoutBusinessWeeks, closeoutCoreGoals, close
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask } from "../seo-workflow";
 import { loadGrowthDashboardHistory } from "./growth-workspace";
 
-type QueryMetric = { impressions: number; clicks: number; ctr: number | null; start: string; end: string };
+type QueryMetric = { impressions: number; clicks: number; ctr: number | null; start: string; end: string; position?: number | null };
+type AlternatePage = { url: string; clicks: number; impressions: number; position: number | null };
 type QueryRow = { keyword: string; country: string; path: string; days: number; impressions: number | null; clicks: number | null };
 type RepoData = Awaited<ReturnType<typeof loadGrowthDashboardHistory>>;
 
@@ -25,7 +26,8 @@ const coreKeys = new Set<string>(closeoutCoreKeywords.map(word => closeoutCoreKe
 
 export async function loadCloseoutOverview(localPreview: boolean, now = new Date()) {
   const baselines = new Map<string, QueryMetric>();
-  if (localPreview) return { plans: [], tasks: [], publications: [], metrics: new Map<string, QueryMetric>(), baselines };
+  const otherPages = new Map<string, AlternatePage[]>();
+  if (localPreview) return { plans: [], tasks: [], publications: [], metrics: new Map<string, QueryMetric>(), baselines, otherPages, queryCheckedThrough: null };
   const end = latestClosedLa7DayRange(now).end, start = shiftDay(end, -27);
   const countries = [...new Set(closeoutCoreKeywords.map(word => word.country))];
   const [history, planRows, queryRows, receipts] = await Promise.all([
@@ -61,7 +63,7 @@ export async function loadCloseoutOverview(localPreview: boolean, now = new Date
       LEFT JOIN totals ON totals.keyword = wanted.keyword AND totals.country = wanted.country AND totals.path = wanted.path
     `).catch((): QueryRow[] => []),
     prisma.seoAnalyticsDay.findMany({ where: { kind: coreKeywordArchiveKind, date: { lte: end } },
-      orderBy: { date: "desc" }, take: 1, select: { payload: true } }),
+      orderBy: { date: "desc" }, take: 1, select: { payload: true, date: true } }),
   ]);
   const metrics = new Map<string, QueryMetric>();
   for (const row of queryRows) {
@@ -71,6 +73,10 @@ export async function loadCloseoutOverview(localPreview: boolean, now = new Date
     }
   }
   const baselineReceipt = await prisma.seoAnalyticsDay.findUnique({ where: { kind_date: { kind: coreKeywordArchiveKind, date: CLOSEOUT_CORE_BASELINE.end } }, select: { payload: true } });
+  const latestReceipt = coreKeywordArchiveSchema.safeParse(receipts[0]?.payload);
+  if (latestReceipt.success) for (const row of latestReceipt.data.rows) {
+    if (row.otherPages?.length) otherPages.set(`${row.country}:${row.keyword}`, row.otherPages);
+  }
   for (const [target, receipt] of [[metrics, receipts[0]], [baselines, baselineReceipt]] as const) {
     const parsed = coreKeywordArchiveSchema.safeParse(receipt?.payload);
     if (!parsed.success) continue;
@@ -79,13 +85,13 @@ export async function loadCloseoutOverview(localPreview: boolean, now = new Date
       if (target.has(key) || row.impressions === null || row.clicks === null) continue;
       const { start, end } = parsed.data;
       target.set(key, { start, end, impressions: row.impressions, clicks: row.clicks,
-        ctr: row.impressions ? 100 * row.clicks / row.impressions : null });
+        ctr: row.impressions ? 100 * row.clicks / row.impressions : null, position: row.position });
     }
   }
-  return { ...history, plans: planRows.map(row => row.payload as unknown as WorkflowPlan), metrics, baselines };
+  return { ...history, plans: planRows.map(row => row.payload as unknown as WorkflowPlan), metrics, baselines, otherPages, queryCheckedThrough: receipts[0]?.date ?? null };
 }
 
-export function closeoutCoreRead(data: GrowthWorkspace, metrics: ReadonlyMap<string, QueryMetric>, baselines: ReadonlyMap<string, QueryMetric>) {
+export function closeoutCoreRead(data: GrowthWorkspace, metrics: ReadonlyMap<string, QueryMetric>, baselines: ReadonlyMap<string, QueryMetric>, otherPages: ReadonlyMap<string, AlternatePage[]>, queryCheckedThrough: string | null) {
   return closeoutCoreKeywords.map(word => {
     const candidates = data.targets.filter(target => target.site === "flatkey.ai" && target.keyword === word.keyword
       && target.country === word.country && target.language === word.language && pathKey(target.rankUrl) === word.path
@@ -95,7 +101,7 @@ export function closeoutCoreRead(data: GrowthWorkspace, metrics: ReadonlyMap<str
     const baseline = baselines.get(key) ?? ("baseline" in word ? word.baseline : null);
     return { keyword: word.keyword, country: word.country, language: word.language, url: "https://flatkey.ai" + word.path,
       rank: sample?.rank ?? null, rankObservedAt: sample?.checkedAt ?? null, rankTarget: word.rankTarget,
-      baseline, goal: closeoutCoreGoals(word, baseline), metrics: metrics.get(key) ?? null };
+      baseline, goal: closeoutCoreGoals(word, baseline), metrics: metrics.get(key) ?? null, otherPages: otherPages.get(key) ?? [], queryCheckedThrough };
   });
 }
 

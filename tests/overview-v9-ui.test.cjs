@@ -41,7 +41,7 @@ Module._load = function(name, parent, ...rest) {
 for(const extension of [".ts",".tsx"]) require.extensions[extension]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,file);
 const { keywordCircleLayout } = require("../src/components/growth-network-layout.ts");
 const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
-const { OverviewGoalCharts } = require("../src/components/OverviewGrowthCharts.tsx");
+const { OverviewGoalCharts, OverviewContentSection } = require("../src/components/OverviewGrowthCharts.tsx");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
 const { SeoWorkWorkspace } = require("../src/components/SeoWorkWorkspace.tsx");
@@ -202,11 +202,18 @@ test("the closeout displays daily averages, ten weekly goals and all approved co
   assert.match(html,/238\.4/);
   assert.match(html,/1,075 次\/天/);
   assert.match(html,/本周目标 (?:<!-- -->)?275/);
-  assert.match(html,/查看周目标与实际/);
+  assert.match(html,/<details[^>]*open=""[^>]*><summary>预估周目标与实际/);
   assert.match(html,/api gemini preço/);
   assert.match(html,/google gemini api free tier rate limits 2026/);
   assert.match(html,/gemini模型价格/);
   assert.doesNotMatch(html,/全部关键词前100覆盖|已获排名关键词中前50|>0 %</);
+});
+test("ordinary coverage shows site and market delivery by default without the quota table",()=>{
+  const growth={data:{ordinary:{through:"2026-12-03",due:1,covered:0,groups:[{site:"flatkey.ai",country:"BR",due:1,covered:0}],markets:[]}}};
+  const html=render(React.createElement(OverviewContentSection,{growth}));
+  assert.match(html,/<details[^>]*open=""[^>]*><summary>各站点与市场的交付进度/);
+  assert.match(html,/flatkey\.ai/);
+  assert.doesNotMatch(html,/Flatkey 季度市场配额与待排名额/);
 });
 test("the overview displays the verified prior whole window while the latest window is pending",()=>{
   const traffic={mode:"rolling",daysRemaining:70,period:{start:"2026-11-19",end:"2026-11-25"},sessions:null,

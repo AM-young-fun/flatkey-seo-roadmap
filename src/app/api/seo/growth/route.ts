@@ -91,7 +91,7 @@ export async function GET(request: Request) {
         const summary = summarizeOverviewKeywords(catalog, readGrowthScope(params));
         if (closeout && closeoutData) {
           const service = await closeout;
-          summary.core = service.closeoutCoreRead(catalog, closeoutData.metrics, closeoutData.baselines);
+          summary.core = service.closeoutCoreRead(catalog, closeoutData.metrics, closeoutData.baselines, closeoutData.otherPages, closeoutData.queryCheckedThrough);
           summary.ordinary = service.ordinaryKeywordCoverage(closeoutData.plans, closeoutData.tasks, closeoutData.publications, new Date());
         }
         return Response.json(summary, { headers: { ...privateAnalyticsHeaders, "Server-Timing": `overview-keywords;dur=${(performance.now() - started).toFixed(1)}` } });

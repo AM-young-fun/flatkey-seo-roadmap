@@ -25,7 +25,7 @@ export function OverviewGoalCharts({ traffic, keywords, trafficStatus, keywordSt
   const currentWeek = observed ?? milestones[0];
   const core = keywords?.core ?? closeoutCoreKeywords.map(word => ({
     keyword: word.keyword, country: word.country, language: word.language, url: "https://flatkey.ai" + word.path,
-    rank: null, rankObservedAt: null, rankTarget: word.rankTarget, goal: closeoutCoreGoals(word), metrics: null,
+    rank: null, rankObservedAt: null, rankTarget: word.rankTarget, goal: closeoutCoreGoals(word), metrics: null, otherPages: [], queryCheckedThrough: null,
     baseline: "baseline" in word ? word.baseline : null,
   }));
   const measured = core.filter(word => word.rank !== null).length;
@@ -39,10 +39,10 @@ export function OverviewGoalCharts({ traffic, keywords, trafficStatus, keywordSt
           note={rollingPending ? `洛杉矶 ${shortDay(traffic.period.end)} 截止窗口待采${fallback ? `，当前显示 ${shortDay(fallback.start)}–${shortDay(fallback.end)} 日均` : ""}。` : undefined} />
         {trafficStatus}
         <p className={styles.note}>本周目标 {chartNumber(currentWeek.target)} 次/天 · 统计周为洛杉矶周四至周三</p>
-        <details className={styles.closeoutDetails}>
-          <summary>查看周目标与实际</summary>
+        <details className={styles.closeoutDetails} open>
+          <summary>预估周目标与实际</summary>
           <LinePlot rows={milestones.map(week => ({ label: week.end, value: week.actual, prior: week.target }))} unit="次/天" series={["实际日均", "周目标"]} />
-          <table><thead><tr><th scope="col">统计周</th><th scope="col">目标日均</th><th scope="col">实际日均</th></tr></thead><tbody>
+          <table><thead><tr><th scope="col">统计周</th><th scope="col">预估日均</th><th scope="col">实际日均</th></tr></thead><tbody>
             {milestones.map(week => <tr key={week.start}><td>{week.start} – {week.end}</td><td>{chartNumber(week.target)}</td><td>{chartNumber(week.actual)}</td></tr>)}
           </tbody></table>
         </details>
@@ -57,14 +57,23 @@ export function OverviewGoalCharts({ traffic, keywords, trafficStatus, keywordSt
       <table aria-label="核心关键词季度目标">
         <thead><tr><th scope="col">核心原词与承接页</th><th scope="col">市场</th><th scope="col">同市场排名</th><th scope="col">展示</th><th scope="col">点击</th><th scope="col">CTR</th></tr></thead>
         <tbody>{core.map(word => <tr key={word.country + word.keyword}>
-          <th scope="row"><SeoAnchor href={word.url}>{word.keyword}</SeoAnchor></th>
-          <td>{word.country} · {word.language}</td><td>{word.rank ?? "—"} / 前 {word.rankTarget}</td>
-          <td>{chartNumber(word.metrics?.impressions)} / {chartNumber(word.goal.impressions)}{word.metrics && <small>截至 {shortDay(word.metrics.end)}</small>}{word.baseline && <small>基线 {chartNumber(word.baseline.impressions)}</small>}</td>
+          <th scope="row"><SeoAnchor href={word.url}>{word.keyword}</SeoAnchor>
+            {word.otherPages.length > 0 && <details className={styles.closeoutDetails}>
+              <summary>本站其他页面有展示（{word.otherPages.length}）</summary>
+              <ul>{word.otherPages.map(page => <li key={page.url}>
+                <SeoAnchor href={page.url}>{page.url.replace("https://flatkey.ai", "")}</SeoAnchor>
+                <small>{page.impressions} 次展示 · {page.clicks} 次点击{page.position != null ? ` · GSC 平均 ${chartNumber(page.position)}` : ""}</small>
+              </li>)}</ul>
+            </details>}
+          </th>
+          <td>{word.country} · {word.language}</td><td>{word.rank ?? "待实查"} / 前 {word.rankTarget}
+            {word.metrics?.position != null && <small>GSC 平均 {chartNumber(word.metrics.position)}</small>}</td>
+          <td>{chartNumber(word.metrics?.impressions)} / {chartNumber(word.goal.impressions)}{word.metrics ? <small>截至 {shortDay(word.metrics.end)}</small> : word.queryCheckedThrough ? <small>GSC 截至 {shortDay(word.queryCheckedThrough)} 未返回记录</small> : null}{word.baseline && <small>基线 {chartNumber(word.baseline.impressions)}</small>}</td>
           <td>{chartNumber(word.metrics?.clicks)} / {chartNumber(word.goal.clicks)}{word.baseline && <small>基线 {chartNumber(word.baseline.clicks)}</small>}</td>
           <td>{word.metrics?.ctr == null ? "—" : `${chartNumber(word.metrics.ctr)}%`} / {word.goal.ctr === null ? "—" : `${chartNumber(word.goal.ctr)}%`}</td>
         </tr>)}</tbody>
       </table>
-      <p className={styles.note}>各列为实际 / 季度目标。展示、点击和 CTR 使用同市场、同原词、同规范页近 28 日完整证据。基线为 {CLOSEOUT_CORE_BASELINE.start} 至 {CLOSEOUT_CORE_BASELINE.end}。</p>
+      <p className={styles.note}>各列为实际 / 季度目标。展示、点击和 CTR 使用同市场、同原词、同规范页近 28 日证据。GSC 平均排名单列展示。基线为 {CLOSEOUT_CORE_BASELINE.start} 至 {CLOSEOUT_CORE_BASELINE.end}。</p>
     </div>
   </ChartPanel>;
 }
@@ -98,13 +107,6 @@ export function OverviewContentSection({ growth }: { growth: SeoReadState<Overvi
       <div className={styles.closeoutTable}><table>
         <thead><tr><th scope="col">站点</th><th scope="col">国家／地区</th><th scope="col">应交付</th><th scope="col">已覆盖</th><th scope="col">待完成</th></tr></thead>
         <tbody>{ordinary.groups.map(row => <tr key={row.site + row.country}><td>{row.site}</td><td>{row.country}</td><td>{row.due}</td><td>{row.covered}</td><td>{row.due - row.covered}</td></tr>)}</tbody>
-      </table></div>
-    </details>
-    <details className={styles.closeoutDetails}>
-      <summary>Flatkey 季度市场配额与待排名额</summary>
-      <div className={styles.closeoutTable}><table>
-        <thead><tr><th scope="col">国家／地区</th><th scope="col">计划占比</th><th scope="col">配额</th><th scope="col">已排</th><th scope="col">待排</th></tr></thead>
-        <tbody>{ordinary.markets.map(row => <tr key={row.country}><td>{row.label}</td><td>{row.share}%</td><td>{row.target}</td><td>{row.assigned}</td><td>{row.open}</td></tr>)}</tbody>
       </table></div>
     </details>
   </ChartPanel>;
