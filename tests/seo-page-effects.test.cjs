@@ -165,3 +165,27 @@ test("trend starts at the first measured date across both sources and keeps zero
   assert.equal(days[1].clicks, null);
   assert.deepEqual(optimizationTrendDays(points.slice(0, 2), [], "2026-10-27"), []);
 });
+
+
+test("old-post scan reuses an older comparable window without treating it as current or reviving concurrent work", () => {
+  const observations = Array.from({ length: 14 }, (_, i) => day("2026-10-" + String(18 + i).padStart(2, "0"), i < 7 ? 12 : 2, i < 7 ? 100 : 65));
+  // A newer isolated final day must not hide the older comparable window.
+  observations.push(day("2026-11-18", 2, 65));
+  const word = target({ sourceActive: true, captureState: "pending", checkedAt: null });
+  const inventory = [{ url, firstSeen: new Date("2026-10-01T00:00:00Z") }];
+  const scan = (publications = [], tasks = []) => oldPostShortlist({ observations, workflow: { publications, tasks }, targets: [word], inventory, now });
+  const result = scan();
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].gscThrough, "2026-10-31");
+  assert.equal(result.rows[0].historical, true);
+  assert.equal(result.rows[0].comparable, 7);
+  assert.match(result.rows[0].reasons.join(" "), /最新 GSC 完整数据偏旧/);
+  const coverage = result.coverage.find(row => row.site === "flatkey.ai" && row.country === "ES");
+  assert.equal(coverage.latestGscDay, "2026-11-18");
+  assert.equal(coverage.comparisonThrough, "2026-10-31");
+  assert.equal(scan([{ siteDomain: "flatkey.ai", pageUrl: url, status: "verified", publishedAt: "2026-11-18T09:00:00Z" }]).rows.length, 0);
+  assert.equal(scan([{ siteDomain: "flatkey.ai", country: "ES", pageUrl: url, status: "verified", publishedAt: "2026-11-02T09:00:00Z" }]).rows.length, 0);
+  assert.equal(scan([], [{ siteDomain: "flatkey.ai", pageUrl: url, kind: "optimization", status: "drafting" }]).rows.length, 0);
+  const current = pageOptimizationPriorities(observations, { tasks: [], publications: [] }, [word], "flatkey.ai", "ES", now);
+  assert.equal(current.rows[0].priority, "待核实");
+});

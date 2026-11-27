@@ -30,8 +30,8 @@ async function readOldPostShortlist(request: Request, search: URLSearchParams) {
   return withRequestReads(async () => {
     try {
       const now = new Date(), local = analyticsLocalPreview(request), end = gscPeriodEnd(now);
-      // For a recent complete day, its two matching weekday windows fit in 18 days.
-      const range = { start: shiftDay(end, -17), end };
+      // Old-post research can use an older comparable window when recent source days are incomplete.
+      const range = { start: shiftDay(end, -89), end };
       const scopes = oldPostMarkets.map(({ country, site }) => ({ country, site: site === "flatkey.ai" ? undefined : site }));
       const source = local ? Promise.all(scopes.map(({ country, site }) => readAnalyticsEvidence(range, country, site, ["gsc-pages"]))).then(rows => rows.flat())
         : prisma.seoAnalyticsDay.findMany({ where: { complete: true, date: { gte: range.start, lte: range.end },
