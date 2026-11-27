@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { GrowthKeywordCatalogPage } from "@/lib/growth-keyword-catalog";
 import { KeywordCategories, KeywordPages, KeywordTopics } from "./KeywordTableCells";
 import { SeoTablePagination } from "./SeoTablePagination";
@@ -9,16 +8,19 @@ import styles from "./GrowthTopicWorkspace.module.css";
 
 const countries = new Intl.DisplayNames("zh-CN", { type: "region" });
 
-export function GrowthKeywordCatalog() {
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+export function GrowthKeywordCatalog({ search, onSearchChange, page, onPageChange }: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  page: number;
+  onPageChange: (page: number) => void;
+}) {
   const params = new URLSearchParams({ view: "keywords", page: String(page), q: search.trim() });
   const read = useSeoRead<GrowthKeywordCatalogPage>("/api/seo/growth?" + params, { showFeedback: false, keepPreviousData: true });
   const data = read.data ?? read.previousData;
   return <section className={styles.panel} aria-label="全部关键词">
     <h2 className={styles.panelTitle}>全部关键词</h2>
     <div className={`${styles.filters} ${styles.inventoryFilters}`}>
-      <label className={styles.search}>搜索网址、路由、关键词或话题<input maxLength={2000} placeholder="例如 /blog/gpu、GPU rental" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></label>
+      <label className={styles.search}>搜索网址、路由、关键词或话题<input maxLength={2000} placeholder="例如 /blog/gpu、GPU rental" value={search} onChange={event => onSearchChange(event.target.value)} /></label>
     </div>
     {read.error ? <p role="alert">{read.error} <button type="button" onClick={read.retry}>重新加载</button></p>
       : !data ? <p role="status">正在汇总关键词…</p> : <>
@@ -33,7 +35,7 @@ export function GrowthKeywordCatalog() {
             <td><KeywordPages urls={row.urls} /></td>
           </tr>)}</tbody>
         </table></div> : <p className={styles.empty}>没有符合条件的关键词。</p>}
-        <SeoTablePagination pagination={data.pagination} onPage={setPage} />
+        <SeoTablePagination pagination={data.pagination} onPage={onPageChange} />
       </>}
   </section>;
 }

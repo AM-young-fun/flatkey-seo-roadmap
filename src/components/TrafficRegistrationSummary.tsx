@@ -11,7 +11,7 @@ import styles from "./TrafficRegistrationSummary.module.css";
 export function useTrafficSummaryTrend({ range, ready, isDefault }: ReturnType<typeof useSeoRange>) {
   const params = new URLSearchParams({ view: "traffic-overview", ...(isDefault ? {} : range) });
   return useSeoRead<TrafficOverview>(ready ? "/api/seo/analytics?" + params : null,
-    { showFeedback: false, keepPreviousData: true });
+    { showFeedback: false, keepPreviousData: true, ttlMs: 120_000 });
 }
 
 function PeriodTotal({ label, unit, current, previous, range }: {
@@ -59,11 +59,12 @@ export function TrafficRegistrationSummary({ dates, read }: {
   const traffic = data?.daily.map(day => ({ label: day.date, value: day.site.totalSessions, prior: day.site.organicSessions })) ?? [];
   const registrations = data?.daily.map(day => ({ label: day.date, value: day.site.totalRegistrations, prior: day.site.organicRegistrations })) ?? [];
   const displayDates = data ? { ...dates, range: { start: data.start, end: data.end }, isDefault: data.automatic } : dates;
-  return <section className={styles.group} aria-labelledby="flatkey-traffic-registration" aria-busy={read.pending || undefined}>
+  return <section className={styles.group} aria-labelledby="flatkey-traffic-registration" aria-busy={read.pending || undefined} data-initial-loading={!data && !read.error || undefined}>
     <header className={styles.groupHeader}>
       <div><h2 id="flatkey-traffic-registration">Flatkey 流量与注册</h2><p>按洛杉矶时间统计，默认使用各项数据均已归档的最近连续 7 天</p></div>
       <SeoDateControl value={displayDates} showComparison={false} completeWeek pending={read.hasSettled && read.pending || undefined} />
     </header>
+    {!data && !read.error ? <p className={styles.note} role="status">正在读取流量与注册归档…</p> : null}
     {data?.automatic && !data.completeWeekEnd ? <p className={styles.note} role="status">近期归档还没有连续 7 天完整数据。已知日期仍可查看。</p> : null}
     <div className={styles.panels}>
       <section className={styles.panel} aria-labelledby="flatkey-traffic-trend">

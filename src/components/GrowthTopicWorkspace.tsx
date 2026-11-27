@@ -6,9 +6,8 @@ import { ArrowLeft, ArrowUpRight, RefreshCw } from "lucide-react";
 import type { GrowthTarget, GrowthTargetRankDetails, GrowthTopic, GrowthWorkspace } from "@/lib/growth-types";
 import { PageHeader } from "./PageHeader";
 import { UiSelect } from "./UiSelect";
-import { useOverviewRead, useSeoRead, type SeoReadState } from "./useSeoAnalytics";
+import { useOverviewRead, useSeoRead } from "./useSeoAnalytics";
 import { FeedbackButton } from "./FeedbackButton";
-import { PageLoading } from "./PageLoading";
 import { SeoTablePagination } from "./SeoTablePagination";
 import type { QuarterCalendarDisplay } from "@/lib/growth-quarter-display";
 import type { GrowthQuarterPage } from "@/lib/growth-quarter-page";
@@ -22,8 +21,7 @@ import { KeywordCategories, KeywordNumericHeader, KeywordPages, KeywordTopics } 
 import type { NumericSort } from "@/lib/growth-keyword-lookup";
 import { GrowthQuarterCalendarWorkspace } from "./GrowthQuarterCalendarWorkspace";
 import { GrowthHotspotWorkspace } from "./GrowthHotspotWorkspace";
-import { BarPlot } from "./OverviewCharts";
-import { defaultGrowthScope, growthLink, growthMarketLabel, growthRankKind, growthRankText, parseGrowthKeywordTab, readGrowthScope, selectGrowthTargets, growthRankingEvidence, type GrowthKeywordTab, type GrowthScope } from "./growth-topic-view";
+import { defaultGrowthScope, growthLink, growthMarketLabel, growthRankKind, growthRankText, parseGrowthKeywordTab, readGrowthScope, selectGrowthTargets, type GrowthKeywordTab, type GrowthScope } from "./growth-topic-view";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./GrowthTopicWorkspace.module.css";
 import { SeoAnchor } from "@/components/SeoAnchor";
@@ -52,13 +50,13 @@ export function GrowthTopicContributionCells({ snapshot, topic, scope }: { snaps
   </div>) : <small>暂无同窗口页面贡献证据</small>}</td><td><span>暂无可核归因</span><small>注册及首次付费缺同话题、同批用户来源；未用全站数字分摊或填0。</small></td></>;
 }
 
-function useGrowthScope() {
-  const [scope, setScope] = useState<GrowthScope>(defaultGrowthScope);
+function useGrowthScope(initialSearch = "") {
+  const [scope, setScope] = useState<GrowthScope>({ ...defaultGrowthScope, search: initialSearch });
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   useEffect(() => {
     const read = () => { const params = new URLSearchParams(location.search); setScope(readGrowthScope(params)); setSelectedTarget(params.get("target")); };
     read(); addEventListener("popstate", read); return () => removeEventListener("popstate", read);
-  }, []);
+  }, [initialSearch]);
   const change = (patch: Partial<GrowthScope>) => {
     const next = { ...scope, ...patch };
     setScope(next);
@@ -156,8 +154,8 @@ function KeywordInventory({ scope, change, page, setPage }: { scope: GrowthScope
 /** One stable circular point cloud, one point per original word. */
 export function GrowthTopicClusters(props: { data: GrowthWorkspace; scope: GrowthScope; targets: GrowthTarget[] }) { return <GrowthKeywordNetwork {...props} />; }
 
-export function GrowthTopicNetwork({ read }: { read: SeoReadState<GrowthWorkspace> }) {
-  const { data, error, retry } = read;
+export function GrowthTopicNetwork() {
+  const { data, error, retry } = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=all-keyword-overview", 90_000);
   const { scope, change } = useGrowthScope();
   if (error) return <section className={styles.panel}><p role="alert">话题关系图读取失败：{error}</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
   if (!data) return <section className={styles.panel}><p role="status">正在读取话题与目标关键词…</p></section>;
@@ -165,29 +163,13 @@ export function GrowthTopicNetwork({ read }: { read: SeoReadState<GrowthWorkspac
   return <section className={styles.panel}><GrowthFilters data={data} scope={scope} change={change} /><GrowthTopicClusters data={data} scope={scope} targets={targets} /></section>;
 }
 
-export function GrowthRankingCoverage({ read }: { read?: SeoReadState<GrowthWorkspace> } = {}) {
-  const localRead = useSeoRead<GrowthWorkspace>(read ? null : "/api/seo/growth?view=all-keyword-overview");
-  const { data, error, retry } = read ?? localRead;
-  const { scope } = useGrowthScope();
-  if (error) return <section className={styles.panel}><h2 className={styles.panelTitle}>当前有效关键词排名</h2><p role="alert">排名汇总读取失败：{error}</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
-  if (!data) return <section className={styles.panel}><p role="status">正在汇总有效排名…</p></section>;
-  if (data.reconciliation.sources.some(source => source.name === "最近14天的已存SERP" && !source.available)) {
-    return <section className={styles.panel}><h2 className={styles.panelTitle}>当前有效关键词排名</h2><p role="alert">近期SERP暂时无法读取。</p><button className={styles.more} onClick={retry}>重新读取</button></section>;
-  }
-  const { summary } = growthRankingEvidence(data, scope, "all");
-  const markets = summary.countries.map(market => ({ ...market, label: growthMarketLabel(data, market.country, market.language) }));
-  return <section className={styles.panel} aria-label="当前有效关键词排名汇总">
-    <div className={styles.sectionHeading}>
-      <div><h2>当前有效关键词排名</h2><p>统计全部关键词中已确认的前 100 排名，同一个词只计一次。</p></div>
-    </div>
-    <BarPlot rows={[{ label: "已获排名关键词", value: summary.total }, { label: "其中前50关键词", value: summary.top50 }]} unit="个原词" showAxis={false} />
-    <div className={styles.coverageGrid}><section><h3>有效前100关键词：国家 / 地区占比</h3><BarPlot rows={markets.map(market => ({ label: market.label, value: market.share === null ? null : market.share * 100, suffix: `${market.count}词 · ${market.share === null ? "—" : `${(market.share * 100).toFixed(1)}%`}` }))} unit="%" denominator={`${summary.total}个已证实有效前100原词`} empty="尚无有效排名，国家占比暂不可计算" /></section>
-      <section><h3>有效前100关键词：排名区间占比</h3><BarPlot rows={summary.bands.map(band => ({ label: `${band.label} 名`, value: band.share === null ? null : band.share * 100, suffix: `${band.count}词 · ${band.share === null ? "—" : `${(band.share * 100).toFixed(1)}%`}` }))} unit="%" denominator={`${summary.total}个已证实有效前100原词`} empty="尚无有效排名，区间占比暂不可计算" /></section></div>
-    {data.reconciliation.sources.some(source => !source.available) ? <p className={styles.note}>部分来源暂未读齐。</p> : null}
-  </section>;
-}
-
-export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1 }: { topicId?: string; initialTab?: GrowthKeywordTab; hotspotTopic?: string; hotspotPage?: number }) {
+export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", initialSearch = "", hotspotTopic, hotspotPage = 1 }: {
+  topicId?: string;
+  initialTab?: GrowthKeywordTab;
+  initialSearch?: string;
+  hotspotTopic?: string;
+  hotspotPage?: number;
+}) {
   const [tab, setTab] = useState(initialTab);
   const [page, setPage] = useState(1);
   const [related, setRelated] = useState(false);
@@ -213,7 +195,7 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
   const calendar = useOverviewRead<{ plan: QuarterCalendarDisplay | null }>(quarterHome ? "/api/seo/growth?view=quarter-calendar" : null, 60_000);
   const quarterPlan = quarterHome ? calendar.data?.plan : null;
   const quarter = Boolean(topicId) || quarterHome && !quarterPlan && !calendar.loading && !calendar.error;
-  const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope();
+  const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope(initialSearch);
   const scope = { ...savedScope, membership: "formal" as const };
   const query = new URLSearchParams({ view: "quarter", page: String(page), new: "1" });
   if (topicId) query.set("topic", topicId);
@@ -242,13 +224,14 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
     setUseSelectedTarget(false); setRelated(Boolean(result?.showRelated)); setPage(next);
   };
   const loading = quarterHome && calendar.loading && !calendar.retrying || quarter && read.loading && !read.retrying;
-  return <main className={workspace.shell}><PageHeader active="opportunities" marketControl={false} /><div className={styles.content} inert={loading} aria-busy={loading}>
+  return <main className={workspace.shell}><PageHeader active="opportunities" marketControl={false} /><div className={styles.content}>
     <div className={styles.heading}><div>{topicId ? <Link className={styles.back} href={growthLink(scope)}><ArrowLeft size={14} aria-hidden="true" />返回话题列表</Link> : null}<h1>{topicId ? topic?.name || "话题详情" : "关键词目标"}</h1><p>{topicId ? "同一话题下按国家、语言查看关键词、页面、任务与排名。" : "以 TopicMap 话题为主线，包含规划中、进行中与已完成目标。"}</p></div>{quarter && (data || read.error || read.retrying) ? <FeedbackButton className={styles.more} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton> : null}</div>
     {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.keywordTabs} role="group" aria-label="关键词分类">{keywordTabs.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => changeTab(id)}><strong>{label}</strong><span>{description}</span></button>)}</div> : null}
+    {loading && <section className={styles.panel} aria-busy="true"><p role="status">正在读取季度关键词…</p></section>}
     {quarterPlan ? <GrowthQuarterCalendarWorkspace plan={quarterPlan} />
       : quarterHome && calendar.error ? <p role="alert">{calendar.error} <button type="button" onClick={calendar.retry}>重新加载季度排期</button></p>
       : !topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
-      : !topicId && tab === "keywords" ? <GrowthKeywordCatalog />
+      : !topicId && tab === "keywords" ? <GrowthKeywordCatalog search={scope.search} onSearchChange={search => change({ search })} page={page} onPageChange={setPage} />
       : published ? <KeywordInventory scope={scope} change={change} page={page} setPage={setPage} /> : <>
     {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
@@ -283,5 +266,5 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
     </>}
     </>}
     {quarterHome ? <GrowthDirectionReview /> : null}
-  </div>{loading && <PageLoading />}</main>;
+  </div></main>;
 }

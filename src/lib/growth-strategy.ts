@@ -412,6 +412,10 @@ function evaluateCohort(targets: GrowthBaselineTarget[], workspace: GrowthWorksp
   const ranked = verified.filter(row => row.rankEligible && row.rank !== null && row.rank >= 1 && row.rank <= 100), top50 = ranked.filter(row => row.rank! <= 50);
   return { ...identity, targetCount: targets.length, rankedCount: ranked.length, top50Count: top50.length, verifiedCount: verified.length, identityCompleteCount, identityPendingCount: targets.length - identityCompleteCount, coverage: targets.length ? ranked.length / targets.length : null, quality: ranked.length ? top50.length / ranked.length : null, coverageRequired: Math.ceil(targets.length * .6), coverageGap: Math.max(0, Math.ceil(targets.length * .6) - ranked.length), qualityRequired: ranked.length ? Math.ceil(ranked.length * .8) : null, qualityGap: ranked.length ? Math.max(0, Math.ceil(ranked.length * .8) - top50.length) : null, latestRankAt: verified.map(row => row.checkedAt!).sort().at(-1) ?? null, complete: targets.length > 0 && verified.length === targets.length };
 }
+export function growthDaysRemaining(deadline: string, now: Date) {
+  return Math.max(0, Math.ceil((Date.parse(deadline + "T23:59:59+08:00") - now.getTime()) / 86400000));
+}
+
 export function evaluateGrowthGoals(state: GrowthStrategy, workspace: GrowthWorkspace, traffic: GrowthTrafficEvidence[], period: { start: string; end: string }, now = new Date(), finalEvidence?: { workspace: GrowthWorkspace; traffic: GrowthTrafficEvidence[] }): GrowthGoalEvaluation {
   const closed = now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF), rankingAsOf = closed ? new Date(GROWTH_DEADLINE_CUTOFF) : now;
   const baseline = state.baseline && (!state.baselineHistory?.length || Date.parse(state.baseline.frozenAt) <= rankingAsOf.getTime()) ? state.baseline
@@ -433,7 +437,7 @@ export function evaluateGrowthGoals(state: GrowthStrategy, workspace: GrowthWork
   const finalReady = Boolean(baseline && Date.parse(baseline.frozenAt) <= Date.parse(GROWTH_DEADLINE_CUTOFF) && trafficComplete);
   const finalPass = Boolean(finalReady && quarter!.coverage! >= .6 && quarter!.quality !== null && quarter!.quality >= .8 && currentTraffic.total! >= 3000);
   const finalStatus = !closed ? "not_due" : !finalReady ? "incomplete" : finalPass ? "achieved" : complete ? "not_achieved" : "incomplete";
-  return { deadline: state.deadline, daysRemaining: Math.max(0, Math.ceil((Date.parse(state.deadline + "T23:59:59+08:00") - now.getTime()) / 86400000)), baselineFrozen: Boolean(baseline), baselineCount: n, rankedCount: r, top50Count: f,
+  return { deadline: state.deadline, daysRemaining: growthDaysRemaining(state.deadline, now), baselineFrozen: Boolean(baseline), baselineCount: n, rankedCount: r, top50Count: f,
     coverage: n ? r! / n : null, quality: r ? f! / r : null, coverageRequired: n ? Math.ceil(n * state.coverageGoal) : null, qualityRequired: r ? Math.ceil(r * state.qualityGoal) : null,
     coverageGap: n ? Math.max(0, Math.ceil(n * state.coverageGoal) - r!) : null, qualityGap: r ? Math.max(0, Math.ceil(r * state.qualityGoal) - f!) : null,
     latestRankAt: quarter?.latestRankAt ?? null, rankingComplete: complete, cohorts, identityCompleteCount: quarter?.identityCompleteCount ?? null, identityPendingCount: quarter?.identityPendingCount ?? null, identityVersion: (state.identityRevisions ?? []).filter(row => Date.parse(row.approvedAt) <= rankingAsOf.getTime()).length,

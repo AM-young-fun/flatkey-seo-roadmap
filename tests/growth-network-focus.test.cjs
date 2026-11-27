@@ -35,7 +35,8 @@ const targets = [
   { id: 'alpha/ja', site, topicId: 'alpha', keyword: 'GPUの価格', country: 'JP', language: 'ja', rank: null, captureState: 'unqueried' },
   { id: 'beta/en', site, topicId: 'beta', keyword: 'api pricing', country: 'US', language: 'en', rank: 22, rankEligible: true },
 ].map(target => ({ ...target, publishedUrls: [], pageState: 'unmapped' }));
-const data = { topics, targets, markets: [{ country: 'US', language: 'en', label: '美国 · 英语' }, { country: 'JP', language: 'ja', label: '日本 · 日语' }] };
+const data = { topics, targets, quarter: { targetIds: ['alpha/en'] },
+  markets: [{ country: 'US', language: 'en', label: '美国 · 英语' }, { country: 'JP', language: 'ja', label: '日本 · 日语' }] };
 
 function render(visible = targets) {
   harness.cursor = 0;
@@ -121,7 +122,7 @@ test('an overview dot is part of its cluster activation target and only the focu
   tree = render();
   assert.deepEqual(pointsIn(tree), ['beta/en']);
   const dotLink = flatten(tree).find(node => node.props['aria-label'] === 'api pricing');
-  assert.equal(dotLink.props.href, '/topics/beta?site=flatkey.ai&target=beta%2Fen');
+  assert.equal(dotLink.props.href, '/opportunities?tab=keywords&q=api+pricing');
   assert.ok(by(dotLink, 'data-keyword-id', 'beta/en'));
 });
 

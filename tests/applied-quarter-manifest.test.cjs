@@ -89,7 +89,7 @@ test('normal workspace reader consumes the committed audit and exports original 
     seoWorkflowRecord: { findMany: async () => [], findUnique: async () => null },
     keywordCurationAudit: { findFirst: async query => { readAudit++; assert.equal(query.where.status, QUARTER_MEMBERSHIP_STATUS); assert.equal(query.orderBy.appliedAt, 'desc'); return audit; } },
     dataForSeoRun: { findMany: async () => [] }, keywordPageObservation: { findMany: async () => [] },
-    $queryRaw: async query => query.sql.includes('FROM "KeywordSourceRow"') ? [{ sources: [], audits: [] }] : [] };
+    $queryRaw: async query => query.sql.includes('FROM "KeywordSourceRow"') ? [{ sources: [], audits: [], hotspots: [] }] : [] };
   const load = Module._load;
   Module._load = function (name, parent, ...args) {
     if (name === 'server-only') return {};

@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, '..');
 const now = new Date('2026-11-25T04:00:00Z');
 const checkedAt = new Date('2026-11-24T04:00:00Z');
 const site = 'flatkey.ai', url = 'https://flatkey.ai/cloud/gpu', keyword = 'gpu pricing', keywordId = 'gpu-keyword';
+const goalSites = [site, 'rackrate.org', 'modelfit.cc'];
 const targetId = 'flatkey.ai:gpu%20pricing:US:en';
 const workflowQueries = [], serpQueries = [];
 let failSerp = false;
@@ -17,7 +18,7 @@ const prisma = {
     if (query.sql.includes('FROM "Topic"')) {
       assert.match(query.sql, /FROM "SiteKeyword" m JOIN "Keyword" k/);
       assert.match(query.sql, /FROM "SiteKeywordTopic" a/);
-      assert.deepEqual(query.values, ['flatkey.ai', 'rackrate.org', 'modelfit.cc']);
+      assert.deepEqual(query.values, goalSites);
       return [{
         topics: [{ id: 'gpu', text: 'GPU rental', active: true, parentId: null, childEdges: [], sites: [{ siteDomain: site }] }],
         members: [{ siteDomain: site, keywordId, active: true, topicId: 'gpu', pool: 'FORMAL', targetUrls: [url], topicAssignments: [], keyword: { text: keyword, active: true } }],
@@ -25,8 +26,10 @@ const prisma = {
     }
     if (query.sql.includes('FROM "KeywordSourceRow"')) {
       assert.match(query.sql, /FROM "KeywordCurationAudit"/);
-      assert.deepEqual(query.values, ['flatkey.ai', 'rackrate.org', 'modelfit.cc', 'SEO_HUMAN_WORD_LANGUAGE_REVIEW', 'PRE_FREEZE_IDENTITIES_APPLIED_V1']);
-      return [{ sources: [], audits: [] }];
+      assert.match(query.sql, /a\."restoredAt" IS NULL AND a\.summary->>'actor' = 'human'/);
+      assert.deepEqual(query.values, [...goalSites, 'SEO_HUMAN_WORD_LANGUAGE_REVIEW', 'PRE_FREEZE_IDENTITIES_APPLIED_V1',
+        ...goalSites, 'HOTSPOT_KEYWORD_CONFIRMED', 'HOTSPOT_CONFIRMED']);
+      return [{ sources: [], audits: [], hotspots: [] }];
     }
     if (query.sql.includes('FROM "DataForSeoRun"')) {
       assert.ok(historicalEvidence || catalog, 'dashboard must not scan saved discovery');

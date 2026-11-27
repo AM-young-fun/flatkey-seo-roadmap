@@ -2,7 +2,7 @@ import { z } from "zod";
 import { authorizeWorkflow, readWorkflowBody, workflowErrorResponse, workflowHeaders } from "@/lib/seo-workflow-http";
 import { GrowthStrategyError } from "@/lib/growth-strategy";
 import { withRequestReads } from "@/lib/request-read-scope";
-import { loadGrowthQuarterReview, loadGrowthStrategy, loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, saveGrowthStrategy } from "@/lib/services/growth-strategy";
+import { loadGrowthQuarterReview, loadGrowthStrategy, loadGrowthStrategyDashboard, loadGrowthStrategyOverview, loadGrowthStrategyView, loadOverviewTrafficGoal, saveGrowthStrategy } from "@/lib/services/growth-strategy";
 const weeklyGrowthRetrySchema = z.object({
   action: z.literal("retry_weekly_growth"), directionId: z.string().trim().min(1).max(200), revision: z.number().int().positive(),
 }).strict();
@@ -11,6 +11,11 @@ export async function GET(request: Request) {
   try {
     const auth = await authorizeWorkflow(request);
     const params = new URL(request.url).searchParams, mode = params.get("view");
+    if (mode === "overview-goal" && params.size === 1) {
+      const started = performance.now();
+      const goal = await loadOverviewTrafficGoal(auth.localPreview);
+      return Response.json(goal, { headers: { ...workflowHeaders, "Server-Timing": `overview-traffic;dur=${(performance.now() - started).toFixed(1)}` } });
+    }
     if (mode === "traffic-state" && params.size === 1) {
       const { version, trafficEvidence } = await loadGrowthStrategy(auth.localPreview);
       return Response.json({ state: { version, trafficEvidence } }, { headers: workflowHeaders });
