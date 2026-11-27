@@ -47,6 +47,7 @@ export const quarterPlanningInputSchema = z.object({
   targetUnit: z.literal("normalized_original_word").optional(),
   title: z.string().min(1).max(300), targetIds: z.array(growthLogicalTargetIdSchema).min(1).max(20000),
   artifact: z.object({ reference: z.string().min(1).max(3000), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  replacesBaselineHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   executionStart: z.iso.date(), executionEnd: z.literal("2027-02-05"),
   workstreams: z.array(z.object({ id, title: z.string().min(1).max(300), bucket: bucketSchema,
     topicIds: z.array(id).min(1).max(2000), taskIds: z.array(id).max(2000), rationale: detail, verification: detail,
@@ -60,6 +61,7 @@ export const quarterPlanningInputSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.targetIds).size !== value.targetIds.length || new Set(value.reservedOriginalTaskIds).size !== value.reservedOriginalTaskIds.length || new Set(value.workstreams.map(row => row.id)).size !== value.workstreams.length) ctx.addIssue({ code: "custom", message: "季度成员、原任务和方向ID不可重复" });
   const modern = value.version !== "quarter-planning-v1", next = value.version === QUARTER_NEW_WORD_VERSION, weights = deliveryWeights(value.version);
+  if (value.replacesBaselineHash && !next) ctx.addIssue({ code: "custom", message: "只有当前1000词版本可提交完整替换" });
   if (value.workstreams.some(row => !(row.bucket in weights)) || Object.keys(value.deliveryBudget.counts).some(key => !(key in weights))) ctx.addIssue({ code: "custom", message: "季度投入必须使用同一版本的分类与预算，不叠加两套比例" });
   if (modern ? !value.workstreams.some(row => row.bucket === "gpu") || !value.workstreams.some(row => row.bucket === "api") : !value.workstreams.some(row => row.bucket === "primary") || !value.workstreams.some(row => row.bucket === "foundation")) ctx.addIssue({ code: "custom", message: modern ? "季度方案须明确GPU主攻、API次重点方向" : "季度方案须明确主攻及基础覆盖方向" });
   if (modern && value.targetUnit !== "normalized_original_word") ctx.addIssue({ code: "custom", message: "季度方案须按去重原词核算" });

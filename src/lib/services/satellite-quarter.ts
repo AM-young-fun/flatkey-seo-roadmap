@@ -7,7 +7,7 @@ import { growthTargetId } from "../growth-workspace";
 import { MARKET_ASSIGNMENT_SOURCE_ID, readKeywordMarketAssignment } from "../keyword-market-policy";
 import { QuarterMembershipError, quarterMembershipHash, quarterWordKey } from "../quarter-membership";
 import { quarterWordResearchProblem } from "../quarter-word-research";
-import { SATELLITE_QUARTER_SITES, SATELLITE_QUARTER_VERSION, satelliteQuarterBound, satelliteQuarterCommandSchema,
+import { SATELLITE_QUARTER_SITES, SATELLITE_QUARTER_VERSION, SATELLITE_QUARTER_EXTENSION_VERSION, satelliteQuarterBound, satelliteQuarterCommandSchema,
   satelliteQuarterAppliedAt, satelliteQuarterCounts, satelliteQuarterHash, satelliteQuarterInputRowSchema, satelliteQuarterProblem,
   satelliteQuarterStoredSchema, type SatelliteQuarter } from "../satellite-quarter";
 import { GROWTH_EXECUTION_SITES, isGrowthTopicPlaceholder } from "../seo-growth-markets";
@@ -25,7 +25,7 @@ function verifiedSelection(state: GrowthStrategy, requestId: string) {
   return pool;
 }
 
-async function verifyReadback(tx: Prisma.TransactionClient, pool: SatelliteQuarter, at: Date) {
+async function readVerifiedSources(tx: Prisma.TransactionClient, pool: SatelliteQuarter, at: Date) {
   const ids = pool.members.map(row => row.keywordId);
   const [members, sources, sites, topics] = await Promise.all([
     tx.siteKeyword.findMany({ where: { keywordId: { in: ids }, siteDomain: { in: [...SATELLITE_QUARTER_SITES] } },
@@ -61,6 +61,10 @@ async function verifyReadback(tx: Prisma.TransactionClient, pool: SatelliteQuart
   if (satelliteQuarterHash(proven) !== pool.selectionHash) {
     throw new QuarterMembershipError("satellite_selection_changed", "确切两站来源清单的读回哈希不一致", 409);
   }
+  return proven;
+}
+async function verifyReadback(tx: Prisma.TransactionClient, pool: SatelliteQuarter, at: Date) {
+  await readVerifiedSources(tx, pool, at);
   return { status: "SATELLITE_QUARTER_APPLIED" as const, readbackVerified: true, siteCounts: satelliteQuarterCounts(pool), pool };
 }
 
@@ -73,10 +77,10 @@ export async function loadSatelliteQuarterReceipt(requestId: string) {
     const original = growthStrategyStoredSchema.parse(event.payload);
     const pool = verifiedSelection(original, requestId);
     const current = await readGrowthStrategy(tx);
-    if (growthHash(verifiedSelection(current, requestId)) !== growthHash(pool)) {
-      throw new QuarterMembershipError("satellite_receipt_changed", "生产两站补充批次与原确切回执不一致");
-    }
-    return { ...await verifyReadback(tx, pool, new Date(satelliteQuarterAppliedAt(pool))), strategyVersion: event.version, currentVersion: current.version };
+    const historical = current.satelliteQuarter?.requestId !== requestId || current.baseline?.planHash !== pool.baselinePlanHash;
+    if (!historical && growthHash(current.satelliteQuarter) !== growthHash(pool)) throw new QuarterMembershipError("satellite_receipt_changed", "生产两站补充批次与原确切回执不一致");
+    return { ...await verifyReadback(tx, pool, new Date(satelliteQuarterAppliedAt(pool))), strategyVersion: event.version, currentVersion: current.version,
+      ...(historical ? { historical: true } : {}) };
   }, { ...txOptions, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 
@@ -99,10 +103,12 @@ export async function applySatelliteQuarter(input: unknown, actor: SatelliteQuar
       return { ...await verifyReadback(tx, pool, new Date(satelliteQuarterAppliedAt(pool))), strategyVersion: replay.version, replay: true };
     }
     if (current.version !== command.expectedVersion) throw new QuarterMembershipError("version_conflict", "季度策略已更新，请先重新读取当前生产版本");
-    if (current.satelliteQuarter) throw new QuarterMembershipError("satellite_already_applied", "两站季度词批次已确认，沿原回执查证");
+    if (current.satelliteQuarter && command.mode !== "extend") throw new QuarterMembershipError("satellite_already_applied", "两站季度词批次已确认，沿原回执查证");
     const problem = satelliteQuarterProblem(command, current, now);
     if (problem) throw new QuarterMembershipError("satellite_scope_invalid", problem, 422);
     for (const site of [...GROWTH_EXECUTION_SITES].sort()) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${site}`}))`;
+    const preserved = command.mode === "extend" ? current.satelliteQuarter : undefined;
+    const previousSources = preserved ? await readVerifiedSources(tx, preserved, new Date(satelliteQuarterAppliedAt(preserved))) : [];
     const [sites, topics, known, existingContent] = await Promise.all([
       tx.seoSite.findMany({ where: { domain: { in: [...SATELLITE_QUARTER_SITES] }, active: true }, select: { domain: true } }),
       tx.topic.findMany({ where: { id: { in: [...new Set(command.rows.map(row => row.topicId))] }, active: true }, select: { id: true, text: true, sites: { select: { siteDomain: true } } } }),
@@ -118,8 +124,9 @@ export async function applySatelliteQuarter(input: unknown, actor: SatelliteQuar
       }
     }
     const rows = command.rows.map(row => ({ row, keywordId: randomUUID() }));
-    await tx.keyword.createMany({ data: rows.map(({ row, keywordId }) => ({ id: keywordId, text: row.keyword, topicId: row.topicId, type: "LONG_TAIL" })) });
-    await tx.siteKeyword.createMany({ data: rows.map(({ row, keywordId }) => ({ siteDomain: row.siteDomain, keywordId, topicId: row.topicId,
+    if (rows.length) {
+      await tx.keyword.createMany({ data: rows.map(({ row, keywordId }) => ({ id: keywordId, text: row.keyword, topicId: row.topicId, type: "LONG_TAIL" })) });
+      await tx.siteKeyword.createMany({ data: rows.map(({ row, keywordId }) => ({ siteDomain: row.siteDomain, keywordId, topicId: row.topicId,
       pool: "FORMAL", origin: "RESEARCH", sourceUrl: row.sourceUrl })) });
     await tx.siteKeywordTopic.createMany({ data: rows.map(({ row, keywordId }) => ({ siteDomain: row.siteDomain, keywordId, topicId: row.topicId })) });
     await tx.keywordSourceRow.createMany({ data: rows.flatMap(({ row, keywordId }) => {
@@ -130,13 +137,14 @@ export async function applySatelliteQuarter(input: unknown, actor: SatelliteQuar
         { ...identity, sourceId: researchSourceId, snapshot: asJson(row), snapshotHash: quarterMembershipHash(row), observedAt: new Date(row.observedAt) },
         { ...identity, sourceId: MARKET_ASSIGNMENT_SOURCE_ID, snapshot: assignment, snapshotHash: quarterMembershipHash(assignment), observedAt: now },
       ];
-    }) });
+      }) });
+    }
     const actorStamp = actor === "collector" ? { actor, appliedAt: now.toISOString() } : { actor, approvedAt: now.toISOString() };
-    const pool = satelliteQuarterStoredSchema.parse({ version: SATELLITE_QUARTER_VERSION, requestId: command.requestId,
+    const pool = satelliteQuarterStoredSchema.parse({ version: preserved ? SATELLITE_QUARTER_EXTENSION_VERSION : SATELLITE_QUARTER_VERSION, requestId: command.requestId,
       ...actorStamp, baselinePlanHash: current.baseline!.planHash,
-      selectionHash: satelliteQuarterHash(command.rows), members: rows.map(({ row: { excerpt: _excerpt, ...row }, keywordId }) => ({
+      selectionHash: satelliteQuarterHash([...previousSources, ...command.rows]), members: [...(preserved?.members ?? []), ...rows.map(({ row: { excerpt: _excerpt, ...row }, keywordId }) => ({
         ...row, keywordId, targetId: growthTargetId(row.siteDomain, row.keyword, row.country, row.language),
-      })) });
+      }))] });
     const next: GrowthStrategy = { ...current, satelliteQuarter: pool, version: current.version + 1, updatedAt: now.toISOString() };
     const stored = await tx.seoWorkflowRecord.updateMany({ where: { key: GROWTH_STRATEGY_KEY, version: current.version },
       data: { version: next.version, payload: asJson(next) } });

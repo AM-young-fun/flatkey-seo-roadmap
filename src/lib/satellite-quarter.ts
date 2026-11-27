@@ -11,6 +11,8 @@ import type { WorkflowTask } from "./seo-workflow";
 
 export const SATELLITE_QUARTER_COUNT = 200;
 export const SATELLITE_QUARTER_VERSION = "satellite-quarter-v1";
+export const SATELLITE_QUARTER_EXTENSION_VERSION = "satellite-quarter-v2";
+const MAX_MODELFIT_WORDS = 320;
 export const SATELLITE_QUARTER_SITES = ["modelfit.cc", "rackrate.org"] as const;
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().trim().min(1).max(200);
@@ -20,21 +22,32 @@ export const satelliteQuarterInputRowSchema = quarterWordResearchRowSchema.exten
 });
 export const satelliteQuarterCommandSchema = z.object({
   action: z.literal("apply_satellite_quarter"), requestId: z.string().regex(/^[a-zA-Z0-9:_-]{8,160}$/),
-  expectedVersion: z.number().int().nonnegative(), rows: z.array(satelliteQuarterInputRowSchema).length(SATELLITE_QUARTER_COUNT),
-}).strict();
+  expectedVersion: z.number().int().nonnegative(), mode: z.literal("extend").optional(),
+  rows: z.array(satelliteQuarterInputRowSchema).max(MAX_MODELFIT_WORDS - 100),
+}).strict().superRefine((command, ctx) => {
+  if (command.mode !== "extend" && command.rows.length !== SATELLITE_QUARTER_COUNT
+    || command.mode === "extend" && command.rows.some(row => row.siteDomain !== "modelfit.cc")) {
+    ctx.addIssue({ code: "custom", path: ["rows"], message: "原补充批次须200词；扩展仅追加ModelFit原词并保留已有两站原词" });
+  }
+});
 export type SatelliteQuarterCommand = z.infer<typeof satelliteQuarterCommandSchema>;
 
 const satelliteMemberSchema = satelliteQuarterInputRowSchema.omit({ excerpt: true }).extend({
   targetId: growthLogicalTargetIdSchema, keywordId: id,
 });
 const satelliteStoredFields = {
-  version: z.literal(SATELLITE_QUARTER_VERSION), requestId: id, baselinePlanHash: sha256,
-  selectionHash: sha256, members: z.array(satelliteMemberSchema).length(SATELLITE_QUARTER_COUNT),
+  version: z.enum([SATELLITE_QUARTER_VERSION, SATELLITE_QUARTER_EXTENSION_VERSION]), requestId: id, baselinePlanHash: sha256,
+  selectionHash: sha256, members: z.array(satelliteMemberSchema).min(SATELLITE_QUARTER_COUNT).max(MAX_MODELFIT_WORDS + 100),
 };
 export const satelliteQuarterStoredSchema = z.discriminatedUnion("actor", [
   z.strictObject({ ...satelliteStoredFields, actor: z.literal("human"), approvedAt: z.iso.datetime({ offset: true }) }),
   z.strictObject({ ...satelliteStoredFields, actor: z.literal("collector"), appliedAt: z.iso.datetime({ offset: true }) }),
-]);
+]).superRefine((pool, ctx) => {
+  if (pool.version === SATELLITE_QUARTER_VERSION && pool.members.length !== SATELLITE_QUARTER_COUNT
+    || pool.version === SATELLITE_QUARTER_EXTENSION_VERSION && pool.members.filter(row => row.siteDomain === "modelfit.cc").length > MAX_MODELFIT_WORDS) {
+    ctx.addIssue({ code: "custom", path: ["members"], message: "补充词读回数量超出对应版本范围" });
+  }
+});
 export type SatelliteQuarter = z.infer<typeof satelliteQuarterStoredSchema>;
 export type SatelliteQuarterMember = SatelliteQuarter["members"][number];
 
@@ -57,6 +70,20 @@ export function satelliteQuarterProblem(command: SatelliteQuarterCommand, strate
   const sources = new Set(planning.plan.calendar?.map(row => `${row.ahrefs.sourceSha256}:${row.ahrefs.sourceRow}`));
   const today = seoToday(now);
   const sites = new Set<string>();
+  if (command.mode === "extend") {
+    const prior = strategy.satelliteQuarter;
+    if (!prior || (!command.rows.length && prior.baselinePlanHash === baseline.planHash)
+      || prior.members.filter(row => row.siteDomain === "modelfit.cc").length + command.rows.length > MAX_MODELFIT_WORDS) {
+      return "扩展须追加已核ModelFit原词、或将原两站批次绑定新的Flatkey冻结版本";
+    }
+    for (const row of prior.members) {
+      const word = quarterWordKey(row.keyword), source = `${row.sourceSha256}:${row.sourceRow}`;
+      if (words.has(word) || sources.has(source)) return `${row.keyword}：原两站季度词或证据与新冻结词冲突`;
+      words.add(word);
+      sources.add(source);
+      sites.add(row.siteDomain);
+    }
+  }
   for (const row of command.rows) {
     const sourceIssue = quarterWordResearchProblem(row, now);
     if (sourceIssue) return `${row.keyword}：${sourceIssue}`;

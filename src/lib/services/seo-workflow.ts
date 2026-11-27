@@ -14,6 +14,7 @@ import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash,
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 import { quarterAllocationProblems } from "@/lib/growth-quarter-planning";
 import { quarterContentMutationTasks, quarterContentProblems } from "@/lib/seo-quarter-content";
+import { quarterContentBindingProblem } from "@/lib/seo-quarter-content-capacity";
 import { publishedMaintenanceMutationTasks } from "@/lib/seo-published-maintenance";
 import { assertPublishedMaintenanceTasks } from "./seo-published-maintenance";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
@@ -24,6 +25,12 @@ import { canClaimMoeBlogContinuation, moeBlogPlanId, moeBlogResearchId, moeBlogR
 
 const legacyKinds = Object.keys(WORKFLOW_SCHEMAS);
 const json = (value: unknown) => value as Prisma.InputJsonValue;
+function quarterContentNeedsBinding(plan: WorkflowPlan, all: WorkflowStoredRow[]) {
+  const prior = all.find(row => row.kind === "plan" && row.record.id === plan.id)?.record as WorkflowPlan | undefined;
+  if (!prior || !isExecutableWorkflowPlan(prior.status) || workflowHash(prior.quarterlyContent) !== workflowHash(plan.quarterlyContent)) return true;
+  return all.some(row => row.kind === "task" && plan.taskIds.includes(row.record.id)
+    && !prior.taskIds.includes(row.record.id) && !isSeoExtraCapacity((row.record as WorkflowTask).capacityClass));
+}
 type LocalState = { records: WorkflowStoredRow[]; events: { requestId: string; requestHash: string; kind: WorkflowKind; record: WorkflowRecord }[] };
 function localDirectory(localPreview: boolean) {
   if (!localPreview) return null;
@@ -128,7 +135,13 @@ async function saveLocalWorkflow(input: unknown, actor: WorkflowActor, directory
       const problems = quarterContentProblems(contentTasks, await loadGrowthStrategy(true), state.records);
       if (problems.length) throw new WorkflowError("quarter_content_membership_required", problems.join("；"));
     }
-    if (prepared.kind === "plan" && (prepared.record as WorkflowPlan).strategyAllocation && isExecutableWorkflowPlan((prepared.record as WorkflowPlan).status)) {
+    const proposedPlan = prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined;
+    if (proposedPlan?.quarterlyContent && isExecutableWorkflowPlan(proposedPlan.status) && quarterContentNeedsBinding(proposedPlan, state.records)) {
+      const { loadGrowthStrategy } = await import("./growth-strategy");
+      const problem = quarterContentBindingProblem(proposedPlan, await loadGrowthStrategy(true), new Date(prepared.record.updatedAt));
+      if (problem) throw new WorkflowError("quarter_plan_approval_required", problem);
+    }
+    if (proposedPlan?.strategyAllocation && !proposedPlan.quarterlyContent && isExecutableWorkflowPlan(proposedPlan.status)) {
       const { loadGrowthStrategy } = await import("./growth-strategy");
       const problems = quarterAllocationProblems(prepared.record as WorkflowPlan, await loadGrowthStrategy(true), state.records.filter(row => row.kind === "task").map(row => row.record as WorkflowTask), state.records.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));
       if (problems.length) throw new WorkflowError("quarter_plan_approval_required", problems.join("；"));
@@ -207,7 +220,13 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
       const problems = quarterContentProblems(contentTasks, await readGrowthStrategy(tx), all);
       if (problems.length) throw new WorkflowError("quarter_content_membership_required", problems.join("；"));
     }
-    if (prepared.kind === "plan" && (prepared.record as WorkflowPlan).strategyAllocation && isExecutableWorkflowPlan((prepared.record as WorkflowPlan).status)) {
+    const proposedPlan = prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined;
+    if (proposedPlan?.quarterlyContent && isExecutableWorkflowPlan(proposedPlan.status) && quarterContentNeedsBinding(proposedPlan, all)) {
+      const { readGrowthStrategy } = await import("./growth-strategy");
+      const problem = quarterContentBindingProblem(proposedPlan, await readGrowthStrategy(tx), now);
+      if (problem) throw new WorkflowError("quarter_plan_approval_required", problem);
+    }
+    if (proposedPlan?.strategyAllocation && !proposedPlan.quarterlyContent && isExecutableWorkflowPlan(proposedPlan.status)) {
       const { readGrowthStrategy } = await import("./growth-strategy");
       const problems = quarterAllocationProblems(prepared.record as WorkflowPlan, await readGrowthStrategy(tx), all.filter(row => row.kind === "task").map(row => row.record as WorkflowTask), all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan));
       if (problems.length) throw new WorkflowError("quarter_plan_approval_required", problems.join("；"));

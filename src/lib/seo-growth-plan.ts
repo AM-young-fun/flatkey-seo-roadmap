@@ -7,13 +7,14 @@ import { WorkflowError, type WorkflowStoredRow } from "./seo-workflow-state";
 import { deliveryWeights, type DeliveryBucket } from "./growth-quarter-planning";
 import { ROUTINE_LANGUAGE_GROUPS, ROUTINE_LANGUAGE_START, isRoutineKeywordTask, routineLanguageBudget, routineLanguageGroup, routineLanguageProblems } from "./seo-routine-languages";
 import { SATELLITE_QUARTER_SITES, satelliteProductionTask } from "./satellite-quarter";
+import { assertQuarterContentCapacity } from "./seo-quarter-content-capacity";
 
 function fail(code: string, message: string): never { throw new WorkflowError(code, message); }
 const day = (task: WorkflowTask) => new Date(task.dueAt).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
 const content = new Set(["blog", "landing", "optimization", "cluster"]);
 const flatkeyLanding = (task: WorkflowTask) => task.kind === "landing" && task.siteDomain === "flatkey.ai";
 /** New plans count one Friday–Thursday window across both stable Monday buckets. */
-export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[]) {
+export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all: WorkflowStoredRow[], now = new Date()) {
   const targets = plan.targets;
   if (!("cadence" in targets) || targets.cadence !== "growth") return;
   if (targets.blogLanguages.ru > 0) fail("russian_translation_only", "俄语只做正常翻译，不安排独立关键词研究或俄语源文名额");
@@ -26,10 +27,11 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
   if (targets.landing !== flatkeyLandingCap && (!flatkeyLandingCap || !previous || targets.landing !== previous.targets.landing)) {
     fail("flatkey_landing_capacity", "Flatkey新落地页从11月27日业务周起每周安排2页或记录真实缺口");
   }
-  const maintenance = targets.maintenanceVersion === "seo-maintenance-v1";
-  if (maintenance !== (targets.contentRefreshPages !== undefined) || maintenance && targets.contentRefreshPages !== 2 * workingDays) fail("growth_refresh_capacity", "新维护契约须独立按工作日安排每天2篇翻新，不扣原优化及新增额度");
+  const quarterly = Boolean(plan.quarterlyContent);
+  const maintenance = targets.maintenanceVersion === "seo-maintenance-v1" || quarterly;
+  if (!quarterly && (maintenance !== (targets.contentRefreshPages !== undefined) || maintenance && targets.contentRefreshPages !== 2 * workingDays)) fail("growth_refresh_capacity", "新维护契约须独立按工作日安排每天2篇翻新，不扣原优化及新增额度");
   if (previous && "maintenanceVersion" in previous.targets && previous.targets.maintenanceVersion && !maintenance) fail("growth_refresh_contract_immutable", "保留已启用的维护容量契约");
-  if (targets.apiBlogs + targets.gpuBlogs !== 5 * workingDays || targets.optimizedPages !== 2 * workingDays || targets.clusterLanding !== workingDays + Math.min(2, workingDays) || GROWTH_LANGUAGES.reduce((sum, language) => sum + targets.blogLanguages[language], 0) !== workingDays * 5) fail("growth_plan_capacity", "业务周源文、优化与两站落地页容量须按真实工作日一次核算，不能按两个Monday桶翻倍");
+  if (targets.apiBlogs + targets.gpuBlogs !== 5 * workingDays || !quarterly && targets.optimizedPages !== 2 * workingDays || targets.clusterLanding !== workingDays + Math.min(2, workingDays) || GROWTH_LANGUAGES.reduce((sum, language) => sum + targets.blogLanguages[language], 0) !== workingDays * 5) fail("growth_plan_capacity", "业务周源文、优化与两站落地页容量须按真实工作日一次核算，不能按两个Monday桶翻倍");
   const lookup = new Map(all.filter(row => row.kind === "task").map(row => [row.record.id, row.record as WorkflowTask]));
   const tasks = plan.taskIds.map(id => lookup.get(id));
   for (const task of tasks) {
@@ -39,12 +41,14 @@ export function assertGrowthPlan(plan: WorkflowPlan, previous: WorkflowPlan | un
     if (flatkeyLanding(task) && (!targets.landing || isSeoExtraCapacity(task.capacityClass) || task.workflowContract !== "growth-v1.5")) fail("flatkey_landing_plan_required", "Flatkey新落地页须使用新业务周正式配额及季度研究契约");
     if (task.kind === "blog" && !["flatkey.ai", "modelfit.cc"].includes(task.siteDomain)) fail("growth_plan_blog_scope", "博客仅限Flatkey和ModelFit");
     if (task.workClass === "content_refresh" && !maintenance) fail("growth_refresh_contract_required", "翻新须进入独立维护容量计划，不挤占旧优化额度");
-    if (isExecutableWorkflowPlan(plan.status) && content.has(task.kind) && ["planned", "researching", "blocked", "failed"].includes(task.status)) fail("growth_plan_task_not_ready", "正式计划须引用研究已完成且可执行的原任务");
+    if (isExecutableWorkflowPlan(plan.status) && content.has(task.kind) && ["planned", "researching", "blocked", "failed"].includes(task.status)
+      && !(quarterly && previous && isExecutableWorkflowPlan(previous.status) && previous.taskIds.includes(task.id))) fail("growth_plan_task_not_ready", "正式计划须引用研究已完成且可执行的原任务");
   }
   if (previous && isExecutableWorkflowPlan(previous.status)) for (const id of previous.taskIds) {
     const original = lookup.get(id);
     if (original && !original.deletedAt && !plan.taskIds.includes(id)) fail("growth_plan_preserve_tasks", "原已排任务不能因降级草稿而丢失，保留原ID与排期");
   }
+  if (quarterly) return assertQuarterContentCapacity(plan, previous, all, dates, now);
   if (!isExecutableWorkflowPlan(plan.status)) return;
   const addsRoutineWork = plan.taskIds.some(id => !previous?.taskIds.includes(id) && !isSeoExtraCapacity(lookup.get(id)?.capacityClass));
   if (range.start >= "2026-11-27" && !plan.strategyAllocation && !(previous && isExecutableWorkflowPlan(previous.status) && !addsRoutineWork)) fail("quarter_allocation_required", "新增常规工作须落实已审业务投入及本地研究预算；已授权热点沿原计划额外追加，不挤占原名额");

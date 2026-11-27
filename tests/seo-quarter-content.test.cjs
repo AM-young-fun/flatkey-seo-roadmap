@@ -130,4 +130,12 @@ test('supplement intake requires 200 unique cross-site words with immutable Ahre
  assert.match(problem({ volume: 40 }), /原始导出行/);
  assert.match(problem({ ...rows[0], siteDomain: 'rackrate.org' }), /重复/);
  assert.match(satelliteQuarterProblem({ ...command, rows: rows.map(row => ({ ...row, siteDomain: 'modelfit.cc' })) }, approved, now), /涵盖/);
+ approved.satelliteQuarter = { baselinePlanHash: "8".repeat(64), members: rows };
+ const extend = satelliteQuarterCommandSchema.parse({ ...command, mode: "extend", rows: [
+  { ...rows[0], keyword: "verified additional source word", sourceRow: 301, excerpt: "#,Keyword,Country,Volume,Languages\n301,verified additional source word,us,30,English" },
+ ] });
+ assert.equal(satelliteQuarterProblem(extend, approved, now), null);
+ assert.equal(satelliteQuarterProblem({ ...extend, rows: [] }, approved, now), null);
+ assert.equal(satelliteQuarterCommandSchema.safeParse({ ...extend, rows: [rows[199]] }).success, false);
+ assert.match(satelliteQuarterProblem({ ...extend, rows: [rows[0]] }, approved, now), /重复/);
 });

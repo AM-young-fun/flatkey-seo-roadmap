@@ -219,17 +219,19 @@ function assertPlan(plan: WorkflowPlan, previous: WorkflowPlan | undefined, all:
   if (legacyMaintenance.length) reject(legacyMaintenance[0].code, legacyMaintenance[0].message);
   if (previous && "cadence" in previous.targets && previous.targets.cadence === "growth") {
     if (!("cadence" in plan.targets) || plan.targets.cadence !== "growth" || !same(plan.targets.executionRange, previous.targets.executionRange)) reject("growth_plan_contract_immutable", "保留原growth业务窗口和合同，不能换旧cadence绕过原ID及投入校验");
-    if (previous.targets.maintenanceVersion && plan.targets.maintenanceVersion !== previous.targets.maintenanceVersion) reject("maintenance_plan_contract_immutable", "保留原独立翻新契约");
+    if (previous.targets.maintenanceVersion && plan.targets.maintenanceVersion !== previous.targets.maintenanceVersion
+      && !(previous.targets.maintenanceVersion === "seo-maintenance-v1" && plan.targets.maintenanceVersion === "seo-maintenance-v2" && plan.quarterlyContent)) reject("maintenance_plan_contract_immutable", "保留原独立翻新契约");
   }
   for (const taskId of plan.committedTaskIds ?? []) if (!plan.taskIds.includes(taskId) && all.some(row => row.kind === "task" && row.record.id === taskId && !(row.record as WorkflowTask).deletedAt)) reject("plan_preserve_committed", "已排原任务不可经降级草稿再移除，保留原ID与排期");
 
-  if (!previous && now >= new Date("2026-11-24T03:00:50.616894Z") && (!("maintenanceVersion" in plan.targets) || plan.targets.maintenanceVersion !== "seo-maintenance-v1")) reject("maintenance_plan_contract_required", "本轮新计划须带独立翻新目标及逐日真实缺口；历史原计划不迁移");
+  if (!previous && now >= new Date("2026-11-24T03:00:50.616894Z") && (!("maintenanceVersion" in plan.targets)
+    || plan.targets.maintenanceVersion !== "seo-maintenance-v1" && plan.targets.maintenanceVersion !== "seo-maintenance-v2")) reject("maintenance_plan_contract_required", "本轮新计划须带独立翻新目标及逐日真实缺口；历史原计划不迁移");
   if (!previous && now >= new Date("2026-11-23T00:00:00Z") && (!("cadence" in plan.targets) || plan.targets.cadence !== "growth")) reject("growth_plan_contract_required", "新计划须按完整业务周growth契约核算，历史原计划保持原身份");
   if (previous && previous.weekStart !== plan.weekStart) reject("identity_changed", "计划不能改变所属工作周");
   const tasks = plan.taskIds.map(id => all.find(row => row.kind === "task" && row.record.id === id)?.record as WorkflowTask | undefined);
   const growth = "cadence" in plan.targets && plan.targets.cadence === "growth";
   if (tasks.some(task => !task || !growth && task.weekStart !== plan.weekStart)) reject("plan_task_missing", "计划只能引用同一工作周已有任务");
-  if (growth) { assertGrowthPlan(plan, previous, all); return; }
+  if (growth) { assertGrowthPlan(plan, previous, all, now); return; }
   if ("cadence" in plan.targets && plan.targets.cadence === "workdays") {
     const targets = plan.targets;
     const workdayCount = Array.from({ length: 7 }, (_, index) => shiftWorkflowDay(plan.weekStart, index))

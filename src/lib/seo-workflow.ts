@@ -118,6 +118,11 @@ export const workflowTaskSchema = z.object({
 export const workflowPlanSchema = z.object({
   id, weekStart: workflowWeekSchema, status: z.enum(["draft", "scheduled", "reviewed", "bootstrap"]), title: z.string().trim().min(1).max(500),
   strategyAllocation: planStrategyAllocationSchema.optional(), committedTaskIds: z.array(id).max(500).optional(),
+  quarterlyContent: z.object({
+    quarterPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
+    satelliteQuarterHash: z.string().regex(/^[a-f0-9]{64}$/),
+    quarterStart: z.iso.date(), quarterEnd: z.iso.date(), historicalBefore: stamp,
+  }).strict().optional(),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
   targets: z.union([
     z.object({ cadence: z.literal("growth"),
@@ -125,7 +130,7 @@ export const workflowPlanSchema = z.object({
       landing: z.number().int().min(0).max(2), clusterLanding: z.number().int().min(0).max(9),
       apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35),
       optimizedPages: z.number().int().min(0).max(14),
-      maintenanceVersion: z.literal("seo-maintenance-v1").optional(), contentRefreshPages: z.number().int().min(0).max(14).optional(),
+      maintenanceVersion: z.enum(["seo-maintenance-v1", "seo-maintenance-v2"]).optional(), contentRefreshPages: z.number().int().min(0).max(35).optional(),
       blogLanguages: z.object(Object.fromEntries(GROWTH_LANGUAGES.map(language => [language, z.number().int().min(0).max(35)])) as Record<typeof GROWTH_LANGUAGES[number], z.ZodNumber>).strict(),
     }).strict(),
     z.object({ landing: z.literal(5), apiBlogs: z.number().int().min(0).max(35), gpuBlogs: z.number().int().min(0).max(35), optimizedPages: z.literal(5),
@@ -156,6 +161,8 @@ export const workflowPlanSchema = z.object({
   if (new Set(value.taskIds).size !== value.taskIds.length) ctx.addIssue({ code: "custom", path: ["taskIds"], message: "计划任务不能重复" });
   if (value.status === "reviewed" && (!value.reviewedAt || !value.reviewedBy || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "正式计划需要核对人、时间和证据" });
   if (value.status === "scheduled" && (!("cadence" in value.targets) || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "自动排期需要当前四国额度和选题证据" });
+  const quarterly = "maintenanceVersion" in value.targets && value.targets.maintenanceVersion === "seo-maintenance-v2";
+  if (quarterly !== Boolean(value.quarterlyContent)) ctx.addIssue({ code: "custom", message: "季度制作排期须绑定季度词及历史旧文时间范围" });
 });
 export const isExecutableWorkflowPlan = (status: string | undefined) => status === "scheduled" || status === "reviewed";
 export function isContentWorkBoardTask(task: Pick<WorkflowTask, "kind">) {
