@@ -49,6 +49,7 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/api/seo/growth/hotspots" && request.method === "GET") return NextResponse.next();
   // Saved conversion evidence uses the existing read-only cookie/SEO scope.
   if (request.nextUrl.pathname === "/api/seo/growth/conversion" && request.method === "GET") return NextResponse.next();
+  if (request.nextUrl.pathname === "/api/seo/overview-progress" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review" && request.method === "GET") return NextResponse.next();
   // The saved-evidence handler retains its own cookie/collector authorization.
   if (request.nextUrl.pathname === "/api/seo/approved-keyword-review/evidence" && request.method === "GET") return NextResponse.next();

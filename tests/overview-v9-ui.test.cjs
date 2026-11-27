@@ -41,7 +41,7 @@ Module._load = function(name, parent, ...rest) {
 for(const extension of [".ts",".tsx"]) require.extensions[extension]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,file);
 const { keywordCircleLayout } = require("../src/components/growth-network-layout.ts");
 const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
-const { OverviewGoalCharts, OverviewContentSection } = require("../src/components/OverviewGrowthCharts.tsx");
+const { OverviewGoalCharts, OverviewKeywordProgress } = require("../src/components/OverviewGrowthCharts.tsx");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
 const { SeoWorkWorkspace } = require("../src/components/SeoWorkWorkspace.tsx");
@@ -215,12 +215,34 @@ test("the closeout displays daily averages, ten weekly goals and all approved co
   assert.match(html,/gemini模型价格/);
   assert.doesNotMatch(html,/全部关键词前100覆盖|已获排名关键词中前50|>0 %</);
 });
-test("ordinary coverage shows site and market delivery by default without the quota table",()=>{
-  const growth={data:{ordinary:{through:"2026-12-03",due:1,covered:0,groups:[{site:"flatkey.ai",country:"BR",due:1,covered:0}],markets:[]}}};
-  const html=render(React.createElement(OverviewContentSection,{growth}));
-  assert.match(html,/<details[^>]*open=""[^>]*><summary>各站点与市场的交付进度/);
-  assert.match(html,/flatkey\.ai/);
-  assert.doesNotMatch(html,/Flatkey 季度市场配额与待排名额/);
+test("the overview merges ordinary coverage and effective rankings without the delivery breakdown",()=>{
+  const growth={data:{ordinary:{through:"2026-12-03",due:1,covered:0,groups:[]},
+    coverage:{total:247,top50:189,markets:[{label:"美国 · 英语",count:237,share:237/247}],bands:[]}}};
+  const html=render(React.createElement(OverviewKeywordProgress,{growth,ranking:growth}));
+  assert.match(html,/<h2>关键词覆盖与排名<\/h2>[\s\S]*?普通关键词覆盖[\s\S]*?当前有效关键词排名[\s\S]*?247[\s\S]*?189/);
+  assert.doesNotMatch(html,/各站点与市场的交付进度|Flatkey 季度市场配额与待排名额/);
+});
+test("execution progress is appended below the retained overview, without the historical rank chart",()=>{
+  const html=render(React.createElement(SeoOverview));
+  assert.match(html,/关键词覆盖与排名[\s\S]*?话题关系图[\s\S]*?近七天任务完成进度[\s\S]*?GSC 404 修复进度[\s\S]*?近期优化效果/);
+  assert.doesNotMatch(html,/历史目标词监控趋势|排名页面模块/);
+});
+test("seven-day task progress counts unique due production tasks and uses the verified delivery status",()=>{
+  const { overviewTaskProgress } = require("../src/lib/seo-overview-progress.ts");
+  const task=(id,kind,status,dueAt)=>({id,kind,status,dueAt,siteDomain:"flatkey.ai",contentVersion:"v1"});
+  const tasks=[
+    task("approved-blog","blog","ready","2026-11-23T10:45:00+08:00"),
+    task("blocked-rewrite","optimization","blocked","2026-11-24T10:45:00+08:00"),
+    task("research","research","verified","2026-11-25T10:45:00+08:00"),
+    task("unscheduled","blog","verified","2026-11-26T10:45:00+08:00"),
+    task("future","landing","ready","2026-11-27T18:00:00+08:00"),
+    task("old","blog","verified","2026-11-20T10:45:00+08:00"),
+  ];
+  const plans=[{status:"scheduled",taskIds:tasks.filter(row=>row.id!=="unscheduled").map(row=>row.id)},
+    {status:"reviewed",taskIds:["approved-blog"]},{status:"draft",taskIds:["unscheduled"]}];
+  const publications=[{taskId:"approved-blog",kind:"new",status:"verified",contentVersion:"v1"}];
+  const result=overviewTaskProgress({tasks,approvals:[],publications},plans,new Date("2026-11-27T17:00:00+08:00"));
+  assert.deepEqual([result.start,result.end,result.rows.length,result.due,result.complete,result.blocked],["2026-11-21","2026-11-27",7,2,1,1]);
 });
 test("the overview displays the verified prior whole window while the latest window is pending",()=>{
   const traffic={mode:"rolling",daysRemaining:70,period:{start:"2026-11-19",end:"2026-11-25"},sessions:null,

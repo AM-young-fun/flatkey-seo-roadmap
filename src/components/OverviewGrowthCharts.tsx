@@ -4,7 +4,6 @@ import type { SeoReadState } from "./useSeoAnalytics";
 import { BarPlot, ChartPanel, GoalPlot, LinePlot, chartNumber } from "./OverviewCharts";
 import styles from "./OverviewCharts.module.css";
 import closeout from "./OverviewCloseout.module.css";
-import topicStyles from "./GrowthTopicWorkspace.module.css";
 import { CLOSEOUT_CORE_BASELINE, CLOSEOUT_TRAFFIC_TARGET, ORDINARY_COVERAGE_GOAL, closeoutCoreGoals, closeoutCoreKeywords, closeoutTrafficMilestones } from "@/lib/seo-quarter-targets";
 import { SeoAnchor } from "./SeoAnchor";
 import { shiftDay } from "@/lib/seo-date-range";
@@ -153,38 +152,49 @@ export function OverviewGoalSection({ traffic, growth }: {
     keywordStatus={growth.error ? <div className="loadError" role="alert"><span>{growth.error}</span><button type="button" onClick={growth.retry}>重新加载</button></div> : undefined} />;
 }
 
-export function OverviewContentSection({ growth }: { growth: SeoReadState<OverviewKeywordSummary> }) {
-  const ordinary = growth.data?.ordinary;
-  if (!ordinary) return growth.error ? <OverviewReadFailure title="普通关键词覆盖" error={growth.error} retry={growth.retry} />
-    : <ChartPanel title="普通关键词覆盖"><p role="status">{growth.loading ? "正在读取正式排期和上线回执…" : "覆盖证据待核。"}</p></ChartPanel>;
-  const value = ordinary.due ? ordinary.covered / ordinary.due * 100 : null;
-  return <ChartPanel title="普通关键词覆盖" note={`截至 ${ordinary.through} 到期的普通主词 · 季末目标 ${ORDINARY_COVERAGE_GOAL}%`}>
-    <GoalPlot label="已由正式上线页覆盖" value={value} goal={ORDINARY_COVERAGE_GOAL} unit="%"
-      denominator={`${ordinary.covered} / ${ordinary.due} 已排应交付词`} />
-    <details className={styles.closeoutDetails} open>
-      <summary>各站点与市场的交付进度</summary>
-      <div className={styles.closeoutTable}><table>
-        <thead><tr><th scope="col">站点</th><th scope="col">国家／地区</th><th scope="col">应交付</th><th scope="col">已覆盖</th><th scope="col">待完成</th></tr></thead>
-        <tbody>{ordinary.groups.map(row => <tr key={row.site + row.country}><td>{row.site}</td><td>{row.country}</td><td>{row.due}</td><td>{row.covered}</td><td>{row.due - row.covered}</td></tr>)}</tbody>
-      </table></div>
-    </details>
-  </ChartPanel>;
+function KeywordReadError({ error, retry }: { error: string; retry: () => void }) {
+  return <div className="loadError" role="alert"><span>{error}</span><button type="button" onClick={retry}>重新加载</button></div>;
 }
 
-export function GrowthRankingCoverage({ read }: { read: Pick<SeoReadState<OverviewKeywordSummary>, "data" | "error" | "retry"> }) {
-  const { data, error, retry } = read;
-  const title = "当前有效关键词排名";
-  if (error) return <OverviewReadFailure title={title} error={error} retry={retry} />;
-  if (!data) return <ChartPanel title={title}><p role="status">正在读取有效排名…</p></ChartPanel>;
-  const summary = data.coverage;
-  if (!summary) return <OverviewReadFailure title={title} error="近期 SERP 暂时无法读取。" retry={retry} />;
-  return <section className={topicStyles.panel} aria-label="当前有效关键词排名汇总">
-    <div className={topicStyles.sectionHeading}>
-      <div><h2>当前有效关键词排名</h2><p>统计全部关键词中已确认的前 100 排名，同一个词只计一次。</p></div>
+export function OverviewKeywordProgress({ growth, ranking }: {
+  growth: SeoReadState<OverviewKeywordSummary>;
+  ranking: SeoReadState<OverviewKeywordSummary>;
+}) {
+  const ordinary = growth.data?.ordinary;
+  const effective = ranking.data?.coverage;
+  const value = ordinary?.due ? ordinary.covered / ordinary.due * 100 : null;
+  return <ChartPanel title="关键词覆盖与排名">
+    <div className={styles.keywordProgress}>
+      <section aria-labelledby="overview-ordinary-keywords">
+        <h3 id="overview-ordinary-keywords">普通关键词覆盖</h3>
+        {ordinary ? <><p className={styles.note}>{`截至 ${ordinary.through} · 统计正式排期已到期的普通主词`}</p>
+          <GoalPlot label="已由正式上线页覆盖" value={value} goal={ORDINARY_COVERAGE_GOAL} unit="%"
+            empty="暂无到期主词" denominator={`${ordinary.covered} / ${ordinary.due} 个到期主词`} /></>
+          : growth.error ? <KeywordReadError error={growth.error} retry={growth.retry} />
+          : <p className={styles.note} role="status">{growth.loading ? "正在读取正式排期和上线回执…" : "覆盖证据待核。"}</p>}
+      </section>
+      <section aria-labelledby="overview-effective-keywords">
+        <h3 id="overview-effective-keywords">当前有效关键词排名</h3>
+        <p className={styles.note}>统计已确认的搜索结果前 100 名，同一个词只计一次。</p>
+        {effective ? <>
+          <BarPlot rows={[{ label: "前 100 关键词", value: effective.total }, { label: "其中前 50", value: effective.top50 }]} unit="个原词" showAxis={false} />
+          <details className={styles.closeoutDetails}>
+            <summary>查看市场和排名区间分布</summary>
+            <div className={styles.two}>
+              <section><h4>市场占比</h4><BarPlot rows={effective.markets.map(market => ({
+                label: market.label, value: market.share === null ? null : market.share * 100,
+                suffix: `${market.count} 个原词 · ${market.share === null ? "—" : (market.share * 100).toFixed(1) + "%"}`,
+              }))} unit="%" denominator={`${effective.total} 个已确认前 100 原词`} empty="暂无有效排名" /></section>
+              <section><h4>排名区间</h4><BarPlot rows={effective.bands.map(band => ({
+                label: band.label, value: band.share === null ? null : band.share * 100,
+                suffix: `${band.count} 个原词 · ${band.share === null ? "—" : (band.share * 100).toFixed(1) + "%"}`,
+              }))} unit="%" denominator={`${effective.total} 个已确认前 100 原词`} empty="暂无有效排名" /></section>
+            </div>
+          </details>
+          {ranking.data?.partial ? <p className={styles.note}>部分排名来源暂未读齐。</p> : null}
+        </> : ranking.error ? <KeywordReadError error={ranking.error} retry={ranking.retry} />
+          : <p className={styles.note} role="status">{ranking.loading ? "正在读取有效排名…" : "暂无可核验的近期排名。"}</p>}
+      </section>
     </div>
-    <BarPlot rows={[{ label: "已获排名关键词", value: summary.total }, { label: "其中前50关键词", value: summary.top50 }]} unit="个原词" showAxis={false} />
-    <div className={topicStyles.coverageGrid}><section><h3>有效前100关键词：国家 / 地区占比</h3><BarPlot rows={summary.markets.map(market => ({ label: market.label, value: market.share === null ? null : market.share * 100, suffix: `${market.count}词 · ${market.share === null ? "—" : `${(market.share * 100).toFixed(1)}%`}` }))} unit="%" denominator={`${summary.total}个已证实有效前100原词`} empty="尚无有效排名，国家占比暂不可计算" /></section>
-      <section><h3>有效前100关键词：排名区间占比</h3><BarPlot rows={summary.bands.map(band => ({ label: band.label, value: band.share === null ? null : band.share * 100, suffix: `${band.count}词 · ${band.share === null ? "—" : `${(band.share * 100).toFixed(1)}%`}` }))} unit="%" denominator={`${summary.total}个已证实有效前100原词`} empty="尚无有效排名，区间占比暂不可计算" /></section></div>
-    {data.partial ? <p className={topicStyles.note}>部分来源暂未读齐。</p> : null}
-  </section>;
+  </ChartPanel>;
 }

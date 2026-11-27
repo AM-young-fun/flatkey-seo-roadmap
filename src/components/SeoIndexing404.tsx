@@ -42,7 +42,7 @@ function IndexingTrend({ rows }: { rows: ReturnType<typeof indexing404Trend> }) 
   </figure>;
 }
 
-export function SeoIndexing404({ throughDate }: { throughDate?: string } = {}) {
+export function SeoIndexing404({ throughDate, title = "Flatkey 网页索引 · 404" }: { throughDate?: string; title?: string } = {}) {
   const query = throughDate ? `?${new URLSearchParams({ through: throughDate })}` : "";
   const result = useSeoRead<Indexing404Response>(`/api/seo/indexing-404${query}`, { showFeedback: false });
   const history = result.data?.observations ?? [];
@@ -53,7 +53,7 @@ export function SeoIndexing404({ throughDate }: { throughDate?: string } = {}) {
   }, []);
   return <section ref={section} id="seo-indexing-404" className={styles.panel} aria-labelledby="seo-indexing-404-title">
     <div className={styles.heading}>
-      <h3 id="seo-indexing-404-title">Flatkey 网页索引 · 404</h3>
+      <h3 id="seo-indexing-404-title">{title}</h3>
       <SeoAnchor href="https://search.google.com/search-console/index?resource_id=sc-domain%3Aflatkey.ai" target="_blank" rel="noopener noreferrer">打开 Search Console ↗</SeoAnchor>
     </div>
     {result.error ? <p role="alert">404 记录暂时无法读取。 <button type="button" onClick={result.retry}>重试</button></p> :
