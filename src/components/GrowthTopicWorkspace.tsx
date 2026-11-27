@@ -52,13 +52,13 @@ export function GrowthTopicContributionCells({ snapshot, topic, scope }: { snaps
   </div>) : <small>暂无同窗口页面贡献证据</small>}</td><td><span>暂无可核归因</span><small>注册及首次付费缺同话题、同批用户来源；未用全站数字分摊或填0。</small></td></>;
 }
 
-function useGrowthScope() {
-  const [scope, setScope] = useState<GrowthScope>(defaultGrowthScope);
+function useGrowthScope(initialSearch = "") {
+  const [scope, setScope] = useState<GrowthScope>({ ...defaultGrowthScope, search: initialSearch });
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   useEffect(() => {
     const read = () => { const params = new URLSearchParams(location.search); setScope(readGrowthScope(params)); setSelectedTarget(params.get("target")); };
     read(); addEventListener("popstate", read); return () => removeEventListener("popstate", read);
-  }, []);
+  }, [initialSearch]);
   const change = (patch: Partial<GrowthScope>) => {
     const next = { ...scope, ...patch };
     setScope(next);
@@ -187,7 +187,13 @@ export function GrowthRankingCoverage({ read }: { read?: SeoReadState<GrowthWork
   </section>;
 }
 
-export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotTopic, hotspotPage = 1 }: { topicId?: string; initialTab?: GrowthKeywordTab; hotspotTopic?: string; hotspotPage?: number }) {
+export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", initialSearch = "", hotspotTopic, hotspotPage = 1 }: {
+  topicId?: string;
+  initialTab?: GrowthKeywordTab;
+  initialSearch?: string;
+  hotspotTopic?: string;
+  hotspotPage?: number;
+}) {
   const [tab, setTab] = useState(initialTab);
   const [page, setPage] = useState(1);
   const [related, setRelated] = useState(false);
@@ -213,7 +219,7 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
   const calendar = useOverviewRead<{ plan: QuarterCalendarDisplay | null }>(quarterHome ? "/api/seo/growth?view=quarter-calendar" : null, 60_000);
   const quarterPlan = quarterHome ? calendar.data?.plan : null;
   const quarter = Boolean(topicId) || quarterHome && !quarterPlan && !calendar.loading && !calendar.error;
-  const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope();
+  const { scope: savedScope, change: changeScope, selectedTarget } = useGrowthScope(initialSearch);
   const scope = { ...savedScope, membership: "formal" as const };
   const query = new URLSearchParams({ view: "quarter", page: String(page), new: "1" });
   if (topicId) query.set("topic", topicId);
@@ -248,7 +254,7 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
     {quarterPlan ? <GrowthQuarterCalendarWorkspace plan={quarterPlan} />
       : quarterHome && calendar.error ? <p role="alert">{calendar.error} <button type="button" onClick={calendar.retry}>重新加载季度排期</button></p>
       : !topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
-      : !topicId && tab === "keywords" ? <GrowthKeywordCatalog />
+      : !topicId && tab === "keywords" ? <GrowthKeywordCatalog search={scope.search} onSearchChange={search => change({ search })} page={page} onPageChange={setPage} />
       : published ? <KeywordInventory scope={scope} change={change} page={page} setPage={setPage} /> : <>
     {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>

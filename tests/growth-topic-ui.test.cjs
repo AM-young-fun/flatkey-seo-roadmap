@@ -3,6 +3,7 @@ const fs = require("node:fs"), path = require("node:path"), Module = require("no
 const root = path.resolve(__dirname, ".."), originalLoad = Module._load;
 const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
 let readData = null;
+let catalogRequest;
 Module._load = function(name, parent, ...rest) {
   if (name === "./AppLink") return { __esModule: true, default: ({ children, ...props }) => React.createElement("a", props, children) };
   if (name === "./PageHeader") return { PageHeader: () => null };
@@ -11,6 +12,10 @@ Module._load = function(name, parent, ...rest) {
   if (name === "./FeedbackButton") return { FeedbackButton: ({ children }) => React.createElement("button", null, children) };
   if (name === "./useSeoAnalytics") return {
     useSeoRead: url => {
+      if (url?.includes("view=keywords")) {
+        catalogRequest = new URL(url, "https://seo.example");
+        return { data: null };
+      }
       if (!readData || !url?.includes("view=published")) return { data: readData };
       return { data: require("../src/lib/growth-keyword-inventory.ts").publishedKeywordWords(readData, [], defaultGrowthScope, 1, "all") };
     },
@@ -259,6 +264,15 @@ test("catalog overview counts exactly the three visible groups and groups linked
   const html = renderToStaticMarkup(React.createElement(GrowthTopicClusters, { data: overview, scope: defaultGrowthScope, targets: overview.targets }));
   assert.match(html, /4 个关键词/);
   assert.match(html, /data-kind="top100"/);
+});
+
+test("the keyword catalog loads the linked keyword on its first request", async () => {
+  const { default: OpportunitiesPage } = require("../src/app/opportunities/page.tsx");
+  const element = await OpportunitiesPage({ searchParams: Promise.resolve({ tab: "keywords", q: "GPU API pricing" }) });
+  const html = renderToStaticMarkup(element);
+  assert.match(html, /value="GPU API pricing"/);
+  assert.equal(catalogRequest.searchParams.get("q"), "GPU API pricing");
+  assert.equal(catalogRequest.searchParams.get("page"), "1");
 });
 
 test("keyword lookup resolves full URLs and partial routes to saved site-topic links without mixing same-word sites", () => {
