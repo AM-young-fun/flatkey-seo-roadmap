@@ -14,12 +14,12 @@ export function EmptyPlot({ reason }: { reason: string }) {
 }
 export function GoalPlot({ label, value, goal, unit, denominator, note, empty = "暂缺有效数值" }: { label: string; value: number | null; goal: number; unit: string; denominator?: string; note?: string; empty?: string }) {
   const maximum = Math.max(goal * 1.15, value ?? 0, unit === "%" ? 100 : 1);
-  return <figure className={styles.goal}><figcaption><h3>{label}</h3><strong>{chartNumber(value)}<small>{unit}</small></strong></figcaption>
+  return <figure className={styles.goal}><figcaption><h3>{label}</h3><strong>{chartNumber(value)}{value !== null && <small>{unit}</small>}</strong></figcaption>
     <svg viewBox="0 0 360 62" role="img" aria-label={`${label}：${value === null ? empty : `${chartNumber(value)}${unit}`}，目标${goal}${unit}${denominator ? `；${denominator}` : ""}`}>
       <rect x="4" y="18" width="352" height="16" rx="5" fill="#edf1f6" />
       {value !== null ? <rect x="4" y="18" width={Math.max(0, value / maximum * 352)} height="16" rx="5" fill="#4285dc" /> : <text x="180" y="30" textAnchor="middle" fill="#718096" fontSize="10">{empty}</text>}
       <path d={`M${4 + goal / maximum * 352} 12v28`} stroke="#182b48" strokeWidth="2" />
-      <text x="4" y="56" fill="#738197" fontSize="11">0 {unit}</text><text x="356" y="56" textAnchor="end" fill="#526680" fontSize="11">目标 {goal.toLocaleString()} {unit}</text>
+      <text x="356" y="56" textAnchor="end" fill="#526680" fontSize="11">目标 {goal.toLocaleString()} {unit}</text>
     </svg>{denominator ? <p>{denominator}</p> : null}{note ? <small>{note}</small> : null}</figure>;
 }
 export type BarDatum = { id?: string; label: string; value: number | null; prior?: number | null; color?: string; href?: string; suffix?: string; context?: string; details?: ReactNode; tooltip?: ReactNode };

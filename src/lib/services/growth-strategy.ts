@@ -11,7 +11,8 @@ import { latestClosedLa7DayRange, shiftDay, weeklyReportRange } from "../seo-dat
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { loadGrowthDashboardHistory, loadGrowthDashboardWorkspace, loadGrowthWorkspace } from "./growth-workspace";
 import { growthPageContributionDirections } from "../growth-report-attribution";
-import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_STRATEGY_KEY, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthDashboardView, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
+import { assertGrowthDirectionScope, emptyGrowthStrategy, evaluateGrowthGoals, GROWTH_QUARTER_ID, GROWTH_STRATEGY_KIND, GROWTH_STRATEGY_KEY, GROWTH_TRAFFIC_SITES, GROWTH_EXECUTION_SITES, GROWTH_DEADLINE_CUTOFF, GROWTH_FINAL_TRAFFIC_PERIOD, growthDaysRemaining, growthHash, growthBaselineIdentityReview, growthReportDirections, growthStrategyCommandSchema, growthStrategyStoredSchema, growthWorkspaceIdentity, GrowthStrategyError, prepareGrowthStrategyMutation, type GrowthDashboardView, type GrowthStrategy, type GrowthReportSnapshot, type GrowthTrafficEvidence } from "../growth-strategy";
+import type { OverviewTrafficGoal } from "../overview-summary";
 import type { GrowthWorkspace } from "../growth-types";
 import { workflowSnapshot, type WorkflowStoredRow } from "../seo-workflow-state";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask, type WorkflowSnapshot } from "../seo-workflow";
@@ -201,6 +202,32 @@ export async function loadGrowthStrategyOverview(localPreview = false, now = new
   return { snapshot };
 }
 
+function lastSavedRollingTraffic(state: GrowthStrategy, before: string, now: Date): OverviewTrafficGoal["fallback"] {
+  // Saved scalars have already been validated against the Flatkey property and production hosts.
+  const latest = state.trafficEvidence
+    .filter(row => row.method === "whole_interval_scalar" && row.end < before && Date.parse(row.observedAt) <= now.getTime())
+    .sort((a, b) => b.end.localeCompare(a.end) || Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
+  return latest ? { start: latest.start, end: latest.end, sessions: latest.sessions } : null;
+}
+
+export async function loadOverviewTrafficGoal(localPreview = false, now = new Date()): Promise<OverviewTrafficGoal> {
+  const final = now.getTime() > Date.parse(GROWTH_DEADLINE_CUTOFF);
+  const period = final ? GROWTH_FINAL_TRAFFIC_PERIOD : latestClosedLa7DayRange(now);
+  const previous = { start: shiftDay(period.start, -1), end: shiftDay(period.end, -1) };
+  const state = await loadGrowthStrategy(localPreview);
+  const options = { wholeIntervalScalarOnly: !final };
+  const [traffic, prior] = localPreview ? [[], []] : await Promise.all([
+    loadGrowthTraffic(period, now, state, options),
+    final ? Promise.resolve([]) : loadGrowthTraffic(previous, now, state, options),
+  ]);
+  const flatkeySessions = (rows: GrowthTrafficEvidence[]) =>
+    rows.find(row => row.site === "flatkey.ai" && row.complete && row.timezone === "America/Los_Angeles")?.sessions ?? null;
+  const sessions = flatkeySessions(traffic), priorSessions = flatkeySessions(prior);
+  const fallback = final || sessions !== null ? null
+    : priorSessions !== null ? { ...previous, sessions: priorSessions } : lastSavedRollingTraffic(state, period.end, now);
+  return { daysRemaining: growthDaysRemaining(state.deadline, now), mode: final ? "final" : "rolling", period, sessions, fallback };
+}
+
 export async function loadGrowthStrategyDashboard(localPreview = false, now = new Date()): Promise<GrowthDashboardView> {
   if (localPreview) return loadGrowthStrategyOverview(true, now);
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now);
@@ -212,15 +239,8 @@ export async function loadGrowthStrategyDashboard(localPreview = false, now = ne
   }
   const { dailyTrafficObservation: rolling, evaluationMode } = snapshot.goals;
   if (evaluationMode === "live" && rolling && !rolling.complete && !rolling.previousComplete) {
-    // Stored whole-interval scalars require the original Flatkey property,
-    // Los Angeles dates, and all three production hosts.
-    const lastVerified = state.trafficEvidence
-      .filter(row => row.method === "whole_interval_scalar" && row.end < rolling.period.end && Date.parse(row.observedAt) <= now.getTime())
-      .sort((a, b) => b.end.localeCompare(a.end) || Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
-    if (lastVerified) {
-      const { start, end, sessions } = lastVerified;
-      return { snapshot, lastVerifiedRollingTraffic: { start, end, sessions } };
-    }
+    const lastVerified = lastSavedRollingTraffic(state, rolling.period.end, now);
+    if (lastVerified) return { snapshot, lastVerifiedRollingTraffic: lastVerified };
   }
   return { snapshot };
 }

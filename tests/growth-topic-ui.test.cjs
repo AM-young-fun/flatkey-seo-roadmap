@@ -27,7 +27,9 @@ Module._load = function(name, parent, ...rest) {
 };
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
 const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets, growthRankingEvidence, quarterTargetWorkspace } = require("../src/components/growth-topic-view.ts");
-const { GrowthTopicClusters, GrowthTargetTable, GrowthRankingCoverage, GrowthTopicWorkspace, GrowthTopicContributionCells } = require("../src/components/GrowthTopicWorkspace.tsx");
+const { GrowthTopicClusters, GrowthTargetTable, GrowthTopicWorkspace, GrowthTopicContributionCells } = require("../src/components/GrowthTopicWorkspace.tsx");
+const { GrowthRankingCoverage } = require("../src/components/OverviewGrowthCharts.tsx");
+const { summarizeOverviewKeywords } = require("../src/lib/overview-summary.ts");
 const target = (id, patch = {}) => ({ id, keywordId: id, keyword: "GPU rental", site: "flatkey.ai", topicId: "topic/1", topicName: "GPU计算", country: "US", language: "en", membership: "formal", pageState: "published", workState: "completed", publishedUrls: ["https://flatkey.ai/gpu"], plannedUrls: [], rank: 22, rankSource: "serp", rankUrl: "https://flatkey.ai/gpu", checkedAt: "2026-11-23T00:00:00Z", languageStatus: "match", languageReason: "", captureState: "ranked", rankEligible: true, taskIds: ["original-task"], reason: "", ...patch });
 const topic = { id: "flatkey.ai:topic/1", site: "flatkey.ai", topicId: "topic/1", name: "GPU计算", parentIds: [], formalCount: 3, markets: [] };
 const data = targets => ({ quarter: {targetIds:targets.filter(row=>row.membership==="formal").map(row=>row.id),keywordCount:targets.filter(row=>row.membership==="formal").length,hash:"reviewed"}, generatedAt: "2026-11-23T08:00:00Z", reconciliation: { sources: [] }, targets, topics: [topic], markets: [{ country: "US", language: "en", label: "美国 · 英语" }, { country: "JP", language: "ja", label: "日本 · 日语" }], sites: [{ domain: "flatkey.ai", name: "Flatkey", keywordGoals: true }] });
@@ -147,8 +149,8 @@ test("all current ranking observations cross the three pools once and keep backg
 });
 
 test("overview counts original words once and uses the same denominator for both charts", () => {
-  readData = coverageData();
-  const html = renderToStaticMarkup(React.createElement(GrowthRankingCoverage));
+  const summary = summarizeOverviewKeywords(coverageData());
+  const html = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { read: { data: summary } }));
   assert.match(html, /已获排名关键词/); assert.match(html, /2<\/strong>/);
   assert.match(html, /其中前50关键词/);
   assert.match(html, /同一个词只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);

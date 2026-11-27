@@ -10,12 +10,13 @@ import { growthKeywordInventoryPage, publishedKeywordWords } from "@/lib/growth-
 import type { PublishedKeywordRank } from "@/lib/published-keyword-rank";
 import { readGrowthScope } from "@/components/growth-topic-view";
 import type { GrowthWorkspace } from "@/lib/growth-types";
+import { summarizeOverviewKeywords } from "@/lib/overview-summary";
 import { profileRead, timedRead } from "@/lib/read-profile";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const inventoryKeys = ["view", "site", "country", "language", "q", "page"];
-const savedViews = ["overview", "dashboard", "published-ranking-capture", "quarter-calendar", "all-keyword-overview"];
+const savedViews = ["overview", "dashboard", "published-ranking-capture", "quarter-calendar", "all-keyword-overview", "overview-summary"];
 const quarterKeys = [...inventoryKeys, "topic", "related", "target", "new"];
 const snapshotLoaders = { full: loadGrowthWorkspace, quarter: loadGrowthDashboardWorkspace, catalog: loadGrowthKeywordWorkspace };
 const snapshots = new Map<keyof typeof snapshotLoaders, { expiresAt: number; result: Promise<GrowthWorkspace> }>();
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
     const site = params.get("site") ?? undefined, view = params.get("view");
     const quarter = view === "quarter" || view === "quarter-evidence";
     const library = view === "keywords" || (view === "published" || view === "published-words") ? view : null;
-    const keys = quarter ? quarterKeys : library === "published-words" ? [...inventoryKeys, "rank", "sort"]
+    const keys = view === "overview-summary" ? ["view", "site", "country", "language"] : quarter ? quarterKeys : library === "published-words" ? [...inventoryKeys, "rank", "sort"]
       : library === "published" ? [...inventoryKeys, "rank"] : library ? ["view", "q", "page"] : ["site", "view"];
     const sort = params.get("sort");
     const page = Number(params.get("page") ?? 1);
@@ -69,7 +70,8 @@ export async function GET(request: Request) {
       if (words.length !== capture.rankedKeywords) throw new Error("Ranked word count does not match verified capture");
       return Response.json({ periodLabel: NOVEMBER_SECOND_CAPTURE_PERIOD.label, words }, { headers: privateAnalyticsHeaders });
     }
-    if (view === "all-keyword-overview" || library === "published-words") {
+    if (view === "all-keyword-overview" || view === "overview-summary" || library === "published-words") {
+      const started = performance.now();
       const [{ loadGrowthHotspotView }, { loadNovemberSecondKeywordCapture }, { approvedCaptureRankedWords }] = await Promise.all([
         import("@/lib/services/growth-hotspots"), import("@/lib/services/approved-weekly-keyword-capture"), import("@/lib/approved-weekly-keyword-capture"),
       ]);
@@ -81,7 +83,12 @@ export async function GET(request: Request) {
       if (!local && !capture?.complete) return Response.json({ message: "排名采集回执暂未读齐" }, { status: 503, headers: privateAnalyticsHeaders });
       const ranked = capture?.complete ? approvedCaptureRankedWords(capture) : [];
       if (library === "published-words") return Response.json(publishedKeywordWords(workspace, ranked, readGrowthScope(params), page, rank as PublishedRankFilter, sort, hotspots?.items), { headers: privateAnalyticsHeaders });
-      return Response.json(growthDashboardProjection(catalogWorkspace(workspace, hotspots?.items ?? [], ranked), true), { headers: privateAnalyticsHeaders });
+      const catalog = catalogWorkspace(workspace, hotspots?.items ?? [], ranked);
+      if (view === "overview-summary") {
+        const summary = summarizeOverviewKeywords(catalog, readGrowthScope(params));
+        return Response.json(summary, { headers: { ...privateAnalyticsHeaders, "Server-Timing": `overview-keywords;dur=${(performance.now() - started).toFixed(1)}` } });
+      }
+      return Response.json(growthDashboardProjection(catalog, true), { headers: privateAnalyticsHeaders });
     }
     if (view === "quarter-calendar") {
       if (site) return Response.json({ message: "季度日历范围无效" }, { status: 400, headers: privateAnalyticsHeaders });

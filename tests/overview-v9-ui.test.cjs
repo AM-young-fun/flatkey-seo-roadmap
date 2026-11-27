@@ -42,6 +42,7 @@ for(const extension of [".ts",".tsx"]) require.extensions[extension]=(module,fil
 const { keywordCircleLayout } = require("../src/components/growth-network-layout.ts");
 const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
 const { OverviewGoalCharts } = require("../src/components/OverviewGrowthCharts.tsx");
+const { summarizeOverviewKeywords } = require("../src/lib/overview-summary.ts");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
 const { SeoWorkWorkspace } = require("../src/components/SeoWorkWorkspace.tsx");
@@ -59,18 +60,19 @@ test("credentials follow schedule in the main menu and logout is an independent 
   assert.doesNotMatch(preview,/退出登录/);
 });
 
-test("only the traffic read gates the page and growth failures have independent retry",()=> {
-  const strategyUrl="/api/seo/growth/strategy?view=dashboard";
+test("traffic reads stay in their own panel and goal failures have independent retry",()=> {
+  const strategyUrl="/api/seo/growth/strategy?view=overview-goal";
   const trafficUrl="/api/seo/analytics?view=traffic-overview";
   overviewReads.set(strategyUrl,{loading:true});
   try {
     const rankingPending=render(React.createElement(SeoOverview));
     assert.doesNotMatch(rankingPending,/data-page-loading|\sinert=/);
-    assert.match(rankingPending,/正在重读季度目标/);
+    assert.match(rankingPending,/正在读取季度流量目标/);
     overviewReads.set(trafficUrl,{loading:true});
     const pending=render(React.createElement(SeoOverview));
-    assert.match(pending,/<nav aria-label="主导航"><\/nav><div[^>]+aria-busy="true"[^>]+inert=""/);
-    assert.match(pending,/data-page-loading="local"[\s\S]*role="status">[\s\S]*正在加载页面数据/);
+    assert.doesNotMatch(pending,/data-page-loading|\sinert=/);
+    assert.match(pending,/正在读取流量与注册归档/);
+    assert.match(pending,/加载关系图/);
     overviewReads.delete(trafficUrl);
     overviewReads.set(strategyUrl,{error:"数据读取超时，请重试"});
     const settled=render(React.createElement(SeoOverview));
@@ -86,7 +88,8 @@ test("the trends and the module chart follow their shared date control",()=>{
   try {
     const initial=render(React.createElement(SeoOverview));
     assert.equal(lastTrafficUrl,null);
-    assert.match(initial,/data-page-loading="local"/);
+    assert.doesNotMatch(initial,/data-page-loading|\sinert=/);
+    assert.match(initial,/正在读取流量与注册归档/);
     rangeReady=true;
     automaticRange=false;
     activeRange={start:"2026-11-19",end:"2026-11-20"};
@@ -185,59 +188,50 @@ test("1600-word graph is complete, deterministic across reorder/rank updates, an
   assert.ok(first.points.every(p=>Math.hypot(p.x-300,p.y-300)+p.radius<285));
   for(const p of first.points){const cluster=first.clusters.find(c=>c.id===p.clusterId);assert.ok(Math.hypot(p.x-cluster.x,p.y-cluster.y)<cluster.radius);}
 });
-test("unknown goal values never become zero progress or inherit the historical four-site scope",()=>{
-  const html=render(React.createElement(GoalPlot,{label:"流量",value:null,goal:3000,unit:"次",denominator:"来源未齐",note:"未知"}));
-  assert.match(html,/暂缺有效数值/);assert.doesNotMatch(html,/fill="#4285dc"/);
-  const historical=render(React.createElement(OverviewGoalCharts,{snapshot:{period:{start:"2026-11-12",end:"2026-11-18"},goals:{deadline:"2027-02-05",daysRemaining:70,trafficPeriod:{start:"2026-11-12",end:"2026-11-18"},weeklySessions:2000,trafficComplete:true,baselineCount:null,rankedCount:null,top50Count:null,coverage:null,quality:null,latestRankAt:null}}}));
-  assert.doesNotMatch(historical,/2,000|2，000/);assert.match(historical,/暂缺有效数值/);assert.match(historical,/等待全部关键词数据/);
+test("goal cards omit scale-zero captions while preserving a verified zero",()=>{
+  const missing=render(React.createElement(GoalPlot,{label:"流量",value:null,goal:3000,unit:"次"}));
+  assert.match(missing,/暂缺有效数值/);
+  assert.doesNotMatch(missing,/fill="#4285dc"|>0 次<|<strong>—<small>/);
+  const zero=render(React.createElement(GoalPlot,{label:"流量",value:0,goal:3000,unit:"次"}));
+  assert.match(zero,/<strong>0<small>次<\/small><\/strong>/);
+  assert.doesNotMatch(zero,/>0 次</);
 });
-test("the daily goal displays concise observation dates in LA without changing snapshot data",()=>{
- const {unavailableGrowthReportSnapshot}=require('../src/lib/growth-strategy.ts');
- const snapshot=unavailableGrowthReportSnapshot({start:'2026-11-12',end:'2026-11-18'},new Date('2026-11-25T01:00:00Z'));
- Object.assign(snapshot.goals,{trafficWindowKind:'rolling7day-v1',trafficPeriod:{start:'2026-11-17',end:'2026-11-23',timezone:'America/Los_Angeles'},weeklySessions:1558,trafficGap:1442,trafficComplete:true,dailyTrafficObservation:{version:'rolling7day-v1',asOf:'2026-11-25T01:00:00Z',period:{start:'2026-11-17',end:'2026-11-23'},previousPeriod:{start:'2026-11-16',end:'2026-11-22'},sessions:1558,previousSessions:1485,difference:73,complete:true,previousComplete:true}});
- Object.assign(snapshot.goals,{trafficScope:'flatkey_website_console',latestRankAt:'2026-11-23T01:00:00Z'});
- const ranked={id:"ranked",keyword:"gpu rental",site:"flatkey.ai",country:"US",language:"en",wordLanguage:"en",rank:35,rankEligible:true,languageStatus:"match",rankSource:"serp",captureState:"ranked",rankUrl:"https://flatkey.ai/gpu",checkedAt:"2026-11-23T01:00:00Z"};
- const workspace={generatedAt:"2026-11-25T01:00:00Z",targets:[ranked,{keyword:"another term"}],reconciliation:{sources:[]}};
- const before=JSON.stringify(snapshot),html=render(React.createElement(OverviewGoalCharts,{snapshot,workspace}));assert.match(html,/最新滚动7日/);assert.match(html,/流量截至 11月23日 · 排名截至 11月22日/);assert.match(html,/1,558/);assert.doesNotMatch(html,/1485|1,442|R \/ N|控制台生产域名|2026-11-23T/);assert.equal(JSON.stringify(snapshot),before);
- assert.match(html,/全部关键词前100覆盖/);assert.match(html,/1 \/ 2 词/);
- ranked.checkedAt='2026-11-23T10:00:00Z';
- assert.match(render(React.createElement(OverviewGoalCharts,{snapshot,workspace})),/数据截至 11月23日/);
+test("the daily goal displays concise observation dates in LA and exact keyword denominators",()=>{
+  const traffic={mode:"rolling",daysRemaining:71,period:{start:"2026-11-17",end:"2026-11-23"},sessions:1558,fallback:null};
+  const ranked={id:"ranked",keyword:"gpu rental",site:"flatkey.ai",country:"US",language:"en",wordLanguage:"en",rank:35,rankEligible:true,languageStatus:"match",rankSource:"serp",captureState:"ranked",rankUrl:"https://flatkey.ai/gpu",checkedAt:"2026-11-23T01:00:00Z",workState:"completed"};
+  const data={generatedAt:"2026-11-25T01:00:00Z",targets:[ranked,{...ranked,id:"another",rankEligible:false,keyword:"another term",workState:"planned"}],markets:[],reconciliation:{sources:[]}};
+  const keywords=summarizeOverviewKeywords(data);
+  const html=render(React.createElement(OverviewGoalCharts,{traffic,keywords}));
+  assert.match(html,/最新滚动7日/);
+  assert.match(html,/流量截至 11月23日 · 排名截至 11月22日/);
+  assert.match(html,/1,558/);
+  assert.match(html,/1 \/ 2 词/);
+  assert.doesNotMatch(html,/>0 %</);
+  assert.doesNotMatch(JSON.stringify(keywords),/gpu rental|another term|https:/);
+  ranked.checkedAt="2026-11-23T10:00:00Z";
+  assert.match(render(React.createElement(OverviewGoalCharts,{traffic,keywords:summarizeOverviewKeywords(data)})),/数据截至 11月23日/);
+  data.reconciliation.sources.push({name:"最近14天的已存SERP",available:false});
+  const missing=summarizeOverviewKeywords(data);
+  assert.equal(missing.ranking,null);
+  assert.equal(missing.coverage,null);
+  assert.equal(missing.total,2);
 });
-test("the overview displays the verified prior whole window while the latest window is pending", () => {
-  const { unavailableGrowthReportSnapshot, GROWTH_TRAFFIC_SCOPE } = require("../src/lib/growth-strategy.ts");
-  const snapshot = unavailableGrowthReportSnapshot({ start: "2026-11-19", end: "2026-11-25" }, new Date("2026-11-26T09:44:15Z"));
-  const requested = { start: "2026-11-19", end: "2026-11-25" };
-  const previous = { start: "2026-11-18", end: "2026-11-24" };
-  Object.assign(snapshot.goals, {
-    evaluationMode: "live", trafficScope: GROWTH_TRAFFIC_SCOPE, trafficWindowKind: "rolling7day-v1",
-    trafficPeriod: { ...requested, timezone: "America/Los_Angeles" },
-    dailyTrafficObservation: { version: "rolling7day-v1", period: requested, previousPeriod: previous,
-      sessions: null, previousSessions: 1603, difference: null, complete: false, previousComplete: true },
-  });
-  const overview = (lastVerifiedRollingTraffic) => render(React.createElement(OverviewGoalCharts, { snapshot, lastVerifiedRollingTraffic }));
-  const original = JSON.stringify(snapshot);
-  const html = overview();
-  assert.match(html, /最近已核验滚动7日/);
-  assert.match(html, /流量截至 11月24日/);
-  assert.match(html, /1,603/);
-  assert.match(html, /洛杉矶 11月25日 截止窗口待采，当前显示 11月18日–11月24日 的整段会话/);
-  assert.equal(JSON.stringify(snapshot), original);
-
-  snapshot.goals.dailyTrafficObservation.previousSessions = 0;
-  assert.match(overview(), /会话：0次，目标3000次/);
-  snapshot.goals.dailyTrafficObservation.previousComplete = false;
-  assert.match(overview(), /窗口待采/);
-  assert.doesNotMatch(overview(), /会话：0次|流量截至 11月24日/);
-
-  const older = { start: "2026-11-17", end: "2026-11-23", sessions: 1557 };
-  assert.match(overview(older), /流量截至 11月23日/);
-  assert.match(overview(older), /洛杉矶 11月25日 截止窗口待采，当前显示 11月17日–11月23日 的整段会话/);
-  assert.match(overview(older), /1,557/);
-
-  snapshot.goals.dailyTrafficObservation.previousComplete = true;
-  assert.doesNotMatch(overview(older), /1,557/);
-  snapshot.goals.evaluationMode = "final";
-  assert.doesNotMatch(overview(older), /最近已核验滚动7日|窗口待采|1,557/);
+test("the overview displays the verified prior whole window while the latest window is pending",()=>{
+  const traffic={mode:"rolling",daysRemaining:70,period:{start:"2026-11-19",end:"2026-11-25"},sessions:null,
+    fallback:{start:"2026-11-18",end:"2026-11-24",sessions:1603}};
+  const overview=()=>render(React.createElement(OverviewGoalCharts,{traffic,keywords:null}));
+  const initial=overview();
+  assert.match(initial,/最近已核验滚动7日/);
+  assert.match(initial,/流量截至 11月24日/);
+  assert.match(initial,/1,603/);
+  assert.match(initial,/洛杉矶 11月25日 截止窗口待采，当前显示 11月18日–11月24日 的整段会话/);
+  traffic.fallback.sessions=0;
+  assert.match(overview(),/会话：0次，目标3000次/);
+  traffic.fallback=null;
+  assert.match(overview(),/窗口待采/);
+  assert.doesNotMatch(overview(),/会话：0次|流量截至 11月24日/);
+  traffic.mode="final";
+  assert.doesNotMatch(overview(),/最近已核验滚动7日|窗口待采/);
 });
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
