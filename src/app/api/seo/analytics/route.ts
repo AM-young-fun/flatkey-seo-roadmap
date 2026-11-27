@@ -5,6 +5,7 @@ import { readAnalyticsEvidence } from "@/lib/seo-analytics-files";
 import { prisma } from "@/lib/prisma";
 import { seoCountry } from "@/lib/seo";
 import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites";
+import { clusterTraffic, clusterTrafficKind } from "@/lib/seo-cluster-traffic";
 import { gscPeriodEnd, optimizationEffect, optimizationRange } from "@/lib/seo-page-effects";
 import { pageOptimizationPriorities, pagePrioritySignals, type PagePriorityFilters } from "@/lib/seo-page-priority";
 import { publishedKeywordRankLabels } from "@/lib/published-keyword-rank";
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
   }
   const range = { start: search.get("start") ?? "", end: search.get("end") ?? "" };
   if (search.get("view") === "traffic-overview") return readTrafficOverview(request, search, range);
+  if (search.get("view") === "cluster-traffic") return readClusterTraffic(request, search, range);
   const urls = [...new Set(search.getAll("url"))];
   const allPages = search.get("pages") === "all", pageDaily = search.get("pageDaily") === "1";
   const pageQueries = search.get("pageQueries") === "1";
@@ -178,6 +180,30 @@ export async function GET(request: Request) {
   }
 }
 
+
+async function readClusterTraffic(request: Request, search: URLSearchParams, range: { start: string; end: string }) {
+  if (!validRange(range) || range.end > closedTrafficSummaryDay() || Date.parse(range.end) - Date.parse(range.start) > 365 * 86400000
+    || [...search.keys()].some(key => !["view", "start", "end"].includes(key) || search.getAll(key).length !== 1)) {
+    return Response.json({ message: "请选择已结束日期；一次最多查询366天。" }, { status: 400, headers });
+  }
+  const previous = previousRange(range);
+  try {
+    const scan = { start: previous.start, end: range.end };
+    const source = analyticsLocalPreview(request)
+      ? (await Promise.all(CLUSTER_SITES.map(site => readAnalyticsEvidence(scan, "all", site.domain, ["ga4-site"])))).flat()
+      : (await prisma.seoAnalyticsDay.findMany({ where: { date: { gte: scan.start, lte: scan.end },
+        kind: { in: CLUSTER_SITES.map(site => clusterTrafficKind(site.domain)) } },
+        select: { kind: true, date: true, payload: true } })).flatMap(row => {
+        const parsed = analyticsObservationSchema.safeParse(row.payload);
+        if (!parsed.success || parsed.data.kind !== "ga4-site" || parsed.data.date !== row.date) return [];
+        const site = clusterDomainForProperty(parsed.data.property);
+        return site && row.kind === clusterTrafficKind(site) ? [parsed.data] : [];
+      });
+    return Response.json(clusterTraffic(range, previous, source), { headers });
+  } catch {
+    return Response.json({ message: "暂时无法读取集群站点流量。" }, { status: 503, headers });
+  }
+}
 
 async function readTrafficOverview(request: Request, search: URLSearchParams, range: { start: string; end: string }) {
   const latest = closedTrafficSummaryDay();
