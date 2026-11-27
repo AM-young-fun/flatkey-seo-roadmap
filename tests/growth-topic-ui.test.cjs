@@ -173,7 +173,7 @@ test("an unfrozen quarter never falls back to the formal inventory or labels it 
  assert.deepEqual(quarterTargetWorkspace(workspace).targets,[]);
  readData=workspace;
  const html=renderToStaticMarkup(React.createElement(GrowthTopicWorkspace));
- assert.match(html,/季度词目标尚未冻结/); assert.match(html,/打开季度审核/); assert.doesNotMatch(html,/当前筛选没有季度话题/);
+ assert.match(html,/季度词目标尚未冻结/); assert.doesNotMatch(html,/当前筛选没有季度话题|打开季度审核|季度关键词与方向决定/);
  readData=null;
 });
 
