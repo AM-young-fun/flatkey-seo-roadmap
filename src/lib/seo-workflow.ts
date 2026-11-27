@@ -158,6 +158,9 @@ export const workflowPlanSchema = z.object({
   if (value.status === "scheduled" && (!("cadence" in value.targets) || !value.evidence.length)) ctx.addIssue({ code: "custom", message: "自动排期需要当前四国额度和选题证据" });
 });
 export const isExecutableWorkflowPlan = (status: string | undefined) => status === "scheduled" || status === "reviewed";
+export function isContentWorkBoardTask(task: Pick<WorkflowTask, "kind">) {
+  return task.kind === "blog" || task.kind === "landing" || task.kind === "optimization" || task.kind === "cluster";
+}
 
 export const WORKFLOW_APPROVAL_STATUSES = ["draft", "pending", "partially_reviewed", "approved", "rejected", "changes_requested", "withdrawn", "superseded"] as const;
 export const workflowApprovalItemSchema = z.object({
@@ -443,7 +446,6 @@ export type WorkflowWorkBoardPlan = {
     version: number;
     taskIds: string[];
     gaps: Pick<WorkflowPlan["gaps"][number], "category" | "count">[];
-    notes?: string;
     datedGaps?: { date: string; gaps: Pick<WorkflowPlan["gaps"][number], "category" | "count" | "siteDomain">[] }[];
   } | null;
 };
