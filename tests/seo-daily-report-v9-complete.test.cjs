@@ -11,8 +11,10 @@ test('new daily keeps complete sites/countries/modules/work/plan sections withou
  const base=buildSeoDigest({...input,growthSnapshot:growth,observations:[metric('flatkey.ai','2026-11-23',270),metric('flatkey.ai','2026-11-22',202),metric('flatkey.ai','2026-11-23',100,'US'),metric('flatkey.ai','2026-11-22',60,'US')]});
  assert.equal(base.reportTemplateVersion,9);assert.equal(base.detailText,base.text);
  for(const text of ['1. 全站自然搜索','各站与四国流量','模块流量','流量涨跌原因','2. 当日优化效果','3. 关键词实测排名','技术异常','4. 今日完成','本周完成进度','明日与下周安排'])assert.ok(base.text.includes(text),text);
- assert.doesNotMatch(base.text,/数据状态|全平台正式目标|1409|上周涨跌旧原因|上周长篇方向/);
- assert.match(base.text,/1600词清单尚未核定/);assert.match(base.text,/GSC 2026-11-23尚无有效结果/);
+ assert.doesNotMatch(base.text,/数据状态|全平台正式目标|1409|1600词清单|上周涨跌旧原因|上周长篇方向/);
+ assert.match(base.text,/本日暂无新增实测回执；已有排名保留原采样日期/);
+ assert.match(base.text,/GSC 2026-11-23尚无有效结果/);
+ assert.match(base.text,/\| flatkey\.ai \| 202 → 270 \| — → — \| — → — \|/);
  for(const name of ['flatkey.ai','rackrate.org','modelfit.cc','rougecue.org','mochichatbot.com','jev-llm.com','US','JP','BR','ES','首页','博客','模型页','GPU','提示词'])assert.ok(base.text.includes(name),name);
  assert.match(base.text,/2026\/11\/24 18:00（北京时间）/);assert.match(base.text,/270/);assert.equal(growth.goals.cohorts.length,1,'input source retained');
  assert.equal(base.conversionSnapshot.api.registration.rate.value,null,'188 new users is not a qualified-visitor denominator');
