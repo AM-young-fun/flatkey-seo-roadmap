@@ -23,6 +23,8 @@ const fixtures = [
   { ...base, property: "sc-domain:flatkey.ai", kind: "gsc-page-queries",
     rows: [{ url, query: "example model", clicks: 2, impressions: 10, position: 5 }] },
 ];
+const storedKind = row => [row.kind, row.country,
+  row.property === "558899190" || row.property === "https://rackrate.org/" ? "rackrate.org" : null].filter(Boolean).join(":");
 let query, returnedBytes, trafficQuery, trafficPeriodQuery, data = fixtures, localPreview = false, priorityWorkspaceReads = 0;
 const load = Module._load;
 Module._load = function (name, ...args) {
@@ -39,9 +41,9 @@ Module._load = function (name, ...args) {
       return data.filter(row=>row.kind === "flatkey-traffic-summary-period-v1" && input.where.date.in.includes(row.end))
         .map(payload => ({ payload, date: payload.end }));
     }
-    const rows = data.filter(row => (input.where.OR ?? [input.where]).some(where => where.kind.in.includes([row.kind, row.country, row.property === "558899190" || row.property === "https://rackrate.org/" ? "rackrate.org" : null].filter(Boolean).join(":"))
+    const rows = data.filter(row => (input.where.OR ?? [input.where]).some(where => where.kind.in.includes(storedKind(row))
       && row.date >= where.date.gte && row.date <= where.date.lte))
-      .map(payload => ({ payload, kind: payload.kind, date: payload.date }));
+      .map(payload => ({ payload, kind: storedKind(payload), date: payload.date }));
     returnedBytes = Buffer.byteLength(JSON.stringify(rows));
     return rows;
   } } } };
@@ -218,4 +220,33 @@ test("the traffic overview reads only session sources and retains the exact requ
   assert.ok(payload.daily.every(row => row.site.organicSessions === null));
   assert.equal((await GET(new Request("https://workspace.invalid/api/seo/analytics?view=traffic-overview&start=2026-10-04"))).status, 400);
   assert.equal((await GET(request("&view=traffic-overview&country=JP"))).status, 400);
+});
+
+test("cluster overview compares equal windows using each property's archived sessions", async () => {
+  const rackrate = { ...base, property: "558899190", scope: "session-organic-search", kind: "ga4-site",
+    sessions: 0, registrations: null, complete: false };
+  data = [...fixtures, rackrate, { ...rackrate, date: range.end, sessions: 17 },
+    { ...rackrate, date: "2026-10-02", sessions: 10 }, { ...rackrate, date: "2026-10-03", sessions: 0 },
+    { ...rackrate, country: "JP", sessions: 800 }];
+  try {
+    const result = await read("&view=cluster-traffic");
+    assert.deepEqual(query.where.date, { gte: "2026-10-02", lte: range.end });
+    assert.equal(query.where.kind.in.length, 5);
+    assert.ok(query.where.kind.in.every(kind => kind.startsWith("ga4-site:")));
+    assert.deepEqual(result.previous, { start: "2026-10-02", end: "2026-10-03" });
+    assert.equal(result.sites.length, 5);
+    const site = result.sites.find(site => site.domain === "rackrate.org");
+    assert.equal(site.timezone, "Asia/Shanghai");
+    assert.deepEqual(site.current, { total: 17, recordedDays: 2 });
+    assert.deepEqual(site.previous, { total: 10, recordedDays: 2 });
+    assert.deepEqual(site.daily, [{ date: range.start, sessions: 0 }, { date: range.end, sessions: 17 }]);
+    const missing = result.sites.find(site => site.domain === "rougecue.org");
+    assert.deepEqual(missing.current, { total: null, recordedDays: 0 });
+    assert.ok(missing.daily.every(row => row.sessions === null));
+    assert.equal((await GET(request("&view=cluster-traffic&country=JP"))).status, 400);
+    data = data.filter(row => row.property !== rackrate.property || row.date !== range.end);
+    const partial = (await read("&view=cluster-traffic")).sites.find(site => site.domain === "rackrate.org");
+    assert.deepEqual(partial.current, { total: null, recordedDays: 1 });
+    assert.equal(partial.daily[1].sessions, null);
+  } finally { data = fixtures; }
 });

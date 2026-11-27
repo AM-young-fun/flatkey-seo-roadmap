@@ -14,6 +14,7 @@ import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "
 import { UiSelect } from "./UiSelect";
 import { PageLoading } from "./PageLoading";
 import { TrafficRegistrationSummary, useTrafficSummaryTrend } from "./TrafficRegistrationSummary";
+import { ClusterTrafficOverview } from "./ClusterTrafficOverview";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
@@ -24,6 +25,7 @@ export function SeoOverview() {
   const strategy = useOverviewRead<GrowthDashboardView>("/api/seo/growth/strategy?view=dashboard");
   const growth = useOverviewRead<GrowthWorkspace>("/api/seo/growth?view=all-keyword-overview", 90_000);
   const traffic = useTrafficSummaryTrend(context);
+  const trafficRange = traffic.data ?? traffic.previousData;
   const loading = !traffic.hasSettled && (!context.ready || traffic.loading);
   useEffect(() => {
     const read = () => setModule(overviewModule(new URLSearchParams(location.search).get("module")));
@@ -44,6 +46,7 @@ export function SeoOverview() {
       </div>
       <OverviewGoalSection strategy={strategy} growth={growth} />
       <TrafficRegistrationSummary dates={context} read={traffic} />
+      {trafficRange ? <ClusterTrafficOverview range={trafficRange} /> : null}
       <OverviewContentSection growth={growth} />
       <GrowthRankingCoverage read={growth} />
       <div className={styles.rankings}>
