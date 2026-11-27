@@ -10,20 +10,18 @@
 .trend { margin-top: 18px; }
 .trend h4 { margin: 0 0 5px; font-size: 14px; color: #152943; }
 .trend small { color: #5e6d84; font-size: 13px; }
-.history { margin-top: 16px; font-size: 13px; }
-.history summary { cursor: pointer; color: var(--ui-primary); }
-.scroll { overflow-x: auto; }
-.history table { border-collapse: collapse; width: 100%; margin-top: 10px; text-align: left; }
-.history th,.history td { border-bottom: 1px solid var(--ui-border); padding: 8px 10px; white-space: nowrap; }
-
-.figure { display: grid; grid-template-columns: min-content minmax(0, 1fr); grid-template-rows: 112px auto; column-gap: 10px; row-gap: 9px; margin: 15px 0 0; padding: 9px 0 0; }
+.figure { display: grid; grid-template-columns: min-content minmax(0, 1fr); grid-template-rows: 138px auto; column-gap: 10px; row-gap: 9px; margin: 15px 0 0; padding: 9px 0 0; }
 .axis { position: relative; min-width: 3.1rem; font-variant-numeric: tabular-nums; color: #596a81; font-size: .72rem; }
 .axis span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
-.chart { position: relative; min-width: 0; background: #f8fafd; border-radius: 4px; }
+.chart { position: relative; min-width: 0; }
 .chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .chart svg line { stroke: #dbe4ef; stroke-width: 1px; stroke-dasharray: 3 3; }
-.chart svg path { stroke: #3677c5; stroke-width: 2px; stroke-linecap: round; }
-.point { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #3677c5; transform: translate(-50%, -50%); }
-.point[data-latest="true"] { width: 9px; height: 9px; box-shadow: 0 0 0 2px #f8fafd; }
+.chart svg path { stroke: #3677c5; stroke-width: 2.5px; stroke-linecap: round; }
+.chart svg path[data-gap="true"] { stroke: #7395bf; stroke-width: 2px; stroke-dasharray: 5 5; }
+.point { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #3677c5; transform: translate(-50%, -50%); }
+.point[data-latest="true"] { width: 10px; height: 10px; box-shadow: 0 0 0 2px #fff; }
+.point:focus-visible { outline: 2px solid #2563bd; outline-offset: 2px; }
 .dates { grid-column: 2; display: flex; justify-content: space-between; color: #596a81; font-size: .72rem; font-variant-numeric: tabular-nums; }
-@media (max-width: 420px) { .figure { grid-template-rows: 88px auto; } }
+.dates:has(> span:only-child) { justify-content: center; }
+.gapLegend { grid-column: 2; color: #596a81; font-size: .75rem; }
+@media (max-width: 420px) { .figure { grid-template-rows: 104px auto; } }

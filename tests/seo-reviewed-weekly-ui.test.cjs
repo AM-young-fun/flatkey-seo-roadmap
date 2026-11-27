@@ -19,7 +19,8 @@ Module._load = function (name, parent, ...rest) {
   if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams({period:selectedKind,date:"2026-11-19",archivePage:String(archivePage),...(selectedId ? {reportId:selectedId} : {})}) };
   if (name === "next/link") return { __esModule: true, useLinkStatus: () => ({ pending: false }), default: props => React.createElement("a", { href: props.href }, props.children) };
   if (name === "./useSeoAnalytics") return { numberText: String, shanghaiStamp: () => "2026-11-19 10:30:00", useSeoRead: url => ({ data: !url ? null : url.includes("/growth/strategy")
-    ? (++quarterReads, {}) : url.startsWith("/api/seo/indexing-404") ? (indexingPath = url, {observations:[indexingReceipt]}) : {report:selectedReport,dates:[selectedReport.date],archiveHasNext}, retry() {} }) };
+    ? (++quarterReads, {}) : url.startsWith("/api/seo/indexing-404") ? (indexingPath = url, {observations:[indexingReceipt,
+      {...indexingReceipt,collectedDate:"2026-11-16",total:3270},{...indexingReceipt,collectedDate:"2026-11-15",total:3273}]}) : {report:selectedReport,dates:[selectedReport.date],archiveHasNext}, retry() {} }) };
   if (name === "@/components/PageHeader" || name === "@/components/SeoAutomationSchedule") return { PageHeader: () => null, SeoAutomationSchedule: () => null };
   if (name === "./ReportTrafficPanels") return { ReportPageGroupTraffic: () => React.createElement("section", null, "四个页面组流量"), ReportModuleShares: () => React.createElement("section", null, "模块流量") };
   if (name === "./UiSelect") return { UiSelect: () => null };
@@ -59,10 +60,25 @@ test("404 data is independently dated on the report archive and absent from sche
   assert.equal((html.match(/id="seo-indexing-404"/g) ?? []).length, 1);
   assert.equal(indexingPath, "/api/seo/indexing-404?through=2026-11-19");
   assert.match(html, /404 数量趋势/);
+  assert.match(html, /data-gap="true"/);
+  assert.match(html, /虚线跨过缺采日期/);
+  assert.doesNotMatch(html, /查看每日记录/);
   assert.match(html, /Google 报告日期<\/span><strong>2026-11-19<\/strong>/);
   assert.match(html, /GSC 最新采集于 <time dateTime="2026-11-19T02:30:00.000Z">2026-11-19 10:30:00<\/time>（北京时间）/);
   assert.match(html, /href="https:\/\/search.google.com\/search-console\/index\?resource_id=sc-domain%3Aflatkey.ai" rel="noopener noreferrer nofollow"/);
   assert.doesNotMatch(renderToStaticMarkup(React.createElement(SeoAutomationPage)), /seo-indexing-404|Flatkey 网页索引/);
+});
+
+test("the daily archive picker labels the Los Angeles source day and preserves the saved report key", () => {
+  selectedKind="daily";
+  selectedReport={...report, kind:"daily", date:"2026-11-26", sourceDay:"2026-11-25"};
+  try {
+    const html=renderToStaticMarkup(React.createElement(SeoDigestReports));
+    const header=html.match(/<header[\s\S]*?<\/header>/)[0];
+    assert.match(header,/报告日期 2026年11月25日周三 · 洛杉矶/);
+    assert.match(header,/date=2026-11-26[^>]*>2026年11月25日周三 · 洛杉矶/);
+    assert.doesNotMatch(header,/2026年11月26日周四/);
+  } finally {selectedKind="weekly";selectedReport=report;}
 });
 
 test("archive navigation stays in a compact date disclosure next to refresh and keeps exact snapshot routing", () => {

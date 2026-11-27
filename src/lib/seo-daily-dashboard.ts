@@ -40,13 +40,14 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
   if (input.dashboardEvidence?.moduleShares && canonical(input.dashboardEvidence.moduleShares) !== canonical(input.moduleShares)) throw new ReviewedDigestError("模块来源证据不一致");
   if (input.dashboardEvidence && Date.parse(input.dashboardEvidence.observedAt) > now.getTime()) throw new ReviewedDigestError("来源采集时间不能在未来");
   const comparisons = (rows: NonNullable<typeof input.dashboardEvidence>["sites"] | NonNullable<typeof input.dashboardEvidence>["countries"]) =>
-    dashboardComparisonGroups(rows, period, input.dashboardEvidence!.gscComparable).map(row => ({ ...row, metrics: row.metrics.map(metric => ({ ...metric,
+    dashboardComparisonGroups(rows, period, input.dashboardEvidence!.gscComparable, input.dashboardEvidence!.gscProvisionalFrom).map(row => ({ ...row, metrics: row.metrics.map(metric => ({ ...metric,
       period: `${shift(period.start)}—${shift(period.end)} → ${period.start}—${period.end}`,
     })) }));
   const dashboard = { ...base.dashboard, detailText: base.dashboard?.detailText ?? base.detailText ?? base.text, attributionText: base.dashboard?.attributionText ?? "", sourceEvidenceSha256: input.sourceEvidenceSha256,
     moduleShares: input.moduleShares,
     ...(input.dashboardEvidence ? { traffic: { sites: comparisons(input.dashboardEvidence.sites), countries: comparisons(input.dashboardEvidence.countries),
-      modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable } } : {}),
+      modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable,
+      ...(input.dashboardEvidence.gscProvisionalFrom ? { gscProvisionalFrom: input.dashboardEvidence.gscProvisionalFrom } : {}) } } : {}),
   };
   const key = reviewedTextHash(canonical(["daily-dashboard-v1", base.id, input.sourceEvidenceSha256, input.moduleShares, input.dashboardEvidence]));
   // Older daily bodies can carry v9 projections without using the v9 body layout.

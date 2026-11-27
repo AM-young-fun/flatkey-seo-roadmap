@@ -11,29 +11,34 @@ function IndexingTrend({ rows }: { rows: ReturnType<typeof indexing404Trend> }) 
   if (first < 0) return null;
   const last = rows.length - 1 - [...rows].reverse().findIndex(row => row.value !== null);
   const trend = rows.slice(first, last + 1);
-  const counts = trend.flatMap(row => row.value === null ? [] : [row.value]);
+  const points = trend.flatMap(({ label, value }, index) => value === null ? [] : [{ label, value, index }]);
+  const counts = points.map(point => point.value);
   const min = Math.min(...counts), max = Math.max(...counts);
   const step = Math.max(1, 10 ** Math.floor(Math.log10(Math.max(1, (max - min) / 2))));
   const bottom = Math.max(0, Math.floor(min / step) * step - step);
   const top = Math.ceil(max / step) * step + step;
-  const ticks = [top, Math.round((top + bottom) / 2), bottom];
+  const ticks = [...new Set([top, Math.round((top + bottom) / 2), bottom])];
   const x = (index: number) => trend.length === 1 ? 50 : 2 + index / (trend.length - 1) * 96;
   const y = (value: number) => (top - value) * 100 / (top - bottom);
-  const path = trend.map((row, index) => row.value === null ? "" :
-    `${index > 0 && trend[index - 1].value !== null ? "L" : "M"}${x(index)},${y(row.value)}`).join(" ");
+  const segments = points.slice(1).map((point, index) => ({
+    start: points[index], end: point, gap: point.index - points[index].index > 1,
+  }));
   const labels = [...new Set([0, ...(trend.length > 4 ? [Math.floor((trend.length - 1) / 2)] : []), trend.length - 1])];
   return <figure className={styles.figure} aria-label={`404 数量趋势，共 ${counts.length} 天采集记录，最近一次 ${numberText(counts.at(-1))} 页`}>
     <div className={styles.axis} aria-hidden="true">{ticks.map(value => <span key={value} style={{ top: `${y(value)}%` }}>{numberText(value)}</span>)}</div>
     <div className={styles.chart}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         {ticks.map(value => <line key={value} x1="0" x2="100" y1={y(value)} y2={y(value)} vectorEffect="non-scaling-stroke" />)}
-        <path d={path} fill="none" vectorEffect="non-scaling-stroke" />
+        {segments.map(({ start, end, gap }) => <path key={end.label}
+          d={`M${x(start.index)},${y(start.value)}L${x(end.index)},${y(end.value)}`}
+          data-gap={gap || undefined} fill="none" vectorEffect="non-scaling-stroke" />)}
       </svg>
-      {trend.map((row, index) => row.value === null ? null : <span key={row.label} className={styles.point}
-        data-latest={index === trend.length - 1} title={`${row.label} · ${numberText(row.value)} 页`}
-        aria-hidden="true" style={{ left: `${x(index)}%`, top: `${y(row.value)}%` }} />)}
+      {points.map(({ label, value, index }) => <span key={label} className={styles.point} role="img" tabIndex={0}
+        data-latest={index === trend.length - 1} aria-label={`${label} · ${numberText(value)} 页`}
+        title={`${label} · ${numberText(value)} 页`} style={{ left: `${x(index)}%`, top: `${y(value)}%` }} />)}
     </div>
     <div className={styles.dates} aria-hidden="true">{labels.map(index => <span key={trend[index].label}>{trend[index].label.slice(5).replace("-", "/")}</span>)}</div>
+    {segments.some(segment => segment.gap) ? <figcaption className={styles.gapLegend}>虚线跨过缺采日期</figcaption> : null}
   </figure>;
 }
 
@@ -66,13 +71,6 @@ export function SeoIndexing404({ throughDate }: { throughDate?: string } = {}) {
           <small>近 30 天 · {history.length} 天有记录 · 单位：页 · 北京时间采集日</small>
           <IndexingTrend rows={indexing404Trend(history, throughDate)} />
         </div>
-        <details className={styles.history}>
-          <summary>查看每日记录</summary>
-          <div className={styles.scroll}><table>
-            <thead><tr><th scope="col">采集日</th><th scope="col">Google 报告日</th><th scope="col">404 数量</th><th scope="col">较上次</th><th scope="col">验证</th></tr></thead>
-            <tbody>{history.map(row => <tr key={row.collectedDate}><td>{row.collectedDate}</td><td>{row.reportDate ?? "待取得"}</td><td>{numberText(row.total)}</td><td>{row.change != null && row.change > 0 ? "+" : ""}{numberText(row.change)}</td><td>{row.validation ?? "待取得"}</td></tr>)}</tbody>
-          </table></div>
-        </details>
       </>}
     <p className={styles.note}>范围为 Flatkey 域名的所有已知网页。Google 报告有更新延迟，示例清单只覆盖部分 URL。</p>
   </section>;

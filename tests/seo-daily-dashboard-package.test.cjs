@@ -25,7 +25,15 @@ test('offline assembler recomputes independent scalars from source bytes and kee
  const pkg=assemble(scalarEvidence),r=buildDailyDashboardSeoDigest(pkg.baseReport,pkg.command,now);
  assert.equal(scalarEvidence.complete,true);assert.equal(pkg.command.moduleShares.current.all,160);assert.notEqual(pkg.command.moduleShares.current.all,999999);
  const fk=pkg.command.dashboardEvidence.sites.find(r=>r.name==='flatkey.ai');assert.deepEqual(fk.sessions,{previous:145,current:202});assert.deepEqual(fk.clicks,{previous:null,current:null});
- for(const site of ['rackrate.org','modelfit.cc','rougecue.org'])assert.equal(pkg.command.dashboardEvidence.sites.find(r=>r.name===site).sessions.current,null);
+ const rackrate=pkg.command.dashboardEvidence.sites.find(r=>r.name==='rackrate.org');
+ const modelfit=pkg.command.dashboardEvidence.sites.find(r=>r.name==='modelfit.cc');
+ assert.deepEqual(rackrate.sessions,{previous:0,current:0});
+ assert.deepEqual(modelfit.sessions,{previous:2,current:2});
+ assert.equal(rackrate.sessionsTimezone,'Asia/Shanghai');
+ assert.equal(modelfit.sessionsTimezone,'Asia/Shanghai');
+ assert.equal(pkg.command.dashboardEvidence.sites.find(r=>r.name==='rougecue.org').sessions.current,null);
+ assert.match(r.text,/modelfit\.cc（GA4 北京时间）/);
+ assert.equal(r.dashboard.traffic.sites.find(r=>r.name==='modelfit.cc').metrics[0].note,'GA4 按北京时间统计');
  assert.equal(pkg.provenance.nativeReference.find(r=>r.site==='modelfit.cc').value,2);assert.equal(pkg.provenance.nativeReference.find(r=>r.site==='rackrate.org').value,0);assert.equal(pkg.complete,false);
  assert.equal(r.businessDate,'2026-11-24');assert.equal(r.sourceDay,'2026-11-23');assert.match(r.executionWindow.start,/2026-11-24/);
  for(const field of ['title','workPlan','pageGroups','rankingNotes','growthSnapshot','conversionSnapshot','reportTemplateVersion','executionWindow'])assert.deepEqual(r[field],pkg.baseReport[field]);
@@ -41,13 +49,26 @@ test('altered bytes, wrong dimensions/metadata and thresholded sources cannot be
  await fs.writeFile(filename,JSON.stringify({propertyId:'541304395',records,complete:true}));
  const evidence=await readDailyScalarEvidence(filename,definitions,day,now);assert.equal(evidence.complete,false);assert.equal(evidence.missing.length,5);assert.ok(evidence.records.slice(0,5).every(r=>r.value===null));
 }));
-test('a partial later revision retains proven same-day metrics and attribution without carrying native-day values into LA',async()=>withFixture(async({scalarEvidence})=>{
+test('a partial later revision retains the proven same-day metrics, native timezones, and attribution',async()=>withFixture(async({scalarEvidence})=>{
  const first=assemble(scalarEvidence),saved=buildDailyDashboardSeoDigest(first.baseReport,first.command,now),partial=structuredClone(scalarEvidence);
  for(const side of ['previous','current'])for(const key of ['all','modelDetail','prompts'])partial.moduleShares[side][key]=null;
  partial.moduleShares.observedAt=null;partial.complete=false;for(const m of partial.moduleSessions)m.sessions={previous:null,current:null};
  const pkg=assemble(partial,saved,[]),next=buildDailyDashboardSeoDigest(saved,pkg.command,now);
  assert.equal(pkg.command.dashboardEvidence.sites[0].sessions.current,202);assert.equal(pkg.command.moduleShares.current.all,160);assert.equal(pkg.complete,false);assert.ok(pkg.provenance.retained.length);
- assert.equal(next.dashboard.attributionText,saved.dashboard.attributionText);assert.equal(next.dashboard.technicalText,saved.dashboard.technicalText);assert.equal(pkg.command.dashboardEvidence.sites.find(r=>r.name==='modelfit.cc').sessions.current,null);
+ assert.equal(next.dashboard.attributionText,saved.dashboard.attributionText);assert.equal(next.dashboard.technicalText,saved.dashboard.technicalText);assert.equal(pkg.command.dashboardEvidence.sites.find(r=>r.name==='modelfit.cc').sessions.current,2);
+}));
+test('a sourced preliminary GSC value is marked until finalized, without losing a verified zero click count',async()=>withFixture(async({scalarEvidence})=>{
+ const rows=analytics().map(row=>row.kind==='gsc-site'&&row.date===day?{...row,impressions:30,position:12}:row);
+ const pkg=assemble(scalarEvidence,base(),rows);
+ const r=buildDailyDashboardSeoDigest(pkg.baseReport,pkg.command,now);
+ assert.equal(r.dashboard.traffic.gscProvisionalFrom,day);
+ assert.equal(r.dashboard.traffic.gscComparable,false);
+ assert.equal(r.dashboard.traffic.sites[0].metrics.find(metric=>metric.label==='Google 点击').current,0);
+ assert.match(r.text,/本期 GSC 为初步数据/);
+ const final=assemble(scalarEvidence,r,rows.map(row=>row.kind==='gsc-site'&&row.date===day?{...row,complete:true,clicks:1}:row));
+ const next=buildDailyDashboardSeoDigest(final.baseReport,final.command,now);
+ assert.equal(next.dashboard.traffic.gscProvisionalFrom,undefined);
+ assert.doesNotMatch(next.text,/本期 GSC 为初步数据/);
 }));
 test('late GSC evidence updates the daily headline and traffic table while preserving unrelated text',async()=>withFixture(async({scalarEvidence})=>{
  const original=base();

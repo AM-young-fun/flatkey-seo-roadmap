@@ -90,14 +90,14 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
       ? `同星期可比 ${row.comparisonDates.length}/${row.periodDays} 天：${row.comparisonDates.join("、")}` : undefined;
   const flatkeyTotals = groups?.find(group => group.name === "flatkey.ai");
   const metric = (group: typeof flatkeyTotals, label: string) => group?.metrics.find(row => row.label === label);
+  const provisional = dashboardTraffic?.gscProvisionalFrom;
   const total = (group: typeof flatkeyTotals, label: string) => {
     const row = metric(group, label);
     return { metric: row, ...(completeWeekRequired ? {
       canCompare: Boolean(row?.delta) && !/阶段值|不计算周环比/.test(row?.note ?? ""),
       delta: row?.delta ?? "",
-    } : {}) };
+    } : provisional && ["Google 点击", "曝光"].includes(label) ? { canCompare: false } : {}) };
   };
-  const provisional = dashboardTraffic?.gscProvisionalFrom;
   const moduleComparable = (row: typeof ga4) => !completeWeekRequired || row?.comparisonDates?.length === 7;
 
   return <section className={reportStyles.section}>
@@ -126,8 +126,9 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
         <tbody>
           {reportSites.map(([site, name]) => {
             const group = groups?.find(row => row.name === site);
+            const sessionNote = metric(group, "自然会话")?.note;
             return <tr key={site}>
-              <th scope="row">{name}</th>
+              <th scope="row">{name}{sessionNote === "GA4 按北京时间统计" ? <small>GA4 北京时间</small> : null}</th>
               <TrafficCell {...total(group, "自然会话")} />
               <TrafficCell {...total(group, "Google 点击")} />
               <TrafficCell {...total(group, "曝光")} />
@@ -137,7 +138,7 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
         </tbody>
       </table>
     </div>
-    {provisional ? <p className={reportStyles.note}>GSC 自 {provisional} 起为初步数据（洛杉矶时间），本期暂不计算 GSC 周环比。</p> : null}
+    {provisional ? <p className={reportStyles.note}>GSC 自 {provisional} 起为初步数据（洛杉矶时间）。涨跌幅待 Google 定稿后计算。</p> : null}
     {countries ? <ReportCountryShares groups={countries} weekly={completeWeekRequired} /> : null}
   </section>;
 }
@@ -150,7 +151,7 @@ function trafficChange(previous: number | null, current: number | null) {
   return `${delta > 0 ? "+" : ""}${(delta / previous * 100).toFixed(1)}%`;
 }
 
-function RecentPageTraffic({ pages, day }: { pages: SeoDigest["recentPages"]; day?: string }) {
+function RecentPageTraffic({ pages, day, gscCanCompare }: { pages: SeoDigest["recentPages"]; day?: string; gscCanCompare?: boolean }) {
   const best = bestMonthlyOptimizations(day ? pages?.filter(page => page.day >= shiftDay(day, -29) && page.day <= day && page.latest?.date === day && page.before?.date === shiftDay(day, -1)).map(page => ({ ...page,
     beforeVisits: page.beforeVisits?.date === shiftDay(day, -1) ? page.beforeVisits : null,
     latestVisits: page.latestVisits?.date === day ? page.latestVisits : null,
@@ -168,7 +169,7 @@ function RecentPageTraffic({ pages, day }: { pages: SeoDigest["recentPages"]; da
   return <section className={reportStyles.section}>
     <div className={reportStyles.sectionHeading}><h3>{`${label} · 前 10`}</h3><Link className={styles.secondary} href="/optimization-effects">查看全部优化效果 ↗</Link></div>
     <p className={reportStyles.note}>{day ? `${day}，与前一日对比。` : ""}按 Google 点击增量、曝光增量排序；仅展示有前后对比且取得提升的页面。</p>
-    {!best.length ? <p className={reportStyles.note}>{!pages ? "优化效果数据待更新。" : `${day ? "当日" : "近一个月"}暂无有完整对比且取得提升的页面。`}</p> : <div className={reportStyles.tableScroll}>
+    {!best.length ? <p className={reportStyles.note}>{day && !gscCanCompare ? "所选日期的 GSC 逐页对比数据待齐。" : !pages ? "优化效果数据待更新。" : `${day ? "当日" : "近一个月"}暂无有完整对比且取得提升的页面。`}</p> : <div className={reportStyles.tableScroll}>
       <table className={`${reportStyles.comparison} ${reportStyles.recentComparison}`} aria-label={label + "前十"}>
         <thead><tr><th scope="col">页面 / 上线</th><th scope="col">Google 点击</th><th scope="col">Google 曝光</th><th scope="col">点击率</th><th scope="col">自然访问</th></tr></thead>
         <tbody>
@@ -372,11 +373,14 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
   const github = weekly || (reportTemplateVersion !== undefined && reportTemplateVersion >= 9) ? undefined
     : githubSection?.slice(1) ?? sections.find(section => section.title.startsWith("GitHub 提示词渠道"))?.lines;
   const technical = sections.find(section => section.title === "SEO 技术质检");
+  const day = weekly ? undefined : reportPeriod?.start;
+  const gsc = rankings?.find(ranking => ranking.source === "GSC")?.flatkey;
+  const gscCanCompare = Boolean(day && gsc?.date === day && gsc.previousDate === shiftDay(day, -1));
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={dashboard?.traffic?.sites ?? (sites ? parseReportComparisons(sites.lines) : null)} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations}
       completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} />
     <ReportAttribution text={dashboard?.attributionText} weekly={weekly} snapshot={growthSnapshot} period={reportPeriod} editor={attributionEditor} />
-    <RecentPageTraffic pages={recentPages} day={weekly ? undefined : reportPeriod?.start} />
+    <RecentPageTraffic pages={recentPages} day={day} gscCanCompare={gscCanCompare} />
     {weeklyRankingSummary || rankingNotes?.length ? <section className={reportStyles.section}>
       <h3>关键词排名明细</h3>
       {weeklyRankingSummary ? <WeeklyRankingOverview summary={weeklyRankingSummary} /> : null}
@@ -420,11 +424,6 @@ export function SeoDigestReports() {
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && Number.isFinite(Date.parse(requestedDate + "T00:00:00Z"))
     && new Date(requestedDate + "T00:00:00Z").toISOString().slice(0, 10) === requestedDate;
   const date = valid ? kind === "weekly" ? weeklyReportDate(requestedDate) : requestedDate : null;
-  const formatPeriod = (day: string) => {
-    if (kind !== "weekly") return reportDateLabel(day >= "2026-11-24" ? day : shiftDay(day, -1));
-    const range = weeklyReportRange(day);
-    return `${range.start} — ${range.end}${day >= WEEKLY_REPORT_SWITCH_DATE ? " · 洛杉矶" : ""}`;
-  };
   const exact = params.get("reportId");
   const selectedDate = date ?? exact?.split(":")[1] ?? null;
   const requestedArchivePage = Number(params.get("archivePage") ?? "1");
@@ -433,6 +432,14 @@ export function SeoDigestReports() {
   if (kind === "weekly") query.set("supplement", "1");
   const result = useSeoRead<{ report: (SeoDigest & { githubSection?: string[]; businessSection?: string[] }) | null; dates?: string[]; archiveHasNext?: boolean; pendingArchiveDate?: string; weeklySupplement?: WeeklySupplementRead; weeklyAttribution?: WeeklySupplementRead }>("/api/seo/digest?" + query);
   const report = result.data?.report;
+  const formatPeriod = (day: string) => {
+    if (kind === "daily") {
+      const sourceDay = report?.date === day ? report.sourceDay ?? report.reportPeriod?.start : null;
+      return `${reportDateLabel(sourceDay ?? shiftDay(day, -1))} · 洛杉矶`;
+    }
+    const range = weeklyReportRange(day);
+    return `${range.start} — ${range.end}${day >= WEEKLY_REPORT_SWITCH_DATE ? " · 洛杉矶" : ""}`;
+  };
   const [supplementReadyFor, setSupplementReadyFor] = useState<string | null>(null);
   const needsSupplement = kind === "weekly";
   useReportReadyTiming(Boolean(report) && (!needsSupplement || supplementReadyFor === report?.id), `${query}:${report?.id ?? ""}`);
