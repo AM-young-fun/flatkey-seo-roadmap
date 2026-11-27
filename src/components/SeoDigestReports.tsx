@@ -311,7 +311,7 @@ function ReportAttribution({ text, weekly, snapshot, period, editor }: {
 
 const rankingCountries: Record<string, string> = {
   US: "美国", JP: "日本", ES: "西班牙", BR: "巴西", CN: "中国",
-  SG: "新加坡", FR: "法国", DE: "德国", VN: "越南", ID: "印度尼西亚",
+  SG: "新加坡", FR: "法国", DE: "德国", VN: "越南", ID: "印度尼西亚", RU: "俄罗斯", unknown: "市场待确认",
 };
 const rankingShare = (count: number, total: number) => total ? `${(100 * count / total).toFixed(1)}%` : "—";
 
@@ -323,17 +323,17 @@ function WeeklyRankingOverview({ summary }: { summary: WeeklyRankingSummary }) {
   );
   return <>
     <dl className={reportStyles.rankingTotals}>
-      <div><dt>前 100 上榜率</dt><dd>{rankingShare(summary.ranked, summary.total)} <small>{numberText(summary.ranked)} / {numberText(summary.total)} 词</small></dd></div>
+      <div><dt>{summary.scope === "all-keywords" ? "全部关键词前 100 覆盖" : "本批采样前 100 覆盖"}</dt><dd>{rankingShare(summary.ranked, summary.total)} <small>{numberText(summary.ranked)} / {numberText(summary.total)} 词</small></dd></div>
       <div><dt>确认前 100 外</dt><dd>{numberText(summary.verifiedOutside)} <small>词</small></dd></div>
       <div><dt>排名待确认</dt><dd>{numberText(summary.unresolved)} <small>词</small></dd></div>
     </dl>
     <div className={reportStyles.rankingCharts}>
       <figure>
-        <figcaption>各国前 100 上榜率</figcaption>
+        <figcaption>{summary.scope === "all-keywords" ? "各国关键词前 100 覆盖" : "本批各国前 100 覆盖"}</figcaption>
         <ul>{summary.countries.map(row => <li key={row.country}>
           <span>{rankingCountries[row.country] ?? row.country}</span>
           {mark(row.ranked, row.target)}
-          <span className={reportStyles.rankingValue}><strong>{rankingShare(row.ranked, row.target)}</strong><small>{numberText(row.ranked)} / {numberText(row.target)} 词</small></span>
+          <span className={reportStyles.rankingValue}><strong>{row.country === "unknown" ? "—" : rankingShare(row.ranked, row.target)}</strong><small>{row.country === "unknown" ? numberText(row.target) : `${numberText(row.ranked)} / ${numberText(row.target)}`} 词</small></span>
         </li>)}</ul>
       </figure>
       <figure>
@@ -345,29 +345,6 @@ function WeeklyRankingOverview({ summary }: { summary: WeeklyRankingSummary }) {
         </li>)}</ul>
       </figure>
     </div>
-    <details className={reportStyles.rankingDetails}>
-    <summary>查看排名数据表</summary>
-    <div className={reportStyles.rankingTables}>
-      <div className={reportStyles.tableScroll}><table className={reportStyles.comparison}>
-        <caption>国家分布</caption>
-        <thead><tr><th scope="col">查询国家</th><th scope="col">上榜 / 目标词</th><th scope="col">本国上榜率</th><th scope="col">占上榜词</th></tr></thead>
-        <tbody>{summary.countries.map(row => <tr key={row.country}>
-          <th scope="row">{rankingCountries[row.country] ?? row.country} {rankingCountries[row.country] ? <small>{row.country}</small> : null}</th>
-          <td>{numberText(row.ranked)} / {numberText(row.target)}</td>
-          <td>{rankingShare(row.ranked, row.target)}</td>
-          <td>{rankingShare(row.ranked, summary.ranked)}</td>
-        </tr>)}</tbody>
-      </table></div>
-      <div className={reportStyles.tableScroll}><table className={reportStyles.comparison}>
-        <caption>排名区间</caption>
-        <thead><tr><th scope="col">区间</th><th scope="col">词数</th><th scope="col">占上榜词</th><th scope="col">占目标词</th></tr></thead>
-        <tbody>{summary.bands.map(row => <tr key={row.from}>
-          <th scope="row">{row.from}–{row.to} 名</th><td>{numberText(row.count)}</td>
-          <td>{rankingShare(row.count, summary.ranked)}</td><td>{rankingShare(row.count, summary.total)}</td>
-        </tr>)}</tbody>
-      </table></div>
-    </div>
-    </details>
   </>;
 }
 
@@ -403,10 +380,7 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
     {weeklyRankingSummary || rankingNotes?.length ? <section className={reportStyles.section}>
       <h3>关键词排名明细</h3>
       {weeklyRankingSummary ? <WeeklyRankingOverview summary={weeklyRankingSummary} /> : null}
-      {rankingNotes?.length ? weeklyRankingSummary ? <details className={reportStyles.rankingDetails}>
-        <summary>查看采集口径和排名例证</summary>
-        <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul>
-      </details> : <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul> : null}
+      {!weeklyRankingSummary && rankingNotes?.length ? <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul> : null}
     </section> : null}
     {dashboard?.technicalText || technical || !weekly ? <section className={reportStyles.section}>
       <h3>SEO 技术质检</h3>

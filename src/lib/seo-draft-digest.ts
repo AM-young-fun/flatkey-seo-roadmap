@@ -6,6 +6,7 @@ import { growthHash, growthReportMissingFactLines } from "./growth-strategy";
 import { conversionReportMissingFactLines } from "./seo-conversion";
 import { hasWeeklyReportSections, weeklyReportSections, weeklyTechnicalText } from "./seo-report-template";
 import { reportModuleShareLines, savedReportModuleShares, type ReportModuleShareSnapshot } from "./report-module-shares";
+import { weeklyKeywordCatalogLine } from "./seo-weekly-ranking-summary";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 export const draftDigestCommandSchema = z.object({
@@ -60,6 +61,9 @@ export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Dat
     if (JSON.stringify(actual) !== JSON.stringify([...input.expectedScheduledTaskIds].sort())) throw new ReviewedDigestError("正式排期已变化，请重新核对任务", 409);
   }
   if (input.refreshRankingSummary && !weeklyRankingSummary) throw new ReviewedDigestError("缺少本期可核验排名回执", 409);
+  if (weeklyRankingSummary?.scope === "all-keywords" && !input.text.includes(weeklyKeywordCatalogLine(weeklyRankingSummary))) {
+    throw new ReviewedDigestError("正文的全部关键词排名与看板不一致，请重读本期数据", 409);
+  }
   const registrations = input.dashboardEvidence?.sites.find(row => row.name === "flatkey.ai")?.registrations;
   const provisional = input.dashboardEvidence?.gscProvisionalFrom;
   if (provisional && (provisional < input.reportPeriod.start || provisional > input.reportPeriod.end || input.dashboardEvidence?.gscComparable)) {
