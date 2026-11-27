@@ -93,16 +93,19 @@ test("workflow diagnostics expose aggregate sizes and durations without rows or 
   assert.equal(denied.status, 401); assert.equal(Object.hasOwn(await denied.json(), "phases"), false);
 });
 
-test("work task list filters all matching records before returning fixed ten-row pages", async () => {
+test("work task list filters matching content records before returning fixed ten-row pages", async () => {
   const weekStart = "2026-11-23", dueAt = "2026-11-23T09:00:00Z";
   for (let index = 0; index < 26; index++) {
     const id = `page-task-${String(index).padStart(2, "0")}`;
     const matching = index > 1 && index < 24;
-    const record = { ...task, id, weekStart, dueAt, title: matching ? `Matching canonical ${index}` : `Other task ${index}` };
+    const record = { ...task, id, weekStart, dueAt, kind: "landing", pageType: "landing", country: "US", language: "en",
+      keyword: `gpu directory ${index}`, title: matching ? `Matching landing ${index}` : `Other task ${index}` };
     assert.equal((await post(mutation({ requestId: `add-${id}`, record }))).status, 200);
   }
+  const technical = { ...task, id: "matching-technical", weekStart, dueAt, title: "Matching technical check" };
+  assert.equal((await post(mutation({ requestId: "add-matching-technical", record: technical }))).status, 200);
   const base = `${url}?operational=1&workList=1&format=list`;
-  const filtered = `${base}&q=matching&status=scheduled&site=flatkey.ai&taskType=technical&range=all`;
+  const filtered = `${base}&q=matching&status=scheduled&site=flatkey.ai&range=all`;
   for (const [page, count, first] of [[1, 10, "02"], [2, 10, "12"], [3, 2, "22"], [9, 2, "22"]]) {
     const response = await GET(new Request(`${filtered}&page=${page}`));
     assert.equal(response.status, 200);
@@ -112,10 +115,16 @@ test("work task list filters all matching records before returning fixed ten-row
     assert.equal(result.tasks[0].id, `page-task-${first}`);
     assert.equal(Object.hasOwn(result, "workWeek"), false, "a page does not carry global task ID arrays");
   }
+  const landing = await (await GET(new Request(`${filtered}&page=1&taskType=landing-create`))).json();
+  assert.equal(landing.pagination.total, 22);
+  const technicalList = await (await GET(new Request(`${filtered}&page=1&taskType=technical`))).json();
+  assert.equal(technicalList.pagination.total, 0);
   const noMatches = await (await GET(new Request(`${base}&page=2&site=rackrate.org&range=all`))).json();
   assert.deepEqual(noMatches.pagination, { page: 1, pageSize: 10, total: 0, pageCount: 1 });
   assert.deepEqual(noMatches.tasks, []);
-  assert.equal((await (await GET(new Request(base))).json()).tasks.length, 26, "legacy callers keep their full list");
+  const legacy = await (await GET(new Request(base))).json();
+  assert.equal(legacy.tasks.length, 27, "legacy callers keep their full list");
+  assert.ok(legacy.tasks.some(row => row.id === technical.id));
   for (const query of ["page=0", "page=-1", "page=2&page=3", "page=1&pageSize=100", "page=1&site=bad", "page=1&status=bogus", "page=1&range=custom"]) {
     assert.equal((await GET(new Request(`${base}&${query}`))).status, 400, query);
   }

@@ -1,5 +1,5 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript');
-require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
+require('./register-ui-modules.cjs');
+const {test}=require('node:test'),assert=require('node:assert/strict'),Module=require('node:module');
 const originalLoad=Module._load;
 let sharedMode=false,workspaceReads=0,legacyRankReads=0,sharedWorkspace=null,workspaceAsOf=null;
 const fixtureWorkspace={generatedAt:'2026-11-23T12:00:00Z',targets:[{id:'saved-diagnostic',site:'flatkey.ai',keyword:'gpu pricing',country:'US',language:'en',membership:'opportunity',rank:8,rankUrl:'https://flatkey.ai/blog/gpu-pricing',rankSource:'serp',checkedAt:'2026-11-23T07:00:00Z',languageStatus:'match',captureState:'ranked',rankEligible:true,observationEligible:true,captureScope:'DIAGNOSTIC'}]};
@@ -17,7 +17,6 @@ Module._load=function(name,parent,...args){
   if(name==='./daily-seo-traffic'&&parent.filename.endsWith('/services/seo-digest.ts'))return {loadDailySeoTrafficHistory:async()=>undefined};
   if(name==='./approved-weekly-keyword-capture'&&parent.filename.endsWith('/services/seo-digest.ts'))return {loadApprovedWeeklyKeywordCapture:async()=>null};
   if(name==='./serp-results'&&parent.filename.endsWith('/services/seo-digest.ts'))return {loadSerpTasks:async()=>{legacyRankReads++;return [];}};
-  if(name.startsWith('@/'))return originalLoad.call(this,path.resolve(__dirname,'../src',name.slice(2))+(name.endsWith('.cjs')?'':'.ts'),parent,...args);
   return originalLoad.call(this,name,parent,...args);
 };
 const {generateSeoDigest}=require('../src/lib/services/seo-digest.ts');

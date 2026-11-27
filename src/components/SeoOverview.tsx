@@ -14,6 +14,7 @@ import { useSeoCountry } from "./useSeoCountry";
 import { OVERVIEW_PAGE_MODULES, overviewModule, type OverviewPageModule } from "@/lib/seo-overview-scope";
 import { UiSelect } from "./UiSelect";
 import { TrafficRegistrationSummary, useTrafficSummaryTrend } from "./TrafficRegistrationSummary";
+import { ClusterTrafficOverview } from "./ClusterTrafficOverview";
 import workspace from "./SeoWorkspace.module.css";
 import styles from "./SeoOverview.module.css";
 
@@ -48,6 +49,7 @@ export function SeoOverview() {
   const growth = useOverviewRead<OverviewKeywordSummary>(keywordSummaryUrl);
   const scoped = useOverviewRead<OverviewKeywordSummary>(coverageQuery ? keywordSummaryUrl + "&" + coverageQuery : null);
   const traffic = useTrafficSummaryTrend(context);
+  const trafficRange = traffic.data ?? traffic.previousData;
   useEffect(() => {
     const read = () => {
       const params = new URLSearchParams(location.search);
@@ -78,6 +80,7 @@ export function SeoOverview() {
       </div>
       <OverviewGoalSection traffic={goal} growth={growth} />
       <TrafficRegistrationSummary dates={context} read={traffic} />
+      {trafficRange ? <ClusterTrafficOverview range={trafficRange} /> : null}
       <OverviewContentSection growth={growth} />
       <GrowthRankingCoverage read={coverageQuery ? scoped : growth} />
       <div className={styles.rankings}>

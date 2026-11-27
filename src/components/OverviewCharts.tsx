@@ -41,7 +41,7 @@ export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数�
 export type LineDatum = { label: string; value: number | null; prior?: number | null };
 /** Gaps remain gaps. Previous observations align by ordinal day and retain their own dates in labels. */
 export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit }: {
-  rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string, string]; detailUnit?: string;
+  rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string] | readonly [string, string]; detailUnit?: string;
 }) {
   const [selected, select] = useState<number | null>(null);
   const values = rows.flatMap(row => [row.value, row.prior]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -68,7 +68,7 @@ export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit }: 
   const secondary = series ? "#087e76" : "#b7c8e0";
   return <figure className={styles.line}>
     <div className={styles.axis}>
-      {series ? <span className={styles.lineLegend}><span><i />{series[0]}</span><span><i />{series[1]}</span><span>单位：{unit}</span></span>
+      {series ? <span className={styles.lineLegend}>{series.map(label => <span key={label}><i />{label}</span>)}<span>单位：{unit}</span></span>
         : <>单位：{unit} · 深色：本期{priorLabel ? ` 浅色虚线：${priorLabel}` : ""}</>}
     </div>
     <div className={styles.lineCanvas} role={series ? "group" : undefined} tabIndex={series ? 0 : undefined}
@@ -86,7 +86,7 @@ export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit }: 
         {rows.map((row, i) => row.value == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.value)} r="3" fill="#3478ca">
           <title>{`${row.label}：${series ? series[0] + " " : ""}${chartNumber(row.value)} ${unit}${!series && row.prior != null ? `；对比日 ${chartNumber(row.prior)} ${unit}` : ""}`}</title>
         </circle>)}
-        {series ? rows.map((row, i) => row.prior == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.prior)} r="3" fill={secondary}>
+        {series?.[1] ? rows.map((row, i) => row.prior == null ? null : <circle key={row.label} cx={x(i)} cy={y(row.prior)} r="3" fill={secondary}>
           <title>{`${row.label}：${series[1]} ${chartNumber(row.prior)} ${unit}`}</title>
         </circle>) : null}
         {rows.map((row, i) => i === 0 || i === rows.length - 1 || i === Math.floor(rows.length / 2)

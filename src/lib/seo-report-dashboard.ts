@@ -9,7 +9,10 @@ const shareCounts = z.object({ all: count, modelDetail: count, prompts: count })
 export const reportDashboardEvidenceSchema = z.object({
   scope: z.literal("website-console"), timezone: z.literal("America/Los_Angeles"),
   observedAt: z.iso.datetime({ offset: true }), gscComparable: z.boolean(), gscProvisionalFrom: z.iso.date().optional(),
-  sites: z.array(withRegistration.extend({ name: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org", "mochichatbot.com", "jev-llm.com"]) })).min(5).max(6),
+  sites: z.array(withRegistration.extend({
+    name: z.enum(["flatkey.ai", "rackrate.org", "modelfit.cc", "rougecue.org", "mochichatbot.com", "jev-llm.com"]),
+    sessionsTimezone: z.literal("Asia/Shanghai").optional(),
+  })).min(5).max(6),
   countries: z.array(traffic.extend({ name: z.enum(["US", "JP", "BR", "ES"]) })).length(4),
   modules: z.array(withRegistration.extend({ id: z.enum(["home", "blog", "models", "gpu", "prompts"]) })).length(5).optional(),
   moduleShares: z.object({ current: shareCounts, previous: shareCounts, observedAt: z.iso.datetime({ offset: true }) }).strict().optional(),
@@ -41,7 +44,8 @@ export function dashboardComparisonGroups(rows: ReportDashboardEvidence["sites"]
     return [{ label, previous, current,
       delta: !comparable || previous === null || current === null || previous === 0 ? "" : previous === current ? "持平" : `${current > previous ? "+" : ""}${((current - previous) / previous * 100).toFixed(1)}%`,
       period: `${shift(period.start)}—${shift(period.end)} → ${period.start}—${period.end}`,
-      note: comparable ? "" : gscProvisionalFrom ? `GSC ${gscProvisionalFrom} 起为初步数据，不计算周环比` : "不计算周环比",
+      note: key === "sessions" && "sessionsTimezone" in row && row.sessionsTimezone === "Asia/Shanghai" ? "GA4 按北京时间统计"
+        : comparable ? "" : gscProvisionalFrom ? `GSC ${gscProvisionalFrom} 起为初步数据，不计算周环比` : "不计算周环比",
     }];
   }) }));
 }

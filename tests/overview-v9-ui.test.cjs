@@ -117,6 +117,26 @@ test("the trends and the module chart follow their shared date control",()=>{
   } finally {rangeReady=true;automaticRange=true;activeRange=overviewRange;overviewReads.clear();}
 });
 
+test("overview places per-site GA4 comparisons and a daily trend below Flatkey traffic", () => {
+  const trafficUrl = "/api/seo/analytics?view=traffic-overview";
+  const clusterUrl = `/api/seo/analytics?view=cluster-traffic&start=${overviewRange.start}&end=${overviewRange.end}`;
+  fixtures.set(trafficUrl, { ...overviewRange, automatic: true, completeWeekEnd: overviewRange.end,
+    daily: [], modules: { sessions: {}, complete: false }, moduleDays: [] });
+  overviewReads.set(clusterUrl, { data: { ...overviewRange, previous: { start: "2026-11-10", end: "2026-11-16" }, sites: [
+    { domain: "rackrate.org", name: "RackRate", timezone: "Asia/Shanghai",
+      current: { total: 15, recordedDays: 7 }, previous: { total: 10, recordedDays: 7 }, daily: [{ date: overviewRange.start, sessions: 2 }] },
+    { domain: "rougecue.org", name: "RougeCue", timezone: "America/Los_Angeles",
+      current: { total: null, recordedDays: 0 }, previous: { total: null, recordedDays: 0 }, daily: [{ date: overviewRange.start, sessions: null }] },
+  ] } });
+  try {
+    const html = render(React.createElement(SeoOverview));
+    assert.match(html, /页面模块入口会话占比[\s\S]*集群站点流量趋势[\s\S]*全部关键词内容建设进度/);
+    assert.match(html, /aria-pressed="true"[^>]*><span[^>]*>RackRate[\s\S]*较上期 \+5 次 · \+50\.0%/);
+    assert.match(html, /RougeCue[\s\S]*已归档 0\/1 天/);
+    assert.match(html, /RackRate 逐日趋势[\s\S]*北京时间[\s\S]*aria-label="自然搜索会话每日明细/);
+  } finally { fixtures.delete(trafficUrl); overviewReads.delete(clusterUrl); }
+});
+
 test("work date filtering keeps the filters interactive and only retains stale rows while the list loads",()=>{
   listQuery="range=custom";
   listRead={hasSettled:true,pending:true,loading:true,previousUrl:"/api/seo/workflow?range=week",previousData:{storage:"database",pagination:{page:1,pageSize:10,total:1,pageCount:1},tasks:[{id:"original-task",title:"原任务标题",siteDomain:"flatkey.ai",displayStatus:"scheduled",owner:"Codex"}]}};
@@ -155,7 +175,7 @@ test("work board shows the saved business-week plan without counting language ga
     assert.match(html, /aria-label="排期缺口"[\s\S]*?Flatkey 常规优化[\s\S]*?RackRate／ModelFit 落地页[\s\S]*?英文源文/);
     assert.match(html, /<details[^>]*><summary>每日交付缺口<\/summary>/);
     assert.match(html, /aria-label="按日登记的排期缺口"[\s\S]*?<time dateTime="2026-11-30">2026-11-30<\/time>[\s\S]*?Flatkey 常规优化 2/);
-    assert.doesNotMatch(html, /<time dateTime="2026-12-01">/);
+    assert.doesNotMatch(html, /<time dateTime="2026-12-01">|核对旧文|核对 &lt;待定&gt;/);
   } finally { listRead = undefined; }
 });
 test("1600-word graph is complete, deterministic across reorder/rank updates, and bounded by one circle",()=>{
