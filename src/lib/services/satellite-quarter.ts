@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { GROWTH_STRATEGY_KEY, GROWTH_STRATEGY_KIND, growthHash, growthStrategyStoredSchema, type GrowthStrategy } from "../growth-strategy";
 import { growthTargetId } from "../growth-workspace";
-import { MARKET_ASSIGNMENT_SOURCE_ID, readKeywordMarketAssignment } from "../keyword-market-policy";
+import { MARKET_ASSIGNMENT_SOURCE_ID } from "../keyword-market-policy";
 import { QuarterMembershipError, quarterMembershipHash, quarterWordKey } from "../quarter-membership";
 import { quarterWordResearchProblem } from "../quarter-word-research";
 import { SATELLITE_QUARTER_SITES, SATELLITE_QUARTER_VERSION, SATELLITE_QUARTER_EXTENSION_VERSION, satelliteQuarterBound, satelliteQuarterCommandSchema,
@@ -12,6 +12,7 @@ import { SATELLITE_QUARTER_SITES, SATELLITE_QUARTER_VERSION, SATELLITE_QUARTER_E
   satelliteQuarterStoredSchema, type SatelliteQuarter } from "../satellite-quarter";
 import { GROWTH_EXECUTION_SITES, isGrowthTopicPlaceholder } from "../seo-growth-markets";
 import { readGrowthStrategy } from "./growth-strategy";
+import { verifiedWorkflowMarketAssignment } from "./keyword-market-assignment";
 
 const researchSourceId = "SEO_SATELLITE_QUARTER_AHREFS_WEB";
 const asJson = (value: unknown) => value as Prisma.InputJsonValue;
@@ -40,7 +41,7 @@ async function readVerifiedSources(tx: Prisma.TransactionClient, pool: Satellite
     const member = members.find(value => value.siteDomain === row.siteDomain && value.keywordId === row.keywordId);
     const source = sources.find(value => value.siteDomain === row.siteDomain && value.rowKey === rowKey(row.keywordId) && value.sourceId === researchSourceId);
     const market = sources.find(value => value.siteDomain === row.siteDomain && value.rowKey === rowKey(row.keywordId) && value.sourceId === MARKET_ASSIGNMENT_SOURCE_ID);
-    const assignment = readKeywordMarketAssignment(market?.snapshot);
+    const assignment = verifiedWorkflowMarketAssignment(market?.snapshot, market?.snapshotHash);
     const { data: raw } = satelliteQuarterInputRowSchema.safeParse(source?.snapshot);
     if (!sites.some(site => site.domain === row.siteDomain) || !topics.some(topic => topic.id === row.topicId
       && !isGrowthTopicPlaceholder(topic.text) && topic.sites.some(site => site.siteDomain === row.siteDomain))
@@ -52,7 +53,7 @@ async function readVerifiedSources(tx: Prisma.TransactionClient, pool: Satellite
       || raw.sourceUrl !== row.sourceUrl || raw.sourceFile !== row.sourceFile || raw.volume !== row.volume
       || source.observedAt?.toISOString() !== new Date(row.observedAt).toISOString()
       || raw.researchDate !== row.researchDate || quarterWordResearchProblem(raw, at)
-      || !assignment || market?.snapshotHash !== quarterMembershipHash(market?.snapshot)
+      || !assignment
       || assignment.primaryCountry !== row.country || assignment.language !== row.language) {
       throw new QuarterMembershipError("satellite_readback_changed", `两站正式成员、原题或来源读回未对平：${row.keyword}`, 409);
     }

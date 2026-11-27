@@ -1,7 +1,21 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { quarterMembershipHash } from "@/lib/quarter-membership";
 import { ImportRequestError } from "@/lib/ranking-import";
 import { KEYWORD_MARKET_LANGUAGES, MARKET_ASSIGNMENT_SOURCE_ID, keywordMarketAssignmentSchema, readKeywordMarketAssignment, type KeywordMarket } from "@/lib/keyword-market-policy";
+
+export function verifiedWorkflowMarketAssignment(snapshot: unknown, hash: string | undefined) {
+  const assignment = readKeywordMarketAssignment(snapshot);
+  if (!assignment || !hash) return null;
+  const canonicalDigest = quarterMembershipHash(snapshot);
+  if (hash === canonicalDigest) return assignment;
+  if (quarterMembershipHash(assignment) !== canonicalDigest) return null;
+
+  // Earlier workflow writes hashed the schema's field order before storing
+  // JSONB. Parsing restores that order for the original digest comparison.
+  const originalDigest = createHash("sha256").update(JSON.stringify(assignment)).digest("hex");
+  return hash === originalDigest ? assignment : null;
+}
 
 type Evidence = { label: string; url?: string; artifact?: string; observedAt?: string };
 /** Called only by an authenticated approved research decision in its transaction. */
@@ -30,7 +44,7 @@ export async function syncWorkflowMarketAssignment(tx: Prisma.TransactionClient,
     evidence: current && current.primaryCountry !== input.country ? current.evidence : reason,
     reviewedAt: input.reviewedAt,
   });
-  const snapshotHash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+  const snapshotHash = quarterMembershipHash(snapshot);
   await tx.keywordSourceRow.upsert({ where: { siteDomain_sourceId_rowKey: identity },
     create: { ...identity, snapshot: snapshot as unknown as Prisma.InputJsonValue, snapshotHash, observedAt: new Date(input.reviewedAt) },
     update: { snapshot: snapshot as unknown as Prisma.InputJsonValue, snapshotHash, observedAt: new Date(input.reviewedAt) } });
