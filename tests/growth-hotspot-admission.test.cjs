@@ -165,10 +165,10 @@ test("weekly growth links archived same-topic evidence to a qualified page in th
   const driver = { url: pageUrl, topicId: "gpu", country: "US", source: "GSC", metric: "clicks", previous: 15, current: 25,
     window: { start: "2026-11-19", end: "2026-11-25", previousStart: "2026-11-12", previousEnd: "2026-11-18", timezone: "America/Los_Angeles" } };
   const report = { id: reportId, hash: reportHash, kind: "weekly", date: "2026-11-26", generatedAt: "2026-11-26T08:30:00Z", growthSnapshot: { directions: [{ drivers: [driver] }] } };
-  const scope = { ...direction.scope[0], kinds: ["optimization"], validUntil: "2026-12-04T00:00:00Z" };
+  const scope = { ...direction.scope[0], kinds: ["optimization", "blog"], validUntil: "2026-12-04T00:00:00Z" };
   Object.assign(direction, { weeklyGrowth: { reportId, reportHash }, scope: [scope], expiresAt: scope.validUntil,
     drivers: [driver], taskIds: ["boost"], evidence: [{ source: "demand", observedAt: stamp }], decision: { ...direction.decision, scope: [scope] } });
-  const boost = task("boost", { kind: "optimization", pageUrl, dueAt: "2026-11-30T06:00:00Z", capacityClass: "authorized_weekly_growth_extra", weeklyGrowthRevision: 2 });
+  const boost = task("boost", { kind: "optimization", weekStart: "2026-11-30", pageUrl, dueAt: "2026-11-30T06:00:00Z", capacityClass: "authorized_weekly_growth_extra", weeklyGrowthRevision: 2 });
   const check = (patch = {}, source = report) => weeklyGrowthTaskProblem(context.strategy, { ...boost, ...patch }, source, clock);
   assert.equal(check(), null);
   assert.equal(check({ pageUrl: "https://flatkey.ai/blog/other" }), null);
@@ -197,24 +197,38 @@ test("weekly growth links archived same-topic evidence to a qualified page in th
   assert.equal(check({}, reportWithSummary(weeklySummary)), null);
   assert.match(check({ pageUrl: "https://flatkey.ai/blog/other" }, reportWithSummary(weeklySummary)), /同一周报/);
   assert.match(check({}, reportWithSummary({ ...weeklySummary, comparisonDates: dates.slice(1) })), /同一周报/);
+  const blog = { ...boost, kind: "blog", pageUrl: "https://flatkey.ai/blog/new-gpu-guide" };
+  const archived = reportWithSummary(weeklySummary);
+  assert.match(weeklyGrowthTaskProblem(context.strategy, blog, archived, clock), /同一周报/);
+  assert.match(weeklyGrowthTaskProblem(context.strategy, blog, archived, clock, [{ ...boost, topicId: "other" }]), /同一周报/);
+  assert.equal(weeklyGrowthTaskProblem(context.strategy, blog, archived, clock, [boost]), null);
+  assert.match(weeklyGrowthTaskProblem(context.strategy, { ...blog, pageUrl: "https://flatkey.ai/models/new" }, archived, clock, [boost]), /正式博客发布路由/);
+  assert.match(weeklyGrowthTaskProblem(context.strategy, { ...blog, researchReview: null }, archived, clock, [boost]), /去重研究/);
+  const { version, recordedAt, updatedAt, ...record } = blog;
+  const { weeklyGrowthRevision, ...original } = record;
+  const prior = [{ kind: "task", record: { ...original, version, recordedAt, updatedAt, capacityClass: "routine" } }];
+  const register = { action: "save_task", expectedVersion: version, requestId: "test-weekly-growth-blog", record };
+  assert.equal(prepareWorkflowMutation(register, prior, "human", clock).record.capacityClass, "authorized_weekly_growth_extra");
+  assert.throws(() => prepareWorkflowMutation(register, prior, "collector", clock), { code: "human_extra_work_required" });
   direction.evidence = [];
   assert.match(check({}, reportWithSummary(weeklySummary)), /持续性证据/);
 });
 
-test("daily extra capacity is shared and weekly growth reserves two deliveries for one topic", () => {
+test("hotspots and weekly growth have independent daily and weekly quotas", () => {
   const { seoExtraCapacityProblem } = require("../src/lib/seo-extra-capacity.ts");
-  const extras = [
-    task("hot", { capacityClass: "authorized_hotspot_extra", dueAt: "2026-11-27T06:00:00Z" }),
-    task("boost0", { capacityClass: "authorized_weekly_growth_extra", kind: "optimization", dueAt: "2026-11-27T07:00:00Z" }),
-    task("boost1", { capacityClass: "authorized_weekly_growth_extra", kind: "optimization", dueAt: "2026-11-30T07:00:00Z" }),
-    task("boost2", { capacityClass: "authorized_weekly_growth_extra", kind: "optimization", dueAt: "2026-12-01T07:00:00Z" }),
-    task("boost3", { capacityClass: "authorized_weekly_growth_extra", kind: "optimization", dueAt: "2026-12-02T07:00:00Z", topicId: "different" }),
-  ];
+  const hot = (id, date) => task(id, { capacityClass: "authorized_hotspot_extra", dueAt: date + "T06:00:00Z" });
+  const boost = (id, date, patch = {}) => task(id, { capacityClass: "authorized_weekly_growth_extra", dueAt: date + "T07:00:00Z", ...patch });
+  const extras = [hot("hot1", "2026-11-27"), hot("hot2", "2026-11-30"), hot("hot3", "2026-12-01"),
+    boost("opt", "2026-11-27", { kind: "optimization" }), boost("new1", "2026-11-30"), boost("new2", "2026-12-01"),
+    boost("new3", "2026-12-02"), boost("same-day", "2026-12-01"), boost("different-topic", "2026-12-02", { topicId: "different" })];
   const check = ids => seoExtraCapacityProblem(extras, new Set(ids), new Set(ids.slice(-1)));
-  assert.match(check(["hot", "boost0"]), /当日额外/);
-  assert.equal(check(["hot", "boost1", "boost2"]), null);
-  assert.match(check(["boost0", "boost1", "boost2"]), /两项/);
-  assert.match(check(["boost1", "boost3"]), /一个上涨加推话题/);
+  assert.equal(check(["hot1", "hot2", "opt", "new1", "new2"]), null);
+  assert.equal(check(["opt", "new1", "new2", "hot1", "hot2"]), null);
+  assert.match(check(["opt", "new1", "new2", "hot1", "hot2", "hot3"]), /热点已达到两页/);
+  assert.match(check(["opt", "new1", "new2", "new3"]), /三项上限/);
+  assert.match(check(["new1", "new2", "new3"]), /两篇新增博客/);
+  assert.match(check(["new2", "same-day"]), /当日额外/);
+  assert.match(check(["new1", "different-topic"]), /一个上涨加推话题/);
 });
 
 
