@@ -26,6 +26,41 @@ function plansForWeek(plans: WorkflowPlan[], report: WeeklyGrowthReport) {
     && plan.targets.executionRange.start === range.start && plan.targets.executionRange.end === range.end);
 }
 
+/** A reviewed new blog can introduce an original word outside the frozen
+ * quarter. This runs inside the task CAS transaction; later gates can abort
+ * the entire write, including the keyword and its site membership. */
+export async function confirmWeeklyGrowthBlogKeyword(db: Prisma.TransactionClient, task: WorkflowTask, now: Date) {
+  const word = task.keyword;
+  if (!word || !task.topicId) throw new WorkflowError("weekly_growth_blog_identity", "新增加推须有原词和既有话题", 422);
+  const state = await readGrowthStrategy(db), direction = state.directions.find(row => row.id === task.directionId);
+  const report = await readWeeklyGrowthReport(db, direction?.weeklyGrowth?.reportId);
+  const problem = weeklyGrowthTaskProblem(state, task, report, now, await publishedArticleAnchors(db, task, direction));
+  if (problem) throw new WorkflowError("weekly_growth_evidence_required", problem, 422);
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-import:${task.siteDomain}`}))`;
+  const matches = await db.keyword.findMany({ where: { text: { equals: word, mode: "insensitive" } },
+    select: { id: true, text: true, active: true }, take: 2 });
+  const existing = matches[0];
+  if (matches.length > 1 || existing && (!existing.active || existing.text !== word)) throw new WorkflowError("weekly_growth_keyword_conflict", "原词已有其他有效身份或已停用，请先沿原词核对", 409);
+  if (task.keywordId && existing?.id !== task.keywordId) throw new WorkflowError("weekly_growth_keyword_conflict", "任务原词 ID 与库中现有身份不一致", 409);
+  const keyword = existing ?? await db.keyword.create({ data: { text: word, type: "LONG_TAIL", topicId: task.topicId, active: true }, select: { id: true } });
+  const identity = { siteDomain: task.siteDomain, keywordId: keyword.id }, where = { siteDomain_keywordId: identity };
+  const member = await db.siteKeyword.findUnique({ where });
+  if (member && (!member.active || member.topicId !== task.topicId || !["RESEARCH", "FORMAL"].includes(member.pool)
+    || member.targetUrls.length || member.pool === "RESEARCH" && member.protected)) {
+    throw new WorkflowError("weekly_growth_keyword_conflict", "本站原词已有已发页面、其他话题或原筛检记录，请沿原记录核对", 409);
+  }
+  const confirmed = { pool: "FORMAL", reviewStatus: "WEEKLY_GROWTH_CONFIRMED",
+    auditReason: `已确认上涨加推 ${task.directionId} v${task.weeklyGrowthRevision}，原任务 ${task.id}` };
+  if (!member) {
+    await db.siteKeyword.create({ data: { ...identity, topicId: task.topicId, origin: "RESEARCH", ...confirmed } });
+  } else if (member.pool === "RESEARCH") {
+    await db.siteKeyword.update({ where, data: confirmed });
+  }
+  const edge = { ...identity, topicId: task.topicId };
+  await db.siteKeywordTopic.upsert({ where: { siteDomain_keywordId_topicId: edge }, create: edge, update: {} });
+  return keyword.id;
+}
+
 function pageVariants(url: string) {
   const www = new URL(url);
   www.hostname = "www." + www.hostname;
@@ -123,9 +158,12 @@ export async function admitApprovedWeeklyGrowthDirection(directionId: string, re
       if (existing) { results.push({ taskId, status: "reused", planId: existing.id }); continue; }
       const candidates = plansForWeek(originalPlans, report);
       if (candidates.length !== 1) { pending("周报对应业务周缺少唯一可追加的正式原计划"); continue; }
-      const extra = { ...task, capacityClass: WEEKLY_GROWTH_EXTRA, weeklyGrowthRevision: revision } as const;
+      if (task.status !== "ready" && !(task.kind === "blog" && ["planned", "researching"].includes(task.status))) {
+        pending("原任务尚未完成研究并进入可执行状态"); continue;
+      }
+      const extra = { ...task, status: "ready", capacityClass: WEEKLY_GROWTH_EXTRA, weeklyGrowthRevision: revision } as const;
       const problem = weeklyGrowthTaskProblem(state, extra, report, new Date(), await publishedArticleAnchors(prisma, extra, direction));
-      if (problem || task.status !== "ready") { pending(problem ?? "原任务尚未完成研究并进入可执行状态"); continue; }
+      if (problem) { pending(problem); continue; }
       const record = rawWorkflowRecord(extra);
       if (task.capacityClass !== WEEKLY_GROWTH_EXTRA) {
         let writeError: unknown;
@@ -134,7 +172,7 @@ export async function admitApprovedWeeklyGrowthDirection(directionId: string, re
             requestId: `weekly-growth-task:${workflowHash([task.version, record])}`, record }, actor);
         } catch (error) { writeError = error; }
         const saved = await readTask(taskId);
-        if (!saved || workflowHash(rawWorkflowRecord(saved)) !== workflowHash(record)) {
+        if (!saved || !saved.keywordId || workflowHash(rawWorkflowRecord(saved)) !== workflowHash({ ...record, keywordId: record.keywordId ?? saved.keywordId })) {
           pending(writeError instanceof WorkflowError ? writeError.message : "原任务登记后读回未对平"); continue;
         }
       }

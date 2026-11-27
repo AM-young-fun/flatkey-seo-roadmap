@@ -96,7 +96,8 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   if (previous?.capacityClass === WEEKLY_GROWTH_EXTRA && (task.capacityClass !== previous.capacityClass || task.weeklyGrowthRevision !== previous.weeklyGrowthRevision || task.directionId !== previous.directionId || task.topicId !== previous.topicId || task.dueAt !== previous.dueAt || task.pageUrl !== previous.pageUrl || task.country !== previous.country || task.language !== previous.language || task.keywordId !== previous.keywordId || task.keyword !== previous.keyword)) reject("weekly_growth_identity_immutable", "保留上涨加推的原任务、方向版本、交付日和原页身份");
   if (task.capacityClass === WEEKLY_GROWTH_EXTRA) {
     if (!["optimization", "blog"].includes(task.kind) || !task.pageUrl || !task.weeklyGrowthRevision || !task.directionId || !task.experimentId || !task.topicId || task.channel === "github" || task.channel === "product" || task.language === "ru") reject("weekly_growth_scope", "上涨加推须关联本站维护页或新增博客、原正式话题和已批准的方向版本");
-    if (previous?.capacityClass !== WEEKLY_GROWTH_EXTRA && (previous?.status !== "ready" || task.status !== "ready")) reject("weekly_growth_original_required", "上涨加推仅可从完成研究的可执行原内容任务登记");
+    const researchedBlog = task.kind === "blog" && previous?.kind === "blog" && ["planned", "researching"].includes(previous.status);
+    if (previous?.capacityClass !== WEEKLY_GROWTH_EXTRA && (task.status !== "ready" || previous?.status !== "ready" && !researchedBlog)) reject("weekly_growth_original_required", "上涨加推仅可沿完成研究的原内容任务登记");
     if (changingExecution && task.status !== "ready" && productionStates.has(task.status)
       && !all.some(row => row.kind === "plan" && executablePlanIncludesTask(row.record as WorkflowPlan, task))) reject("weekly_growth_plan_required", "上涨加推须在原计划追加并读回后执行");
   } else if (task.weeklyGrowthRevision !== undefined) reject("weekly_growth_identity_invalid", "方向版本须关联上涨加推容量");

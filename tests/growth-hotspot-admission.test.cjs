@@ -210,6 +210,12 @@ test("weekly growth links archived same-topic evidence to a qualified page in th
   const register = { action: "save_task", expectedVersion: version, requestId: "test-weekly-growth-blog", record };
   assert.equal(prepareWorkflowMutation(register, prior, "human", clock).record.capacityClass, "authorized_weekly_growth_extra");
   assert.throws(() => prepareWorkflowMutation(register, prior, "collector", clock), { code: "human_extra_work_required" });
+  const research = [{ kind: "task", record: { ...prior[0].record, status: "planned", keywordId: null } }];
+  const ready = prepareWorkflowMutation(register, research, "human", clock).record;
+  assert.equal(ready.status, "ready");
+  assert.equal(ready.keywordId, record.keywordId);
+  assert.throws(() => prepareWorkflowMutation(register, research, "collector", clock), { code: "human_extra_work_required" });
+  assert.throws(() => prepareWorkflowMutation({ ...register, expectedVersion: 0 }, [], "human", clock), { code: "weekly_growth_original_required" });
   direction.evidence = [];
   assert.match(check({}, reportWithSummary(weeklySummary)), /持续性证据/);
 });

@@ -8,7 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requestRead } from "@/lib/request-read-scope";
-import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowRun, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
+import { WORKFLOW_SCHEMAS, ACTION_KIND, isExecutableWorkflowPlan, workflowClaimSchema, workflowMutationSchema, workflowTaskSchema, workflowApprovalCheckSchema, type WorkflowKind, type WorkflowRecord, type WorkflowRun, type WorkflowTask, type WorkflowPlan, type WorkflowApproval, type WorkflowPublication, type WorkflowOptimization, type WorkflowTaskDetail } from "@/lib/seo-workflow";
 import { validateInternalReviewAssets } from "./seo-review-assets";
 import { prepareWorkflowMutation, isCompletedGrowthEvidenceAppend, workflowHash, workflowKey, workflowSnapshot, checkWorkflowApproval, WorkflowError, type WorkflowActor, type WorkflowSnapshotOptions, type WorkflowStoredRow } from "@/lib/seo-workflow-state";
 import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
@@ -179,7 +179,26 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     const leaseTask = articleLease && all.find(row => row.kind === "task" && row.record.id === articleLease.taskId)?.record;
     const leasedArticleId = leaseTask && articleLease
       && new Date(leaseTask.recordedAt).getTime() === articleLease.scheduledFor.getTime() ? leaseTask.id : undefined;
-    const prepared = prepareWorkflowMutation(request, all, actor, new Date(), leasedArticleId);
+    const now = new Date();
+    let operation = request;
+    if (actor === "human" && request.action === "save_task" && rawRecord?.capacityClass === WEEKLY_GROWTH_EXTRA
+      && rawRecord.kind === "blog" && rawRecord.status === "ready") {
+      const previous = all.find(row => row.kind === "task" && row.record.id === rawRecord.id)?.record as WorkflowTask | undefined;
+      if (previous && previous.kind === "blog" && ["planned", "researching"].includes(previous.status)) {
+        if (previous.version !== request.expectedVersion || (previous.keywordId ?? null) !== (rawRecord.keywordId ?? null)
+        || previous.siteDomain !== rawRecord.siteDomain || previous.keyword !== rawRecord.keyword
+        || previous.topicId !== rawRecord.topicId || previous.country !== rawRecord.country
+        || previous.language !== rawRecord.language || previous.pageUrl !== rawRecord.pageUrl || previous.dueAt !== rawRecord.dueAt) {
+          throw new WorkflowError("weekly_growth_original_required", "沿原博客研究任务确认确切原词、市场、话题、拟发页和日期", 409);
+        }
+        const record = { ...workflowTaskSchema.parse(rawRecord), version: previous.version,
+          recordedAt: previous.recordedAt, updatedAt: previous.updatedAt };
+        const { confirmWeeklyGrowthBlogKeyword } = await import("./growth-weekly-admission");
+        const keywordId = await confirmWeeklyGrowthBlogKeyword(tx, record, now);
+        operation = { ...request, record: { ...rawRecord, keywordId } };
+      }
+    }
+    const prepared = prepareWorkflowMutation(operation, all, actor, now, leasedArticleId);
     const newMaintenance = publishedMaintenanceMutationTasks(prepared.kind, prepared.record, all);
     await assertPublishedMaintenanceTasks(tx, newMaintenance, all, new Date(prepared.record.updatedAt));
     const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, all);
