@@ -23,6 +23,7 @@ export type PagePriorityFilters = { rank: PublishedKeywordRank | "all"; signal: 
 export function pageOptimizationPriorityRows(
   observations: AnalyticsObservation[], workflow: Pick<WorkflowSnapshot, "tasks" | "publications">, targets: GrowthTarget[],
   site: string, country: GrowthAnalysisCountry, now: Date, filters: Omit<PagePriorityFilters, "page"> = { rank: "all", signal: "all" },
+  history = false,
 ) {
   const asOf = now.toISOString();
   const candidates = targets.filter(target => target.site === site && target.country === country && target.sourceActive !== false).flatMap(target => {
@@ -39,14 +40,16 @@ export function pageOptimizationPriorityRows(
   });
   const candidatePages = new Set(candidates.map(candidate => candidate.url));
   const end = shiftDay(gscDate(now), -1);
-  const reports = completeGscReports(observations, site, country, { start: shiftDay(end, -34), end }, now);
+  const reports = completeGscReports(observations, site, country, { start: shiftDay(end, history ? -89 : -34), end }, now);
   const property = [...new Set(reports.map(row => row.property))].sort((a, b) =>
     (reports.filter(row => row.property === b).at(-1)?.date ?? "").localeCompare(reports.filter(row => row.property === a).at(-1)?.date ?? "")
     || Number(b.startsWith("sc-domain:")) - Number(a.startsWith("sc-domain:")))[0];
   const byDate = new Map(reports.filter(row => row.property === property).map(row => [row.date, new Map(row.rows.map(page => [page.url, page]))]));
-  const latestDay = [...byDate.keys()].at(-1);
-  const pairs = latestDay ? Array.from({ length: 7 }, (_, i) => shiftDay(latestDay, -i))
-    .filter(day => byDate.has(day) && byDate.has(shiftDay(day, -7))) : [];
+  const pairsAt = (day: string) => Array.from({ length: 7 }, (_, i) => shiftDay(day, -i))
+    .filter(date => byDate.has(date) && byDate.has(shiftDay(date, -7)));
+  const sourceLatestDay = [...byDate.keys()].at(-1);
+  const latestDay = history ? [...byDate.keys()].reverse().find(day => pairsAt(day).length >= 4) ?? sourceLatestDay : sourceLatestDay;
+  const pairs = latestDay ? pairsAt(latestDay) : [];
   const tasks = workflow.tasks.filter(task => task.siteDomain === site && (task.country ?? "all") === country && task.kind === "optimization"
     && !task.deletedAt && task.channel !== "github" && task.channel !== "product");
   const tasksByPage = new Map<string, typeof tasks>();
@@ -131,15 +134,16 @@ export function pageOptimizationPriorityRows(
     const task = matching.find(task => activeStatuses.has(task.status)) ?? matching[0];
     const business = matching.find(task => task.research?.businessValue != null)?.research?.businessValue ?? 0;
     const intent = matching.some(task => task.changeScope === "search_intent" && task.evidence.length && activeStatuses.has(task.status));
-    const recentlyChanged = (changed.get(pageKey) ?? "") >= observationStart;
+    const changedDay = changed.get(pageKey) ?? "";
+    const recentlyChanged = changedDay >= observationStart || Boolean(history && latestDay && changedDay > latestDay);
     const score = pageScore + (intent ? 45 : 0) + Math.max(0, business) * 5;
-    const priority: PagePrioritySignal = recentlyChanged ? "观察中" : stale || (!enough && !intent) ? "待核实" : score >= high ? "高" : score >= 20 ? "中" : "低";
+    const priority: PagePrioritySignal = recentlyChanged ? "观察中" : (!history && stale) || (!enough && !intent) ? "待核实" : score >= high ? "高" : score >= 20 ? "中" : "低";
     if (filters.signal !== "all" && priority !== filters.signal) return [];
     counts[rankStatus]++;
     if (filters.rank !== "all" && rankStatus !== filters.rank) return [];
     const reasons = [
       ...(stale ? ["最新 GSC 完整数据偏旧"] : []),
-      ...(recentlyChanged ? ["最近 7 个完整日内已有发布"] : []),
+      ...(recentlyChanged ? [history && latestDay && changedDay > latestDay ? "页面在历史数据截止后已有发布，需等待改后证据" : "最近 7 个完整日内已有发布"] : []),
       ...(intent ? ["已有搜索意图不符证据"] : []),
       ...(business > 0 ? [`已登记业务价值 ${business}/3`] : []),
       ...pageReasons,
@@ -154,7 +158,7 @@ export function pageOptimizationPriorityRows(
     || pagePrioritySignals.indexOf(a.priority) - pagePrioritySignals.indexOf(b.priority)
     || b.score - a.score || (b.current?.impressions ?? 0) - (a.current?.impressions ?? 0)
     || a.url.localeCompare(b.url) || a.targetId.localeCompare(b.targetId));
-  return { site, country, latestDay: latestDay ?? null, property: property ?? null, pairedDays: pairs.length, recommendations, counts };
+  return { site, country, latestDay: latestDay ?? null, sourceLatestDay: sourceLatestDay ?? null, historical: history && stale, property: property ?? null, pairedDays: pairs.length, recommendations, counts };
 }
 
 export function pageOptimizationPriorities(

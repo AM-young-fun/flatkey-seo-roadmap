@@ -73,14 +73,14 @@ export function oldPostShortlist({ observations, workflow, targets, inventory, n
       });
       return maintenancePublishedUrls.length ? [{ ...target, maintenancePublishedUrls }] : [];
     });
-    const { latestDay, property, pairedDays, recommendations } = pageOptimizationPriorityRows(observations, workflow, inventoryTargets, site, country, now);
+    const { latestDay, sourceLatestDay, historical, property, pairedDays, recommendations } = pageOptimizationPriorityRows(observations, workflow, inventoryTargets, site, country, now, { rank: "all", signal: "all" }, true);
     const candidates = recommendations.flatMap(row => {
       if (row.rankStatus !== "outside100" && row.priority !== "高" && row.priority !== "中") return [];
       const url = blogPage(row.url, site)!;
       const { language, keywordId } = targetById.get(row.targetId)!;
-      return [{ ...row, url, site, country, language, keywordId, firstEvidence: known.get(url)!, gscThrough: latestDay, gscProperty: property }];
+      return [{ ...row, url, site, country, language, keywordId, firstEvidence: known.get(url)!, gscThrough: latestDay, historical, gscProperty: property }];
     });
-    return { candidates, coverage: { site, country, latestGscDay: latestDay, pairedDays } };
+    return { candidates, coverage: { site, country, latestGscDay: sourceLatestDay, comparisonThrough: latestDay, historical, pairedDays } };
   });
   const priorityOrder = { 高: 0, 中: 1, 低: 2, 观察中: 3, 待核实: 4 };
   const ranked = results.flatMap(result => result.candidates).sort((a, b) =>
