@@ -6,7 +6,7 @@ import { seoToday, shiftDay, weeklyReportRange, workWeekDateRange } from "./seo-
 import type { SeoDigest } from "./seo-digest";
 import { hasMaintenanceIntentReview } from "./seo-published-maintenance";
 import { isSeoWorkday } from "./seo-workday";
-import { automaticPageRoute, type WorkflowTask } from "./seo-workflow";
+import { automaticPageRoute, automaticTaskPolicy, type WorkflowTask } from "./seo-workflow";
 
 export type WeeklyGrowthReport = Pick<SeoDigest, "id" | "hash" | "kind" | "date" | "generatedAt" | "growthSnapshot"> & Partial<Pick<SeoDigest, "pagePerformance">>;
 const driverKey = (driver: GrowthDriver) => JSON.stringify([
@@ -14,12 +14,20 @@ const driverKey = (driver: GrowthDriver) => JSON.stringify([
   driver.previous, driver.current, driver.window.start, driver.window.end, driver.window.previousStart, driver.window.previousEnd, driver.window.timezone,
 ]);
 
-function archivedArticleGrowth(driver: GrowthDriver, task: WorkflowTask, report: WeeklyGrowthReport, week: ReturnType<typeof weeklyReportRange>) {
+type ArticleAnchor = Pick<WorkflowTask, "siteDomain" | "topicId" | "pageUrl">;
+export function flatkeyBlogSourceUrl(value: string) {
+  const url = growthWebsitePageUrl(value, "flatkey.ai");
+  return url && automaticPageRoute(url, "flatkey.ai") === "blog"
+    ? "https://flatkey.ai/blog/" + new URL(url).pathname.split("/").at(-1) : null;
+}
+
+function archivedArticleGrowth(driver: GrowthDriver, task: WorkflowTask, anchors: readonly ArticleAnchor[], report: WeeklyGrowthReport, week: ReturnType<typeof weeklyReportRange>) {
   if (task.siteDomain !== "flatkey.ai" || driver.country !== "ALL" || driver.topicId !== task.topicId) return false;
-  const contributor = growthWebsitePageUrl(driver.url, task.siteDomain), page = growthWebsitePageUrl(task.pageUrl, task.siteDomain);
+  const contributor = growthWebsitePageUrl(driver.url, task.siteDomain);
   // Flatkey's localized blog routes use the same CMS article slug as the source.
-  if (!contributor || !page || automaticPageRoute(contributor, task.siteDomain) !== "blog" || automaticPageRoute(page, task.siteDomain) !== "blog"
-    || new URL(contributor).pathname.split("/").at(-1) !== new URL(page).pathname.split("/").at(-1)) return false;
+  const source = contributor && flatkeyBlogSourceUrl(contributor);
+  if (!source || !anchors.some(anchor => anchor.siteDomain === task.siteDomain && anchor.topicId === task.topicId
+    && anchor.pageUrl && flatkeyBlogSourceUrl(anchor.pageUrl) === source)) return false;
   const previousEnd = shiftDay(week.start, -1);
   return report.pagePerformance?.some(ranking => {
     const summary = ranking.flatkey;
@@ -33,7 +41,7 @@ function archivedArticleGrowth(driver: GrowthDriver, task: WorkflowTask, report:
   }) ?? false;
 }
 
-export function weeklyGrowthReportProblem(direction: GrowthDirection, task: WorkflowTask, report: WeeklyGrowthReport | null, now: Date) {
+export function weeklyGrowthReportProblem(direction: GrowthDirection, task: WorkflowTask, report: WeeklyGrowthReport | null, now: Date, publishedAnchors: readonly ArticleAnchor[] = []) {
   if (!direction.weeklyGrowth || !report || report.kind !== "weekly" || report.id !== direction.weeklyGrowth.reportId || report.hash !== direction.weeklyGrowth.reportHash
     || !Number.isFinite(Date.parse(report.generatedAt)) || Date.parse(report.generatedAt) > now.getTime()) {
     return "缺少该版本的真实已保存周报，请引用原周报ID和内容指纹";
@@ -45,8 +53,9 @@ export function weeklyGrowthReportProblem(direction: GrowthDirection, task: Work
     && driver.window.start === week.start && driver.window.end === week.end
     && driver.window.previousStart === shiftDay(week.start, -7) && driver.window.previousEnd === shiftDay(week.start, -1);
   const positive = new Set((report.growthSnapshot?.directions ?? []).flatMap(row => row.drivers ?? []).filter(eligible).map(driverKey));
+  const anchors = task.kind === "optimization" ? [task] : publishedAnchors;
   if (!direction.drivers.length || direction.drivers.some(driver => !eligible(driver)
-    || !positive.has(driverKey(driver)) && !archivedArticleGrowth(driver, task, report, week))) {
+    || !positive.has(driverKey(driver)) && !archivedArticleGrowth(driver, task, anchors, report, week))) {
     return "加推须引用同一周报内实际上涨的自然会话或点击及同口径周期";
   }
   if (!direction.drivers.some(driver => driver.topicId === task.topicId && growthWebsitePageUrl(driver.url, task.siteDomain))) {
@@ -63,20 +72,23 @@ export function weeklyGrowthDeliveryWeek(report: WeeklyGrowthReport) {
   return workWeekDateRange(shiftDay(sourceWeek.end, 2));
 }
 
-export function weeklyGrowthTaskProblem(state: GrowthStrategy, task: WorkflowTask, report: WeeklyGrowthReport | null, now: Date) {
+export function weeklyGrowthTaskProblem(state: GrowthStrategy, task: WorkflowTask, report: WeeklyGrowthReport | null, now: Date, publishedAnchors: readonly ArticleAnchor[] = []) {
   const direction = state.directions.find(row => row.id === task.directionId);
-  if (!direction || task.weeklyGrowthRevision !== direction.revision || !direction.taskIds.includes(task.id)) return "原优化任务须关联本次确切上涨加推方向版本";
+  if (!direction || task.weeklyGrowthRevision !== direction.revision || !direction.taskIds.includes(task.id)) return "原内容任务须关联本次确切上涨加推方向版本";
+  const kind = task.kind;
+  if (kind !== "optimization" && kind !== "blog") return "上涨加推只支持原页优化和同话题新增博客";
   try { assertGrowthDirectionScope(state, task, now); }
   catch { return "当前已批准方向未覆盖该任务的站点、原话题、国家语种、交付类型或有效期"; }
-  const evidenceProblem = weeklyGrowthReportProblem(direction, task, report, now);
+  const evidenceProblem = weeklyGrowthReportProblem(direction, task, report, now, publishedAnchors);
   if (evidenceProblem || !report) return evidenceProblem;
   const due = new Date(task.dueAt), date = seoToday(due), range = weeklyGrowthDeliveryWeek(report);
   if (date < range.start || date > range.end || due.getTime() <= now.getTime() || !isSeoWorkday(due)
     || Date.parse(direction.expiresAt) < due.getTime()
-    || !direction.decision?.scope.some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && scope.kinds.includes("optimization") && Date.parse(scope.validUntil) >= due.getTime())) {
+    || !direction.decision?.scope.some(scope => scope.site === task.siteDomain && scope.topicId === task.topicId && scope.country === task.country && scope.language === task.language && scope.kinds.includes(kind) && Date.parse(scope.validUntil) >= due.getTime())) {
     return "沿原交付日进入周报后的北京时间周五至周四工作日，并在方向有效期内完成";
   }
-  if (task.kind !== "optimization" || !growthWebsitePageUrl(task.pageUrl, task.siteDomain)) return "加推须沿本站原优化页执行";
-  if (!hasMaintenanceIntentReview(task) || !completeHotspotTaskResearch(task, now) || (task.research?.businessValue ?? 0) <= 0) return "须先完成原页意图、真实商业承接、当地SERP和去重研究";
+  if (!growthWebsitePageUrl(task.pageUrl, task.siteDomain)) return "加推须沿本站原优化页或拟新增博客执行";
+  if (kind === "blog" && automaticTaskPolicy(task) !== "auto_blog") return "新增加推须使用本站的正式博客发布路由";
+  if (!hasMaintenanceIntentReview(task) || !completeHotspotTaskResearch(task, now) || (task.research?.businessValue ?? 0) <= 0) return "须先完成页面意图、真实商业承接、当地SERP和去重研究";
   return null;
 }

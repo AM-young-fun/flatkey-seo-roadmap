@@ -1,10 +1,13 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { weeklyGrowthDeliveryWeek, weeklyGrowthTaskProblem, type WeeklyGrowthReport } from "../growth-weekly-admission";
+import { flatkeyBlogSourceUrl, weeklyGrowthDeliveryWeek, weeklyGrowthTaskProblem, type WeeklyGrowthReport } from "../growth-weekly-admission";
 import { hotspotPlanMutation, preservedHotspotPlan, rawWorkflowRecord } from "../growth-hotspot-admission";
+import { growthWebsitePageUrl } from "../growth-live-page";
+import { growthWordKey } from "../growth-workspace";
+import type { GrowthDirection } from "../growth-strategy";
 import { WEEKLY_GROWTH_EXTRA } from "../seo-extra-capacity";
-import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask } from "../seo-workflow";
+import { isExecutableWorkflowPlan, type WorkflowHistoricalImport, type WorkflowPlan, type WorkflowPublication, type WorkflowTask } from "../seo-workflow";
 import { workflowHash, WorkflowError, type WorkflowActor, type WorkflowStoredRow } from "../seo-workflow-state";
 import { readGrowthStrategy } from "./growth-strategy";
 import { saveWorkflowMutation } from "./seo-workflow";
@@ -23,16 +26,66 @@ function plansForWeek(plans: WorkflowPlan[], report: WeeklyGrowthReport) {
     && plan.targets.executionRange.start === range.start && plan.targets.executionRange.end === range.end);
 }
 
+function pageVariants(url: string) {
+  const www = new URL(url);
+  www.hostname = "www." + www.hostname;
+  return [url, url + "/", www.href, www.href + "/"];
+}
+
+async function publishedArticleAnchors(db: Pick<Prisma.TransactionClient, "siteKeyword">, task: WorkflowTask, direction?: GrowthDirection) {
+  if (task.kind !== "blog" || task.siteDomain !== "flatkey.ai" || !task.topicId || !direction) return [];
+  const candidates = direction.drivers.flatMap(driver => {
+    if (driver.country !== "ALL" || driver.topicId !== task.topicId) return [];
+    const source = flatkeyBlogSourceUrl(driver.url), page = growthWebsitePageUrl(driver.url, task.siteDomain);
+    return source && page ? [...pageVariants(source), ...pageVariants(page)] : [];
+  });
+  if (!candidates.length) return [];
+  const members = await db.siteKeyword.findMany({
+    where: { siteDomain: task.siteDomain, active: true, pool: "FORMAL", keyword: { active: true },
+      OR: [{ topicId: task.topicId }, { topicAssignments: { some: { topicId: task.topicId } } }],
+      targetUrls: { hasSome: [...new Set(candidates)] } },
+    select: { targetUrls: true },
+  });
+  return members.flatMap(member => member.targetUrls.filter(url => candidates.includes(url))
+    .map(pageUrl => ({ siteDomain: task.siteDomain, topicId: task.topicId, pageUrl })));
+}
+
+async function assertUniqueGrowthBlog(db: Prisma.TransactionClient, task: WorkflowTask, rows: WorkflowStoredRow[]) {
+  const page = growthWebsitePageUrl(task.pageUrl, task.siteDomain);
+  if (!page || !task.keywordId || !task.keyword) throw new WorkflowError("weekly_growth_blog_identity", "新增加推博客须保存拟发规范地址和正式原词", 422);
+  const samePage = (url: string | null) => growthWebsitePageUrl(url, task.siteDomain) === page;
+  const sameIntent = (row: WorkflowTask) => row.country === task.country && row.language === task.language && row.keyword
+    && growthWordKey(row.keyword) === growthWordKey(task.keyword!);
+  const duplicate = rows.some(row => {
+    if (row.kind === "task") {
+      const other = row.record as WorkflowTask;
+      return other.id !== task.id && !other.deletedAt && other.siteDomain === task.siteDomain
+        && ["blog", "optimization", "landing", "cluster"].includes(other.kind) && (samePage(other.pageUrl) || sameIntent(other));
+    }
+    if (row.kind === "publication") {
+      const publication = row.record as WorkflowPublication;
+      return publication.siteDomain === task.siteDomain && ["published", "verified"].includes(publication.status) && samePage(publication.pageUrl);
+    }
+    return row.kind === "historical_import" && (row.record as WorkflowHistoricalImport).publications
+      .some(publication => publication.verificationState === "live_verified" && samePage(publication.pageUrl));
+  });
+  if (duplicate) throw new WorkflowError("weekly_growth_blog_duplicate", "拟发博客或同市场原词已有交付任务，请先核对复用", 422);
+  const known = await db.seoPageInventory.findFirst({ where: { url: { in: pageVariants(page) } }, select: { url: true } });
+  if (known) throw new WorkflowError("weekly_growth_blog_duplicate", "拟发博客规范地址已在线上页面库登记，请沿原页处理", 422);
+}
+
 export async function assertWeeklyGrowthAdmission(db: Prisma.TransactionClient, tasks: WorkflowTask[], rows: WorkflowStoredRow[], plan: WorkflowPlan | undefined, now: Date) {
   if (!tasks.length) return;
-  await assertPublishedMaintenanceTasks(db, tasks, rows, now);
+  await assertPublishedMaintenanceTasks(db, tasks.filter(task => task.kind === "optimization"), rows, now);
   const state = await readGrowthStrategy(db);
   const plans = rows.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan);
   for (const task of tasks) {
     const direction = state.directions.find(row => row.id === task.directionId);
     const report = await readWeeklyGrowthReport(db, direction?.weeklyGrowth?.reportId);
-    const problem = weeklyGrowthTaskProblem(state, task, report, now);
+    const anchors = await publishedArticleAnchors(db, task, direction);
+    const problem = weeklyGrowthTaskProblem(state, task, report, now, anchors);
     if (problem) throw new WorkflowError("weekly_growth_evidence_required", problem, 422);
+    if (task.kind === "blog") await assertUniqueGrowthBlog(db, task, rows);
     if (plan && report) {
       const candidates = plansForWeek(plans, report);
       if (candidates.length !== 1 || candidates[0].id !== plan.id || !preservedHotspotPlan(candidates[0], plan, task.id)) {
@@ -63,15 +116,15 @@ export async function admitApprovedWeeklyGrowthDirection(directionId: string, re
     const pending = (reason: string) => results.push({ taskId, status: "pending", reason });
     try {
       const [task, originalPlans] = await Promise.all([readTask(taskId), readPlans()]);
-      if (!task || task.deletedAt || task.kind !== "optimization" || task.directionId !== directionId) {
-        pending("缺少绑定此方向的可复用原优化任务"); continue;
+      if (!task || task.deletedAt || !["optimization", "blog"].includes(task.kind) || task.directionId !== directionId) {
+        pending("缺少绑定此方向的原页优化或新增博客任务"); continue;
       }
       const existing = originalPlans.find(plan => plan.taskIds.includes(taskId));
       if (existing) { results.push({ taskId, status: "reused", planId: existing.id }); continue; }
       const candidates = plansForWeek(originalPlans, report);
       if (candidates.length !== 1) { pending("周报对应业务周缺少唯一可追加的正式原计划"); continue; }
       const extra = { ...task, capacityClass: WEEKLY_GROWTH_EXTRA, weeklyGrowthRevision: revision } as const;
-      const problem = weeklyGrowthTaskProblem(state, extra, report, new Date());
+      const problem = weeklyGrowthTaskProblem(state, extra, report, new Date(), await publishedArticleAnchors(prisma, extra, direction));
       if (problem || task.status !== "ready") { pending(problem ?? "原任务尚未完成研究并进入可执行状态"); continue; }
       const record = rawWorkflowRecord(extra);
       if (task.capacityClass !== WEEKLY_GROWTH_EXTRA) {
