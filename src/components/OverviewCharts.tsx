@@ -40,13 +40,14 @@ export function BarPlot({ rows, unit, denominator, empty = "暂无可核实数�
 }
 export type LineDatum = { label: string; value: number | null; prior?: number | null };
 /** Gaps remain gaps. Previous observations align by ordinal day and retain their own dates in labels. */
-export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit }: {
-  rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string] | readonly [string, string]; detailUnit?: string;
+export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit, interval = "日" }: {
+  rows: LineDatum[]; unit: string; priorLabel?: string; series?: readonly [string] | readonly [string, string]; detailUnit?: string; interval?: "日" | "周";
 }) {
   const [selected, select] = useState<number | null>(null);
   const values = rows.flatMap(row => [row.value, row.prior]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) return <EmptyPlot reason="所选周期暂无已归档的有效数据，缺口未记为0" />;
-  const max = Math.max(1, ...values) * 1.12;
+  const peak = Math.max(1, ...values);
+  const max = interval === "周" ? Math.ceil(peak * 1.05 / 100) * 100 : peak * 1.12;
   const x = (index: number) => rows.length === 1 ? 300 : 42 + index / (rows.length - 1) * 516;
   const y = (value: number) => 182 - value / max * 150;
   const active = selected === null ? undefined : rows[selected];
@@ -72,10 +73,10 @@ export function LinePlot({ rows, unit, priorLabel, series, detailUnit = unit }: 
         : <>单位：{unit} · 深色：本期{priorLabel ? ` 浅色虚线：${priorLabel}` : ""}</>}
     </div>
     <div className={styles.lineCanvas} role={series ? "group" : undefined} tabIndex={series ? 0 : undefined}
-      aria-label={series ? `${series.join("与")}每日明细，使用左右方向键切换日期` : undefined}
+      aria-label={series ? `${series.join("与")}每${interval}明细，使用左右方向键切换日期` : undefined}
       onFocus={series ? () => select(index => index ?? 0) : undefined}
       onBlur={series ? () => select(null) : undefined} onKeyDown={series ? onNavigate : undefined}>
-      <svg viewBox="0 0 580 222" role="img" aria-label={`${series ? series.join("、") + " · " : ""}${unit}逐日趋势，缺失日期保留断点`}>
+      <svg viewBox="0 0 580 222" role="img" aria-label={`${series ? series.join("、") + " · " : ""}${unit}逐${interval}趋势，缺失日期保留断点`}>
         {[0, .5, 1].map(ratio => <g key={ratio}>
           <path d={`M42 ${y(max * ratio)}H558`} stroke="#e6ebf2" strokeDasharray="3 4" />
           <text x="35" y={y(max * ratio) + 4} textAnchor="end" fill="#718096" fontSize="11">{chartNumber(max * ratio)}</text>
