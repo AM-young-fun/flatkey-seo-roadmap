@@ -15,12 +15,11 @@ const workspaceLinks = [
   ["overview", "/", "总览", LayoutDashboard],
   ["work", "/work", "工作任务", ListTodo],
   ["opportunities", "/opportunities", "关键词目标", Search],
-  ["reports", "/reports", "日周效果", ChartNoAxesCombined],
   ["optimization-effects", "/optimization-effects", "优化效果", TrendingUp],
   ["automations", "/automations", "定时任务", Clock3],
 ] as const;
 export function PageHeader({ active, marketControl = true }: {
-  active: "loading" | "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "reports" | "optimization-effects";
+  active: "loading" | "overview" | "keywords" | "manage" | "traffic" | "pages" | "records" | "clusters" | "work" | "approvals" | "opportunities" | "rankings" | "deliveries" | "optimizations" | "issues" | "runs" | "credentials" | "automations" | "optimization-effects";
   marketControl?: boolean;
 }) {
   const preview = usePreviewMode();

@@ -262,7 +262,7 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", initialS
         <SeoTablePagination pagination={result.pagination} onPage={turnPage} />
       </section>
       {topic ? <GrowthTopicDirections site={topic.site} topicId={topic.topicId} country={effectiveScope.country} language={effectiveScope.language} /> : null}
-      <div className={styles.related}><Link href="/">总览与业务词库关系图</Link><Link href="/work">工作任务</Link><Link href="/reports?period=weekly">历史周报</Link></div>
+      <div className={styles.related}><Link href="/">总览与业务词库关系图</Link><Link href="/work">工作任务</Link></div>
     </>}
     </>}
     {quarterHome ? <GrowthDirectionReview /> : null}

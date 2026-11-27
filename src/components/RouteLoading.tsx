@@ -6,7 +6,7 @@ import { ReportLoading } from "./ReportLoading";
 import styles from "./SeoWorkspace.module.css";
 
 const routes = {
-  work: ["work", "工作任务"], reports: ["reports", "日周效果"], opportunities: ["opportunities", "关键词目标"],
+  work: ["work", "工作任务"], opportunities: ["opportunities", "关键词目标"],
   "optimization-effects": ["optimization-effects", "优化效果"], automations: ["automations", "定时任务"],
   approvals: ["approvals", "页面审批"], credentials: ["credentials", "接入凭据"], pages: ["pages", "页面数据"],
   manage: ["manage", "数据管理"], keywords: ["keywords", "关键词库"], rankings: ["rankings", "排名记录"],
