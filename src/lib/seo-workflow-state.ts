@@ -12,7 +12,7 @@ import { optimizationComparisonProblems } from "./seo-workflow-comparison";
 import { maintenanceTaskProblems, maintenancePublicationProblems, maintenanceHistoryProblems } from "./seo-maintenance";
 import { legacyMaintenancePlanProblems } from "./seo-legacy-maintenance-plan";
 import { matchesReservedOriginal, type ReservedOriginalIdentity } from "./reserved-original-keyword";
-import { canClaimMoeBlogContinuation, moeBlogPlanId, moeBlogResearchId, moeBlogTaskId } from "./moe-blog-continuation";
+import { canBindMoeBlogCandidate, canClaimMoeBlogContinuation, moeBlogPlanId, moeBlogResearchId, moeBlogTaskId } from "./moe-blog-continuation";
 
 export class WorkflowError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); }
@@ -170,10 +170,14 @@ function assertTask(task: WorkflowTask, previous: WorkflowTask | undefined, all:
   }
   if (previous && actor === "collector" && (previous.source === "human" || previous.approval?.kind === "explicit")) {
     const versionedArticle = articleLeaseTaskId === previous.id && previous.id.startsWith("seo-hotspot:")
-      && previous.capacityClass === "authorized_hotspot_extra" && previous.source === "human" && !previous.approval
+      && previous.source === "human" && !previous.approval
       && previous.status === "drafting" && task.status === "drafting" && automaticTaskPolicy(previous) === "auto_blog"
       && /^sha256:[a-f0-9]{64}$/.test(task.contentVersion ?? "")
-      && task.evidence.some(row => row.artifact && row.label.includes(task.contentVersion!));
+      && task.evidence.some(row => row.artifact && row.label.includes(task.contentVersion!))
+      && (previous.id === moeBlogTaskId
+        ? canBindMoeBlogCandidate(previous, task, lookup.get(moeBlogResearchId),
+          all.find(row => row.kind === "plan" && row.record.id === moeBlogPlanId)?.record as WorkflowPlan | undefined, now)
+        : previous.capacityClass === "authorized_hotspot_extra");
     for (const key of ["title", "keyword", "keywordId", "country", "language", "business", "pageType", "pageUrl", "owner", "dueAt", "dependencies", "acceptanceCriteria", "contentVersion", "artifactUrl", "codeSource"] as const) {
       if (key === "contentVersion" && versionedArticle) continue;
       if (!same(previous[key], task[key])) reject("human_field_conflict", `人工确认字段发生冲突：${key}；请保留双方版本供审核`);

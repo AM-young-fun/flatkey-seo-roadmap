@@ -1,7 +1,8 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 require("./register-ui-modules.cjs");
-const { workflowSnapshot } = require("../src/lib/seo-workflow-state.ts");
+const { prepareWorkflowMutation, workflowSnapshot } = require("../src/lib/seo-workflow-state.ts");
+const { workflowTaskSchema } = require("../src/lib/seo-workflow.ts");
 const { canClaimMoeBlogContinuation, moeBlogPlanId, moeBlogResearchId, moeBlogTaskId } = require("../src/lib/moe-blog-continuation.ts");
 
 const identity = {
@@ -54,4 +55,37 @@ test("operational worklist admits the named continuation and keeps other unadmit
   const runnable = now => workflowSnapshot(rows, { operational: true }, "database", now).tasks.map(row => row.id);
   assert.deepEqual(runnable(inside), [moeBlogTaskId]);
   assert.deepEqual(runnable(new Date("2026-11-27T12:15:00+08:00")), []);
+});
+
+test("binds only the approved MoE version under the verified original article lease", () => {
+  const at = "2026-11-26T15:00:00Z";
+  const oldVersion = "sha256:3da1e4cc0ce26bd3a40b5f8b703d862ec566a521856a263f340a171add36706c";
+  const candidate = "sha256:10521a3a20e1b0e7be7adbc4b7172ff2ff1ea5ab1d275c8bc1b86dbbe9597573";
+  const oldEvidence = [{ label: "原题相关的页面研究", url: "https://example.com/research", observedAt: at }];
+  const quality = Object.fromEntries(["intent", "keywordsAndAlt", "experience", "links", "behavior",
+    "algorithmAndManual", "eeat"].map(key => [key, "Completed the corresponding original review."]));
+  const original = workflowTaskSchema.parse({
+    ...task, title: "专家权重按需读取的存储与内存边界", pageType: "blog", business: "GPU", status: "drafting",
+    owner: "Codex SEO", contentVersion: oldVersion, evidence: oldEvidence, nextAction: "核对原稿后完成原文章上线验收",
+    acceptanceCriteria: ["核验正式网址与稿件版本"], brief: require("./fixtures/chinese-task-brief.cjs")(oldEvidence),
+    research: { volume: 20, kd: 8, businessValue: 2, intent: "Inference deployment", exceptionReason: null, observedAt: at, evidence: oldEvidence },
+    researchReview: { country: "US", language: "en", keyword: identity.keyword, reviewedAt: at,
+      serpResults: urls, openedResults: urls.slice(0, 5), duplicateTaskIds: [], duplicateCheckedAt: at, quality, evidence: oldEvidence },
+  });
+  const rows = [{ kind: "task", record: { ...original, version: 9, recordedAt: at, updatedAt: at } },
+    { kind: "task", record: research }, { kind: "plan", record: plan }];
+  const evidenceFor = version => [...oldEvidence, { label: "原草稿生产读回 " + version, artifact: "/tmp/exact-cms-readback.json", observedAt: at }];
+  const save = (version, leaseId, now = inside, patch = {}, records = rows) => prepareWorkflowMutation({
+    action: "save_task", requestId: "moe-version-binding", expectedVersion: 9,
+    record: { ...original, contentVersion: version, evidence: evidenceFor(version), ...patch },
+  }, records, "collector", now, leaseId).record;
+  assert.equal(save(candidate, moeBlogTaskId).contentVersion, candidate);
+  assert.equal(save(candidate, moeBlogTaskId).dueAt, original.dueAt);
+  assert.throws(() => save(candidate), { code: "human_field_conflict" });
+  assert.throws(() => save(candidate, "seo-hotspot:another"), { code: "human_field_conflict" });
+  assert.throws(() => save("sha256:" + "f".repeat(64), moeBlogTaskId), { code: "human_field_conflict" });
+  assert.throws(() => save(candidate, moeBlogTaskId, new Date("2026-11-27T12:15:00+08:00")), { code: "human_field_conflict" });
+  assert.throws(() => save(candidate, moeBlogTaskId, inside, { title: "未经授权的任务标题" }), { code: "human_field_conflict" });
+  assert.throws(() => save(candidate, moeBlogTaskId, inside, { evidence: oldEvidence }), { code: "human_field_conflict" });
+  assert.throws(() => save(candidate, moeBlogTaskId, inside, {}, rows.slice(0, 2)), { code: "human_field_conflict" });
 });

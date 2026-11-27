@@ -15,6 +15,8 @@ const originalDueAt = Date.parse("2026-11-24T11:30:00+08:00");
 const keywordId = "3bc72ab5-7710-4c4b-b1b7-d27dbf34f590";
 const keyword = "moe expert streaming";
 const quarterHash = "a8f73a80ed763eb606b4876f1337c11a747481a86e1777a8cba68ea6781cbf03";
+const originalDraftVersion = "sha256:3da1e4cc0ce26bd3a40b5f8b703d862ec566a521856a263f340a171add36706c";
+const approvedCandidateVersion = "sha256:10521a3a20e1b0e7be7adbc4b7172ff2ff1ea5ab1d275c8bc1b86dbbe9597573";
 
 export function canClaimMoeBlogContinuation(
   task: WorkflowTask | undefined,
@@ -44,4 +46,17 @@ export function canClaimMoeBlogContinuation(
   return Boolean(plan && plan.id === moeBlogPlanId && isExecutableWorkflowPlan(plan.status)
     && allocation?.quarterPlanHash === quarterHash && allocation.preservedTaskIds.includes(task.id)
     && plan.notes.includes("2026-11-27 10:15–12:15 续做 Flatkey US/en「moe expert streaming」"));
+}
+
+export function canBindMoeBlogCandidate(
+  previous: WorkflowTask,
+  task: WorkflowTask,
+  research: WorkflowTask | undefined,
+  plan: WorkflowPlan | undefined,
+  now: Date,
+): boolean {
+  return previous.id === moeBlogTaskId
+    && previous.contentVersion === originalDraftVersion && task.contentVersion === approvedCandidateVersion
+    && task.source === previous.source && task.weekStart === previous.weekStart && task.capacityClass === previous.capacityClass
+    && canClaimMoeBlogContinuation(previous, research, plan, now);
 }
