@@ -33,7 +33,7 @@ export type SeoAnalytics = DateRange & {
   pages: PagePerformance[];
 };
 
-export function useSeoRead<T>(url: string | null, { showFeedback = true, timeoutMs = 60_000, keepPreviousData = false }: { showFeedback?: boolean; timeoutMs?: number; keepPreviousData?: boolean } = {}) {
+export function useSeoRead<T>(url: string | null, { showFeedback = true, timeoutMs = 60_000, keepPreviousData = false, ttlMs = 60_000 }: { showFeedback?: boolean; timeoutMs?: number; keepPreviousData?: boolean; ttlMs?: number } = {}) {
   const revision = useSyncExternalStore(clientReadCache.subscribe, clientReadCache.revision, () => 0);
   const [result, setResult] = useState<{ url: string; revision: number; attempt: number; data: T | null; error: string | null } | null>(null);
   const [refresh, setRefresh] = useState({ url, id: 0 });
@@ -55,7 +55,7 @@ export function useSeoRead<T>(url: string | null, { showFeedback = true, timeout
       const finish = network && showFeedback && !force ? interactionFeedback.begin("read", "正在加载页面数据…") : () => {};
       finishRead = finish;
       try {
-        const data = await clientReadCache.read<T>(url, force, 60_000, timeoutMs);
+        const data = await clientReadCache.read<T>(url, force, ttlMs, timeoutMs);
         if (active && revision === clientReadCache.revision()) {
           setResult({ url, revision, attempt: refresh.id, data, error: null });
           if (force && showFeedback) actionSucceeded("数据已刷新。");
@@ -80,7 +80,7 @@ export function useSeoRead<T>(url: string | null, { showFeedback = true, timeout
       if (busy.current === url) busy.current = null;
       document.removeEventListener("visibilitychange", readWhenVisible);
     };
-  }, [url, refresh, revision, showFeedback, timeoutMs]);
+  }, [url, refresh, revision, showFeedback, timeoutMs, ttlMs]);
   const current = result?.url === url && result.revision === revision ? result : null;
   // Only this URL and this session's fresh cache can fill the first render.
   // Failed reads keep their error rather than falling back to a success.
@@ -100,7 +100,7 @@ export function useSeoRead<T>(url: string | null, { showFeedback = true, timeout
 export type SeoReadState<T> = ReturnType<typeof useSeoRead<T>>;
 
 export function useOverviewRead<T>(url: string | null, timeoutMs = 45_000) {
-  return useSeoRead<T>(url, { showFeedback: false, timeoutMs });
+  return useSeoRead<T>(url, { showFeedback: false, timeoutMs, ttlMs: 120_000 });
 }
 
 export function analyticsUrl(range: DateRange, urls: string[] = [], country: SeoCountry = "all", site?: string): string {

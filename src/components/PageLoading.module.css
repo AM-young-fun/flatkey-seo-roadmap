@@ -10,3 +10,16 @@
 .status svg { color: var(--ui-primary, #2563eb); }
 :global(body:has([data-page-loading="local"])) .cover[data-page-loading="shared"] { display: none; }
 @media (max-width: 1099px) { .cover { inset-inline-start: 0; } }
+
+.cover[data-page-loading="shared"] {
+  inset: auto 20px 20px auto;
+  max-width: calc(100% - 40px);
+  padding: 10px 14px;
+  border: 1px solid #dce5f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 16px #182b4820;
+  pointer-events: none;
+}
+.cover[data-page-loading="shared"] .status { display: flex; align-items: center; gap: 8px; }
+.cover[data-page-loading="shared"] svg { width: 17px; height: 17px; }
