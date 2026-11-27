@@ -54,27 +54,6 @@ test('the 1000-word calendar replaces the active cohort only after exact validat
   sourceVersion:research.sourceVersion,reason:'用户确认启用新词清单及研究排期，页面交付另行核实',researchOnly:true});
  assert.equal(activeResearch.baseline.targets.length,1000);
  assert.equal(activeResearch.baselineHistory[0].targets.length,legacy.baseline.targets.length);
- const replacementTargets = targets.map(row => ({ ...row, id: "replacement-" + row.id, keywordId: "replacement-" + row.keywordId, keyword: "replacement " + row.keyword }));
- const replacementWorkspace = { ...source, targets: replacementTargets };
- const replacement = { ...research, replacesBaselineHash: activeResearch.baseline.planHash, sourceVersion: growthWorkspaceIdentity(replacementWorkspace),
-  targetIds: replacementTargets.map(row => row.id), calendar: research.calendar.map((entry, index) => ({
-    ...entry, targetId: replacementTargets[index].id, ahrefs: { ...entry.ahrefs, keyword: replacementTargets[index].keyword },
-  })) };
- const replacementDraft = mutate(activeResearch, "save_quarter_plan", { plan: replacement }, replacementWorkspace);
- assert.deepEqual(replacementDraft.baseline, activeResearch.baseline);
- const replacementApproval = { action: "approve_quarter_plan", hash: replacementDraft.quarterPlanning.hash, sourceVersion: replacement.sourceVersion,
-  reason: "用户核对确切原词替换、国家配额、历史和新旧计划", researchOnly: true };
- assert.throws(() => prepareGrowthStrategyMutation(replacementDraft,
-  { ...replacementApproval, requestId: "quarter-replacement-auto", expectedVersion: replacementDraft.version }, "collector", replacementWorkspace, [], ["original-task"], now), { code: "human_required" });
- const replaced = mutate(replacementDraft, "approve_quarter_plan", replacementApproval, replacementWorkspace);
- assert.deepEqual(replaced.baseline.targets.map(row => row.id), replacementTargets.map(row => row.id));
- assert.deepEqual(replaced.baselineHistory.at(-1), activeResearch.baseline);
- const swapped = { ...replacementTargets[0], country: "JP", language: "ja" };
- const uneven = { ...replacementWorkspace, targets: [swapped, ...replacementTargets.slice(1)] };
- assert.throws(() => mutate(activeResearch, "save_quarter_plan", { plan: { ...replacement, sourceVersion: growthWorkspaceIdentity(uneven),
-  calendar: [{ ...replacement.calendar[0], ahrefs: { ...replacement.calendar[0].ahrefs, country: "JP" } }, ...replacement.calendar.slice(1)] } }, uneven),
-  { code: "quarter_calendar_invalid" });
- assert.throws(() => mutate(activeResearch, "save_quarter_plan", { plan: { ...replacement, replacesBaselineHash: "d".repeat(64) } }, replacementWorkspace), { code: "quarter_replacement_stale" });
  const delivery = mutate(activeResearch,'save_quarter_plan',{plan:proposal});
  const activeDelivery = mutate(delivery,'approve_quarter_plan',{hash:delivery.quarterPlanning.hash,
   sourceVersion:proposal.sourceVersion,reason:'用户核对完成制作日期后沿同一批原词启用交付'});

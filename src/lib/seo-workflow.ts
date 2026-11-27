@@ -122,6 +122,7 @@ export const workflowPlanSchema = z.object({
     quarterPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
     satelliteQuarterHash: z.string().regex(/^[a-f0-9]{64}$/),
     quarterStart: z.iso.date(), quarterEnd: z.iso.date(), historicalBefore: stamp,
+    marketPolicy: z.literal("closeout-capacity-v1").optional(),
   }).strict().optional(),
   taskIds: z.array(id).max(500), owner: z.string().trim().min(1).max(200), preparedAt: stamp, reviewedAt: stamp.nullable(), reviewedBy: z.string().max(200).nullable(),
   targets: z.union([

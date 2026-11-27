@@ -132,7 +132,7 @@ async function saveLocalWorkflow(input: unknown, actor: WorkflowActor, directory
     const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, state.records);
     if (contentTasks.length) {
       const { loadGrowthStrategy } = await import("./growth-strategy");
-      const problems = quarterContentProblems(contentTasks, await loadGrowthStrategy(true), state.records);
+      const problems = quarterContentProblems(contentTasks, await loadGrowthStrategy(true), state.records, prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined);
       if (problems.length) throw new WorkflowError("quarter_content_membership_required", problems.join("；"));
     }
     const proposedPlan = prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined;
@@ -217,7 +217,7 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
     const contentTasks = quarterContentMutationTasks(prepared.kind, prepared.record, all);
     if (contentTasks.length) {
       const { readGrowthStrategy } = await import("./growth-strategy");
-      const problems = quarterContentProblems(contentTasks, await readGrowthStrategy(tx), all);
+      const problems = quarterContentProblems(contentTasks, await readGrowthStrategy(tx), all, prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined);
       if (problems.length) throw new WorkflowError("quarter_content_membership_required", problems.join("；"));
     }
     const proposedPlan = prepared.kind === "plan" ? prepared.record as WorkflowPlan : undefined;

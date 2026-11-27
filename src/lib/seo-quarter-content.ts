@@ -1,10 +1,11 @@
 import { isSeoWorkday } from "./seo-workday";
-import { seoToday } from "./seo-date-range";
+import { seoToday, workWeekDateRange } from "./seo-date-range";
 import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { growthResolvedIdentity, type GrowthStrategy } from "./growth-strategy";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowPublication, type WorkflowTask } from "./seo-workflow";
 import type { WorkflowStoredRow } from "./seo-workflow-state";
 import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
+import { CLOSEOUT_MARKET_POLICY, closeoutMarketShares } from "./seo-quarter-targets";
 import { FLATKEY_LANDING_START } from "./seo-growth-markets";
 import { SATELLITE_QUARTER_SITES, satelliteQuarterBound, satelliteQuarterTaskMember } from "./satellite-quarter";
 
@@ -21,7 +22,7 @@ export function quarterContentMutationTasks(kind: string, record: { id: string }
 
 /** Quarterly membership gates new routine production, never historical original
  * commitments, maintenance, research or separately authorized hotspot work. */
-export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthStrategy, all: WorkflowStoredRow[]): string[] {
+export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthStrategy, all: WorkflowStoredRow[], incomingPlan?: WorkflowPlan): string[] {
   const versions = [...(strategy.quarterPlanningHistory ?? []), ...(strategy.quarterPlanning ? [strategy.quarterPlanning] : [])]
     .filter(row => row.approval?.hash === row.hash).sort((a, b) => b.revision - a.revision);
   const quarter = strategy.baseline?.planHash ? versions.find(row => row.hash === strategy.baseline?.planHash) : versions[0];
@@ -62,10 +63,26 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
       && !allTasks.some(other => other.id !== task.id && !other.deletedAt && content(other) && other.siteDomain === task.siteDomain
         && other.country === task.country && other.language === task.language && word(other.keyword) === word(task.keyword));
   };
+  const capacityPlan = (task: WorkflowTask) => {
+    const range = workWeekDateRange(seoToday(new Date(task.dueAt)));
+    return [incomingPlan, ...all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan)].find(plan =>
+      plan?.quarterlyContent?.marketPolicy === CLOSEOUT_MARKET_POLICY && plan.quarterlyContent.quarterPlanHash === quarter.hash
+      && isExecutableWorkflowPlan(plan.status) && "executionRange" in plan.targets && plan.targets.executionRange.start === range.start);
+  };
   const valid = (task: WorkflowTask) => {
+    const plan = capacityPlan(task), review = task.researchReview;
+    const timely = review && Date.parse(review.reviewedAt) <= Date.parse(task.dueAt)
+      && Date.parse(review.duplicateCheckedAt) <= Date.parse(task.dueAt);
+    // Normal task admission still checks the exact active formal TopicMap identity
+    // in the same transaction. A delivery plan no longer needs every original
+    // to have been selected in the historical 1,000-word research calendar.
+    if (plan && task.siteDomain === "flatkey.ai" && (task.kind === "blog" || task.kind === "landing")) {
+      return Boolean(task.keywordId && task.topicId && timely && closeoutMarketShares.some(market =>
+        task.country === market.country && task.language === market.language) && canSchedule(task, quarter.plan.executionStart));
+    }
     if (satellite && SATELLITE_QUARTER_SITES.some(site => site === task.siteDomain)) {
       const member = satelliteQuarterTaskMember(task, satellite);
-      return Boolean(member && canSchedule(task, member.researchDate));
+      return Boolean(member && canSchedule(task, plan && timely ? quarter.plan.executionStart : member.researchDate));
     }
     return targets.some(target => {
       if (newFlatkeyLanding(task) && !modern) return false;

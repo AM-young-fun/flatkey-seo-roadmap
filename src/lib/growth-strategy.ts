@@ -181,31 +181,6 @@ function canCompleteFrozenResearchCalendar(state: GrowthStrategy, targetIds: str
     && baseline.targets.length === targetIds.length
     && baseline.targets.every(target => targetIds.includes(target.id)));
 }
-function validateQuarterReplacement(state: GrowthStrategy, plan: z.infer<typeof quarterPlanningInputSchema>, targets: GrowthBaselineTarget[]) {
-  if (!plan.replacesBaselineHash) return;
-  const baseline = state.baseline;
-  const prior = [state.quarterPlanning, ...(state.quarterPlanningHistory ?? [])]
-    .find(row => row?.hash === baseline?.planHash && row?.approval?.hash === baseline?.planHash);
-  if (!baseline || baseline.planHash !== plan.replacesBaselineHash || !prior || prior.plan.executionStart !== plan.executionStart || prior.plan.executionEnd !== plan.executionEnd) {
-    throw new GrowthStrategyError("quarter_replacement_stale", "完整换词须绑定当前确切冻结版本和原季度执行窗口");
-  }
-  const orderedMarketCounts = (rows: GrowthBaselineTarget[]) => {
-    const counts = new Map<string, number>();
-    for (const row of rows) {
-      const key = JSON.stringify([row.country, row.language]);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return [...counts].sort(([a], [b]) => a.localeCompare(b));
-  };
-  const oldWords = new Set([...baseline.targets, ...(state.satelliteQuarter?.members ?? [])].map(row => originalWord(row.keyword)));
-  if (targets.some(row => row.site !== "flatkey.ai" || oldWords.has(originalWord(row.keyword)))
-    || JSON.stringify(orderedMarketCounts(baseline.targets)) !== JSON.stringify(orderedMarketCounts(targets))) {
-    throw new GrowthStrategyError("quarter_replacement_scope", "完整换词须为Flatkey全新原词，并逐国逐语种保留原配额");
-  }
-  if (prior.plan.reservedOriginalTaskIds.some(id => !plan.reservedOriginalTaskIds.includes(id))) {
-    throw new GrowthStrategyError("quarter_replacement_original_tasks", "换词须沿原计划保留已承诺任务ID");
-  }
-}
 export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknown, actor: "human" | "collector", workspace: GrowthWorkspace, publications: GrowthPublicationReference[], taskIds: string[], now = new Date(), context: GrowthMutationContext = {}): GrowthStrategy {
   const command = growthStrategyCommandSchema.parse(raw);
   if (command.expectedVersion !== state.version) throw new GrowthStrategyError("version_conflict", "方向与目标已更新，请刷新后重试");
@@ -217,8 +192,8 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     if (plan.sourceVersion !== growthWorkspaceIdentity(workspace)) throw new GrowthStrategyError("source_changed", "季度方案需绑定完整当前候选底账");
     const formal = state.baseline ? state.baseline.targets.map(row => row.id).sort() : workspace.targets.filter(row => row.membership === "formal").map(row => row.id).sort();
     if (plan.version === QUARTER_NEW_WORD_VERSION) {
-      if (state.baseline?.planHash && !plan.replacesBaselineHash && !canCompleteFrozenResearchCalendar(state, plan.targetIds)) throw new GrowthStrategyError("baseline_frozen", "新版季度成员已冻结；调整成员须绑定原版本和完整替换清单");
-      validateQuarterReplacement(state, plan, nextQuarterTargets(plan, workspace, now, context));
+      if (state.baseline?.planHash && !canCompleteFrozenResearchCalendar(state, plan.targetIds)) throw new GrowthStrategyError("baseline_frozen", "新版季度成员已冻结；仅可补同一批原词的页面交付");
+      nextQuarterTargets(plan, workspace, now, context);
     } else if (!state.baseline && plan.targetUnit === "normalized_original_word") {
       const selected = workspace.targets.filter(row => plan.targetIds.includes(row.id));
       const words = new Set(selected.map(row => originalWord(row.keyword)));
@@ -241,17 +216,15 @@ export function prepareGrowthStrategyMutation(state: GrowthStrategy, raw: unknow
     next.quarterPlanning = { ...draft, approval: { actor: "human", approvedAt: now.toISOString(), hash: command.hash, reason: command.reason } };
     if (draft.plan.version === QUARTER_NEW_WORD_VERSION) {
       const frozen = state.baseline?.planHash ? state.baseline : null;
-      const replaces = Boolean(draft.plan.replacesBaselineHash);
-      if (frozen && !replaces && !canCompleteFrozenResearchCalendar(state, draft.plan.targetIds)) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
+      if (frozen && !canCompleteFrozenResearchCalendar(state, draft.plan.targetIds)) throw new GrowthStrategyError("baseline_frozen", "新版季度清单已冻结，沿原版本运行");
       const pending = draft.plan.calendar?.some(row => !hasQuarterDelivery(row));
-      const researchOnly = command.researchOnly === true && (!frozen || replaces) && draft.plan.calendar?.every(row => !hasQuarterDelivery(row));
+      const researchOnly = command.researchOnly === true && !frozen && draft.plan.calendar?.every(row => !hasQuarterDelivery(row));
       if (pending && !researchOnly) {
         throw new GrowthStrategyError("quarter_delivery_pending", "逐日研究日历已保存；请完成意图归并和制作产能校验后再启用本版季度", 422);
       }
       const targets = nextQuarterTargets(draft.plan, workspace, now, context);
-      validateQuarterReplacement(state, draft.plan, targets);
-      if (state.baseline && (!frozen || replaces)) next.baselineHistory = [...(state.baselineHistory ?? []), state.baseline];
-      next.baseline = frozen && !replaces ? { ...frozen, planHash: command.hash } : {
+      if (state.baseline && !frozen) next.baselineHistory = [...(state.baselineHistory ?? []), state.baseline];
+      next.baseline = frozen ? { ...frozen, planHash: command.hash } : {
         frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets, reason: command.reason, planHash: command.hash,
       };
     } else if (!state.baseline) next.baseline = { frozenAt: now.toISOString(), actor: "human", sourceVersion: command.sourceVersion, targets: resolveTargets(draft.plan.targetIds, workspace, false), reason: command.reason };

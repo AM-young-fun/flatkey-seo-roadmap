@@ -42,7 +42,6 @@ for(const extension of [".ts",".tsx"]) require.extensions[extension]=(module,fil
 const { keywordCircleLayout } = require("../src/components/growth-network-layout.ts");
 const { GoalPlot, LinePlot } = require("../src/components/OverviewCharts.tsx");
 const { OverviewGoalCharts } = require("../src/components/OverviewGrowthCharts.tsx");
-const { summarizeOverviewKeywords } = require("../src/lib/overview-summary.ts");
 const { GrowthTopicWorkspace } = require("../src/components/GrowthTopicWorkspace.tsx");
 const { SeoOverview } = require("../src/components/SeoOverview.tsx");
 const { SeoWorkWorkspace } = require("../src/components/SeoWorkWorkspace.tsx");
@@ -130,7 +129,7 @@ test("overview places per-site GA4 comparisons and a daily trend below Flatkey t
   ] } });
   try {
     const html = render(React.createElement(SeoOverview));
-    assert.match(html, /页面模块入口会话占比[\s\S]*集群站点流量趋势[\s\S]*全部关键词内容建设进度/);
+    assert.match(html, /页面模块入口会话占比[\s\S]*集群站点流量趋势[\s\S]*普通关键词覆盖/);
     assert.match(html, /aria-pressed="true"[^>]*><span[^>]*>RackRate[\s\S]*较上期 \+5 次 · \+50\.0%/);
     assert.match(html, /RougeCue[\s\S]*已归档 0\/1 天/);
     assert.match(html, /RackRate 逐日趋势[\s\S]*北京时间[\s\S]*aria-label="自然搜索会话每日明细/);
@@ -196,42 +195,34 @@ test("goal cards omit scale-zero captions while preserving a verified zero",()=>
   assert.match(zero,/<strong>0<small>次<\/small><\/strong>/);
   assert.doesNotMatch(zero,/>0 次</);
 });
-test("the daily goal displays concise observation dates in LA and exact keyword denominators",()=>{
-  const traffic={mode:"rolling",daysRemaining:71,period:{start:"2026-11-17",end:"2026-11-23"},sessions:1558,fallback:null};
-  const ranked={id:"ranked",keyword:"gpu rental",site:"flatkey.ai",country:"US",language:"en",wordLanguage:"en",rank:35,rankEligible:true,languageStatus:"match",rankSource:"serp",captureState:"ranked",rankUrl:"https://flatkey.ai/gpu",checkedAt:"2026-11-23T01:00:00Z",workState:"completed"};
-  const data={generatedAt:"2026-11-25T01:00:00Z",targets:[ranked,{...ranked,id:"another",rankEligible:false,keyword:"another term",workState:"planned"}],markets:[],reconciliation:{sources:[]}};
-  const keywords=summarizeOverviewKeywords(data);
-  const html=render(React.createElement(OverviewGoalCharts,{traffic,keywords}));
-  assert.match(html,/最新滚动7日/);
-  assert.match(html,/流量截至 11月23日 · 排名截至 11月22日/);
-  assert.match(html,/1,558/);
-  assert.match(html,/1 \/ 2 词/);
-  assert.doesNotMatch(html,/>0 %</);
-  assert.doesNotMatch(JSON.stringify(keywords),/gpu rental|another term|https:/);
-  ranked.checkedAt="2026-11-23T10:00:00Z";
-  assert.match(render(React.createElement(OverviewGoalCharts,{traffic,keywords:summarizeOverviewKeywords(data)})),/数据截至 11月23日/);
-  data.reconciliation.sources.push({name:"最近14天的已存SERP",available:false});
-  const missing=summarizeOverviewKeywords(data);
-  assert.equal(missing.ranking,null);
-  assert.equal(missing.coverage,null);
-  assert.equal(missing.total,2);
+test("the closeout displays daily averages, ten weekly goals and all approved core keywords",()=>{
+  const traffic={mode:"rolling",daysRemaining:71,period:{start:"2026-11-19",end:"2026-11-25"},sessions:1669,fallback:null};
+  const html=render(React.createElement(OverviewGoalCharts,{traffic,keywords:null}));
+  assert.match(html,/流量截至 11月25日/);
+  assert.match(html,/238\.4/);
+  assert.match(html,/1,075 次\/天/);
+  assert.match(html,/本周目标 (?:<!-- -->)?275/);
+  assert.match(html,/查看周目标与实际/);
+  assert.match(html,/api gemini preço/);
+  assert.match(html,/google gemini api free tier rate limits 2026/);
+  assert.match(html,/gemini模型价格/);
+  assert.doesNotMatch(html,/全部关键词前100覆盖|已获排名关键词中前50|>0 %</);
 });
 test("the overview displays the verified prior whole window while the latest window is pending",()=>{
   const traffic={mode:"rolling",daysRemaining:70,period:{start:"2026-11-19",end:"2026-11-25"},sessions:null,
     fallback:{start:"2026-11-18",end:"2026-11-24",sessions:1603}};
   const overview=()=>render(React.createElement(OverviewGoalCharts,{traffic,keywords:null}));
   const initial=overview();
-  assert.match(initial,/最近已核验滚动7日/);
   assert.match(initial,/流量截至 11月24日/);
-  assert.match(initial,/1,603/);
-  assert.match(initial,/洛杉矶 11月25日 截止窗口待采，当前显示 11月18日–11月24日 的整段会话/);
+  assert.match(initial,/229/);
+  assert.match(initial,/洛杉矶 11月25日 截止窗口待采，当前显示 11月18日–11月24日 日均/);
   traffic.fallback.sessions=0;
-  assert.match(overview(),/会话：0次，目标3000次/);
+  assert.match(overview(),/0次\/天，目标1075次\/天/);
   traffic.fallback=null;
   assert.match(overview(),/窗口待采/);
-  assert.doesNotMatch(overview(),/会话：0次|流量截至 11月24日/);
+  assert.doesNotMatch(overview(),/流量截至 11月24日/);
   traffic.mode="final";
-  assert.doesNotMatch(overview(),/最近已核验滚动7日|窗口待采/);
+  assert.doesNotMatch(overview(),/窗口待采/);
 });
 test("daily chart preserves missing-day gaps rather than joining through or filling zero",()=>{
   const html=render(React.createElement(LinePlot,{unit:"次会话",rows:[{label:"11-01",value:8},{label:"11-02",value:null},{label:"11-03",value:12}]}));
@@ -280,6 +271,6 @@ test("both traffic charts have focusable date detail targets and the unsupported
     assert.match(html,/本期总注册 <strong>5<\/strong> 人[\s\S]*?环比 \+25\.0%/);
     assert.match(html,/上期 2026-11-10—2026-11-16 · 4 人/);
     assert.ok(html.indexOf("2026 收官季目标进度") < html.indexOf("Flatkey 流量与注册"));
-    assert.doesNotMatch(html,/品牌词与非品牌词自然搜索会话|搜索词未归因|点击|新用户|流量板块/);
+    assert.doesNotMatch(html,/品牌词与非品牌词自然搜索会话|搜索词未归因|新用户|流量板块/);
   } finally { overviewReads.clear(); }
 });

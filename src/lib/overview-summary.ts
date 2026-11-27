@@ -12,6 +12,8 @@ export type OverviewKeywordSummary = {
   ranking: { total: number; top50: number; latestCheckedAt: string | null } | null;
   coverage: { total: number; top50: number; markets: RankShare[]; bands: RankShare[] } | null;
   partial: boolean;
+  core?: ReturnType<typeof import("./services/seo-closeout-overview").closeoutCoreRead>;
+  ordinary?: ReturnType<typeof import("./services/seo-closeout-overview").ordinaryKeywordCoverage>;
 };
 
 export type OverviewTrafficGoal = {
@@ -20,6 +22,8 @@ export type OverviewTrafficGoal = {
   period: { start: string; end: string };
   sessions: number | null;
   fallback: { start: string; end: string; sessions: number } | null;
+  activeMilestoneEnd?: string;
+  milestones?: { start: string; end: string; target: number; actual: number | null }[];
 };
 
 export function summarizeOverviewKeywords(data: GrowthWorkspace, scope = defaultGrowthScope): OverviewKeywordSummary {

@@ -177,7 +177,7 @@ export function loadGrowthDashboardHistory(localPreview = false): Promise<Dashbo
         'id', payload->'id', 'siteDomain', payload->'siteDomain', 'keyword', payload->'keyword',
         'keywordId', payload->'keywordId', 'country', payload->'country', 'language', payload->'language',
         'pageUrl', payload->'pageUrl', 'status', payload->'status', 'channel', payload->'channel',
-        'kind', payload->'kind', 'dueAt', payload->'dueAt', 'workClass', payload->'workClass',
+        'kind', payload->'kind', 'dueAt', payload->'dueAt', 'workClass', payload->'workClass', 'capacityClass', payload->'capacityClass',
         'contentVersion', payload->'contentVersion', 'progress', payload->'progress'
       ) ELSE jsonb_build_object(
         'id', payload->'id', 'taskId', payload->'taskId', 'siteDomain', payload->'siteDomain',

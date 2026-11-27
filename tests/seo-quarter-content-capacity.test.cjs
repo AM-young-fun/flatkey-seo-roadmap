@@ -104,3 +104,23 @@ test("a plan uses exact frozen hashes, preserves legacy commitments, and does no
   assert.equal(quarterContentBindingProblem(plan, strategy, now), null);
   assert.match(quarterContentBindingProblem(plan, { ...strategy, baseline: { planHash: "c".repeat(64) } }, now), /已审批冻结/);
 });
+
+test("capacity-derived closeout balances 270 Flatkey slots across accepted markets", () => {
+  const { CLOSEOUT_MARKET_POLICY, closeoutBusinessWeeks, closeoutMarketTargets, closeoutTrafficMilestones } = require("../src/lib/seo-quarter-targets.ts");
+  const weeks = closeoutBusinessWeeks();
+  assert.equal(weeks.length, 10);
+  assert.equal(weeks.flatMap(week => week.dates).length, 50);
+  assert.equal(weeks.reduce((sum, week) => sum + week.newKeywords + week.refreshes, 0), 840);
+  assert.equal(weeks.reduce((sum, week) => sum + week.newKeywords, 0), 590);
+  assert.deepEqual(closeoutMarketTargets(270).map(row => row.target), [95, 67, 49, 32, 9, 7, 5, 3, 3]);
+  assert.deepEqual(closeoutTrafficMilestones.at(-1), { start: "2027-01-28", end: "2027-02-03", target: 1075 });
+  const { plan, days } = sample();
+  plan.quarterlyContent = { ...plan.quarterlyContent, marketPolicy: CLOSEOUT_MARKET_POLICY };
+  const br = task("br", days[0], { country: "BR", language: "pt-BR" });
+  const brTwo = task("br-second", days[0], { country: "BR", language: "pt-BR" });
+  fill(plan, days[0], "apiBlogs", [br, brTwo]);
+  assert.doesNotThrow(() => assertQuarterContentCapacity(plan, undefined, [br, brTwo], days, now));
+  brTwo.record.country = "RU";
+  brTwo.record.language = "ru";
+  assert.throws(() => assertQuarterContentCapacity(plan, undefined, [br, brTwo], days, now), { code: "quarter_content_market" });
+});

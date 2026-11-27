@@ -1,6 +1,7 @@
 import { GROWTH_LANGUAGES } from "./seo-growth-markets";
 import { seoToday, shiftDay } from "./seo-date-range";
 import { isRoutineKeywordTask, ROUTINE_LANGUAGE_GROUPS, routineLanguageGroup, routineLanguageProblems } from "./seo-routine-languages";
+import { CLOSEOUT_START, CLOSEOUT_END, CLOSEOUT_MARKET_POLICY, closeoutBusinessWeeks, closeoutMarketTargets } from "./seo-quarter-targets";
 import { isSeoWorkday } from "./seo-workday";
 import { isSeoExtraCapacity } from "./seo-extra-capacity";
 import { isExecutableWorkflowPlan, type WorkflowPlan, type WorkflowTask } from "./seo-workflow";
@@ -32,10 +33,14 @@ export function assertQuarterContentCapacity(plan: WorkflowPlan, previous: Workf
   const policy = plan.quarterlyContent, targets = plan.targets;
   if (!policy || !("cadence" in targets) || targets.cadence !== "growth") return;
   const fail = (code: string, message: string): never => { throw new WorkflowError(code, message); };
+  if (policy.marketPolicy === CLOSEOUT_MARKET_POLICY && (policy.quarterStart !== CLOSEOUT_START || policy.quarterEnd !== CLOSEOUT_END)) {
+    fail("quarter_content_window", "新市场配额须沿用户已确认的季度执行窗口");
+  }
   if (policy.quarterStart > targets.executionRange.start || targets.executionRange.end > policy.quarterEnd
     || policy.quarterEnd > shiftDay(policy.quarterStart, 120)) fail("quarter_content_window", "业务周须完整归属所绑定的季度");
   if (previous?.quarterlyContent && (policy.quarterStart !== previous.quarterlyContent.quarterStart
-    || policy.quarterEnd !== previous.quarterlyContent.quarterEnd || policy.historicalBefore !== previous.quarterlyContent.historicalBefore)) {
+    || policy.quarterEnd !== previous.quarterlyContent.quarterEnd || policy.historicalBefore !== previous.quarterlyContent.historicalBefore
+    || policy.marketPolicy !== previous.quarterlyContent.marketPolicy)) {
     fail("quarter_content_identity", "同一季度排期保留原执行窗口和历史文章截点");
   }
   if (previous?.strategyAllocation && workflowHash(previous.strategyAllocation) !== workflowHash(plan.strategyAllocation)
@@ -46,7 +51,7 @@ export function assertQuarterContentCapacity(plan: WorkflowPlan, previous: Workf
   const api = [...mix.values()].reduce((total, row) => total + row.api, 0);
   if (targets.apiBlogs !== api || targets.gpuBlogs !== dates.length * 5 - api || targets.optimizedPages !== 0
     || targets.contentRefreshPages !== dates.length * 5) fail("quarter_content_targets", "源文API/GPU交替排产，Flatkey重写每天五篇，独立常规优化额度为零");
-  for (const group of ROUTINE_LANGUAGE_GROUPS) {
+  if (policy.marketPolicy !== CLOSEOUT_MARKET_POLICY) for (const group of ROUTINE_LANGUAGE_GROUPS) {
     const declared = GROWTH_LANGUAGES.filter(language => routineLanguageGroup(language) === group).reduce((n, language) => n + targets.blogLanguages[language], 0);
     if (declared !== dates.length) fail("quarter_content_language_targets", "Flatkey新博客五个语种组各按每工作日一篇分配");
   }
@@ -76,9 +81,27 @@ export function assertQuarterContentCapacity(plan: WorkflowPlan, previous: Workf
       fail("quarter_content_refresh_history", "季度重写须关联历史截点前的实际首发和原始版本");
     }
   }
-  const research = routineLanguageProblems({ tasks: content.filter(task => flatkeyBlog(task) && isRoutineKeywordTask(task)),
-    committedIds: existingIds, capacity: dates.length * 5, dailySlots: new Map(dates.map(date => [date, 5])) });
-  if (research.length) fail(research[0].code, research[0].message);
+  if (policy.marketPolicy === CLOSEOUT_MARKET_POLICY) {
+    const isFlatkeyNew = (task: WorkflowTask) => !task.deletedAt && !isSeoExtraCapacity(task.capacityClass)
+      && inQuarter(dueDay(task), policy) && (flatkeyBlog(task) || flatkeyLanding(task));
+    const current = [...new Set([...existingIds, ...plan.taskIds])].flatMap(id => store.get(id) ?? []).filter(isFlatkeyNew);
+    const before = current.filter(task => existingIds.has(task.id));
+    const capacity = closeoutBusinessWeeks(policy.quarterStart, policy.quarterEnd).reduce((sum, week) => sum + week.flatkeyBlogs + week.flatkeyLandings, 0);
+    const markets = closeoutMarketTargets(capacity);
+    if (additions.some(task => isFlatkeyNew(task) && !markets.some(market => task.country === market.country && task.language === market.language))) {
+      fail("quarter_content_market", "季度源内容须使用已核定的国家及原词语种");
+    }
+    for (const market of markets) {
+      const matches = (task: WorkflowTask) => task.country === market.country && task.language === market.language;
+      if (current.filter(matches).length > Math.max(market.target, before.filter(matches).length)) {
+        fail("quarter_content_market_capacity", `${market.label}季度名额已满，保留已承诺原任务`);
+      }
+    }
+  } else {
+    const research = routineLanguageProblems({ tasks: content.filter(task => flatkeyBlog(task) && isRoutineKeywordTask(task)),
+      committedIds: existingIds, capacity: dates.length * 5, dailySlots: new Map(dates.map(date => [date, 5])) });
+    if (research.length) fail(research[0].code, research[0].message);
+  }
   const pageKey = (task: WorkflowTask) => task.pageUrl?.replace(/^https:\/\/www\./iu, "https://").replace(/\/$/u, "");
   const priorRefreshes = [...existingIds].flatMap(id => store.get(id) ?? []).filter(task => !task.deletedAt && flatkeyRefresh(task) && inQuarter(dueDay(task), policy));
   for (const task of additions.filter(flatkeyRefresh)) {
@@ -93,16 +116,18 @@ export function assertQuarterContentCapacity(plan: WorkflowPlan, previous: Workf
     const gpuBlogs = blogs.filter(task => task.business === "GPU").length;
     const originalApi = blogs.filter(task => existingIds.has(task.id) && task.business === "API").length;
     const originalGpu = blogs.filter(task => existingIds.has(task.id) && task.business === "GPU").length;
-    if (blogs.length > 5 || apiBlogs > Math.max(allowed.api, originalApi) || gpuBlogs > Math.max(allowed.gpu, originalGpu)) {
+    if (blogs.length > Math.max(5, originalApi + originalGpu) || apiBlogs > Math.max(allowed.api, originalApi) || gpuBlogs > Math.max(allowed.gpu, originalGpu)) {
       fail("quarter_content_daily_blog_mix", `${date} Flatkey博客超出日额度或API/GPU分配，原承诺照原排期`);
     }
     const gaps = (category: WorkflowPlan["gaps"][number]["category"], site: string) => plan.gaps
       .filter(gap => gap.category === category && gap.date === date && gap.siteDomain === site).reduce((n, gap) => n + gap.count, 0);
-    const open = 5 - blogs.length;
+    const open = Math.max(0, 5 - blogs.length);
     const apiGap = Math.min(open, Math.max(0, allowed.api - apiBlogs));
+    const modelFitExpected = Math.max(5, today.filter(task => existingIds.has(task.id) && modelFitBlog(task)).length);
+    const refreshExpected = Math.max(5, today.filter(task => existingIds.has(task.id) && flatkeyRefresh(task)).length);
     if (gaps("apiBlogs", "flatkey.ai") !== apiGap || gaps("gpuBlogs", "flatkey.ai") !== open - apiGap
-      || today.filter(modelFitBlog).length + gaps("modelFitBlogs", "modelfit.cc") !== 5
-      || today.filter(flatkeyRefresh).length + gaps("contentRefreshPages", "flatkey.ai") !== 5) {
+      || today.filter(modelFitBlog).length + gaps("modelFitBlogs", "modelfit.cc") !== modelFitExpected
+      || today.filter(flatkeyRefresh).length + gaps("contentRefreshPages", "flatkey.ai") !== refreshExpected) {
       fail("quarter_content_daily_gaps", `${date}正式任务与逐日真实缺口未对平`);
     }
   }
