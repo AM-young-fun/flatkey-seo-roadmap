@@ -87,6 +87,8 @@ test("a pending weekly review preserves other modules and shows only next week's
   selectedReport = { ...report, reviewedBody: undefined, draftBody: { pendingReview: true }, conversionSnapshot, growthSnapshot,
     reportPeriod: {start:"2026-11-12",end:"2026-11-18",timezone:"America/Los_Angeles"},
     pagePerformance: [], recentPages: [optimized("Small gain",1,2),optimized("Large gain",10,30)], rankingNotes: ["本期关键词排名回执"],
+    weeklyRankingSummary: { scope: "all-keywords", total: 2625, ranked: 246, verifiedOutside: 1, unresolved: 2378,
+      countries: [{ country: "US", target: 1060, ranked: 236 }], bands: [{ from: 1, to: 3, count: 7 }] },
     githubSection:["GitHub 提示词渠道","• [Prompt repo](https://github.com/example/prompts)","  Stars 1；Forks 0"],
     businessSection:["GA4 行为与转化","• 自然搜索归因：2026-11-12—2026-11-18","  注册成功：80 → 81"],
     dashboard: {detailText:"周报\n\n关键词实测\n旧期关键词不应占位\n\n数据与执行情况\n旧工作记录不应重现",attributionText:"本周主要贡献：\n\n- **上涨文章**：[Gemini](https://flatkey.ai/zh/blog/gemini-api-pricing)点击25→85（+60）。\n- **下降文章**：[Free LLM](https://flatkey.ai/blog/free-llm-apis-2026)点击146→62（−84）；[vLLM](https://flatkey.ai/blog/vllm-expert-parallel-deployment)点击31→2。",technicalText:"技术检查：本批99项检查完成。覆盖范围尚不包含完整孤立页。",sourceEvidenceSha256:"a".repeat(64)},
@@ -102,6 +104,8 @@ test("a pending weekly review preserves other modules and shows only next week's
     assert.doesNotMatch(html,/本周计划进度|rangeStart=2026-11-16/);
     assert.match(html,/<h3>自然搜索<\/h3>[\s\S]*?<h4>流量上涨与下跌原因<\/h4>[\s\S]*?<h3>近一个月优化效果 · 前 10<\/h3>[\s\S]*?<h3>关键词排名明细<\/h3>[\s\S]*?<h3>SEO 技术质检<\/h3>[\s\S]*?id="seo-indexing-404"[\s\S]*?<h3>任务安排<\/h3>/);
     assert.doesNotMatch(html,/2026 收官季|季度目标/);
+    assert.match(html.replaceAll("<!-- -->", ""), /全部关键词前 100 覆盖[\s\S]*?246 \/ 2625 词[\s\S]*?各国关键词前 100 覆盖[\s\S]*?前 100 名次分布/);
+    assert.doesNotMatch(html,/查看排名数据表|查看采集口径和排名例证|本期关键词排名回执/);
     assert.match(html,/<h5>上涨文章<\/h5>[\s\S]*?gemini-api-pricing[\s\S]*?点击25→85/);
     assert.match(html,/<h5>下降文章<\/h5>[\s\S]*?free-llm-apis-2026[\s\S]*?146→62[\s\S]*?<li><a[^>]+vllm-expert-parallel-deployment/);
     assert.doesNotMatch(html,/duplicate structured attribution|流量归因与方向决定|GPU业务承接|API自然获客|30天批次/);

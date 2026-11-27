@@ -29,7 +29,7 @@ import { loadWorkflowSnapshot } from "./seo-workflow";
 import { isExecutableWorkflowPlan, shiftWorkflowDay } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
 import { approvedCaptureRankedWords } from "@/lib/approved-weekly-keyword-capture";
-import { summarizeWeeklyRankings, type WeeklyRankingSummary } from "@/lib/seo-weekly-ranking-summary";
+import { summarizeWeeklyRankings, weeklyKeywordCatalogLine, type WeeklyRankingSummary } from "@/lib/seo-weekly-ranking-summary";
 import { digestDailyNativeRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { digestExecutionPeriod, digestReportExecutionWeek, summarizeDigestWorkPlan } from "../seo-digest-work-plan";
 import { loadSerpTasks } from "./serp-results";
@@ -40,6 +40,7 @@ import { loadGrowthReportSnapshot } from "./growth-strategy";
 import { growthHash, unavailableGrowthReportSnapshot } from "../growth-strategy";
 import { latestClosedLa7DayRange, weeklyReportRange } from "../seo-date-range";
 import { loadGrowthWorkspace } from "./growth-workspace";
+import { loadWeeklyCatalogRanking } from "./seo-weekly-catalog-ranking";
 
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export class DigestError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -74,18 +75,22 @@ export async function loadDigestWorkPlan(date: string, kind: DigestKind) {
 
 export async function loadWeeklyDigestRankings(date: string, now: Date) {
   const window = digestWindow(date, "weekly");
-  const approvedCapture = await loadApprovedWeeklyKeywordCapture({ start: window.trafficStart, end: window.trafficEnd, asOf: now });
+  const period = { start: window.trafficStart, end: window.trafficEnd };
+  const approvedCapture = await loadApprovedWeeklyKeywordCapture({ ...period, asOf: now });
+  let summary: WeeklyRankingSummary | undefined, notes: string[];
   if (approvedCapture) {
     const ranked = approvedCaptureRankedWords(approvedCapture).map(row => ({ rank: row.bestRank }));
     const countries = approvedCapture.countries.map(row => ({ country: row.country, target: row.targetCount, ranked: row.rankedKeywords }));
-    return { notes: approvedCapture.notes, summary: summarizeWeeklyRankings(countries, ranked, approvedCapture.verifiedOutsideTop100) };
+    summary = summarizeWeeklyRankings(countries, ranked, approvedCapture.verifiedOutsideTop100);
+    notes = approvedCapture.notes;
+  } else {
+    if (date === "2026-11-13") return { notes: [] };
+    const start = window.executionStart ?? window.workStart, end = window.executionEnd ?? window.workEnd;
+    const tasks = await loadSerpTasks("all", "en", "desktop", start.slice(0, 10), date);
+    notes = digestRankingNotes(tasks, start, end, now, value => { summary = value; });
   }
-  if (date === "2026-11-13") return { notes: [] };
-  const start = window.executionStart ?? window.workStart, end = window.executionEnd ?? window.workEnd;
-  const tasks = await loadSerpTasks("all", "en", "desktop", start.slice(0, 10), date);
-  let summary: WeeklyRankingSummary | undefined;
-  const notes = digestRankingNotes(tasks, start, end, now, value => { summary = value; });
-  return { notes, summary };
+  const catalog = summary ? await loadWeeklyCatalogRanking(period, now, approvedCapture).catch(() => undefined) : undefined;
+  return catalog ? { notes: [weeklyKeywordCatalogLine(catalog), ...notes], summary: catalog } : { notes, summary };
 }
 
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {

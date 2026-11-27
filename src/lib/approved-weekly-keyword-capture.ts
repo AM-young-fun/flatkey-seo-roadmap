@@ -16,6 +16,7 @@ export type ApprovedWeeklyKeywordCapture = Counts & {
   rankBuckets: { top10: number; rank11to30: number; rank31to50: number; rank51to100: number };
   countries: Array<Counts & { country: string; language: string }>;
   pages: ApprovedWeeklyKeywordPage[]; latestCheckedAt: string; notes: string[];
+  outsideWords?: { keyword: string; country: string; language: string; checkedAt: string }[];
 };
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const first = getApprovedKeywordReviewPlan(), other = getApprovedOtherKeywordReviewPlan();
@@ -156,7 +157,9 @@ export function buildApprovedWeeklyKeywordCapture(input: ApprovedWeeklyKeywordCa
     notes.push(`明确复用：${row.keyword} · ${row.country}${row.ranked ? `第${row.pages[0].rank}名` : "排名尚未确认"} · 原回执${row.checkedAt} · 来源${row.sourceRunId}${row.pages[0] ? ` · ${row.pages[0].url}` : ""}；本次未重复付费。`);
   }
   return { ...totals, runIds: fixed.map(run => run.id), window, sourceHash, complete, comparable: false,
-    countries, pages, rankBuckets, latestCheckedAt: dates.at(-1)!, notes };
+    countries, pages, rankBuckets, latestCheckedAt: dates.at(-1)!, notes,
+    outsideWords: observations.flatMap(row => row.outside && row.checkedAt
+      ? [{ keyword: row.keyword, country: row.country, language: row.language, checkedAt: row.checkedAt }] : []) };
 }
 
 
