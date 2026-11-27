@@ -157,7 +157,7 @@ test("hotspot delivery checks the event timestamp in addition to the business-we
   assert.equal(prepareHotspotAdmission(context,command,"blog",now).status,"pending");
 });
 
-test("weekly growth binds real weekly report, exact country/page and the following Friday–Thursday workweek", () => {
+test("weekly growth links archived same-topic evidence to a qualified page in the following workweek", () => {
   const { weeklyGrowthTaskProblem } = require("../src/lib/growth-weekly-admission.ts");
   const context = fixture(), direction = context.strategy.directions[0];
   const reportId = "digest:weekly", reportHash = "c".repeat(64), pageUrl = "https://flatkey.ai/blog/gpu-rental";
@@ -171,14 +171,34 @@ test("weekly growth binds real weekly report, exact country/page and the followi
   const boost = task("boost", { kind: "optimization", pageUrl, dueAt: "2026-11-30T06:00:00Z", capacityClass: "authorized_weekly_growth_extra", weeklyGrowthRevision: 2 });
   const check = (patch = {}, source = report) => weeklyGrowthTaskProblem(context.strategy, { ...boost, ...patch }, source, clock);
   assert.equal(check(), null);
-  assert.match(check({ pageUrl: "https://flatkey.ai/blog/other" }), /未与周报/);
+  assert.equal(check({ pageUrl: "https://flatkey.ai/blog/other" }), null);
+  assert.match(check({ pageUrl: "https://example.com/blog/gpu" }), /本站原优化页/);
   assert.match(check({ weeklyGrowthRevision: 3 }), /确切/);
   assert.match(check({ dueAt: "2026-12-04T06:00:00Z" }), /周报后/);
   assert.match(check({ dueAt: "2026-11-28T06:00:00Z" }), /工作日/);
   assert.match(check({}, { ...report, kind: "daily" }), /真实已保存周报/);
   assert.match(check({}, { ...report, growthSnapshot: { directions: [{ drivers: [{ ...driver, current: 50 }] }] } }), /同一周报/);
+  const crossMarket = { ...driver, url: "https://flatkey.ai/zh/blog/gpu-rental", country: "SG", language: "zh-CN" };
+  direction.drivers = [crossMarket];
+  const topicReport = { ...report, growthSnapshot: { directions: [{ drivers: [crossMarket] }] } };
+  assert.equal(check({}, topicReport), null);
+  const otherTopic = { ...crossMarket, topicId: "other" };
+  direction.drivers = [otherTopic];
+  assert.match(check({}, { ...report, growthSnapshot: { directions: [{ drivers: [otherTopic] }] } }), /对应的站点和话题/);
+
+  const allMarkets = { ...crossMarket, country: "ALL", source: "GA4", metric: "sessions" };
+  direction.drivers = [allMarkets];
+  const dates = ["2026-11-19", "2026-11-20", "2026-11-21", "2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25"];
+  const weeklySummary = { date: "2026-11-25", previousDate: "2026-11-18", periodDays: 7, comparisonDates: dates,
+    modules: [{ id: "blog", pages: [{ site: "flatkey.ai", url: allMarkets.url, previous: 15, value: 25,
+      timezone: "America/Los_Angeles", previousDate: "2026-11-18", comparisonReason: null }] }] };
+  const reportWithSummary = summary => ({ ...report, growthSnapshot: { directions: [] },
+    pagePerformance: [{ source: "GA4", metric: "sessions", flatkey: summary }] });
+  assert.equal(check({}, reportWithSummary(weeklySummary)), null);
+  assert.match(check({ pageUrl: "https://flatkey.ai/blog/other" }, reportWithSummary(weeklySummary)), /同一周报/);
+  assert.match(check({}, reportWithSummary({ ...weeklySummary, comparisonDates: dates.slice(1) })), /同一周报/);
   direction.evidence = [];
-  assert.match(check(), /持续性证据/);
+  assert.match(check({}, reportWithSummary(weeklySummary)), /持续性证据/);
 });
 
 test("daily extra capacity is shared and weekly growth reserves two deliveries for one topic", () => {
