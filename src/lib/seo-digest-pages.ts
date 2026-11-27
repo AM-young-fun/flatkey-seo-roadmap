@@ -11,7 +11,9 @@ const propertyPriority = (row: PageObservation) => row.property.startsWith("sc-d
 function completeness(row: PageObservation): string | null {
   if (row.rows.length >= 50000) return "页面行数达到上限，覆盖未核实";
   if (row.kind === "gsc-pages") {
-    if (row.rows.some(page => !safeAnalyticsUrl(page.url))) return "含无法核实的公开页面地址";
+    // The archive validates both HTTP and HTTPS URLs against the property.
+    // Legacy HTTP rows are outside the HTTPS page charts' scope.
+    if (row.rows.length > 0 && !row.rows.some(page => safeAnalyticsUrl(page.url))) return "未返回符合范围的 HTTPS 页面";
     return row.complete ? null : "页面数据未完成、受限或尚未对齐总量";
   }
   if (row.rows.some(page => !page.hostname)) return "缺少 hostname，无法归属页面";
@@ -146,7 +148,7 @@ export function digestTopPages(input: unknown[], reportDate: string, now: Date, 
         absentIsZero &&= row.source === "google-api" && (row.kind === "gsc-pages" || row.hostnameDimension === "hostName");
         for (const [url, value] of pageValues(row)) values.set(url, (values.get(url) ?? 0) + value);
         if (row.kind === "gsc-pages") for (const page of row.rows) {
-          if (new URL(page.url).hash) continue;
+          if (!safeAnalyticsUrl(page.url) || new URL(page.url).hash) continue;
           impressions.set(page.url, (impressions.get(page.url) ?? 0) + page.impressions);
         }
       }
