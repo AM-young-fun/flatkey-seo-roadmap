@@ -16,7 +16,7 @@ import type { PublishedKeywordWords } from "@/lib/growth-keyword-inventory";
 import { publishedKeywordRankLabels, publishedRankFilters, type PublishedKeywordRank, type PublishedRankFilter } from "@/lib/published-keyword-rank";
 import { GrowthTopicDirections } from "./GrowthTopicDirections";
 import { GrowthKeywordNetwork } from "./GrowthKeywordNetwork";
-import { GrowthQuarterReview } from "./GrowthGoalSummary";
+import { GrowthDirectionReview } from "./GrowthGoalSummary";
 import { GrowthKeywordCatalog } from "./GrowthKeywordCatalog";
 import { KeywordCategories, KeywordNumericHeader, KeywordPages, KeywordTopics } from "./KeywordTableCells";
 import type { NumericSort } from "@/lib/growth-keyword-lookup";
@@ -245,12 +245,12 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
   return <main className={workspace.shell}><PageHeader active="opportunities" marketControl={false} /><div className={styles.content} inert={loading} aria-busy={loading}>
     <div className={styles.heading}><div>{topicId ? <Link className={styles.back} href={growthLink(scope)}><ArrowLeft size={14} aria-hidden="true" />返回话题列表</Link> : null}<h1>{topicId ? topic?.name || "话题详情" : "关键词目标"}</h1><p>{topicId ? "同一话题下按国家、语言查看关键词、页面、任务与排名。" : "以 TopicMap 话题为主线，包含规划中、进行中与已完成目标。"}</p></div>{quarter && (data || read.error || read.retrying) ? <FeedbackButton className={styles.more} onClick={read.retry} pending={read.retrying} pendingLabel="正在刷新…"><RefreshCw size={14} aria-hidden="true" />刷新</FeedbackButton> : null}</div>
     {!topicId && !(tab === "hotspots" && hotspotTopic) ? <div className={styles.keywordTabs} role="group" aria-label="关键词分类">{keywordTabs.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => changeTab(id)}><strong>{label}</strong><span>{description}</span></button>)}</div> : null}
-    {quarterPlan ? <><GrowthQuarterCalendarWorkspace plan={quarterPlan} /><GrowthQuarterReview /></>
+    {quarterPlan ? <GrowthQuarterCalendarWorkspace plan={quarterPlan} />
       : quarterHome && calendar.error ? <p role="alert">{calendar.error} <button type="button" onClick={calendar.retry}>重新加载季度排期</button></p>
       : !topicId && tab === "hotspots" ? <GrowthHotspotWorkspace key={hotspotTopic ?? `topics-${hotspotPage}`} topicKey={hotspotTopic} listPage={hotspotPage} />
       : !topicId && tab === "keywords" ? <GrowthKeywordCatalog />
       : published ? <KeywordInventory scope={scope} change={change} page={page} setPage={setPage} /> : <>
-    {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p><GrowthQuarterReview allowManualOpen /></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
+    {read.error && !read.retrying ? <div className={styles.panel} role="alert">话题与关键词暂时无法读取：{read.error}</div> : !result || !data ? null : !result.frozen ? <section className={styles.panel}><p>季度词目标尚未冻结。</p></section> : topicId && !topic ? <div className={styles.panel}>此站点下未找到对应话题。<Link href={growthLink({ ...scope, site: "all" })}>返回全部话题</Link></div> : <>
       <section className={styles.panel}>
         <GrowthFilters data={data} scope={effectiveScope} change={change} fixedSite={Boolean(topic)} />
         <p className={styles.note}>季度冻结清单 {count(result.frozenTotal ?? 0)} 词。当前筛选有 {count(result.stats.total)} 个待新增关键词。已关联上线原页的词可在 <Link href="/opportunities?tab=published" className={styles.textLink}>已有内容与排名</Link> 查看。</p>
@@ -279,9 +279,9 @@ export function GrowthTopicWorkspace({ topicId, initialTab = "quarter", hotspotT
         <SeoTablePagination pagination={result.pagination} onPage={turnPage} />
       </section>
       {topic ? <GrowthTopicDirections site={topic.site} topicId={topic.topicId} country={effectiveScope.country} language={effectiveScope.language} /> : null}
-      {!topic ? <GrowthQuarterReview /> : null}
       <div className={styles.related}><Link href="/">总览与业务词库关系图</Link><Link href="/work">工作任务</Link><Link href="/reports?period=weekly">历史周报</Link></div>
     </>}
     </>}
+    {quarterHome ? <GrowthDirectionReview /> : null}
   </div>{loading && <PageLoading />}</main>;
 }
