@@ -46,6 +46,8 @@ beforeEach(t => {
   packet = { runIds: ["approved-keyword-review-20261123-v1", "approved-other-keyword-review-20261123-v1"],
     sourceHash: "b".repeat(64), complete: true, comparable: false, newQueryCount: 1498, reusedQueryCount: 1, targetCount: 1499,
     capturedKeywords: 1499, rankedKeywords: 200, unresolvedKeywords: 7, verifiedOutsideTop100: 1292,
+    countries: [{ country: "US", language: "en", targetCount: 1499, rankedKeywords: 200 }],
+    pages: Array.from({ length: 200 }, (_, index) => ({ keywordId: `kw-${index}`, country: "US", rank: index < 50 ? 8 : 51, url: "https://flatkey.ai/blog/example" })),
     notes: ["本期复核1499词：1498条新查询＋1条旧结果复用；实际有排名200词，未决7词。",
       "CN16词单列；中性词仅为本次已批准查询环境，不认定原词语种或变更主国家。",
       "原词 example query · 美国 · 第8名 · 真实页面 https://flatkey.ai/blog/example · 采集于2026-11-23。",
@@ -59,6 +61,12 @@ test("weekly digest consumes the merged approved notes, complete page links and 
   assert.equal(legacyReads, 0, "the latest per-country scheduled selector cannot overwrite either approved batch");
   assert.deepEqual(capturedInput.rankingNotes, packet.notes); assert.deepEqual(report.rankingNotes, packet.notes);
   for (const text of ["1498条新查询", "1条旧结果复用", "CN16词", "https://flatkey.ai/blog/example", "无可比上期"]) assert.ok(report.detailText.includes(text), text);
+  assert.deepEqual(report.weeklyRankingSummary, {
+    total: 1499, ranked: 200, verifiedOutside: 1292, unresolved: 7,
+    countries: [{ country: "US", target: 1499, ranked: 200 }],
+    bands: [[1, 3, 0], [4, 10, 50], [11, 20, 0], [21, 50, 0], [51, 100, 150]]
+      .map(([from, to, count]) => ({ from, to, count })),
+  });
   assert.doesNotMatch(report.detailText, /全部记为新增|前100.*净增.*200/);
 });
 

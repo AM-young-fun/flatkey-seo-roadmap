@@ -15,3 +15,15 @@
 .scroll { overflow-x: auto; }
 .history table { border-collapse: collapse; width: 100%; margin-top: 10px; text-align: left; }
 .history th,.history td { border-bottom: 1px solid var(--ui-border); padding: 8px 10px; white-space: nowrap; }
+
+.figure { display: grid; grid-template-columns: min-content minmax(0, 1fr); grid-template-rows: 112px auto; column-gap: 10px; row-gap: 9px; margin: 15px 0 0; padding: 9px 0 0; }
+.axis { position: relative; min-width: 3.1rem; font-variant-numeric: tabular-nums; color: #596a81; font-size: .72rem; }
+.axis span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+.chart { position: relative; min-width: 0; background: #f8fafd; border-radius: 4px; }
+.chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart svg line { stroke: #dbe4ef; stroke-width: 1px; stroke-dasharray: 3 3; }
+.chart svg path { stroke: #3677c5; stroke-width: 2px; stroke-linecap: round; }
+.point { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #3677c5; transform: translate(-50%, -50%); }
+.point[data-latest="true"] { width: 9px; height: 9px; box-shadow: 0 0 0 2px #f8fafd; }
+.dates { grid-column: 2; display: flex; justify-content: space-between; color: #596a81; font-size: .72rem; font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) { .figure { grid-template-rows: 88px auto; } }

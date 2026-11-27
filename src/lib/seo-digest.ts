@@ -85,7 +85,7 @@ export type DigestInput = {
   optimizationMonitoring?: OptimizationReportRow[];
   technicalQa?: TechnicalQaReport;
   priorities: { title: string; keyword?: string; country?: string; url?: string; reason: string; action: string }[];
-  issues: string[]; runNotes: string[]; rankingNotes?: string[]; nextPlanUrl?: string; nextPlanStatus?: "draft" | "scheduled" | "reviewed" | "bootstrap";
+  issues: string[]; runNotes: string[]; rankingNotes?: string[]; weeklyRankingSummary?: import("./seo-weekly-ranking-summary").WeeklyRankingSummary; nextPlanUrl?: string; nextPlanStatus?: "draft" | "scheduled" | "reviewed" | "bootstrap";
   publicationCoverage: "verified" | "missing" | "partial";
   deliveryStates?: { blogs: boolean; landing: boolean; cluster: boolean; optimizations: boolean };
   optimizationCoverage: "verified" | "missing" | "partial";
@@ -1048,7 +1048,7 @@ export function buildSeoDigest(input: DigestInput) {
   if (currentTemplate && window.kind === "daily") detailText = text;
   const hash = createHash("sha256").update(text).digest("hex");
   const executionWindow = { start: window.executionStart ?? window.workStart, end: window.executionEnd ?? window.workEnd, timezone: window.executionTimezone ?? window.workTimezone };
-  return { ...templateSnapshot, registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, ...templateSnapshot, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}), ...(businessDate ? { businessDate, sourceDay, executionWindow } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
+  return { ...templateSnapshot, registrationCoverageNote, id: digestSnapshotId({ date: input.date, text, detailText, pagePerformance, recentPages: input.recentPages, deliveryStates: input.deliveryStates, organicRegistrations, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, weeklyRankingSummary: input.weeklyRankingSummary, ...templateSnapshot, ...(input.growthSnapshot ? { growthSnapshot: input.growthSnapshot } : {}), ...(businessDate ? { businessDate, sourceDay, executionWindow } : {}) }), date: input.date, kind: window.kind, title, text, detailText, hash,
     ...(businessDate ? { businessDate, sourceDay } : {}),
     ...(window.workTimezone === "America/Los_Angeles" ? { reportPeriod: { start: window.trafficStart, end: window.trafficEnd, timezone: "America/Los_Angeles" as const }, organicRegistrationCanCompare } : {}),
     deliveryProtocol: 2, generatedAt: now.toISOString(), readyAfter: window.readyAfter, preliminary: now.getTime() < Date.parse(window.readyAfter),
@@ -1059,7 +1059,7 @@ export function buildSeoDigest(input: DigestInput) {
     recentPages: input.recentPages,
     growthSnapshot: input.growthSnapshot,
     deliveryStates: input.deliveryStates,
-    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes,
+    weeklyHighlights, weeklyTraffic, workPlan: input.workPlan, currentWorkPlan: input.currentWorkPlan, pageGroups: input.pageGroups, rankingNotes: input.rankingNotes, weeklyRankingSummary: input.weeklyRankingSummary,
     approvalQueue: review ? { tickets: review.tickets, pages: review.pages.length } : null,
     flatkeyRegistrations, accountRegistrations, organicRegistrations,
     coverage: { publications: input.publicationCoverage, optimizations: input.optimizationCoverage, approvals: review ? "verified" : "missing" } };

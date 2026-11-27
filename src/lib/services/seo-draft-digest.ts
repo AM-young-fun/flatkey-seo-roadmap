@@ -9,7 +9,12 @@ export async function saveDraftSeoDigest(raw: unknown, now = new Date()) {
   const base = await prisma.seoReportVersion.findUnique({ where: { id: input.baseReportId } });
   if (!base || base.kind !== "SEO_DIGEST" || base.siteDomain !== "flatkey.ai"
     || base.periodStart.toISOString().slice(0, 10) !== input.date || base.periodEnd.toISOString().slice(0, 10) !== input.date) throw new ReviewedDigestError("基础周报快照不存在", 404);
-  const report = buildDraftSeoDigest(base.payload as unknown as SeoDigest, input, now);
+  const source = input.expectedScheduledTaskIds || input.refreshRankingSummary ? await import("./seo-digest") : undefined;
+  const [workPlan, ranking] = await Promise.all([
+    input.expectedScheduledTaskIds ? source!.loadDigestWorkPlan(input.date, "weekly") : undefined,
+    input.refreshRankingSummary ? source!.loadWeeklyDigestRankings(input.date, now) : undefined,
+  ]);
+  const report = buildDraftSeoDigest(base.payload as unknown as SeoDigest, input, now, { workPlan, weeklyRankingSummary: ranking?.summary });
   await prisma.seoReportVersion.createMany({ data: { id: report.id, siteDomain: "flatkey.ai", kind: "SEO_DIGEST",
     periodStart: new Date(report.date), periodEnd: new Date(report.date), createdAt: new Date(report.generatedAt),
     payload: JSON.parse(JSON.stringify(report)) as Prisma.InputJsonValue }, skipDuplicates: true });

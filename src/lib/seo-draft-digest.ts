@@ -13,6 +13,8 @@ export const draftDigestCommandSchema = z.object({
   baseReportId: z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/), baseReportHash: sha256,
   reportPeriod: z.object({ start: z.iso.date(), end: z.iso.date(), timezone: z.literal("America/Los_Angeles") }).strict(),
   text: z.string().min(100).max(6000), textSha256: sha256, sourceEvidenceSha256: sha256,
+  expectedScheduledTaskIds: z.array(z.string().min(1).max(200)).max(160).optional(),
+  refreshRankingSummary: z.literal(true).optional(),
   attributionText: z.string().min(20).max(5000).optional(), dashboardEvidence: reportDashboardEvidenceSchema.optional(),
 }).strict();
 export type DraftDigestBody = {
@@ -21,7 +23,8 @@ export type DraftDigestBody = {
 };
 
 /** Archives a complete review draft. It carries no approval or delivery authority. */
-export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Date()): SeoDigest {
+export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Date(),
+  refreshed?: Pick<SeoDigest, "workPlan" | "weeklyRankingSummary">): SeoDigest {
   const input = draftDigestCommandSchema.parse(raw);
   if (base.id !== input.baseReportId || base.date !== input.date || base.kind !== "weekly"
     || !base.id.startsWith(`seo-digest:${input.date}:`)) throw new ReviewedDigestError("待审正文须绑定同日周报基础快照");
@@ -50,9 +53,25 @@ export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Dat
   if (base.reportTemplateVersion !== undefined && base.reportTemplateVersion >= 9 && reportModuleShareLines(moduleShareSnapshot?.values).some(line => !input.text.includes(line))) throw new ReviewedDigestError("正文与冻结模块占比来源不一致，不能改用日人数相加或移除缺源说明");
   // Draft identities are separate from the approved body identity, so approval
   // creates another immutable snapshot instead of upgrading this row in place.
+  const workPlan = input.expectedScheduledTaskIds ? refreshed?.workPlan : base.workPlan;
+  const weeklyRankingSummary = input.refreshRankingSummary ? refreshed?.weeklyRankingSummary : base.weeklyRankingSummary;
+  if (input.expectedScheduledTaskIds) {
+    const actual = workPlan?.tasks.filter(task => task.scheduled).map(task => task.id).sort();
+    if (JSON.stringify(actual) !== JSON.stringify([...input.expectedScheduledTaskIds].sort())) throw new ReviewedDigestError("正式排期已变化，请重新核对任务", 409);
+  }
+  if (input.refreshRankingSummary && !weeklyRankingSummary) throw new ReviewedDigestError("缺少本期可核验排名回执", 409);
+  const registrations = input.dashboardEvidence?.sites.find(row => row.name === "flatkey.ai")?.registrations;
+  const provisional = input.dashboardEvidence?.gscProvisionalFrom;
+  if (provisional && (provisional < input.reportPeriod.start || provisional > input.reportPeriod.end || input.dashboardEvidence?.gscComparable)) {
+    throw new ReviewedDigestError("GSC 初步数据日期无效");
+  }
   const key = reviewedTextHash(JSON.stringify(["weekly-review-draft-v1", base.id, input.textSha256, input.sourceEvidenceSha256,
-    input.attributionText, input.dashboardEvidence]));
-  return { ...base, moduleShareSnapshot, id: `seo-digest:${input.date}:${key.slice(0, 16)}`, title,
+    input.attributionText, input.dashboardEvidence, ...(input.expectedScheduledTaskIds ? [workPlan] : []),
+    ...(input.refreshRankingSummary ? [weeklyRankingSummary] : [])]));
+  return { ...base, moduleShareSnapshot, workPlan, weeklyRankingSummary,
+    ...(registrations && registrations.current !== null && registrations.previous !== null ? { organicRegistrations: { current: registrations.current, previous: registrations.previous },
+      organicRegistrationCanCompare: registrations.previous !== null && registrations.current !== null,
+      registrationCoverageNote: "GA4 首次自然搜索获客，整段去重" } : {}), id: `seo-digest:${input.date}:${key.slice(0, 16)}`, title,
     text: input.text, detailText: input.text, hash: input.textSha256, generatedAt: now.toISOString(), reviewedBody: undefined,
     draftBody: { version: 1, recordOnly: true, pendingReview: true, baseReportId: base.id, baseReportHash: base.hash,
       baseGeneratedAt: base.generatedAt, textSha256: input.textSha256, sourceEvidenceSha256: input.sourceEvidenceSha256 },
@@ -60,9 +79,9 @@ export function buildDraftSeoDigest(base: SeoDigest, raw: unknown, now = new Dat
       sourceEvidenceSha256: input.sourceEvidenceSha256,
       technicalText: weeklyTechnicalText(input.text, base.reportTemplateVersion),
       ...(input.dashboardEvidence ? { traffic: {
-        sites: dashboardComparisonGroups(input.dashboardEvidence.sites, input.reportPeriod, input.dashboardEvidence.gscComparable),
-        countries: dashboardComparisonGroups(input.dashboardEvidence.countries, input.reportPeriod, input.dashboardEvidence.gscComparable),
-        modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable,
+        sites: dashboardComparisonGroups(input.dashboardEvidence.sites, input.reportPeriod, input.dashboardEvidence.gscComparable, provisional),
+        countries: dashboardComparisonGroups(input.dashboardEvidence.countries, input.reportPeriod, input.dashboardEvidence.gscComparable, provisional),
+        modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable, gscProvisionalFrom: provisional,
       }, moduleShares: moduleShareSnapshot?.values ?? input.dashboardEvidence.moduleShares } : {}),
     },
   };
@@ -76,6 +95,9 @@ export function sameDraftDigest(stored: SeoDigest, expected: SeoDigest) {
     && growthHash(stored.growthSnapshot) === growthHash(expected.growthSnapshot)
     && stored.reportTemplateVersion === expected.reportTemplateVersion && growthHash(stored.conversionSnapshot) === growthHash(expected.conversionSnapshot)
     && growthHash(stored.moduleShareSnapshot) === growthHash(expected.moduleShareSnapshot)
+    && growthHash(stored.workPlan) === growthHash(expected.workPlan)
+    && growthHash(stored.weeklyRankingSummary) === growthHash(expected.weeklyRankingSummary)
+    && growthHash(stored.organicRegistrations) === growthHash(expected.organicRegistrations)
     && stored.readyAfter === expected.readyAfter && stored.deliveryProtocol === expected.deliveryProtocol
     && stored.workWindow.start === expected.workWindow.start && stored.workWindow.end === expected.workWindow.end
     && stored.reportPeriod?.start === expected.reportPeriod?.start && stored.reportPeriod?.end === expected.reportPeriod?.end

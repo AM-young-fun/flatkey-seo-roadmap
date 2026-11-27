@@ -21,6 +21,7 @@ import { WeeklyReportSupplement } from "./WeeklyReportSupplement";
 import { summarizeReportTechnical } from "@/lib/seo-report-technical-summary";
 import { bestMonthlyOptimizations } from "@/lib/seo-digest-recent-pages";
 import { blogPageCounts } from "@/lib/seo-blog-page-counts";
+import type { WeeklyRankingSummary } from "@/lib/seo-weekly-ranking-summary";
 import type { SeoDigest } from "@/lib/seo-digest";
 import type { GrowthReportSnapshot } from "@/lib/growth-strategy";
 import { growthContributionMetricNames } from "@/lib/growth-topic-contributions";
@@ -62,9 +63,9 @@ function TrafficCell({ metric, coverage, canCompare = true, delta }: {
   coverage?: string; canCompare?: boolean; delta?: string;
 }) {
   const current = metric?.current ?? null, previous = metric?.previous ?? null;
-  if (current === null) return <td className={reportStyles.trafficMissing} title={metric?.note || undefined}>—</td>;
+  if (current === null) return <td className={reportStyles.trafficMissing} title={coverage || metric?.note || undefined}>—</td>;
   const change = delta ?? trafficChange(previous, current);
-  return <td title={coverage || metric?.period || undefined}>
+  return <td title={coverage || [metric?.period, metric?.note].filter(Boolean).join(" · ") || undefined}>
     <strong>{numberText(current)}</strong>
     {canCompare && previous !== null && change ? <span className={reportStyles.delta} title={`上期 ${numberText(previous)}`} aria-label={`上期 ${numberText(previous)}，变化 ${change}`}
       data-tone={current === previous ? "neutral" : current > previous ? "increase" : "decrease"}>{change}</span> : null}
@@ -96,6 +97,7 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
       delta: row?.delta ?? "",
     } : {}) };
   };
+  const provisional = dashboardTraffic?.gscProvisionalFrom;
   const moduleComparable = (row: typeof ga4) => !completeWeekRequired || row?.comparisonDates?.length === 7;
 
   return <section className={reportStyles.section}>
@@ -116,9 +118,9 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
           {reportModules.map(([id, label]) => <tr key={id} className={reportStyles.trafficModule}>
             <th scope="row">{label}</th>
             <TrafficCell metric={dashboardTraffic?.modules?.find(module => module.id === id)?.sessions ?? ga4?.modules.find(module => module.id === id)} coverage={dashboardTraffic?.modules ? undefined : coverage(ga4)} canCompare={dashboardTraffic?.modules ? true : moduleComparable(ga4)} />
-            <TrafficCell metric={dashboardTraffic?.modules?.find(module => module.id === id)?.clicks ?? gsc?.modules.find(module => module.id === id)} coverage={dashboardTraffic?.modules ? undefined : coverage(gsc)} canCompare={dashboardTraffic?.modules ? dashboardTraffic.gscComparable : moduleComparable(gsc)} />
-            <TrafficCell metric={dashboardTraffic?.modules?.find(module => module.id === id)?.impressions ?? gsc?.modules.find(module => module.id === id)?.impressions} coverage={dashboardTraffic?.modules ? undefined : coverage(gsc)} canCompare={dashboardTraffic?.modules ? dashboardTraffic.gscComparable : moduleComparable(gsc)} />
-            <td className={reportStyles.trafficMissing}>—</td>
+            <TrafficCell metric={dashboardTraffic?.modules?.find(module => module.id === id)?.clicks ?? gsc?.modules.find(module => module.id === id)} coverage={provisional ? `GSC ${provisional} 起为初步数据` : dashboardTraffic?.modules ? undefined : coverage(gsc)} canCompare={dashboardTraffic?.modules ? dashboardTraffic.gscComparable : moduleComparable(gsc)} />
+            <TrafficCell metric={dashboardTraffic?.modules?.find(module => module.id === id)?.impressions ?? gsc?.modules.find(module => module.id === id)?.impressions} coverage={provisional ? `GSC ${provisional} 起为初步数据` : dashboardTraffic?.modules ? undefined : coverage(gsc)} canCompare={dashboardTraffic?.modules ? dashboardTraffic.gscComparable : moduleComparable(gsc)} />
+            <TrafficCell metric={dashboardTraffic?.modules?.find(module => module.id === id)?.registrations} coverage="官网模块入口与跨域注册尚未核验" />
           </tr>)}
         </tbody>
         <tbody>
@@ -129,7 +131,7 @@ export function SearchTraffic({ groups, countries, rankings, organicRegistration
               <TrafficCell {...total(group, "自然会话")} />
               <TrafficCell {...total(group, "Google 点击")} />
               <TrafficCell {...total(group, "曝光")} />
-              <td className={reportStyles.trafficMissing}>—</td>
+              <TrafficCell {...total(group, "自然搜索注册")} />
             </tr>;
           })}
         </tbody>
@@ -254,9 +256,10 @@ function planNumbers(plan: SeoDigest["workPlan"], day?: string) {
 
 export function ReportWorkPlan({ plan: sourcePlan, weekly, day }: { plan?: SeoDigest["workPlan"]; weekly: boolean; day?: string }) {
   const plan = planNumbers(sourcePlan, day);
+  const rangeLabel = sourcePlan?.periodStart && sourcePlan.periodEnd ? `${sourcePlan.periodStart.slice(5).replace("-", "/")}–${sourcePlan.periodEnd.slice(5).replace("-", "/")}（北京时间）` : null;
   if (!plan) return null;
   return <div>
-    <dt><Link href={plan.href}>{day ? "当日任务" : weekly ? "下周工作计划" : "本周计划进度"}</Link></dt>
+    <dt><Link href={plan.href}>{day ? "当日任务" : weekly ? "下周工作计划" : "本周计划进度"}</Link>{weekly && rangeLabel ? <small className={reportStyles.planDate}>{rangeLabel}</small> : null}</dt>
     <dd>{weekly ? numberText(plan.scheduled) : `${numberText(plan.completed)} / ${numberText(plan.scheduled)}`}
       <small>{weekly ? "已排任务" : "已验收 / 已排"}</small>
       <div className={reportStyles.planItems}>{plan.groups.filter(row => row.scheduled || row.candidates).map(row => <small key={row.kind}>{`${row.label} ${weekly ? row.scheduled : `${row.completed} / ${row.scheduled}`}${row.candidates ? ` · 候选 ${row.candidates}` : ""}`}</small>)}</div>
@@ -305,7 +308,43 @@ function ReportAttribution({ text, weekly, snapshot, period, editor }: {
       .replace(/([。；])(?=\s*\[[^\]\n]+\]\(https:\/\/)/gu, "$1\n- ")} />} />;
 }
 
-function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, reportTemplateVersion, growthSnapshot, attributionEditor, reportDate }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; reportTemplateVersion?: number; growthSnapshot?: GrowthReportSnapshot; attributionEditor?: AttributionEditor; reportDate?: string }) {
+const rankingCountries: Record<string, string> = {
+  US: "美国", JP: "日本", ES: "西班牙", BR: "巴西", CN: "中国",
+  SG: "新加坡", FR: "法国", DE: "德国", VN: "越南", ID: "印度尼西亚",
+};
+const rankingShare = (count: number, total: number) => total ? `${(100 * count / total).toFixed(1)}%` : "—";
+
+function WeeklyRankingOverview({ summary }: { summary: WeeklyRankingSummary }) {
+  return <>
+    <dl className={reportStyles.rankingTotals}>
+      <div><dt>前 100 上榜率</dt><dd>{rankingShare(summary.ranked, summary.total)} <small>{numberText(summary.ranked)} / {numberText(summary.total)} 词</small></dd></div>
+      <div><dt>确认前 100 外</dt><dd>{numberText(summary.verifiedOutside)} <small>词</small></dd></div>
+      <div><dt>排名待确认</dt><dd>{numberText(summary.unresolved)} <small>词</small></dd></div>
+    </dl>
+    <div className={reportStyles.rankingTables}>
+      <div className={reportStyles.tableScroll}><table className={reportStyles.comparison}>
+        <caption>国家分布</caption>
+        <thead><tr><th scope="col">查询国家</th><th scope="col">上榜 / 目标词</th><th scope="col">本国上榜率</th><th scope="col">占上榜词</th></tr></thead>
+        <tbody>{summary.countries.map(row => <tr key={row.country}>
+          <th scope="row">{rankingCountries[row.country] ?? row.country} {rankingCountries[row.country] ? <small>{row.country}</small> : null}</th>
+          <td>{numberText(row.ranked)} / {numberText(row.target)}</td>
+          <td>{rankingShare(row.ranked, row.target)}</td>
+          <td>{rankingShare(row.ranked, summary.ranked)}</td>
+        </tr>)}</tbody>
+      </table></div>
+      <div className={reportStyles.tableScroll}><table className={reportStyles.comparison}>
+        <caption>排名区间</caption>
+        <thead><tr><th scope="col">区间</th><th scope="col">词数</th><th scope="col">占上榜词</th><th scope="col">占目标词</th></tr></thead>
+        <tbody>{summary.bands.map(row => <tr key={row.from}>
+          <th scope="row">{row.from}–{row.to} 名</th><td>{numberText(row.count)}</td>
+          <td>{rankingShare(row.count, summary.ranked)}</td><td>{rankingShare(row.count, summary.total)}</td>
+        </tr>)}</tbody>
+      </table></div>
+    </div>
+  </>;
+}
+
+function ReportSections({ text, rankings, recentPages, weekly, organicRegistrations, githubSection, completeWeekRequired, organicRegistrationCanCompare, registrationCoverageNote, reportPeriod, dashboard, rankingNotes, weeklyRankingSummary, reportTemplateVersion, growthSnapshot, attributionEditor, reportDate }: { text: string; rankings: SeoDigest["pagePerformance"]; recentPages: SeoDigest["recentPages"]; weekly: boolean; organicRegistrations?: SeoDigest["organicRegistrations"]; githubSection?: string[]; completeWeekRequired?: boolean; organicRegistrationCanCompare?: boolean; registrationCoverageNote?: string; reportPeriod?: SeoDigest["reportPeriod"]; dashboard?: SeoDigest["dashboard"]; rankingNotes?: string[]; weeklyRankingSummary?: WeeklyRankingSummary; reportTemplateVersion?: number; growthSnapshot?: GrowthReportSnapshot; attributionEditor?: AttributionEditor; reportDate?: string }) {
   const sections: { title: string; lines: string[] }[] = [];
   let current: (typeof sections)[number] | undefined;
   for (const block of text.trim().split(/\n[ \t]*\n/).slice(1)) {
@@ -334,9 +373,13 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
       completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} />
     <ReportAttribution text={dashboard?.attributionText} weekly={weekly} snapshot={growthSnapshot} period={reportPeriod} editor={attributionEditor} />
     <RecentPageTraffic pages={recentPages} day={weekly ? undefined : reportPeriod?.start} />
-    {rankingNotes?.length ? <section className={reportStyles.section}>
+    {weeklyRankingSummary || rankingNotes?.length ? <section className={reportStyles.section}>
       <h3>关键词排名明细</h3>
-      <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul>
+      {weeklyRankingSummary ? <WeeklyRankingOverview summary={weeklyRankingSummary} /> : null}
+      {rankingNotes?.length ? weeklyRankingSummary ? <details className={reportStyles.rankingDetails}>
+        <summary>查看采集口径和排名例证</summary>
+        <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul>
+      </details> : <ul className={reportStyles.issueList}>{rankingNotes.map((line, index) => <li key={index}><ReportLine line={line} /></li>)}</ul> : null}
     </section> : null}
     {dashboard?.technicalText || technical || !weekly ? <section className={reportStyles.section}>
       <h3>SEO 技术质检</h3>
@@ -461,7 +504,7 @@ export function SeoDigestReports() {
         </dl>
         <ReportSections reportDate={report.date} text={report.dashboard?.detailText || report.detailText || report.text} rankings={report.pagePerformance} recentPages={report.recentPages} weekly={kind === "weekly"} organicRegistrations={report.organicRegistrations} githubSection={report.githubSection} reportTemplateVersion={report.reportTemplateVersion} growthSnapshot={report.growthSnapshot}
           attributionEditor={kind === "weekly" ? { reportId: report.id, initial: result.data.weeklyAttribution } : undefined}
-          completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} />
+          completeWeekRequired={kind === "weekly" && report.date >= WEEKLY_REPORT_SWITCH_DATE} organicRegistrationCanCompare={report.organicRegistrationCanCompare} registrationCoverageNote={report.registrationCoverageNote} reportPeriod={report.reportPeriod ?? (kind === "weekly" ? { ...weeklyReportRange(report.date), timezone: "America/Los_Angeles" } : { start: shiftDay(report.date, -1), end: shiftDay(report.date, -1), timezone: "America/Los_Angeles" })} dashboard={report.dashboard} rankingNotes={report.rankingNotes} weeklyRankingSummary={report.weeklyRankingSummary} />
         {kind === "weekly" && report.workPlan ? <section className={reportStyles.section}>
           <h3>任务安排</h3>
           <dl className={`${reportStyles.metrics} ${reportStyles.planMetrics}`} aria-label="下周工作计划">

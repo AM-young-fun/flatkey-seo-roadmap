@@ -3,9 +3,10 @@ import { isOwnedBrandKeyword } from "./keyword-market-policy";
 import type { SerpTarget } from "./serp-targets";
 import { serpCaptureBelongsToWeek } from "./serp-periods";
 import type { GrowthTarget, GrowthWorkspace } from "./growth-types";
+import { summarizeWeeklyRankings, type WeeklyRankingSummary } from "./seo-weekly-ranking-summary";
 
 /** Uses saved, language/device/depth-filtered provider receipts; never starts a paid query. */
-export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: string, asOf?: Date): string[] {
+export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: string, asOf?: Date, setSummary?: (summary: WeeklyRankingSummary) => void): string[] {
   const from = Date.parse(start), until = Date.parse(end);
   const laDate = (value: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date(value));
   const fresh = tasks.filter(task => task.runScope !== "SAMPLE" && task.checkedAt &&
@@ -46,7 +47,14 @@ export function digestRankingNotes(tasks: SerpTaskRead[], start: string, end: st
   // actual provider receipt; pending/failed diagnostics alone stay internal.
   if (!rows.some(row => row.captureComplete && received.has(receiptKey(row)))) return [];
   const checked = rows.filter(row => row.status === "RANKED" || row.status === "OUTSIDE_TOP100");
-  const ranked = checked.filter(row => row.rank !== null);
+  const ranked = checked.filter((row): row is typeof row & { rank: number } => row.rank !== null && row.rank >= 1 && row.rank <= 100);
+  if (setSummary) {
+    const countries = [...new Set(rows.map(row => row.region))].map(country => ({
+      country, target: rows.filter(row => row.region === country).length,
+      ranked: ranked.filter(row => row.region === country).length,
+    }));
+    setSummary(summarizeWeeklyRankings(countries, ranked, checked.filter(row => row.status === "OUTSIDE_TOP100").length));
+  }
   const uniqueWords = new Set(ranked.map(row => row.keyword.normalize("NFKC").trim().toLocaleLowerCase("en-US")));
   const comparable = checked.filter(row => row.previousRankStatus !== null);
   const labels = (rank: number | null) => rank === null ? ">100" : String(rank);
