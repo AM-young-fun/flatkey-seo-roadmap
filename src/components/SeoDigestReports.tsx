@@ -375,7 +375,8 @@ function ReportSections({ text, rankings, recentPages, weekly, organicRegistrati
   const technical = sections.find(section => section.title === "SEO 技术质检");
   const day = weekly ? undefined : reportPeriod?.start;
   const gsc = rankings?.find(ranking => ranking.source === "GSC")?.flatkey;
-  const gscCanCompare = Boolean(day && gsc?.date === day && gsc.previousDate === shiftDay(day, -1));
+  const gscCanCompare = Boolean(day && (dashboard?.traffic?.modules?.some(({ clicks }) => clicks.current !== null && clicks.previous !== null)
+    || gsc?.date === day && gsc.previousDate === shiftDay(day, -1)));
   return <div className={reportStyles.sections}>
     <SearchTraffic groups={dashboard?.traffic?.sites ?? (sites ? parseReportComparisons(sites.lines) : null)} countries={countries} rankings={rankings ?? []} organicRegistrations={organicRegistrations}
       completeWeekRequired={completeWeekRequired} organicRegistrationCanCompare={organicRegistrationCanCompare} registrationCoverageNote={dashboard ? undefined : registrationCoverageNote} dashboardTraffic={dashboard?.traffic} />
