@@ -40,3 +40,10 @@
 .closeoutTable th a { color: #315f99; font-weight: 500; text-decoration: none; }
 .closeoutTable th a:hover { text-decoration: underline; }
 .closeoutTable td small { display: block; color: #6b7f98; margin-top: 3px; }
+
+.keywordProgress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 20px; }
+.keywordProgress > section { min-width: 0; border: 1px solid #e1e9f3; border-radius: 8px; padding: 14px 16px; }
+.keywordProgress h3, .keywordProgress h4 { margin: 0; color: #203653; font-size: 13px; font-weight: 650; }
+.keywordProgress h4 { margin: 12px 0 7px; }
+.keywordProgress .note { margin: 5px 0 10px; color: #526781; }
+@container (max-width: 850px) { .keywordProgress { grid-template-columns: minmax(0, 1fr); gap: 12px; } }

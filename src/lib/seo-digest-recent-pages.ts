@@ -50,7 +50,7 @@ export function monthlyOptimizationChanges(workflow: Pick<WorkflowSnapshot, "app
   return latestChanges;
 }
 
-export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, observations: AnalyticsObservation[], end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow): RecentPublishedPage[] {
+export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals" | "publications">, observations: AnalyticsObservation[], end: string, now: Date, weekly: boolean, weeklyWindow?: WeeklyPageWindow, includeAll = false): RecentPublishedPage[] {
   const periodEnd = weekly && weeklyWindow ? weeklyWindow.trafficEnd : shiftDay(end, -1);
   const publicationDay = (stamp: string) => gscDate(new Date(stamp));
   const latestChanges = monthlyOptimizationChanges(workflow, end, now, weekly, weeklyWindow);
@@ -80,7 +80,7 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
       }
     }
   }
-  return bestMonthlyOptimizations([...latestChanges.values()].map(({ page, change }) => {
+  const pages = [...latestChanges.values()].map(({ page, change }): RecentPublishedPage => {
     const launch = new Date(page.publishedAt), day = publicationDay(page.publishedAt);
     const key = analyticsKey(page.siteDomain, page.pageUrl);
     const gscLaunchDay = gscDate(launch), gsc = search.get(key) ?? [];
@@ -91,6 +91,7 @@ export function recentPublishedPages(workflow: Pick<WorkflowSnapshot, "approvals
     const ga4 = (visits.get(key) ?? []).sort((a, b) => b.date.localeCompare(a.date));
     const beforeVisits = ga4.find(row => weekly ? row.date < gaLaunchDay : row.date === shiftDay(periodEnd, -1)) ?? null;
     const latestVisits = ga4.find(row => row.date > gaLaunchDay && (weekly || row.date === periodEnd)) ?? null;
-    return { url: page.pageUrl, title: page.title, day, change: change as "new" | "optimization", cohort: "current" as "current" | "previous", before, latest, beforeVisits, latestVisits };
-  }));
+    return { url: page.pageUrl, title: page.title, day, change, cohort: "current", before, latest, beforeVisits, latestVisits };
+  });
+  return includeAll ? pages : bestMonthlyOptimizations(pages);
 }

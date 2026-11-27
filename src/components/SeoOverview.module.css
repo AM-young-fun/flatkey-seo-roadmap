@@ -17,8 +17,6 @@
   line-height: 1.35;
 }
 
-.scopeHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.scopeHeading :global(.uiSelect) { min-width: 180px; }
 
 .trends {
   display: grid;
@@ -28,11 +26,9 @@
 
 @container (min-width: 860px) {
   .trends { grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr); }
-  .rankings { display: grid; grid-template-columns: minmax(0, 1fr); }
 }
 
 .traffic,
-.rankings :global(.trendPanel),
 .network :global(.graphPanel) {
   min-width: 0;
   margin: 0;
@@ -53,7 +49,6 @@
 }
 
 .trafficHeading h2,
-.rankings :global(.trendPanel h2),
 .network :global(.graphPanel h2) {
   margin: 0;
   font-size: 15px;
@@ -67,29 +62,16 @@
 
 .trafficHeading > * { min-width: 0; }
 
-.rankings :global(.dailyHeading),
 .network :global(.panelHeader) {
   gap: 10px 20px;
   margin-bottom: 12px;
 }
 
-.rankings :global(.chartNote),
 .network :global(.chartNote),
 .network :global(.panelHeader p:not(.eyebrow)) {
   margin: 5px 0 0;
   color: #64748b;
   font-size: 13px;
-}
-
-.rankings :global(.trendPanel) {
-  display: flex;
-  flex-direction: column;
-}
-
-.rankings :global(.rankingTrend) {
-  flex: 1 0 208px;
-  min-height: 208px;
-  height: auto;
 }
 
 .network :global(.overviewGrid) {
@@ -123,5 +105,5 @@
 @media (max-width: 600px) {
   .content { padding-top: 18px; }
   .content, .trends { gap: 12px; }
-  .traffic, .rankings :global(.trendPanel), .network :global(.graphPanel) { padding: 14px; }
+  .traffic, .network :global(.graphPanel) { padding: 14px; }
 }
