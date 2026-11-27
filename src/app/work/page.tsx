@@ -10,7 +10,7 @@ const formerPanels: Record<string, string> = {
   approvals: "/approvals",
   priority: "/opportunities?view=priority",
   "published-traffic": "/optimization-effects",
-  traffic: "/reports",
+  traffic: "/",
   runs: "/automations",
 };
 
