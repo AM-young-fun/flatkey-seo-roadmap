@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { isDeepStrictEqual } from "node:util";
 import { prisma } from "@/lib/prisma";
 import type { SeoDigest } from "../seo-digest";
 import { buildDailyDashboardSeoDigest, dailyDashboardCommandSchema, sameDailyDashboardDigest, type DailyDashboardSeoDigest } from "../seo-daily-dashboard";
@@ -19,6 +20,11 @@ export async function saveDailyDashboardSeoDigest(raw: unknown, now = new Date()
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true },
     });
     if (latest && latest.id !== base.id) throw new ReviewedDigestError("日报已有更新来源快照；须重读最新来源版本后差分补数", 409);
+    if (input.recentPages) {
+      const { loadRecentDigestPages } = await import("./seo-digest");
+      const archivedPages = await loadRecentDigestPages(input.date, "daily", now);
+      if (!isDeepStrictEqual(archivedPages, input.recentPages)) throw new ReviewedDigestError("优化效果与生产归档不一致，须重读后提交", 409);
+    }
   }
   await prisma.seoReportVersion.createMany({ data: { id: report.id, siteDomain: "flatkey.ai", kind: "SEO_DIGEST",
     periodStart: new Date(report.date), periodEnd: new Date(report.date), createdAt: new Date(report.generatedAt),

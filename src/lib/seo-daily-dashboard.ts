@@ -4,16 +4,26 @@ import { digestWindow, type SeoDigest } from "./seo-digest";
 import { ReviewedDigestError, reviewedTextHash } from "./seo-reviewed-digest";
 import { dashboardComparisonGroups, reportDashboardEvidenceSchema, sameReportDashboard } from "./seo-report-dashboard";
 import { reportModuleShareLines, type ReportModuleShareSnapshot } from "./report-module-shares";
+import { safeAnalyticsUrl } from "./seo-analytics";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const count = z.number().int().nonnegative().nullable();
 const counts = z.object({ all: count, modelDetail: count, prompts: count }).strict();
+const value = z.number().int().nonnegative().safe();
+const searchPoint = z.object({ date: z.iso.date(), property: z.string().min(1), clicks: value, impressions: value }).strict();
+const visits = z.object({ date: z.iso.date(), visits: value }).strict().nullable();
+const recentPage = z.object({
+  url: z.string().refine(safeAnalyticsUrl), title: z.string().min(1), day: z.iso.date(),
+  change: z.literal("optimization"), cohort: z.literal("current"),
+  before: searchPoint, latest: searchPoint, beforeVisits: visits, latestVisits: visits,
+}).strict();
 export const dailyDashboardCommandSchema = z.object({
   action: z.literal("save_daily_dashboard"), kind: z.literal("daily"), date: z.iso.date(),
   baseReportId: z.string().regex(/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/), baseReportHash: sha256,
   sourceEvidenceSha256: sha256,
   moduleShares: z.object({ current: counts, previous: counts, observedAt: z.iso.datetime({ offset: true }) }).strict(),
   dashboardEvidence: reportDashboardEvidenceSchema.optional(),
+  recentPages: z.array(recentPage).max(10).optional(),
 }).strict();
 export type DailyDashboardBody = {
   version: 1; recordOnly: true; baseReportId: string; baseReportHash: string;
@@ -39,6 +49,11 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
   }
   if (input.dashboardEvidence?.moduleShares && canonical(input.dashboardEvidence.moduleShares) !== canonical(input.moduleShares)) throw new ReviewedDigestError("模块来源证据不一致");
   if (input.dashboardEvidence && Date.parse(input.dashboardEvidence.observedAt) > now.getTime()) throw new ReviewedDigestError("来源采集时间不能在未来");
+  if (input.recentPages?.some(page => page.latest.date !== period.end || page.before.date !== shift(period.end)
+    || page.latest.property !== page.before.property || page.day >= period.end
+    || page.beforeVisits && page.beforeVisits.date !== shift(period.end) || page.latestVisits && page.latestVisits.date !== period.end)) {
+    throw new ReviewedDigestError("优化效果须使用同一属性的所选日与前一日归档");
+  }
   const comparisons = (rows: NonNullable<typeof input.dashboardEvidence>["sites"] | NonNullable<typeof input.dashboardEvidence>["countries"]) =>
     dashboardComparisonGroups(rows, period, input.dashboardEvidence!.gscComparable, input.dashboardEvidence!.gscProvisionalFrom).map(row => ({ ...row, metrics: row.metrics.map(metric => ({ ...metric,
       period: `${shift(period.start)}—${shift(period.end)} → ${period.start}—${period.end}`,
@@ -49,7 +64,8 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
       modules: input.dashboardEvidence.modules, gscComparable: input.dashboardEvidence.gscComparable,
       ...(input.dashboardEvidence.gscProvisionalFrom ? { gscProvisionalFrom: input.dashboardEvidence.gscProvisionalFrom } : {}) } } : {}),
   };
-  const key = reviewedTextHash(canonical(["daily-dashboard-v1", base.id, input.sourceEvidenceSha256, input.moduleShares, input.dashboardEvidence]));
+  const key = reviewedTextHash(canonical(["daily-dashboard-v1", base.id, input.sourceEvidenceSha256, input.moduleShares, input.dashboardEvidence,
+    ...(input.recentPages ? [input.recentPages] : [])]));
   // Older daily bodies can carry v9 projections without using the v9 body layout.
   const currentTemplate = (base.reportTemplateVersion ?? 0) >= 9 && base.businessDate === base.date;
   const moduleShareSnapshot: ReportModuleShareSnapshot = { version: 1, period: { start: period.start, end: period.end },
@@ -69,6 +85,7 @@ export function buildDailyDashboardSeoDigest(base: SeoDigest, raw: unknown, now 
   const text = currentTemplate ? reviseBody(base.text) : base.text, detailText = currentTemplate ? reviseBody(base.detailText) : base.detailText;
   if (currentTemplate) dashboard.detailText = reviseBody(dashboard.detailText);
   return { ...base, id: `seo-digest:${input.date}:${key.slice(0, 16)}`, generatedAt: now.toISOString(), dashboard,
+    ...(input.recentPages ? { recentPages: input.recentPages } : {}),
     ...(currentTemplate ? { moduleShareSnapshot, text, detailText, hash: reviewedTextHash(text) } : {}),
     dailyDashboardBody: { version: 1, recordOnly: true, baseReportId: base.id, baseReportHash: base.hash,
       baseGeneratedAt: base.generatedAt, sourceEvidenceSha256: input.sourceEvidenceSha256 },

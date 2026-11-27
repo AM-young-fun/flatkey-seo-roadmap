@@ -13,14 +13,21 @@ function bootstrap(){
 }
 /** Shared by the original report entry point after resumption. These explicit
  * paths are archived inputs; preparation never loads credentials or sources. */
-async function prepareArchivedDailyDashboard(options,{now=new Date()}={}){
+async function prepareArchivedDailyDashboard(options,{now=new Date(),recentPages}={}){
  bootstrap();
  const read=async file=>JSON.parse(await fs.readFile(file,"utf8")),raw=await read(options.base),base=raw.report??raw,archive=await read(options.analytics);
  const {PILLAR_PAGE_GROUPS}=require("../src/lib/weekly-page-visitors.ts"),{DAILY_SEO_PAGE_GROUPS}=require("../src/lib/daily-seo-page-groups.ts"),{FLATKEY_ENTRY_HOSTS}=require("../src/lib/ga4-host-scope.ts");
  const {CLUSTER_SITES}=require("../src/lib/seo-cluster-sites.ts"),{analyticsObservationSchema,scopedAnalytics}=require("../src/lib/seo-analytics.ts");
  const {dailyDashboardCommandSchema,buildDailyDashboardSeoDigest}=require("../src/lib/seo-daily-dashboard.ts");
+ const {digestTopPages}=require("../src/lib/seo-digest-pages.ts");
  const scalarEvidence=await readDailyScalarEvidence(path.resolve(options.scalars),{pillars:PILLAR_PAGE_GROUPS,pageGroups:DAILY_SEO_PAGE_GROUPS,entryHosts:FLATKEY_ENTRY_HOSTS},base.reportPeriod?.start,now);
- const pkg=assembleDailyDashboardPackage({baseReport:base,analyticsRows:Array.isArray(archive)?archive:archive.rows,scalarEvidence,siteDefinitions:[{domain:"flatkey.ai",ga4:"541304395",gsc:"sc-domain:flatkey.ai",ga4TimeZone:"America/Los_Angeles"},...CLUSTER_SITES],parseAnalytics:raw=>{const value={...raw};if(value.country==="all")delete value.country;const parsed=analyticsObservationSchema.safeParse(value);return parsed.success?scopedAnalytics([parsed.data])[0]??null:null;},now});
+ const analyticsRows=Array.isArray(archive)?archive:archive.rows;
+ const searchPages=analyticsRows?.flatMap(raw=>{
+  const row=raw.payload??raw;
+  return row?.kind==="gsc-pages"&&!row.country&&row.property==="sc-domain:flatkey.ai"?[row]:[];
+ });
+ const moduleSearch=searchPages?.length?digestTopPages(searchPages,base.date,now,base.reportPeriod).find(row=>row.source==="GSC")?.flatkey:undefined;
+ const pkg=assembleDailyDashboardPackage({baseReport:base,analyticsRows,scalarEvidence,moduleSearch,recentPages,siteDefinitions:[{domain:"flatkey.ai",ga4:"541304395",gsc:"sc-domain:flatkey.ai",ga4TimeZone:"America/Los_Angeles"},...CLUSTER_SITES],parseAnalytics:raw=>{const value={...raw};if(value.country==="all")delete value.country;const parsed=analyticsObservationSchema.safeParse(value);return parsed.success?scopedAnalytics([parsed.data])[0]??null:null;},now});
  dailyDashboardCommandSchema.parse(pkg.command);const report=buildDailyDashboardSeoDigest(base,pkg.command,now);
  return{pkg,report};
 }

@@ -32,7 +32,7 @@ async function readDailyScalarEvidence(filename,definitions,sourceDay,now=new Da
  return{version:1,sourceDay,previousDay:shift(sourceDay,-1),propertyId:scalars.PROPERTY,timezone:scalars.TIMEZONE,moduleShares,moduleSessions,records,complete:records.every(row=>row.value!==null),missing:records.filter(row=>row.value===null),sourceEvidenceSha256:hash(records),summaryFile:path.resolve(filename),summarySha256:sha(summaryBytes)};
 }
 
-function assembleDailyDashboardPackage({baseReport,analyticsRows,scalarEvidence,siteDefinitions,parseAnalytics,now=new Date()}){
+function assembleDailyDashboardPackage({baseReport,analyticsRows,scalarEvidence,moduleSearch,recentPages,siteDefinitions,parseAnalytics,now=new Date()}){
  const base=structuredClone(baseReport),period=base.reportPeriod;
  if(base.kind!=="daily"||!/^seo-digest:\d{4}-\d{2}-\d{2}:[a-f0-9]{16}$/.test(base.id??"")||base.hash!==sha(base.text??"")||base.reviewedBody||base.draftBody||period?.timezone!=="America/Los_Angeles"||period.start!==period.end)throw Error("exact_daily_base_required");
  const sourceDay=period.start,previousDay=shift(sourceDay,-1),gaps=[],retained=[],nativeReference=[],facts=[],provisionalDates=new Set();
@@ -80,7 +80,7 @@ function assembleDailyDashboardPackage({baseReport,analyticsRows,scalarEvidence,
  for(const side of ["previous","current"])for(const key of shareKeys)if(moduleShares[side][key]===null&&base.dailyDashboardBody&&number(oldShares?.[side]?.[key])){moduleShares[side][key]=oldShares[side][key];retained.push({side,key,metric:"totalUsers",value:oldShares[side][key],fromReportId:base.id,observedAt:oldShares.observedAt});}
  moduleShares.observedAt=[moduleShares.observedAt,retained.some(row=>row.metric==="totalUsers")?oldShares?.observedAt:null].filter(Boolean).sort().at(-1)??null;
  if(!moduleShares.observedAt)throw Error("no_actual_scalar_source_time_keep_existing_report");
- const gsc=base.pagePerformance?.find(row=>row.source==="GSC")?.flatkey;
+ const gsc=moduleSearch?.date===sourceDay?moduleSearch:base.pagePerformance?.find(row=>row.source==="GSC")?.flatkey;
  const moduleValues=modules.map(id=>{
   const input=scalarEvidence.moduleSessions.find(row=>row.id===id),old=base.dashboard?.traffic?.modules?.find(row=>row.id===id),search=gsc?.modules?.find(row=>row.id===id);
   const sessions=structuredClone(input?.sessions??{previous:null,current:null});
@@ -101,15 +101,16 @@ function assembleDailyDashboardPackage({baseReport,analyticsRows,scalarEvidence,
  const preservedFields=["text","detailText","hash","title","reportPeriod","workWindow","executionWindow","businessDate","sourceDay","workPlan","currentWorkPlan","pageGroups","rankingNotes","growthSnapshot","conversionSnapshot","reportTemplateVersion"].filter(field=>!revisedFields.includes(field)).map(field=>({field,sha256:hash(base[field]??null)}));
  for(const field of ["detailText","attributionText","technicalText"].filter(field=>!currentTemplate||field!=="detailText"))preservedFields.push({field:"dashboard."+field,sha256:hash(base.dashboard?.[field]??null)});
  const bodyRevision=currentTemplate?{allowed:"same-day-traffic-and-whole-period-module-share-lines-only",sourceReportId:base.id,beforeTextSha256:sha(base.text),beforeDetailTextSha256:sha(base.detailText??base.text),beforeModuleShares:base.moduleShareSnapshot?.values??null,afterModuleShares:moduleShares}:null;
- const provenance={version:1,baseReportId:base.id,baseReportHash:base.hash,businessDate:base.businessDate??null,sourceDay,previousSourceDay:previousDay,executionWindow:base.executionWindow??null,legacyExecutionDate:!base.businessDate,scalarSource:scalarEvidence.sourceEvidenceSha256,scalarRecords:scalarEvidence.records,facts,retained,nativeReference,gaps,preservedFields,...(bodyRevision?{bodyRevision}:{}),dashboardEvidence,complete:gaps.length===0&&scalarEvidence.complete,googleRequests:0,paidRequests:0,notifications:0};
- const command={action:"save_daily_dashboard",kind:"daily",date:base.date,baseReportId:base.id,baseReportHash:base.hash,sourceEvidenceSha256:hash(provenance),moduleShares,dashboardEvidence};
+ const extraEvidence={...(gsc===moduleSearch&&moduleSearch?{moduleSearchSha256:hash(moduleSearch)}:{}),...(recentPages?{recentPages}:{})};
+ const provenance={version:1,baseReportId:base.id,baseReportHash:base.hash,businessDate:base.businessDate??null,sourceDay,previousSourceDay:previousDay,executionWindow:base.executionWindow??null,legacyExecutionDate:!base.businessDate,scalarSource:scalarEvidence.sourceEvidenceSha256,scalarRecords:scalarEvidence.records,facts,retained,nativeReference,gaps,preservedFields,...(bodyRevision?{bodyRevision}:{}),...extraEvidence,dashboardEvidence,complete:gaps.length===0&&scalarEvidence.complete,googleRequests:0,paidRequests:0,notifications:0};
+ const command={action:"save_daily_dashboard",kind:"daily",date:base.date,baseReportId:base.id,baseReportHash:base.hash,sourceEvidenceSha256:hash(provenance),moduleShares,dashboardEvidence,...(recentPages?{recentPages}:{})};
  return{version:1,mode:"offline_prepared_not_saved",baseReport:base,command,provenance,sourceEvidenceSha256:command.sourceEvidenceSha256,complete:provenance.complete,missing:[...gaps,...scalarEvidence.missing],preservedFields};
 }
 
 /** No implicit prepare, retries, approval or delivery. The transport is injected
  * by the authorized original entry point; offline tests inject an in-memory API. */
 async function saveDailyDashboardPackage(pkg,{api,build,compare,now=new Date()}){
- if(pkg.command.action!=="save_daily_dashboard"||pkg.command.sourceEvidenceSha256!==hash(pkg.provenance)||pkg.sourceEvidenceSha256!==pkg.command.sourceEvidenceSha256||canonical(pkg.command.dashboardEvidence)!==canonical(pkg.provenance.dashboardEvidence)||canonical(pkg.command.moduleShares)!==canonical(pkg.provenance.dashboardEvidence.moduleShares))throw Error("dashboard_package_provenance_mismatch");
+ if(pkg.command.action!=="save_daily_dashboard"||pkg.command.sourceEvidenceSha256!==hash(pkg.provenance)||pkg.sourceEvidenceSha256!==pkg.command.sourceEvidenceSha256||canonical(pkg.command.dashboardEvidence)!==canonical(pkg.provenance.dashboardEvidence)||canonical(pkg.command.moduleShares)!==canonical(pkg.provenance.dashboardEvidence.moduleShares)||canonical(pkg.command.recentPages)!==canonical(pkg.provenance.recentPages))throw Error("dashboard_package_provenance_mismatch");
  const initial=await api({action:"read_saved",reportId:pkg.command.baseReportId});
  if(canonical(initial.report)!==canonical(pkg.baseReport))throw Error("immutable_base_readback_mismatch");
  const expected=build(initial.report,pkg.command,now);let saveError=null;
