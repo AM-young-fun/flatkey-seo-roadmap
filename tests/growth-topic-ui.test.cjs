@@ -28,7 +28,7 @@ Module._load = function(name, parent, ...rest) {
 for (const extension of [".ts", ".tsx"]) require.extensions[extension] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, file);
 const { defaultGrowthScope, readGrowthScope, growthCounts, selectGrowthTargets, growthRankKind, growthRankText, growthLink, growthTopicTargets, growthRelatedTargets, growthRankingEvidence, quarterTargetWorkspace } = require("../src/components/growth-topic-view.ts");
 const { GrowthTopicClusters, GrowthTargetTable, GrowthTopicWorkspace, GrowthTopicContributionCells } = require("../src/components/GrowthTopicWorkspace.tsx");
-const { GrowthRankingCoverage } = require("../src/components/OverviewGrowthCharts.tsx");
+const { OverviewKeywordProgress } = require("../src/components/OverviewGrowthCharts.tsx");
 const { summarizeOverviewKeywords } = require("../src/lib/overview-summary.ts");
 const target = (id, patch = {}) => ({ id, keywordId: id, keyword: "GPU rental", site: "flatkey.ai", topicId: "topic/1", topicName: "GPU计算", country: "US", language: "en", membership: "formal", pageState: "published", workState: "completed", publishedUrls: ["https://flatkey.ai/gpu"], plannedUrls: [], rank: 22, rankSource: "serp", rankUrl: "https://flatkey.ai/gpu", checkedAt: "2026-11-23T00:00:00Z", languageStatus: "match", languageReason: "", captureState: "ranked", rankEligible: true, taskIds: ["original-task"], reason: "", ...patch });
 const topic = { id: "flatkey.ai:topic/1", site: "flatkey.ai", topicId: "topic/1", name: "GPU计算", parentIds: [], formalCount: 3, markets: [] };
@@ -150,9 +150,10 @@ test("all current ranking observations cross the three pools once and keep backg
 
 test("overview counts original words once and uses the same denominator for both charts", () => {
   const summary = summarizeOverviewKeywords(coverageData());
-  const html = renderToStaticMarkup(React.createElement(GrowthRankingCoverage, { read: { data: summary } }));
-  assert.match(html, /已获排名关键词/); assert.match(html, /2<\/strong>/);
-  assert.match(html, /其中前50关键词/);
+  const html = renderToStaticMarkup(React.createElement(OverviewKeywordProgress, { growth: { data: summary }, ranking: { data: summary } }));
+  assert.match(html, /前 100 关键词/); assert.match(html, /2<\/strong>/);
+  assert.match(html, /其中前 50/);
+  assert.equal((html.match(/2 个已确认前 100 原词/g) ?? []).length, 2);
   assert.match(html, /同一个词只计一次/); assert.match(html, /50\.0%/); assert.doesNotMatch(html, /66\.7%|33\.3%/);
   assert.doesNotMatch(html, /汇总时点|个当前有效原词，|统计采用 14 天/);
   assert.doesNotMatch(html, /去重关键词最佳排名|原始有效实测来源|背景证据：/);

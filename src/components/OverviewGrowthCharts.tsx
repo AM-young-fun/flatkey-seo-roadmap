@@ -175,7 +175,7 @@ export function OverviewKeywordProgress({ growth, ranking }: {
       </section>
       <section aria-labelledby="overview-effective-keywords">
         <h3 id="overview-effective-keywords">当前有效关键词排名</h3>
-        <p className={styles.note}>统计已确认的搜索结果前 100 名，同一原词只计一次。</p>
+        <p className={styles.note}>统计已确认的搜索结果前 100 名，同一个词只计一次。</p>
         {effective ? <>
           <BarPlot rows={[{ label: "前 100 关键词", value: effective.total }, { label: "其中前 50", value: effective.top50 }]} unit="个原词" showAxis={false} />
           <details className={styles.closeoutDetails}>
@@ -183,12 +183,12 @@ export function OverviewKeywordProgress({ growth, ranking }: {
             <div className={styles.two}>
               <section><h4>市场占比</h4><BarPlot rows={effective.markets.map(market => ({
                 label: market.label, value: market.share === null ? null : market.share * 100,
-                suffix: `${market.count} 个原词`,
-              }))} unit="%" empty="暂无有效排名" /></section>
+                suffix: `${market.count} 个原词 · ${market.share === null ? "—" : (market.share * 100).toFixed(1) + "%"}`,
+              }))} unit="%" denominator={`${effective.total} 个已确认前 100 原词`} empty="暂无有效排名" /></section>
               <section><h4>排名区间</h4><BarPlot rows={effective.bands.map(band => ({
                 label: band.label, value: band.share === null ? null : band.share * 100,
-                suffix: `${band.count} 个原词`,
-              }))} unit="%" empty="暂无有效排名" /></section>
+                suffix: `${band.count} 个原词 · ${band.share === null ? "—" : (band.share * 100).toFixed(1) + "%"}`,
+              }))} unit="%" denominator={`${effective.total} 个已确认前 100 原词`} empty="暂无有效排名" /></section>
             </div>
           </details>
           {ranking.data?.partial ? <p className={styles.note}>部分排名来源暂未读齐。</p> : null}
