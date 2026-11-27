@@ -184,3 +184,18 @@
 .supplementInput:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
 .supplementInput:disabled { background:#f7f9fc; }
 .supplementActions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:13px; }
+
+.rankingTotals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin: 12px 0 16px; padding: 1px; background: #e5eaf1; border-radius: 8px; overflow: hidden; }
+.rankingTotals div { background: #f7f9fc; padding: 10px 13px; }
+.rankingTotals dt { font-size: .8rem; color: #52647d; margin-bottom: 4px; }
+.rankingTotals dd { margin: 0; font-weight: 650; color: #152943; font-variant-numeric: tabular-nums; }
+.rankingTotals small { font-weight: 400; color: #52647d; white-space: nowrap; }
+.rankingTables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.rankingTables table { min-width: 0; font-variant-numeric: tabular-nums; }
+.rankingTables caption { text-align: left; font-size: .875rem; font-weight: 650; color: #152943; padding: 0 0 8px; }
+.rankingTables th, .rankingTables td { white-space: nowrap; }
+.rankingTables th small, .planDate { color: #52647d; font-weight: 400; }
+.rankingDetails { margin-top: 13px; font-size: .825rem; }
+.rankingDetails summary { color: var(--ui-primary); cursor: pointer; }
+.planDate { display: block; margin-top: 3px; }
+@media (max-width: 820px) { .rankingTables { grid-template-columns: minmax(0, 1fr); } }

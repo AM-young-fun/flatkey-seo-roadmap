@@ -28,6 +28,8 @@ import { CLUSTER_SITES, clusterDomainForProperty } from "@/lib/seo-cluster-sites
 import { loadWorkflowSnapshot } from "./seo-workflow";
 import { isExecutableWorkflowPlan, shiftWorkflowDay } from "@/lib/seo-workflow";
 import { workflowSnapshot } from "@/lib/seo-workflow-state";
+import { approvedCaptureRankedWords } from "@/lib/approved-weekly-keyword-capture";
+import { summarizeWeeklyRankings, type WeeklyRankingSummary } from "@/lib/seo-weekly-ranking-summary";
 import { digestDailyNativeRankingNotes, digestRankingNotes } from "@/lib/seo-digest-rankings";
 import { digestExecutionPeriod, digestReportExecutionWeek, summarizeDigestWorkPlan } from "../seo-digest-work-plan";
 import { loadSerpTasks } from "./serp-results";
@@ -70,6 +72,22 @@ export async function loadDigestWorkPlan(date: string, kind: DigestKind) {
   return summarizeDigestWorkPlan(snapshots, week);
 }
 
+export async function loadWeeklyDigestRankings(date: string, now: Date) {
+  const window = digestWindow(date, "weekly");
+  const approvedCapture = await loadApprovedWeeklyKeywordCapture({ start: window.trafficStart, end: window.trafficEnd, asOf: now });
+  if (approvedCapture) {
+    const ranked = approvedCaptureRankedWords(approvedCapture).map(row => ({ rank: row.bestRank }));
+    const countries = approvedCapture.countries.map(row => ({ country: row.country, target: row.targetCount, ranked: row.rankedKeywords }));
+    return { notes: approvedCapture.notes, summary: summarizeWeeklyRankings(countries, ranked, approvedCapture.verifiedOutsideTop100) };
+  }
+  if (date === "2026-11-13") return { notes: [] };
+  const start = window.executionStart ?? window.workStart, end = window.executionEnd ?? window.workEnd;
+  const tasks = await loadSerpTasks("all", "en", "desktop", start.slice(0, 10), date);
+  let summary: WeeklyRankingSummary | undefined;
+  const notes = digestRankingNotes(tasks, start, end, now, value => { summary = value; });
+  return { notes, summary };
+}
+
 export async function generateSeoDigest(date: string, now = new Date(), kind: DigestKind = "daily"): Promise<SeoDigest> {
   const window = digestWindow(date, kind);
   const executionWeek = digestReportExecutionWeek(date, kind);
@@ -96,14 +114,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
     ] }, select: { payload: true } }),
     prisma.collectorRun.findMany({ where: { startedAt: { gte: new Date(workStart), lt: new Date(Math.min(now.getTime(), Date.parse(workEnd))) } }, orderBy: { startedAt: "desc" }, take: 20 }),
     (async () => {
-      if (dailyGrowthWorkspace) return digestDailyNativeRankingNotes(await dailyGrowthWorkspace, window.trafficEnd);
-      if (kind === "weekly") {
-        const approvedCapture = await loadApprovedWeeklyKeywordCapture({ start: window.trafficStart, end: window.trafficEnd, asOf: now });
-        if (approvedCapture) return approvedCapture.notes;
-        if (date === "2026-11-13") return [];
-      }
-      const tasks = await loadSerpTasks("all", "en", "desktop", workStart.slice(0, 10), date);
-      return digestRankingNotes(tasks, workStart, workEnd, now);
+      if (dailyGrowthWorkspace) return { notes: digestDailyNativeRankingNotes(await dailyGrowthWorkspace, window.trafficEnd) };
+      return loadWeeklyDigestRankings(date, now);
     })(),
     loadBusinessAnalytics(shiftWorkflowDay(window.trafficStart, kind === "weekly" ? -7 : -1), window.trafficEnd),
     Promise.resolve([]), // Slot retained for archived reader index compatibility; no GitHub report read.
@@ -201,7 +213,8 @@ export async function generateSeoDigest(date: string, now = new Date(), kind: Di
       originals: archive.publications.filter(page => page.kind === "source_blog").length, translations: archive.publications.filter(page => page.kind === "translation").length,
       liveVerified: archive.publications.filter(page => page.verificationState === "live_verified").length, artifactOnly: archive.publications.filter(page => page.verificationState === "artifact_verified").length,
       unknownFirstVerification: archive.publications.filter(page => !page.firstVerifiedAt).length, pendingEvidence: archive.auditBacklog.pending, pendingRevisions: archive.pendingRevisions.count })),
-    rankingNotes: reads[4].status === "fulfilled" ? reads[4].value : [],
+    rankingNotes: reads[4].status === "fulfilled" ? reads[4].value.notes : [],
+    weeklyRankingSummary: reads[4].status === "fulfilled" && "summary" in reads[4].value ? reads[4].value.summary : undefined,
     resolvedIssues: reads[0].status === "fulfilled" ? workflow.issues.filter(issue => issue.status === "resolved" && issue.resolvedAt
       && issue.resolutionEvidence.length && Date.parse(issue.resolvedAt) >= startStamp
       && Date.parse(issue.resolvedAt) < Math.min(now.getTime(), Date.parse(workEnd))).length : null,
