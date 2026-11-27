@@ -32,6 +32,11 @@ export async function proxy(request: NextRequest) {
   // and distinguish read, evidence write, and human-only decisions.
   const growth = ["/api/seo/growth", "/api/seo/growth/strategy", "/api/seo/growth/collection", "/api/seo/growth/discovery"].includes(request.nextUrl.pathname);
   if (growth && (request.method === "GET" || request.method === "POST" && request.nextUrl.pathname !== "/api/seo/growth")) return NextResponse.next();
+  if (request.nextUrl.pathname === "/api/seo/growth/core-keywords" && request.method === "POST"
+    && request.headers.has("authorization") && !request.headers.has("origin")) {
+    const { authenticateImportToken } = await import("@/lib/services/import-tokens");
+    if (await authenticateImportToken(request)) return NextResponse.next();
+  }
   // This GET authenticates its own cookie/SEO Bearer and only reads saved rows.
   if (request.nextUrl.pathname === "/api/seo/ranked-keyword-coverage" && request.method === "GET") return NextResponse.next();
   if (request.nextUrl.pathname === "/api/seo/analytics" && request.method === "GET"
