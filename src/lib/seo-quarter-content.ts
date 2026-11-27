@@ -54,11 +54,11 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
   const calendar = new Map(quarter.plan.calendar?.map(row => [row.targetId, row]));
   const allTasks = [...all.flatMap(row => row.kind === "task" ? [row.record as WorkflowTask] : []), ...tasks];
   const satellite = satelliteQuarterBound(strategy);
-  const canSchedule = (task: WorkflowTask, researchDate: string) => {
+  const canSchedule = (task: WorkflowTask, earliestDeliveryDate: string) => {
     const dueAt = new Date(task.dueAt), dueDay = seoToday(dueAt), review = task.researchReview;
     return task.workflowContract === "growth-v1.5" && execution.has(task.status) && Boolean(task.research?.intent && review?.evidence.length
       && review.keyword === task.keyword && review.country === task.country && review.language === task.language)
-      && isSeoWorkday(dueAt) && dueDay >= researchDate && dueDay <= quarter.plan.executionEnd
+      && isSeoWorkday(dueAt) && dueDay >= earliestDeliveryDate && dueDay <= quarter.plan.executionEnd
       && !allTasks.some(other => other.id !== task.id && !other.deletedAt && content(other) && other.siteDomain === task.siteDomain
         && other.country === task.country && other.language === task.language && word(other.keyword) === word(task.keyword));
   };
@@ -77,8 +77,12 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
       if (!slot) return false;
       if (hasQuarterDelivery(slot)) return slot.primary && slot.kind === (task.kind === "blog" ? "blog" : "cluster_landing")
         && slot.deliveryDate === seoToday(new Date(task.dueAt));
-      // Research rows become eligible individually; the normal plan checks its daily caps.
-      return canSchedule(task, slot.researchDate);
+      // Flatkey can research any frozen word early. The calendar remains the
+      // research plan, and completed research and deduplication precede delivery.
+      const review = task.researchReview;
+      return Boolean(review && Date.parse(review.reviewedAt) <= Date.parse(task.dueAt)
+        && Date.parse(review.duplicateCheckedAt) <= Date.parse(task.dueAt)
+        && canSchedule(task, quarter.plan.executionStart));
     });
   };
   return fresh.flatMap(task => valid(task) ? [] : [`任务${task.id}须对应已冻结的原词、话题、站点、国家语种及制作日期；同意图次词共用主词原任务`]);
