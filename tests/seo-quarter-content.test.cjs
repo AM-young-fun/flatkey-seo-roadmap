@@ -106,6 +106,42 @@ test('the separate two-site pool keeps original commitments and requires exact i
  assert.equal(projected.satellite.rows[1].deliveryDate, null);
 });
 
+test('an approved capacity week accepts fully researched original words from all three sites independently of the legacy lists', () => {
+ const approved = state();
+ approved.baseline.targets = [];
+ approved.baseline.planHash = approved.quarterPlanning.hash;
+ approved.quarterPlanning.plan = { version: 'quarter-planning-v3', targetIds: [],
+   executionStart: '2026-11-27', executionEnd: '2027-02-05' };
+ const plan = { id: 'capacity-week', status: 'scheduled', taskIds: [],
+   quarterlyContent: { marketPolicy: 'closeout-capacity-v1', quarterPlanHash: approved.baseline.planHash },
+   targets: { executionRange: { start: '2026-11-27', end: '2026-12-03' } } };
+ const candidate = { ...task, keyword: 'independent original wording', keywordId: 'new-formal-id', dueAt: '2026-12-02T06:00:00Z',
+   workflowContract: 'growth-v1.5', research: { intent: 'verified page intent' },
+   researchReview: { keyword: 'independent original wording', country: 'US', language: 'en',
+     reviewedAt: '2026-11-27T05:00:00Z', duplicateCheckedAt: '2026-11-27T06:00:00Z', evidence: [{}] } };
+ const records = [row('plan', plan)];
+ for (const subject of [candidate, { ...candidate, id: 'modelfit-new', siteDomain: 'modelfit.cc' },
+   { ...candidate, id: 'rackrate-new', siteDomain: 'rackrate.org', kind: 'landing' }]) {
+   assert.deepEqual(quarterContentProblems([subject], approved, records), []);
+   assert.equal(quarterContentProblems([subject], approved, []).length, 1);
+   assert.equal(quarterContentProblems([subject], approved, [row('plan', { ...plan, status: 'draft' })]).length, 1);
+ }
+ for (const patch of [
+   { siteDomain: 'rackrate.org' },
+   { siteDomain: 'modelfit.cc', country: 'JP', language: 'ja', researchReview: { ...candidate.researchReview, country: 'JP', language: 'ja' } },
+   { keywordId: null }, { dueAt: '2026-12-04T06:00:00Z' },
+   { researchReview: { ...candidate.researchReview, duplicateCheckedAt: '2026-12-02T07:00:00Z' } },
+ ]) assert.equal(quarterContentProblems([{ ...candidate, ...patch }], approved, records).length, 1);
+ assert.equal(quarterContentProblems([candidate], approved, [...records, row('task', { ...candidate, id: 'other-original' })]).length, 1);
+ approved.quarterPlanning.plan.calendar = [];
+ const { quarterCalendarDisplay } = require('../src/lib/growth-quarter-display.ts');
+ const display = quarterCalendarDisplay(approved, [], [{ ...candidate, capacityPlan: true, reviewedAt: candidate.researchReview.reviewedAt }]);
+ assert.equal(display.scheduled[0].keyword, candidate.keyword);
+ assert.equal(display.scheduled[0].deliveryDate, '2026-12-02');
+ assert.equal(display.scheduled[0].volume, null);
+ assert.deepEqual(display.rows, []);
+});
+
 test('supplement intake requires 200 unique cross-site words with immutable Ahrefs provenance and actual research dates', () => {
  const { satelliteQuarterCommandSchema, satelliteQuarterHash, satelliteQuarterProblem } = require('../src/lib/satellite-quarter.ts');
  const approved = state();

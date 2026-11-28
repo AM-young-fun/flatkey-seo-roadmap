@@ -35,6 +35,7 @@ export function buildGrowthKeywordCatalog(quarter: QuarterCalendarDisplay | null
   };
   for (const row of quarter?.rows ?? []) add(row.keyword, "quarter", row.country, [], row);
   for (const row of quarter?.satellite?.rows ?? []) add(row.keyword, "satellite", row.country, [], row);
+  for (const row of quarter?.scheduled ?? []) add(row.keyword, row.site === "flatkey.ai" ? "quarter" : "satellite", row.country, [], row);
   for (const row of hotspots) add(row.keyword, "hotspot", row.country, [], row);
   const satellite = new Set(workspace.satelliteQuarter?.targetIds);
   for (const row of workspace.targets) {

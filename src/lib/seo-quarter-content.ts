@@ -7,12 +7,26 @@ import type { WorkflowStoredRow } from "./seo-workflow-state";
 import { hasQuarterDelivery, QUARTER_NEW_WORD_COUNT, QUARTER_NEW_WORD_VERSION } from "./growth-quarter-calendar";
 import { CLOSEOUT_MARKET_POLICY, closeoutMarketShares } from "./seo-quarter-targets";
 import { FLATKEY_LANDING_START } from "./seo-growth-markets";
-import { SATELLITE_QUARTER_SITES, satelliteQuarterBound, satelliteQuarterTaskMember } from "./satellite-quarter";
+import { SATELLITE_QUARTER_SITES, satelliteProductionTask, satelliteQuarterBound, satelliteQuarterTaskMember } from "./satellite-quarter";
 
 const word = (value: string | null) => (value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
-const content = (task: WorkflowTask) => ["blog", "landing", "cluster"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
+const content = (task: Pick<WorkflowTask, "kind" | "capacityClass">) => ["blog", "landing", "cluster"].includes(task.kind) && !isSeoExtraCapacity(task.capacityClass);
 const execution = new Set(["ready", "drafting", "review_pending", "approved", "published", "verified", "observing"]);
 const newFlatkeyLanding = (task: WorkflowTask) => task.kind === "landing" && task.siteDomain === "flatkey.ai" && seoToday(new Date(task.dueAt)) >= FLATKEY_LANDING_START;
+
+export function capacityPlanAcceptsResearch(task: Omit<WorkflowTask, "version" | "recordedAt" | "updatedAt">, plan: WorkflowPlan, quarterPlanHash: string) {
+  const range = workWeekDateRange(seoToday(new Date(task.dueAt)));
+  const review = task.researchReview;
+  if (!content(task) || !review || !task.topicId
+    || Date.parse(review.reviewedAt) > Date.parse(task.dueAt) || Date.parse(review.duplicateCheckedAt) > Date.parse(task.dueAt)
+    || plan.quarterlyContent?.marketPolicy !== CLOSEOUT_MARKET_POLICY || plan.quarterlyContent.quarterPlanHash !== quarterPlanHash
+    || !isExecutableWorkflowPlan(plan.status) || !("executionRange" in plan.targets)
+    || plan.targets.executionRange.start !== range.start || plan.targets.executionRange.end !== range.end) return false;
+  if (task.siteDomain === "flatkey.ai") return (task.kind === "blog" || task.kind === "landing")
+    && closeoutMarketShares.some(market => task.country === market.country && task.language === market.language);
+  return satelliteProductionTask(task) && task.country === "US" && task.language === "en";
+}
+
 export function quarterContentMutationTasks(kind: string, record: { id: string }, all: WorkflowStoredRow[]): WorkflowTask[] {
   if (kind === "task") { const task = record as WorkflowTask; return execution.has(task.status) && content(task) ? [task] : []; }
   if (kind !== "plan" || !isExecutableWorkflowPlan((record as WorkflowPlan).status)) return [];
@@ -48,13 +62,17 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
   const frozen = new Set(targets.map(target => target.id));
   const modern = quarter?.plan.version === QUARTER_NEW_WORD_VERSION;
   const count = modern ? QUARTER_NEW_WORD_COUNT : 1600;
-  if (!strategy.baseline || targets.length !== count || new Set(targets.map(target => word(target.keyword))).size !== count
-    || !quarter || !modern && quarter.plan.version !== "quarter-planning-v2" || quarter.plan.targetIds.length !== count || quarter.plan.targetIds.some(id => !frozen.has(id))) {
+  if (!quarter) {
     return [`季度${count}词尚未核定并冻结；常规新博客和页面须沿有效季度成员和原排期进入制作`];
   }
+  const frozenValid = strategy.baseline && targets.length === count && new Set(targets.map(target => word(target.keyword))).size === count
+    && (modern || quarter.plan.version === "quarter-planning-v2") && quarter.plan.targetIds.length === count
+    && quarter.plan.targetIds.every(id => frozen.has(id));
   const calendar = new Map(quarter.plan.calendar?.map(row => [row.targetId, row]));
   const allTasks = [...all.flatMap(row => row.kind === "task" ? [row.record as WorkflowTask] : []), ...tasks];
   const satellite = satelliteQuarterBound(strategy);
+  const capacityPlans = [...(incomingPlan ? [incomingPlan] : []), ...all.flatMap(row => row.kind === "plan" ? [row.record as WorkflowPlan] : [])];
+  const approvedCapacity = modern && strategy.baseline?.planHash === quarter.hash;
   const canSchedule = (task: WorkflowTask, earliestDeliveryDate: string) => {
     const dueAt = new Date(task.dueAt), dueDay = seoToday(dueAt), review = task.researchReview;
     return task.workflowContract === "growth-v1.5" && execution.has(task.status) && Boolean(task.research?.intent && review?.evidence.length
@@ -63,26 +81,15 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
       && !allTasks.some(other => other.id !== task.id && !other.deletedAt && content(other) && other.siteDomain === task.siteDomain
         && other.country === task.country && other.language === task.language && word(other.keyword) === word(task.keyword));
   };
-  const capacityPlan = (task: WorkflowTask) => {
-    const range = workWeekDateRange(seoToday(new Date(task.dueAt)));
-    return [incomingPlan, ...all.filter(row => row.kind === "plan").map(row => row.record as WorkflowPlan)].find(plan =>
-      plan?.quarterlyContent?.marketPolicy === CLOSEOUT_MARKET_POLICY && plan.quarterlyContent.quarterPlanHash === quarter.hash
-      && isExecutableWorkflowPlan(plan.status) && "executionRange" in plan.targets && plan.targets.executionRange.start === range.start);
-  };
   const valid = (task: WorkflowTask) => {
-    const plan = capacityPlan(task), review = task.researchReview;
-    const timely = review && Date.parse(review.reviewedAt) <= Date.parse(task.dueAt)
-      && Date.parse(review.duplicateCheckedAt) <= Date.parse(task.dueAt);
-    // Normal task admission still checks the exact active formal TopicMap identity
-    // in the same transaction. A delivery plan no longer needs every original
-    // to have been selected in the historical 1,000-word research calendar.
-    if (plan && task.siteDomain === "flatkey.ai" && (task.kind === "blog" || task.kind === "landing")) {
-      return Boolean(task.keywordId && task.topicId && timely && closeoutMarketShares.some(market =>
-        task.country === market.country && task.language === market.language) && canSchedule(task, quarter.plan.executionStart));
+    // Formal site/word membership is checked separately by the workflow write.
+    if (approvedCapacity && capacityPlans.some(plan => capacityPlanAcceptsResearch(task, plan, quarter.hash))) {
+      return Boolean(task.keywordId && canSchedule(task, quarter.plan.executionStart));
     }
+    if (!frozenValid) return false;
     if (satellite && SATELLITE_QUARTER_SITES.some(site => site === task.siteDomain)) {
       const member = satelliteQuarterTaskMember(task, satellite);
-      return Boolean(member && canSchedule(task, plan && timely ? quarter.plan.executionStart : member.researchDate));
+      return Boolean(member && canSchedule(task, member.researchDate));
     }
     return targets.some(target => {
       if (newFlatkeyLanding(task) && !modern) return false;
@@ -102,5 +109,5 @@ export function quarterContentProblems(tasks: WorkflowTask[], strategy: GrowthSt
         && canSchedule(task, quarter.plan.executionStart));
     });
   };
-  return fresh.flatMap(task => valid(task) ? [] : [`任务${task.id}须对应已冻结的原词、话题、站点、国家语种及制作日期；同意图次词共用主词原任务`]);
+  return fresh.flatMap(task => valid(task) ? [] : [`任务${task.id}须通过同市场原词研究并进入有效季度制作周，或符合原季度词交付资格；同意图次词共用主词原任务`]);
 }

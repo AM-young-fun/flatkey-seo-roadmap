@@ -35,7 +35,7 @@ const sourceNames = { serp: "SERP实查", database: "域名词库", gsc: "GSC观
 const count = (value: number) => value.toLocaleString("zh-CN");
 const keywordTabs = [
   { id: "keywords", label: "全部关键词", description: "原词、市场与关联任务" },
-  { id: "quarter", label: "季度关键词", description: "固定清单里的待新增词" },
+  { id: "quarter", label: "季度关键词", description: "本季计划交付的原词" },
   { id: "hotspots", label: "近期热点词", description: "按话题查看每周新增热点" },
   { id: "published", label: "已有内容与排名", description: "已上线页面、排名与优化线索" },
 ] as const;

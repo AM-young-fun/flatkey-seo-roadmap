@@ -125,7 +125,10 @@ export async function GET(request: Request) {
       const [state, workspace, hotspots, capture] = await Promise.all([
         loadGrowthStrategy(local), loadSnapshot("quarter", local), loadGrowthHotspotView(local), local ? null : loadNovemberSecondKeywordCapture(),
       ]);
-      return Response.json(growthKeywordCatalog(quarterCalendarDisplay(state, workspace.targets), hotspots.items, workspace,
+      const calendar = state.quarterPlanning?.plan.calendar
+        ? await (await import("@/lib/services/growth-quarter-deliveries")).loadQuarterCommittedDeliveries(local, state.quarterPlanning.plan)
+        : [];
+      return Response.json(growthKeywordCatalog(quarterCalendarDisplay(state, workspace.targets, calendar), hotspots.items, workspace,
         capture?.complete ? approvedCaptureRankedWords(capture) : [], params.get("q") ?? "", page), { headers: privateAnalyticsHeaders });
     }
     if (library === "published") {
