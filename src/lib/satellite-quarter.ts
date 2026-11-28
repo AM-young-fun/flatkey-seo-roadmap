@@ -107,7 +107,7 @@ export function satelliteQuarterBound(strategy: GrowthStrategy) {
   return pool && strategy.baseline?.planHash === pool.baselinePlanHash ? pool : null;
 }
 
-export function satelliteProductionTask(task: WorkflowTask) {
+export function satelliteProductionTask(task: Pick<WorkflowTask, "siteDomain" | "kind">) {
   return task.siteDomain === "modelfit.cc" && ["blog", "landing"].includes(task.kind)
     || task.siteDomain === "rackrate.org" && task.kind === "landing";
 }

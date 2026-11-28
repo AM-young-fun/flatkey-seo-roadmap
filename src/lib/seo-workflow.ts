@@ -496,7 +496,8 @@ export function workflowClusterRollbackCandidates(snapshot: Pick<WorkflowSnapsho
   }));
 }
 
-export const workflowMutationSchema = z.object({ requestId: id, action: z.enum(["save_approval", "save_plan", "save_task", "save_issue", "save_optimization", "record_publication", "record_run", "record_historical_import"]), expectedVersion: z.number().int().nonnegative().default(0), claim: z.object({ runId: id, owner: z.string().min(1).max(200), fencingToken: z.number().int().positive() }).strict().optional(), record: z.unknown() }).strict();
+export const workflowMutationSchema = z.object({ requestId: id, action: z.enum(["save_approval", "save_plan", "save_task", "save_issue", "save_optimization", "record_publication", "record_run", "record_historical_import"]), expectedVersion: z.number().int().nonnegative().default(0), claim: z.object({ runId: id, owner: z.string().min(1).max(200), fencingToken: z.number().int().positive() }).strict().optional(), admitQuarterKeyword: z.literal(true).optional(), record: z.unknown() }).strict()
+  .refine(value => !value.admitQuarterKeyword || value.action === "save_task" && !value.claim, "季度新词只能沿常规任务保存登记");
 export const ACTION_KIND = { save_approval: "approval", save_plan: "plan", save_task: "task", save_issue: "issue", save_optimization: "optimization", record_publication: "publication", record_run: "run", record_historical_import: "historical_import" } as const;
 export const workflowClaimSchema = z.object({ action: z.enum(["claim", "renew", "complete"]), runId: id, stage: z.string().regex(/^[A-Z0-9_]+$/).max(100), scheduledFor: stamp, owner: z.string().min(1).max(200), fencingToken: z.number().int().positive().optional(), leaseSeconds: z.number().int().min(30).max(1800).default(600), status: z.enum(["completed", "partial", "blocked", "failed"]).optional(), evidence: evidence.default([]) }).strict();
 

@@ -15,6 +15,7 @@ import { syncWorkflowMarketAssignment } from "./keyword-market-assignment";
 import { quarterAllocationProblems } from "@/lib/growth-quarter-planning";
 import { quarterContentMutationTasks, quarterContentProblems } from "@/lib/seo-quarter-content";
 import { quarterContentBindingProblem } from "@/lib/seo-quarter-content-capacity";
+import { admitQuarterKeyword } from "./seo-quarter-keyword-admission";
 import { publishedMaintenanceMutationTasks } from "@/lib/seo-published-maintenance";
 import { assertPublishedMaintenanceTasks } from "./seo-published-maintenance";
 import { assertGrowthDirectionScope } from "@/lib/growth-strategy";
@@ -126,6 +127,7 @@ async function saveLocalWorkflow(input: unknown, actor: WorkflowActor, directory
   const temporary = join(directory, `.${randomUUID()}.json`);
   try {
     const state = await readLocal(directory), request = workflowMutationSchema.parse(input), hash = workflowHash(request);
+    if (request.admitQuarterKeyword) throw new WorkflowError("quarter_keyword_storage", "新原词登记需要生产词库，当前预览无法登记", 503);
     const prior = state.events.find(event => event.requestId === request.requestId);
     if (prior) { if (prior.requestHash !== hash) throw new WorkflowError("idempotency_conflict", "同一请求编号已用于不同内容"); return { stored: true, replay: true, kind: prior.kind, record: prior.record, storage: "local_preview" as const }; }
     const prepared = prepareWorkflowMutation(request, state.records, actor);
@@ -194,6 +196,12 @@ export async function saveWorkflowMutation(input: unknown, actor: WorkflowActor,
       && new Date(leaseTask.recordedAt).getTime() === articleLease.scheduledFor.getTime() ? leaseTask.id : undefined;
     const now = new Date();
     let operation = request;
+    if (request.admitQuarterKeyword) {
+      const task = workflowTaskSchema.parse(rawRecord);
+      const { readGrowthStrategy } = await import("./growth-strategy");
+      const keywordId = await admitQuarterKeyword(tx, task, all, await readGrowthStrategy(tx), now);
+      operation = { ...request, record: { ...rawRecord, keywordId } };
+    }
     if (actor === "human" && request.action === "save_task" && rawRecord?.capacityClass === WEEKLY_GROWTH_EXTRA
       && rawRecord.kind === "blog" && rawRecord.status === "ready") {
       const previous = all.find(row => row.kind === "task" && row.record.id === rawRecord.id)?.record as WorkflowTask | undefined;
